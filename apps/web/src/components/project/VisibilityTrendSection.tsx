@@ -682,7 +682,7 @@ export function VisibilityTrendSection({
         <p className="text-sm text-secondary">
           {metric === 'mentionShare'
             ? `No answer-text brand mentions for you or tracked competitors on ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
-            : 'Run a sweep to start tracking citations and mentions over time.'}
+            : 'No measured citation or mention data in this window.'}
         </p>
       )
     } else if (byProviderMode && series.length === 0) {

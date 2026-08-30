@@ -10,6 +10,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { getApiV1ProjectsByNameMeasurementPlanQueryKey } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
+import { projectScheduleQueryOptions } from '../src/queries/schedule-query.js'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; theme?: Record<string, string> }
 type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
@@ -58,6 +59,9 @@ async function renderAt(
       getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: entry.project.name } }),
       { active: null },
     )
+    // Resolve the schedule too: the header's operator action must be present
+    // before an embed assertion can prove that it is hidden.
+    queryClient.setQueryData(projectScheduleQueryOptions(entry.project.name).queryKey, null)
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -157,18 +161,17 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
 // control that would 403 on click against the read-only project-scoped key,
 // while keeping every read-only view. Not a security boundary (the API key
 // scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
-test('embed hides the page-header run action that leaks on every tab', async () => {
+test('embed hides page-header schedule management while keeping measured content', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the header action… (the YAML-export button was removed in
-  // favor of the Settings-tab results downloads + `canonry export`. Deleting
-  // the project is no longer here at all — it moved to the end of the Settings
-  // tab, away from the button next to it.)
-  expect(operator).toContain('AI sweep')
-  // …the embed render does not (this renders OUTSIDE the tab switch, so it
-  // would otherwise leak on the default overview embed).
-  expect(embed).not.toContain('AI sweep')
+  // The header offers schedule management, never a one-click full sweep.
+  // Pin the real operator control so the embed assertion cannot pass vacuously.
+  const scheduleLink = 'a[aria-label="Create AI visibility sweep schedule"]'
+  expect(parseHtml(operator).querySelector(scheduleLink)).not.toBeNull()
+  expect(parseHtml(embed).querySelector(scheduleLink)).toBeNull()
+  expect(operator).not.toContain('Run AI sweep')
+  expect(embed).not.toContain('Run AI sweep')
   // Delete is absent from BOTH headers now, so its absence in the embed is no
   // longer evidence of anything — assert it left the header instead.
   expect(operator).not.toContain('Delete project')

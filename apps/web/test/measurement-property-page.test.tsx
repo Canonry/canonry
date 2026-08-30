@@ -927,6 +927,7 @@ describe('Property page', () => {
     })
 
     const link = await screen.findByRole('link', { name: 'Go to measurement overview' })
+    expect(screen.getByText('Open the project overview to check the AI visibility sweep schedule for this Property.')).toBeTruthy()
     expect(link.getAttribute('href')).toMatch(/\/projects\/[^/]+$/)
   })
 

@@ -101,7 +101,7 @@ import {
   getApiV1ProjectsQueryKey,
   getApiV1ProjectsByNameQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
-import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
+import { useAppendQueries } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { projectScheduleQueryOptions } from '../queries/schedule-query.js'
@@ -1180,7 +1180,7 @@ function OverviewBrief({
           {!comparison.hasPreviousRun ? (
             <>
               <p className="overview-brief-panel-title">No comparison yet</p>
-              <p className="overview-brief-panel-copy">Run another sweep to measure mention and citation movement.</p>
+              <p className="overview-brief-panel-copy">Comparisons need two completed AI visibility sweeps.</p>
             </>
           ) : (
             <>
@@ -1665,7 +1665,6 @@ function ProjectPageContent({
       replace: true,
     })
   }, [manageQueriesRequested, navigate, projectName])
-  const triggerRunMutation = useTriggerRun()
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: tab === 'portfolio' && Boolean(projectName),
@@ -1673,9 +1672,9 @@ function ProjectPageContent({
     refetchOnMount: 'always',
   })
   // The header states when the next AI sweep fires. On a managed instance the
-  // sweep is scheduled, so "it runs itself" is the honest headline and the
-  // manual trigger beside it is the override. `nextRunAt` is computed from the
-  // cron server-side (`schedules.ts`) — the browser never parses a cron.
+  // sweep is scheduled, so the schedule is the only measurement control here.
+  // `nextRunAt` is computed from the cron server-side (`schedules.ts`), and the
+  // browser never parses a cron.
   // A 404 is normalized to the meaningful empty state by
   // `projectScheduleQueryOptions`; other failures remain retryable errors.
   const sweepScheduleQuery = useQuery({
@@ -1700,7 +1699,7 @@ function ProjectPageContent({
   // returns a row with a stale `nextRunAt`, and announcing that would promise a
   // sweep that never fires.
   const sweepSchedule = sweepScheduleQuery.data
-  const nextSweepLabel = sweepSchedule?.enabled && sweepSchedule.nextRunAt
+  const nextSweepLabel = !sweepScheduleQuery.isError && sweepSchedule?.enabled && sweepSchedule.nextRunAt
     ? `Next AI sweep ${new Date(sweepSchedule.nextRunAt).toLocaleString()}`
     : null
   const noSweepState = sweepScheduleQuery.isPending
@@ -1714,6 +1713,17 @@ function ProjectPageContent({
       : sweepSchedule.enabled
         ? 'No upcoming AI sweep is scheduled'
         : 'AI sweep schedule is paused'
+  const showScheduleLink = !sweepScheduleQuery.isError
+    && sweepSchedule !== undefined
+    && (sweepSchedule !== null || canWrite)
+  const scheduleLinkLabel = nextSweepLabel ?? (sweepSchedule === null
+    ? 'Schedule AI sweep'
+    : canWrite ? 'Manage AI sweep schedule' : 'View AI sweep schedule')
+  const scheduleLinkAriaLabel = !canWrite
+    ? 'View AI visibility sweep schedule'
+    : sweepSchedule === null
+      ? 'Create AI visibility sweep schedule'
+      : nextSweepLabel ? 'Edit AI visibility sweep schedule' : 'Manage AI visibility sweep schedule'
   const activeMeasurementPlan = activeMeasurementPlanQuery.data?.active ?? null
   // A bookmark outlives the group it names. Once the plan has actually loaded
   // and we can see which groups exist, a URL naming one that does not is
@@ -2086,19 +2096,6 @@ function ProjectPageContent({
   // "project not found" state (when both context and /projects list have
   // resolved but neither matched the URL's identifier).
 
-  async function handleTriggerRun() {
-    try {
-      await triggerRunMutation.mutateAsync({
-        projectName,
-        projectLabel,
-        sourceAction: 'project-run',
-      })
-      void refetch()
-    } catch {
-      // Mutation hook surfaces the toast and error state.
-    }
-  }
-
   async function handleDeleteProject() {
     setDeleting(true)
     try {
@@ -2260,37 +2257,21 @@ function ProjectPageContent({
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
           {!isEmbed() && (
             <div className="flex items-center gap-3">
-              {nextSweepLabel ? (
+              {!nextSweepLabel && noSweepState ? <p className="text-sm text-secondary">{noSweepState}</p> : null}
+              {showScheduleLink ? (
                 <Link
                   to="/projects/$projectName/settings"
                   params={{ projectName }}
                   search={(previous: Record<string, unknown>) => ({
                     ...(typeof previous.runId === 'string' ? { runId: previous.runId } : {}),
-                    schedule: 'edit' as const,
+                    ...(canWrite ? { schedule: 'edit' as const } : {}),
                   })}
-                  aria-label="Edit AI visibility sweep schedule"
+                  aria-label={scheduleLinkAriaLabel}
                   className="text-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
                 >
-                  {nextSweepLabel}
+                  {scheduleLinkLabel}
                 </Link>
-              ) : noSweepState ? <p className="text-sm text-secondary">{noSweepState}</p> : null}
-              {/* Secondary, not primary. The schedule beside it is what actually
-                  runs the sweep; this is the override for when you can't wait
-                  for it. Deleting the project used to sit here too — an
-                  irreversible action one misclick from the page's most-used
-                  button — and now lives at the bottom of the Settings tab. */}
-              <WriteButton
-                type="button"
-                variant="outline"
-                disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
-                onClick={asyncHandler(handleTriggerRun)}
-              >
-                {triggerRunMutation.isPending
-                  ? 'Starting…'
-                  : hasActiveVisibilitySweep
-                    ? 'AI sweep running…'
-                    : 'Run AI sweep'}
-              </WriteButton>
+              ) : null}
             </div>
           )}
         </div>
@@ -2783,9 +2764,8 @@ function ProjectPageContent({
           />
           <NotificationsSection projectName={model.project.name} />
           {/* Deleting the project lives here, at the far end of Settings, rather
-              than as an icon in the page header where it sat one misclick from
-              "Run AI sweep". It destroys every query, run and snapshot, and a
-              confirm dialog was the only thing standing between the two. */}
+              than as an icon in the page header. It destroys every query, run,
+              and snapshot, so its confirmation belongs with project settings. */}
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
               <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>

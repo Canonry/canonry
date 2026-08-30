@@ -878,8 +878,7 @@
           <div class="project-header-right">
             <p class="project-period">Last 30 days</p>
             <div class="project-header-actions">
-              <button type="button" class="schedule-summary" data-project-section="settings">Next AI sweep · Wednesday at 9:00 AM UTC</button>
-              <button type="button" class="button" data-run-sweep>Run AI sweep</button>
+              <button type="button" class="schedule-summary" data-project-section="settings" aria-label="Manage scheduled official run">Next scheduled official run: Wednesday at 9:00 AM UTC</button>
             </div>
           </div>
         </header>
@@ -939,6 +938,13 @@
       return { section: 'visibility', queryView: 'tracked', pulseGroup: null, pulseProperty: null }
     }
     const initialRoute = routeFromHash()
+    const TEST_BATCH_LIMIT = 10
+    const DEFAULT_TEST_QUERIES = [
+      'What are the best luxury apartments in Metro Golf?',
+      'Which Metro Golf apartments have coworking spaces?',
+      'Where can I find pet-friendly apartments near central Metro Golf?',
+    ]
+    const DEFAULT_TEST_QUERY_TEXT = DEFAULT_TEST_QUERIES.join('\n')
     const state = {
       section: initialRoute.section,
       queryView: initialRoute.queryView,
@@ -948,11 +954,18 @@
       trendMetric: 'mentioned',
       trendMode: 'byEngine',
       queryComposer: false,
-      researchComplete: true,
       promotionStep: 0,
       promotionQuery: '',
       publishedQuery: '',
       scheduleEditing: false,
+      testQueryText: DEFAULT_TEST_QUERY_TEXT,
+      testProvider: 'OpenAI',
+      testLocation: 'Metro Golf',
+      testResult: {
+        queries: [...DEFAULT_TEST_QUERIES],
+        provider: 'OpenAI',
+        location: 'Metro Golf',
+      },
     }
 
     function clamp(value, min, max) { return Math.max(min, Math.min(max, value)) }
@@ -961,6 +974,42 @@
       return String(value).replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
       })[character])
+    }
+    function testBatch() {
+      const allQueries = state.testQueryText
+        .split(/\r?\n/)
+        .map(query => query.trim())
+        .filter(Boolean)
+      const exceedsLimit = allQueries.length > TEST_BATCH_LIMIT
+      return { allQueries, queries: exceedsLimit ? [] : allQueries, exceedsLimit }
+    }
+    function testCallCountLabel(batch) {
+      const total = batch.allQueries.length
+      if (!total) return 'Add at least one nonempty query before running a test.'
+      if (batch.exceedsLimit) {
+        const removeCount = total - TEST_BATCH_LIMIT
+        return `${total} ${total === 1 ? 'query' : 'queries'} exceed the ${TEST_BATCH_LIMIT}-query test limit. Remove ${removeCount} ${removeCount === 1 ? 'query' : 'queries'} to continue.`
+      }
+      const count = batch.queries.length
+      const queryLabel = count === 1 ? 'query' : 'queries'
+      const callLabel = count === 1 ? 'provider call' : 'provider calls'
+      return `${count} ${queryLabel} × 1 provider = ${count} ${callLabel}.`
+    }
+    function testRunLabel(batch) {
+      if (!batch.allQueries.length) return 'Add test query'
+      if (batch.exceedsLimit) return 'Fix test queries'
+      const count = batch.queries.length
+      return `Run ${count} test ${count === 1 ? 'query' : 'queries'}`
+    }
+    function updateTestPreflight() {
+      const batch = testBatch()
+      const callCount = document.getElementById('test-call-count')
+      const runButton = document.querySelector('[data-run-research]')
+      if (callCount) callCount.textContent = testCallCountLabel(batch)
+      if (runButton) {
+        runButton.textContent = testRunLabel(batch)
+        runButton.disabled = batch.queries.length === 0 || batch.exceedsLimit
+      }
     }
     function slug(value) { return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
     function allocate(total, count) {
@@ -1154,7 +1203,6 @@
         <div class="page-head">
           <div><h1>${escapeHtml(title)}</h1>${context ? `<p>${escapeHtml(context)}</p>` : ''}</div>
           <div class="head-actions">
-            ${group || property ? `<button type="button" class="button" data-spot-check="${property ? 'Property' : 'Group'}">Spot check ${property ? 'Property' : 'Group'}</button>` : ''}
             <button type="button" class="button" data-open-query-view="test">Test queries</button>
             <button type="button" class="button ghost" data-project-section="settings">Measurement setup</button>
           </div>
@@ -1165,7 +1213,7 @@
     function projectQueryTrendHtml(rows, classKey) {
       const summary = aggregate(rows, classKey)
       if (summary.measured === 0) {
-        return `<section class="scope-trend" aria-labelledby="project-trend-title"><div class="trend-head"><div><h2 id="project-trend-title">Visibility over time</h2><p>Run a full AI sweep to start the project trend.</p></div></div></section>`
+        return `<section class="scope-trend" aria-labelledby="project-trend-title"><div class="trend-head"><div><h2 id="project-trend-title">Visibility over time</h2><p>Scheduled official runs will populate the project trend.</p></div></div></section>`
       }
       const metricLabels = { mentioned: 'Mentioned', cited: 'Cited', mentionShare: 'Mention share' }
       const metric = state.trendMetric
@@ -1386,7 +1434,9 @@
       const query = state.promotionQuery || 'What are the best luxury apartments in Metro Golf?'
       const step = state.promotionStep
       const source = state.queryView === 'discover' ? 'Discovery candidate' : 'Saved test'
-      const sourceDetail = state.queryView === 'discover' ? 'Portfolio discovery · sample candidates' : 'OpenAI · Metro Golf · sample run'
+      const sourceDetail = state.queryView === 'discover'
+        ? 'Portfolio discovery · sample candidates'
+        : `${state.testResult.provider} · ${state.testResult.location} · saved test`
       if (step === 1) {
         return `<section class="promotion-panel" aria-labelledby="promotion-title">
           <div class="section-head"><div><span class="eyebrow">Measurement draft</span><h2 id="promotion-title" tabindex="-1">Add to measurement</h2><p>Choose the published scope without leaving this workspace.</p></div><button type="button" class="button small ghost" data-promotion-cancel>Cancel</button></div>
@@ -1416,7 +1466,7 @@
               <div class="review-row"><dt>Query</dt><dd class="property-name">${escapeHtml(query)}</dd></div>
               <div class="review-row"><dt>Query type</dt><dd>Non-brand</dd></div>
               <div class="review-row"><dt>Assigned Properties</dt><dd>Metro Golf selection · 15 Properties</dd></div>
-              <div class="review-row"><dt>First official measurement</dt><dd>Next full AI sweep · Wednesday at 9:00 AM UTC</dd></div>
+              <div class="review-row"><dt>First official measurement</dt><dd>Next scheduled official run: Wednesday at 9:00 AM UTC</dd></div>
             </dl>
             <div class="review-impact"><span><strong>1</strong> query added</span><span><strong>15</strong> Property assignments</span><span><strong>0</strong> runs started</span></div>
             <p class="section-note">Publishing changes the long-term plan. It does not count the saved test as official evidence or start a sweep.</p>
@@ -1440,7 +1490,7 @@
             <div class="field"><label for="new-query-class">Query type</label><select id="new-query-class" class="control"><option>Non-brand</option><option>Branded</option></select></div>
             <div class="field"><label for="new-query-scope">Assign to</label><select id="new-query-scope" class="control"><option>Choose Properties…</option><option>All 225 Properties</option><option>Metro Golf · 15 Properties</option><option>Specific Properties…</option></select></div>
           </div>
-          <div class="head-actions" style="margin-top:14px"><button type="button" class="button ghost" data-toggle-query-composer>Cancel</button><button type="button" class="button primary" data-toast="Added to the measurement draft. Publish the draft before the next full sweep.">Add to draft</button></div>
+          <div class="head-actions" style="margin-top:14px"><button type="button" class="button ghost" data-toggle-query-composer>Cancel</button><button type="button" class="button primary" data-toast="Added to the measurement draft. Publish the draft before the next scheduled official run.">Add to draft</button></div>
         </section>` : ''}
         <div class="table-wrap"><table><caption class="sr-only">Tracked project queries</caption><thead><tr><th>Query</th><th>Type</th><th>Assigned Properties</th><th>Last measured</th><th>Mention</th><th>Citation</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
           ${rows.map(trackedQueryRowHtml).join('')}
@@ -1468,29 +1518,30 @@
     }
 
     function renderTestQueries() {
-      const testQueries = [
-        'What are the best luxury apartments in Metro Golf?',
-        'Which Metro Golf apartments have coworking spaces?',
-        'Where can I find pet-friendly apartments near central Metro Golf?',
-      ]
+      const batch = testBatch()
+      const testQueries = batch.queries
+      const savedTest = state.testResult
+      const savedQueryLabel = savedTest.queries.length === 1 ? 'query' : 'queries'
       return `${queryWorkspaceHeader('Test queries', 'Run saved checks without changing the official measurement.')}
         <div class="query-notice"><span class="badge info">Test</span><strong>Saved separately</strong><span>Does not change tracked queries, Portfolio Pulse, trends, or the AI sweep schedule.</span></div>
         <div class="test-layout">
           <section class="test-pane"><h2>New test</h2><p>Use arbitrary prompts with one API model and location.</p>
             <div class="form-stack">
-              <div class="field"><label for="test-query-text">Queries</label><textarea id="test-query-text" class="control">${testQueries.join('\n')}</textarea></div>
-              <div class="form-grid"><div class="field"><label for="test-provider">API provider</label><select id="test-provider" class="control"><option>Project default</option><option>OpenAI</option><option>Gemini</option></select></div><div class="field"><label for="test-location">Location</label><select id="test-location" class="control"><option>Metro Golf</option><option>Project default</option><option>No location</option></select></div></div>
-              <div><button type="button" class="button primary" data-run-research>Run 3 test queries</button></div>
+              <div class="field"><label for="test-query-text">Queries</label><textarea id="test-query-text" class="control">${escapeHtml(state.testQueryText)}</textarea></div>
+              <div class="form-grid"><div class="field"><label for="test-provider">API provider</label><select id="test-provider" class="control"><option${state.testProvider === 'OpenAI' ? ' selected' : ''}>OpenAI</option><option${state.testProvider === 'Gemini' ? ' selected' : ''}>Gemini</option></select></div><div class="field"><label for="test-location">Location</label><select id="test-location" class="control"><option${state.testLocation === 'Metro Golf' ? ' selected' : ''}>Metro Golf</option><option${state.testLocation === 'Project default' ? ' selected' : ''}>Project default</option><option${state.testLocation === 'No location' ? ' selected' : ''}>No location</option></select></div></div>
+              <p id="test-batch-limit" class="section-note">Prototype limit: 10 queries. This limit applies only to this mockup.</p>
+              <p id="test-call-count" class="section-note">${testCallCountLabel(batch)}</p>
+              <div><button type="button" class="button primary" data-run-research aria-describedby="test-call-count" ${testQueries.length && !batch.exceedsLimit ? '' : 'disabled'}>${testRunLabel(batch)}</button></div>
             </div>
-            <div class="settings-section" style="margin-top:20px"><h2>Spot check published measurement</h2><p class="section-note">Run assigned questions for one Group or Property. The probe stays out of official reporting.</p><div class="form-grid" style="margin-top:12px"><div class="field"><label for="spot-check-scope">Scope</label><select id="spot-check-scope" class="control"><option>Metro Golf Group</option><option>Northstar Demo Station</option><option>All published queries</option></select></div><div class="field" style="align-self:end"><button type="button" class="button" data-spot-check="Selected scope">Run spot check</button></div></div></div>
+            <div class="settings-section" style="margin-top:20px"><h2>Spot check published measurement</h2><p class="section-note">Probe one Property with one provider. It stays out of official reporting.</p><div class="settings-row"><div class="settings-facts"><strong id="spot-check-property">Property: Northstar Demo Station</strong><span id="spot-check-provider">Provider: OpenAI</span></div><div class="settings-actions"><p id="spot-check-call-count" class="section-note">4 assigned queries × 1 provider = 4 provider calls.</p><button type="button" class="button" data-spot-check aria-describedby="spot-check-call-count">Run bounded spot check</button></div></div></div>
           </section>
           <section class="test-pane"><h2>Saved tests</h2><p>Standalone answer and source evidence.</p><div class="test-batches">
-            <button type="button" class="test-batch active"><span>3 Metro Golf queries</span><span>OpenAI</span><span class="badge positive">Complete</span></button>
+            <button type="button" class="test-batch active"><span>${savedTest.queries.length} ${escapeHtml(savedTest.location)} ${savedQueryLabel}</span><span>${escapeHtml(savedTest.provider)}</span><span class="badge positive">Complete</span></button>
             <button type="button" class="test-batch"><span>5 apartment comparison queries</span><span>Gemini</span><span class="badge positive">Complete</span></button>
             <button type="button" class="test-batch"><span>2 brand recall queries</span><span>OpenAI</span><span class="badge caution">Partial</span></button>
           </div></section>
         </div>
-        ${state.researchComplete ? `<section class="test-result" aria-labelledby="test-results-title"><div class="section-head"><div><h2 id="test-results-title">Test results</h2><p>OpenAI · Metro Golf · sample run</p></div></div><div class="table-wrap"><table><thead><tr><th>Query</th><th>Mention</th><th>Citation</th><th>Sources</th><th></th></tr></thead><tbody>${testQueries.map((query, index) => `<tr><td class="property-name">${escapeHtml(query)}</td><td>${index === 1 ? badge('Not mentioned', '') : badge('Mentioned', 'positive')}</td><td>${index === 0 ? badge('Cited', 'positive') : badge('Not cited', '')}</td><td>${index === 0 ? 'northstar.example · marketplace-a.example' : index === 1 ? 'marketplace-a.example · marketplace-b.example' : 'marketplace-c.example'}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(query)}">Add to measurement&nbsp;→</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
+        ${savedTest.queries.length ? `<section class="test-result" aria-labelledby="test-results-title"><div class="section-head"><div><h2 id="test-results-title">Test results</h2><p>${escapeHtml(savedTest.provider)} · ${escapeHtml(savedTest.location)} · saved test</p></div></div><div class="table-wrap"><table><thead><tr><th>Query</th><th>Mention</th><th>Citation</th><th>Sources</th><th></th></tr></thead><tbody>${savedTest.queries.map((query, index) => `<tr><td class="property-name">${escapeHtml(query)}</td><td>${index === 1 ? badge('Not mentioned', '') : badge('Mentioned', 'positive')}</td><td>${index === 0 ? badge('Cited', 'positive') : badge('Not cited', '')}</td><td>${index === 0 ? 'northstar.example · marketplace-a.example' : index === 1 ? 'marketplace-a.example · marketplace-b.example' : 'marketplace-c.example'}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(query)}">Add to measurement&nbsp;→</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
         ${renderPromotionPanel()}`
     }
 
@@ -1600,9 +1651,18 @@
         return
       }
       if (target.dataset.runResearch !== undefined) {
-        state.researchComplete = true
+        const batch = testBatch()
+        if (!batch.queries.length || batch.exceedsLimit) {
+          updateTestPreflight()
+          return
+        }
+        state.testResult = {
+          queries: [...batch.queries],
+          provider: state.testProvider,
+          location: state.testLocation,
+        }
         render()
-        showToast('Test complete. Saved separately from official measurement.')
+        showToast(`Test probe complete, ${batch.queries.length} ${batch.queries.length === 1 ? 'provider call' : 'provider calls'}. Saved separately from official measurement.`)
         return
       }
       if (target.dataset.addToMeasurement !== undefined) {
@@ -1633,7 +1693,7 @@
         history.pushState(null, '', '#queries/tracked')
         render()
         focusQueryWorkspace()
-        showToast('Published new revision. The query is awaiting its first sweep.')
+        showToast('Published new revision. 0 provider calls started. It will wait for the next scheduled official run.')
         return
       }
       if (target.dataset.promotionCancel !== undefined) {
@@ -1642,12 +1702,8 @@
         focusQueryWorkspace()
         return
       }
-      if (target.dataset.spotCheck) {
-        showToast(`${target.dataset.spotCheck} probe queued. It will not affect Portfolio Pulse or trends.`)
-        return
-      }
-      if (target.dataset.runSweep !== undefined) {
-        showToast('Full project AI sweep queued for the published measurement plan.')
+      if (target.dataset.spotCheck !== undefined) {
+        showToast('Probe queued for Northstar Demo Station, 4 provider calls. Excluded from Portfolio Pulse and trends.')
         return
       }
       if (target.dataset.editSchedule !== undefined) {
@@ -1704,6 +1760,22 @@
         window.scrollTo({ top: 0, behavior: 'smooth' })
         return
       }
+    })
+
+    document.addEventListener('input', event => {
+      const target = event.target
+      if (!target || target.id !== 'test-query-text') return
+      state.testQueryText = target.value
+      updateTestPreflight()
+    })
+
+    document.addEventListener('change', event => {
+      const target = event.target
+      if (!target) return
+      if (target.id === 'test-provider') state.testProvider = target.value
+      else if (target.id === 'test-location') state.testLocation = target.value
+      else return
+      render()
     })
 
     function syncRouteFromLocation() {

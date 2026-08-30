@@ -7,6 +7,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { projectScheduleQueryOptions } from '../src/queries/schedule-query.js'
@@ -50,7 +51,7 @@ async function renderAt(
    * decidable. These render one synchronous pass, so an unseeded query stays
    * pending for the whole render.
    */
-  options: { schedule?: unknown; scheduleReadFailure?: boolean; seedPlan?: boolean } = {},
+  options: { schedule?: unknown; scheduleReadFailure?: boolean; seedPlan?: boolean; accountRole?: 'admin' | 'viewer' } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
@@ -62,6 +63,12 @@ async function renderAt(
     getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } }),
     [],
   )
+  if (options.schedule !== undefined) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } }),
+      options.schedule,
+    )
+  }
   if (options.scheduleReadFailure) {
     const scheduleKey = getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } })
     // Keep the captured 500 visible for the synchronous SSR assertion. The
@@ -71,12 +78,8 @@ async function renderAt(
     await queryClient.fetchQuery({
       ...projectScheduleQueryOptions(projectName),
       retry: false,
+      staleTime: 0,
     }).catch(() => undefined)
-  } else if (options.schedule !== undefined) {
-    queryClient.setQueryData(
-      getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } }),
-      options.schedule,
-    )
   }
   if (options.seedPlan !== false) {
     queryClient.setQueryData(
@@ -141,11 +144,13 @@ async function renderAt(
   await router.load()
 
   return renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
-        <RouterProvider router={router} />
-      </DashboardProvider>
-    </QueryClientProvider>,
+    <AccountProvider account={options.accountRole ? { name: 'Test account', role: options.accountRole } : null}>
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>
+    </AccountProvider>,
   )
 }
 
@@ -508,7 +513,6 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   expect(html).not.toMatch(/href="\/projects\/[^"/]+\/portfolio" class="project-subnav-link/)
   expect(html).toContain('Advanced measurement setup')
   expect(html).toContain('Loading advanced measurement setup')
-  expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Portfolio setup')
   expect(html).not.toContain('Coverage and performance')
 })
@@ -517,7 +521,6 @@ test('a Simple project keeps the existing Overview without advertising advanced 
   const html = await renderAt('/projects/project_citypoint')
 
   expect(html).toContain('Where competitors are winning')
-  expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
   expect(html).not.toContain('Latest measurement')
@@ -591,7 +594,6 @@ test('an active setup replaces the Simple Overview with the advanced measurement
   expect(html).not.toContain('aria-label="Coverage"')
   expect(html).toContain('advanced-measurement-properties-title')
   expect(html).toContain('Harbor House')
-  expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Where competitors are winning')
 })
 
@@ -1377,7 +1379,7 @@ test('a failed setup read blocks setup instead of looking planless', async () =>
   expect(screen.queryByRole('button', { name: 'Publish setup' })).toBeNull()
 })
 
-test('a failed setup read keeps project results and the global run action visible without exposing setup actions', async () => {
+test('a failed setup read keeps project results without exposing setup actions or a direct full-sweep trigger', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1406,7 +1408,8 @@ test('a failed setup read keeps project results and the global run action visibl
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
   expect(page.getByText('Where competitors are winning')).toBeTruthy()
-  expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
+  expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'AI sweep running…' })).toBeNull()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
 })
@@ -1510,20 +1513,16 @@ function installSettingsScheduleApi() {
   return () => { globalThis.fetch = realFetch }
 }
 
-// On a managed instance the sweep is scheduled, so the header states when the
-// next one fires and the manual trigger beside it is the override. The button
-// is deliberately secondary: as the primary it told every reader that running
-// the sweep by hand was the normal way to operate the product.
-test('the header states when the next AI sweep fires', async () => {
+// On a managed instance the schedule is the measurement control. The header
+// should let a writer manage that schedule without giving the whole plan a
+// one-click, billable override.
+test('the header offers schedule management, not a direct AI sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule() })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
 
   expect(html).toContain('Next AI sweep')
-  // The fixture has a sweep in flight, so the button sits in its busy state.
-  // The point is the vocabulary: every state of this control names the sweep.
-  expect(html).toContain('AI sweep running')
-  // "Run now" said nothing about WHAT ran, and the page has six other sync
-  // kinds. The disabled state already called it a sweep, so the label only
-  // admitted what it did once you had clicked it.
+  expect(doc.querySelector('a[aria-label="Edit AI visibility sweep schedule"]')?.textContent).toContain('Next AI sweep')
+  expect(doc.querySelector('.page-header-right button')).toBeNull()
   expect(html).not.toContain('Run now')
 })
 
@@ -1549,9 +1548,15 @@ test('the header links the next sweep to the one-time Settings editor handoff an
 
 test('the header makes a missing AI sweep schedule explicit without inventing a next date', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: null })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const scheduleLink = doc.querySelector<HTMLAnchorElement>('a[aria-label="Create AI visibility sweep schedule"]')
 
   expect(html).toContain('No AI sweep scheduled')
   expect(html).not.toContain('Next AI sweep')
+  expect(scheduleLink?.textContent).toBe('Schedule AI sweep')
+  expect(new URL(scheduleLink!.href, 'http://localhost').pathname).toBe('/projects/Citypoint%20Dental%20NYC/settings')
+  expect(new URL(scheduleLink!.href, 'http://localhost').searchParams.get('schedule')).toBe('edit')
+  expect(html).not.toContain('Run AI sweep')
 })
 
 test('the header does not turn a failed schedule read into a false no-schedule state', async () => {
@@ -1564,6 +1569,61 @@ test('the header does not turn a failed schedule read into a false no-schedule s
   expect(html).toContain('AI sweep schedule unavailable')
   expect(html).not.toContain('No AI sweep scheduled')
   expect(html).not.toContain('Next AI sweep')
+})
+
+test.each([
+  ['missing', null],
+  ['paused', schedule({ enabled: false })],
+  ['active', schedule()],
+])('a failed schedule refetch does not offer actions from a cached %s schedule', async (_state, cachedSchedule) => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => jsonResponse({ code: 'UNAVAILABLE' }, 500)) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    schedule: cachedSchedule,
+    scheduleReadFailure: true,
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const header = doc.querySelector('.page-header-right')
+
+  expect(header?.textContent).toContain('AI sweep schedule unavailable')
+  expect(header?.textContent).not.toContain('Next AI sweep')
+  expect(header?.querySelector('a')).toBeNull()
+  expect(header?.querySelector('button')).toBeNull()
+})
+
+test('a viewer sees a missing schedule without an unusable creation action', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    schedule: null,
+    accountRole: 'viewer',
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const header = doc.querySelector('.page-header-right')
+
+  expect(header?.textContent).toContain('No AI sweep scheduled')
+  expect(header?.querySelector('a')).toBeNull()
+  expect(header?.querySelector('button')).toBeNull()
+})
+
+test.each([
+  ['active', schedule()],
+  ['paused', schedule({ enabled: false })],
+  ['without a next run', schedule({ nextRunAt: null })],
+])('a viewer can view a schedule that is %s without an edit handoff', async (_state, existingSchedule) => {
+  const html = await renderAt('/projects/project_citypoint?runId=run-header', undefined, undefined, {
+    schedule: existingSchedule,
+    accountRole: 'viewer',
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const link = doc.querySelector<HTMLAnchorElement>('a[aria-label="View AI visibility sweep schedule"]')
+
+  expect(link).not.toBeNull()
+  const destination = new URL(link!.href, 'http://localhost')
+  expect(destination.pathname).toBe('/projects/Citypoint%20Dental%20NYC/settings')
+  expect(destination.searchParams.get('schedule')).toBeNull()
+  expect(destination.searchParams.get('runId')).toBe('run-header')
+  expect(doc.querySelector('.page-header-right button')).toBeNull()
 })
 
 test('the Settings schedule deep link opens once, clears with replace on cancel, and does not reopen on Back', async () => {
@@ -1606,11 +1666,12 @@ test('the Settings schedule deep link clears its marker after save and remove', 
 
 test('a DISABLED schedule promises no next sweep, even though the row still carries a stale nextRunAt', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule({ enabled: false }) })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
 
   expect(html).not.toContain('Next AI sweep')
-  // The override is still offered — a paused schedule is exactly when someone
-  // needs to run one by hand.
-  expect(html).toContain('AI sweep')
+  expect(html).toContain('AI sweep schedule is paused')
+  expect(doc.querySelector('a[aria-label="Manage AI visibility sweep schedule"]')?.textContent).toBe('Manage AI sweep schedule')
+  expect(doc.querySelector('.page-header-right button')).toBeNull()
 })
 
 // Deleting a project destroys every query, run and snapshot. It used to be an
@@ -1618,8 +1679,9 @@ test('a DISABLED schedule promises no next sweep, even though the row still carr
 // most-clicked button on the page.
 test('deleting the project is not reachable from the page header', async () => {
   const html = await renderAt('/projects/project_citypoint')
+  const doc = new DOMParser().parseFromString(html, 'text/html')
 
-  expect(html).toContain('AI sweep')
+  expect(doc.querySelector('.page-header-right button')).toBeNull()
   expect(html).not.toContain('Delete project')
 })
 

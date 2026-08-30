@@ -1038,7 +1038,7 @@ export function MeasurementPropertyPage() {
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
           <p className="text-sm text-secondary">
             {canWrite
-              ? 'Run a measurement from the project overview to collect this Property’s coverage and source evidence.'
+              ? 'Open the project overview to check the AI visibility sweep schedule for this Property.'
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
@@ -1127,7 +1127,7 @@ export function MeasurementPropertyPage() {
         ) : evidenceState === 'not_measured' ? (
           // Not measured is not "no evidence". Saying "none" here would report
           // an absent measurement as a measured result.
-          <p className="text-sm text-secondary">Not measured yet. Run a measurement to collect the answers for this Property.</p>
+          <p className="text-sm text-secondary">Not measured yet. Answers appear after this Property is included in a completed measurement.</p>
         ) : evidenceShapeMismatch ? (
           <p role="alert" className="text-sm text-caution">
             This measurement was returned in an older format, so the answers cannot be shown here.

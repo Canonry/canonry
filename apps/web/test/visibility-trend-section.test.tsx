@@ -219,7 +219,7 @@ test('shows an empty state when there are no buckets yet', async () => {
   renderSection()
 
   await waitFor(() => {
-    expect(screen.getByText(/Run a sweep to start tracking/)).toBeTruthy()
+    expect(screen.getByText('No measured citation or mention data in this window.')).toBeTruthy()
   })
 })
 
@@ -234,7 +234,7 @@ test('carries pooled classification-unavailable scope through an empty response'
   onTestFinished(restore)
 
   renderSection(['competitor.com'])
-  await screen.findByText('Run a sweep to start tracking citations and mentions over time.')
+  await screen.findByText('No measured citation or mention data in this window.')
   act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
 
   expect(screen.getByText(/pooled queries.*classification unavailable/i)).toBeTruthy()
