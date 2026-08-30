@@ -66,8 +66,10 @@ export interface RouterContext {
 }
 
 type SearchParams = {
-  /** Opens the project's query manager after a navigation, so setup can hand off to it. */
+  /** Legacy handoff, redirected to the stable Queries workspace by ProjectPage. */
   manageQueries?: boolean
+  /** The stable, URL-backed surface within the project Queries workspace. */
+  queries?: 'tracked' | 'discover' | 'test'
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
@@ -106,6 +108,9 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayoutWithErrorBoundary,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
+    queries: search.queries === 'tracked' || search.queries === 'discover' || search.queries === 'test'
+      ? search.queries
+      : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,

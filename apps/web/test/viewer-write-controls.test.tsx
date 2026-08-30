@@ -36,7 +36,7 @@ describe('project write controls', () => {
     'Run AI sweep',
     'Delete project',
     'Add competitor',
-    'Manage queries',
+    'Add queries',
     'Refresh',
   ]
 

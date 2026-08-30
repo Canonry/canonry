@@ -131,10 +131,30 @@ test('/projects/$id/local renders the local presence tab', async () => {
   await waitFor(() => expect(container.innerHTML).toMatch(/Google Business Profile/))
 })
 
-test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
+test('/projects/$id/discovery keeps its stable route and defaults Queries to Discover', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/discovery')
   expect(container.innerHTML).toMatch(/Generate and check questions/)
   expect(container.innerHTML).toMatch(/Describe your customer/)
+  expect(container.innerHTML).toMatch(/Queries/)
+  expect(container.innerHTML).toMatch(/Discover/)
+})
+
+test('/projects/$id/discovery selects the URL-backed tracked Queries workspace', async () => {
+  const { container } = await renderRoute('/projects/project_citypoint/discovery?queries=tracked')
+  expect(container.innerHTML).toMatch(/Tracked queries/)
+  expect(container.innerHTML).not.toMatch(/Manage queries/)
+})
+
+test('/projects/$id/discovery rejects an unknown Queries workspace and falls back to Discover', async () => {
+  const { container } = await renderRoute('/projects/project_citypoint/discovery?queries=unknown')
+  expect(container.innerHTML).toMatch(/Generate and check questions/)
+})
+
+test('legacy manageQueries hands off to tracked Queries without closing a run drawer', async () => {
+  const { router } = await renderRoute('/projects/project_citypoint?manageQueries=true&runId=run_citypoint_001')
+  await waitFor(() => expect(router.state.location.pathname).toMatch(/\/discovery$/))
+  expect(router.state.location.search).toMatchObject({ queries: 'tracked', runId: 'run_citypoint_001' })
+  expect(router.state.location.search.manageQueries).toBeUndefined()
 })
 
 // ── Smart redirects ──

@@ -98,7 +98,7 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Search Engines/)
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
-  expect(html).toMatch(/Query Discovery/)
+  expect(html).toMatch(/Queries/)
   expect(html).toMatch(/Visibility/)
   expect(html).toMatch(/Coverage now/)
   expect(html).toMatch(/Since last sweep/)

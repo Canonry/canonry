@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { ExternalLink, Play } from 'lucide-react'
 import {
   ResearchQueryStatuses,
   ResearchRunStatuses,
+  type ResearchPromotionCommitResult,
+  type ResearchPromotionPreviewResponse,
   type ResearchRunDetailDto,
   type ResearchRunQueryDto,
   type ResearchRunStatus,
@@ -11,18 +14,30 @@ import {
 
 import { heyClient, isEmbed } from '../../api.js'
 import {
+  getApiV1ProjectsByNameMeasurementPlanOptions,
+  getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameMeasurementSetupOptions,
+  getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameOptions,
+  getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
   getApiV1ProjectsByNameResearchRunsOptions,
+  getApiV1ProjectsQueryKey,
   getApiV1SettingsOptions,
+  postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionMutation,
+  postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewMutation,
   postApiV1ProjectsByNameResearchRunsMutation,
 } from '@ainyc/canonry-api-client/react-query'
+import type { MeasurementPlanResponse, MeasurementSetupResponse } from '@ainyc/canonry-api-client'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import { WriteButton } from '../shared/AccessControls.js'
+import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { assertCanWrite } from '../../lib/write-guard.js'
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.queued,
@@ -30,6 +45,7 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
 ])
 
 export function ResearchQueriesSection({ projectName }: { projectName: string }) {
+  const account = useAccount()
   const queryClient = useQueryClient()
   const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
@@ -44,6 +60,18 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
     staleTime: 60_000,
+  })
+  // This section only mounts on Queries → Test. Keep the active setup and v2
+  // plan reads here so the rest of the project never pays for audience data.
+  const measurementSetupQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: !isEmbed() && Boolean(projectName),
+    staleTime: 0,
+  })
+  const activeMeasurementPlanQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: !isEmbed() && Boolean(projectName),
+    staleTime: 0,
   })
   const runsQuery = useQuery({
     ...getApiV1ProjectsByNameResearchRunsOptions({
@@ -255,12 +283,51 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
         </Card>
       </div>
 
-      <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} />
+      <ResearchRunDetail
+        projectName={projectName}
+        detail={detail}
+        isLoading={detailQuery.isFetching}
+        setup={measurementSetupQuery.data}
+        activePlan={activeMeasurementPlanQuery.data}
+        setupPending={measurementSetupQuery.isPending}
+        setupError={measurementSetupQuery.isError}
+        onRetrySetup={() => { void measurementSetupQuery.refetch() }}
+        planPending={activeMeasurementPlanQuery.isPending}
+        planError={activeMeasurementPlanQuery.isError}
+        onRetryPlan={() => { void activeMeasurementPlanQuery.refetch() }}
+        canPromote={!isEmbed() && account.canWrite}
+      />
     </div>
   )
 }
 
-function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto | null; isLoading: boolean }) {
+function ResearchRunDetail({
+  projectName,
+  detail,
+  isLoading,
+  setup,
+  activePlan,
+  setupPending,
+  setupError,
+  onRetrySetup,
+  planPending,
+  planError,
+  onRetryPlan,
+  canPromote,
+}: {
+  projectName: string
+  detail: ResearchRunDetailDto | null
+  isLoading: boolean
+  setup: MeasurementSetupResponse | undefined
+  activePlan: MeasurementPlanResponse | undefined
+  setupPending: boolean
+  setupError: boolean
+  onRetrySetup: () => void
+  planPending: boolean
+  planError: boolean
+  onRetryPlan: () => void
+  canPromote: boolean
+}) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -297,14 +364,56 @@ function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto
               </tbody>
             </table>
           </div>
-          <ResearchAnswer query={selected} isLoading={isLoading} />
+          <ResearchAnswer
+            projectName={projectName}
+            runId={detail.id}
+            query={selected}
+            isLoading={isLoading}
+            setup={setup}
+            activePlan={activePlan}
+            setupPending={setupPending}
+            setupError={setupError}
+            onRetrySetup={onRetrySetup}
+            planPending={planPending}
+            planError={planError}
+            onRetryPlan={onRetryPlan}
+            canPromote={canPromote}
+          />
         </div>
       )}
     </Card>
   )
 }
 
-function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | null; isLoading: boolean }) {
+function ResearchAnswer({
+  projectName,
+  runId,
+  query,
+  isLoading,
+  setup,
+  activePlan,
+  setupPending,
+  setupError,
+  onRetrySetup,
+  planPending,
+  planError,
+  onRetryPlan,
+  canPromote,
+}: {
+  projectName: string
+  runId: string
+  query: ResearchRunQueryDto | null
+  isLoading: boolean
+  setup: MeasurementSetupResponse | undefined
+  activePlan: MeasurementPlanResponse | undefined
+  setupPending: boolean
+  setupError: boolean
+  onRetrySetup: () => void
+  planPending: boolean
+  planError: boolean
+  onRetryPlan: () => void
+  canPromote: boolean
+}) {
   if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading saved answers…' : 'Select a query to inspect its answer.'}</p>
   return (
     <div className="space-y-4 border-t border-default pt-4 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
@@ -316,8 +425,9 @@ function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | nul
         <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
       ) : query.answerText ? (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
+          <p className="text-[10px] uppercase tracking-wide text-muted">Saved test evidence</p>
           <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-secondary">{query.answerText}</p>
+          <p className="mt-2 text-sm leading-6 text-secondary">This saved answer is test evidence. It is not an official measurement.</p>
         </div>
       ) : (
         <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>
@@ -354,8 +464,314 @@ function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | nul
           </ul>
         </div>
       )}
+      {canPromote && query.status === ResearchQueryStatuses.completed ? (
+        <ResearchPromotionPanel
+          key={`${runId}:${query.id}`}
+          projectName={projectName}
+          runId={runId}
+          query={query}
+          setup={setup}
+          activePlan={activePlan}
+          setupPending={setupPending}
+          setupError={setupError}
+          onRetrySetup={onRetrySetup}
+          planPending={planPending}
+          planError={planError}
+          onRetryPlan={onRetryPlan}
+        />
+      ) : null}
     </div>
   )
+}
+
+type PromotionRequest = {
+  queryClass?: 'branded' | 'non-brand'
+  targetKeys?: string[]
+  groupKeys?: string[]
+}
+
+function ResearchPromotionPanel({
+  projectName,
+  runId,
+  query,
+  setup,
+  activePlan,
+  setupPending,
+  setupError,
+  onRetrySetup,
+  planPending,
+  planError,
+  onRetryPlan,
+}: {
+  projectName: string
+  runId: string
+  query: ResearchRunQueryDto
+  setup: MeasurementSetupResponse | undefined
+  activePlan: MeasurementPlanResponse | undefined
+  setupPending: boolean
+  setupError: boolean
+  onRetrySetup: () => void
+  planPending: boolean
+  planError: boolean
+  onRetryPlan: () => void
+}) {
+  const account = useAccount()
+  const queryClient = useQueryClient()
+  const [queryClass, setQueryClass] = useState<'non-brand' | 'branded'>('non-brand')
+  const [targetKeys, setTargetKeys] = useState<string[]>([])
+  const [groupKeys, setGroupKeys] = useState<string[]>([])
+  const [preview, setPreview] = useState<ResearchPromotionPreviewResponse | null>(null)
+  const [success, setSuccess] = useState<ResearchPromotionCommitResult | null>(null)
+  const [promotionError, setPromotionError] = useState<string | null>(null)
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null)
+
+  const activePlanValue = activePlan?.active?.plan
+  const activeV2Plan = activePlanValue?.schemaVersion === 2 ? activePlanValue : null
+  const isAdvanced = setup?.mode === 'active-v2'
+  const setupResolved = setup !== undefined
+  const request: PromotionRequest = isAdvanced
+    ? {
+        queryClass,
+        ...(targetKeys.length > 0 ? { targetKeys } : {}),
+        ...(groupKeys.length > 0 ? { groupKeys } : {}),
+      }
+    : {}
+  const hasAudience = targetKeys.length > 0 || groupKeys.length > 0
+  const canPreview = setupResolved && !setupPending && !setupError
+    && (!isAdvanced || (Boolean(activeV2Plan) && !planPending && !planError && hasAudience))
+  const canConfirmTracking = preview?.mode === 'simple'
+    ? preview.trackedQuery.state === 'new'
+    : preview?.mode === 'advanced'
+      ? preview.assignments.added > 0
+      : false
+
+  const previewMutation = useMutation({
+    ...postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewMutation(),
+    onMutate: () => assertCanWrite(account),
+    onSuccess: (result) => {
+      setPreview(result)
+      setSuccess(null)
+      setPromotionError(null)
+      setIdempotencyKey(result.mode === 'refused' ? null : createPromotionIdempotencyKey())
+    },
+    onError: (error) => {
+      setPreview(null)
+      setPromotionError(error instanceof Error ? error.message : 'Could not preview this tracking change.')
+    },
+  })
+  const commitMutation = useMutation({
+    ...postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionMutation(),
+    onMutate: () => assertCanWrite(account),
+    onSuccess: async (result) => {
+      setSuccess(result)
+      setPromotionError(null)
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
+        }),
+        invalidateProjectQueryDomain(queryClient, 'measurement'),
+        invalidateProjectQueryDomain(queryClient, 'researchRuns'),
+        queryClient.invalidateQueries({
+          predicate: (cached) => Array.isArray(cached.queryKey)
+            && (cached.queryKey[0] === 'projects' || cached.queryKey[0] === 'project-dashboard-full')
+            && cached.queryKey.length > 1,
+        }),
+      ])
+    },
+    onError: (error) => {
+      setPromotionError(error instanceof Error ? error.message : 'The tracking change could not be confirmed. Preview it again if the project changed.')
+    },
+  })
+
+  function resetPreview() {
+    setPreview(null)
+    setSuccess(null)
+    setPromotionError(null)
+    setIdempotencyKey(null)
+  }
+
+  function toggleSelection(keys: string[], key: string, setKeys: (next: string[]) => void) {
+    resetPreview()
+    setKeys(keys.includes(key) ? keys.filter(item => item !== key) : [...keys, key])
+  }
+
+  function previewAssignment() {
+    if (!canPreview || previewMutation.isPending) return
+    previewMutation.mutate({
+      client: heyClient,
+      path: { name: projectName, runId, queryId: query.id },
+      body: request,
+    })
+  }
+
+  function confirmTracking() {
+    if (!preview || preview.mode === 'refused' || !canConfirmTracking || commitMutation.isPending) return
+    const nextIdempotencyKey = idempotencyKey ?? createPromotionIdempotencyKey()
+    if (!idempotencyKey) setIdempotencyKey(nextIdempotencyKey)
+    commitMutation.mutate({
+      client: heyClient,
+      path: { name: projectName, runId, queryId: query.id },
+      headers: { 'Idempotency-Key': nextIdempotencyKey },
+      body: { previewChecksum: preview.previewChecksum, request },
+    })
+  }
+
+  return (
+    <section className="border-t border-default pt-4" aria-labelledby={`track-test-query-${query.id}`}>
+      <div className="section-head">
+        <div>
+          <p className="eyebrow eyebrow-soft">Track this test query</p>
+          <h4 id={`track-test-query-${query.id}`} className="text-sm font-semibold text-heading">Add it to official measurement</h4>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-secondary">The saved answer remains test evidence. Tracking starts with a future AI visibility sweep.</p>
+        </div>
+      </div>
+
+      {!setupResolved || setupPending || setupError ? (
+        <div role={setupError ? 'alert' : 'status'} className="mt-3 border-y border-default py-3 text-sm text-secondary">
+          {setupError ? (
+            <>
+              <p>Could not load tracking setup.</p>
+              <Button className="mt-3" type="button" size="sm" variant="outline" onClick={onRetrySetup}>Retry setup</Button>
+            </>
+          ) : <p>Loading tracking setup.</p>}
+        </div>
+      ) : isAdvanced ? (
+        activeV2Plan ? (
+          <div className="mt-3 space-y-3">
+            <label className="block" htmlFor={`tracking-class-${query.id}`}>
+              <span className="text-sm font-medium text-secondary">Query class</span>
+              <select
+                id={`tracking-class-${query.id}`}
+                className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                value={queryClass}
+                onChange={(event) => {
+                  resetPreview()
+                  setQueryClass(event.target.value as 'non-brand' | 'branded')
+                }}
+              >
+                <option value="non-brand">Non-brand</option>
+                <option value="branded">Branded</option>
+              </select>
+            </label>
+            {activeV2Plan.groups.length > 0 ? (
+              <fieldset className="border-t border-default pt-3">
+                <legend className="text-sm font-medium text-secondary">Groups</legend>
+                <div className="mt-2 space-y-2">
+                  {activeV2Plan.groups.map((group) => (
+                    <label key={group.stableKey} className="flex items-start gap-2 text-sm text-secondary">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-current"
+                        checked={groupKeys.includes(group.stableKey)}
+                        onChange={() => toggleSelection(groupKeys, group.stableKey, setGroupKeys)}
+                      />
+                      <span>{group.label} <span className="text-muted">({group.targetKeys.length} Properties)</span></span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+            <fieldset className="border-t border-default pt-3">
+              <legend className="text-sm font-medium text-secondary">Properties</legend>
+              <div className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1">
+                {activeV2Plan.targets.map((target) => (
+                  <label key={target.stableKey} className="flex items-start gap-2 text-sm text-secondary">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 accent-current"
+                      checked={targetKeys.includes(target.stableKey)}
+                      onChange={() => toggleSelection(targetKeys, target.stableKey, setTargetKeys)}
+                    />
+                    <span>{target.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </div>
+        ) : planError ? (
+          <div role="alert" className="mt-3 border-y border-default py-3 text-sm text-secondary">
+            <p>Could not load the published Portfolio setup.</p>
+            <Button className="mt-3" type="button" size="sm" variant="outline" onClick={onRetryPlan}>Retry Portfolio setup</Button>
+          </div>
+        ) : <p role="status" className="mt-3 text-sm text-secondary">Loading the published Portfolio setup before assignment can be previewed.</p>
+      ) : null}
+
+      {promotionError ? <p role="alert" className="mt-3 text-sm leading-6 text-negative">{promotionError}</p> : null}
+      {preview?.mode === 'refused' ? (
+        <div role="alert" className="mt-3 border-y border-caution-800/40 bg-caution-950/20 py-3 text-sm text-caution">
+          <p>{preview.refusal.message}</p>
+          {preview.refusal.reason === 'active-v1' || preview.refusal.reason === 'draft-only' || preview.refusal.reason === 'draft-exists' ? (
+            <Link
+              to="/projects/$projectName/portfolio"
+              params={{ projectName }}
+              search={(previous: Record<string, unknown>) => preserveRunDrawerSearch(previous)}
+              className="mt-2 inline-block font-medium text-link hover:underline focus:outline-none focus:underline"
+            >
+              Open Portfolio setup
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+      {preview?.mode === 'simple' ? (
+        <div className="mt-3 border-y border-default py-3 text-sm text-secondary">
+          <p>Track this query in the project basket. No test answer or source becomes official measurement.</p>
+        </div>
+      ) : null}
+      {preview?.mode === 'advanced' ? (
+        <div className="mt-3 border-y border-default py-3">
+          <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
+            <div><dt className="text-secondary">Query class</dt><dd className="mt-0.5 font-medium text-heading">{preview.selection.queryClass === 'branded' ? 'Branded' : 'Non-brand'}</dd></div>
+            <div><dt className="text-secondary">Resolved Properties</dt><dd className="mt-0.5 font-medium text-heading">{preview.audience.targetKeys.length}</dd></div>
+            <div><dt className="text-secondary">Assignments</dt><dd className="mt-0.5 font-medium text-heading">{preview.assignments.added} added, {preview.assignments.alreadyPresent} already tracked</dd></div>
+            <div><dt className="text-secondary">Provider calls</dt><dd className="mt-0.5 font-medium text-heading">{preview.execution.addedProviderCalls} added, {preview.execution.fullRunProviderCalls} in the full sweep</dd></div>
+          </dl>
+        </div>
+      ) : null}
+
+      {preview && preview.mode !== 'refused' && !canConfirmTracking ? (
+        <p className="mt-3 text-sm text-secondary">Already tracked; no change to confirm.</p>
+      ) : null}
+
+      {success ? (
+        <div role="status" className="mt-3 border-y border-positive-800/40 bg-positive-950/20 py-3 text-sm text-positive">
+          <p>Tracked, awaiting first sweep.</p>
+          {success.publishedRevision !== null ? <p className="mt-1 text-secondary">Published revision {success.publishedRevision} will be measured by the next AI visibility sweep.</p> : null}
+        </div>
+      ) : null}
+      {!success ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <WriteButton type="button" size="sm" variant="outline" disabled={!canPreview || previewMutation.isPending || commitMutation.isPending} onClick={previewAssignment}>
+            {previewMutation.isPending ? 'Previewing…' : 'Preview assignment'}
+          </WriteButton>
+          {preview && preview.mode !== 'refused' ? (
+            <WriteButton type="button" size="sm" disabled={!canConfirmTracking || commitMutation.isPending} onClick={confirmTracking}>
+              {commitMutation.isPending ? 'Confirming…' : 'Confirm tracking'}
+            </WriteButton>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function createPromotionIdempotencyKey(): string {
+  const random = typeof globalThis.crypto.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `research-promotion-${random}`
+}
+
+function preserveRunDrawerSearch(previous: Record<string, unknown>) {
+  return typeof previous.runId === 'string' ? { runId: previous.runId } : {}
 }
 
 function normalizeResearchQueries(value: string): string[] {

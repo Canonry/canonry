@@ -180,19 +180,17 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   expect(embed).toContain('Mention share')
 })
 
-test('embed hides the overview competitor and query managers', async () => {
+test('embed hides the overview competitor manager', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
   // Operator sees the overview write affordances. Identity editing now lives
   // in project Settings instead of the overview header.
   expect(operator).toContain('+ Add competitor')
-  expect(operator).toContain('Manage queries')
   expect(operator).not.toContain('+ add domain')
   expect(operator).not.toContain('Also known as')
   // The write affordances do not render in the embed.
   expect(embed).not.toContain('+ Add competitor')
-  expect(embed).not.toContain('Manage queries')
 
   // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the
   // embed drops it while the operator keeps it. The locale still shows once in

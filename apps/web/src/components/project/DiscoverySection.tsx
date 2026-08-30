@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { CheckCircle2, Play, RefreshCw } from 'lucide-react'
 import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
 
@@ -14,8 +15,12 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromoteOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
+  getApiV1ProjectsByNameQueriesOptions,
+  getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsQueryKey,
   getApiV1RunsQueryKey,
+  deleteApiV1ProjectsByNameQueriesMutation,
+  postApiV1ProjectsByNameQueriesMutation,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
@@ -24,44 +29,209 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { ResearchQueriesSection } from './ResearchQueriesSection.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { assertCanWrite } from '../../lib/write-guard.js'
+
+type QueryWorkspace = 'tracked' | 'discover' | 'test'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
 
-export function DiscoverySection({ projectName }: { projectName: string }) {
-  const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
+export function DiscoverySection({
+  projectName,
+  workspace = 'discover',
+}: {
+  projectName: string
+  workspace?: QueryWorkspace
+}) {
+  const tabs: ReadonlyArray<{ id: QueryWorkspace; label: string }> = [
+    { id: 'tracked', label: 'Tracked' },
+    { id: 'discover', label: 'Discover' },
+    { id: 'test', label: 'Test' },
+  ]
 
   return (
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Query discovery</p>
-          <h2>Discover or research queries</h2>
+          <p className="eyebrow eyebrow-soft">Project workspace</p>
+          <h2>Queries</h2>
         </div>
       </div>
-      <div className="inline-flex rounded-md border border-default bg-surface p-1" role="tablist" aria-label="Query discovery workflow">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'find'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('find')}
-        >
-          Find queries
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'research'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('research')}
-        >
-          Research queries
-        </button>
-      </div>
+      <nav className="mt-4 flex gap-5 border-b border-default" aria-label="Queries workspace">
+        {tabs.map((tab) => (
+          <Link
+            key={tab.id}
+            to="/projects/$projectName/discovery"
+            params={{ projectName }}
+            search={(previous: Record<string, unknown>) => ({
+              ...previous,
+              queries: tab.id === 'discover' ? undefined : tab.id,
+            })}
+            aria-current={workspace === tab.id ? 'page' : undefined}
+            className={`-mb-px border-b-2 px-0.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60 ${workspace === tab.id ? 'border-mono-200 text-heading' : 'border-transparent text-secondary hover:border-mono-600 hover:text-heading'}`}
+          >
+            {tab.label}
+          </Link>
+        ))}
+      </nav>
       <div className="mt-4">
-        {workflow === 'find' ? <FindQueriesSection projectName={projectName} /> : <ResearchQueriesSection projectName={projectName} />}
+        {workspace === 'tracked' ? <TrackedQueriesSection projectName={projectName} /> : null}
+        {workspace === 'discover' ? <FindQueriesSection projectName={projectName} /> : null}
+        {workspace === 'test' ? <ResearchQueriesSection projectName={projectName} /> : null}
       </div>
     </section>
+  )
+}
+
+function TrackedQueriesSection({ projectName }: { projectName: string }) {
+  const account = useAccount()
+  const queryClient = useQueryClient()
+  const [newQueryText, setNewQueryText] = useState('')
+  const [removingQuery, setRemovingQuery] = useState<string | null>(null)
+  const trackedQueriesQuery = useQuery({
+    ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+  const queryKey = getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } })
+
+  const invalidateTrackedState = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) }),
+      invalidateProjectQueryDomain(queryClient, 'measurement'),
+      queryClient.invalidateQueries({
+        predicate: (query) => Array.isArray(query.queryKey)
+          && (query.queryKey[0] === 'projects' || query.queryKey[0] === 'project-dashboard-full')
+          && query.queryKey.length > 1,
+      }),
+    ])
+  }
+
+  const addMutation = useMutation({
+    ...postApiV1ProjectsByNameQueriesMutation(),
+    onMutate: () => assertCanWrite(account),
+    onSuccess: async () => {
+      setNewQueryText('')
+      await invalidateTrackedState()
+    },
+    onError: (error) => {
+      addToast({
+        title: 'Could not add queries',
+        detail: error instanceof Error ? error.message : 'Try again after checking the query text.',
+        tone: 'negative',
+        dedupeKey: 'queries:add',
+        dedupeMode: 'replace',
+      })
+    },
+  })
+  const removeMutation = useMutation({
+    ...deleteApiV1ProjectsByNameQueriesMutation(),
+    onMutate: () => assertCanWrite(account),
+    onSuccess: async () => {
+      setRemovingQuery(null)
+      await invalidateTrackedState()
+    },
+    onError: (error) => {
+      setRemovingQuery(null)
+      addToast({
+        title: 'Could not remove query',
+        detail: error instanceof Error ? error.message : 'Try again after checking the query.',
+        tone: 'negative',
+        dedupeKey: 'queries:remove',
+        dedupeMode: 'replace',
+      })
+    },
+  })
+
+  const pendingQueries = newQueryText.split('\n').map(item => item.trim()).filter(Boolean)
+  const canEdit = account.canWrite && !isEmbed()
+
+  function addQueries() {
+    if (!canEdit || pendingQueries.length === 0 || addMutation.isPending) return
+    addMutation.mutate({ client: heyClient, path: { name: projectName }, body: { queries: pendingQueries } })
+  }
+
+  function removeQuery(query: string) {
+    if (!canEdit || removeMutation.isPending) return
+    setRemovingQuery(query)
+    removeMutation.mutate({ client: heyClient, path: { name: projectName }, body: { queries: [query] } })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Official measurement</p>
+          <h3>Tracked queries</h3>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">These queries are included in future AI visibility sweeps.</p>
+        </div>
+        {trackedQueriesQuery.isFetching ? <ToneBadge tone="neutral">Loading</ToneBadge> : null}
+      </div>
+
+      {trackedQueriesQuery.isError ? (
+        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">
+          <p>Could not load tracked queries.</p>
+          <Button className="mt-3" type="button" size="sm" variant="outline" onClick={() => { void trackedQueriesQuery.refetch() }}>Retry</Button>
+        </div>
+      ) : trackedQueriesQuery.isLoading ? (
+        <div role="status" className="space-y-2" aria-live="polite">
+          <span className="sr-only">Loading tracked queries</span>
+          <div className="h-10 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
+          <div className="h-10 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
+        </div>
+      ) : (trackedQueriesQuery.data?.length ?? 0) === 0 ? (
+        <p className="border-y border-default py-4 text-sm text-secondary">No tracked queries yet. Add queries here, or promote a completed Test query.</p>
+      ) : (
+        <div className="overflow-x-auto border-y border-default">
+          <table className="evidence-table min-w-[560px]">
+            <thead><tr><th>Query</th>{canEdit ? <th className="w-28 text-right">Action</th> : null}</tr></thead>
+            <tbody>
+              {trackedQueriesQuery.data?.map((item) => (
+                <tr key={item.id}>
+                  <td className="text-sm text-strong">{item.query}</td>
+                  {canEdit ? (
+                    <td className="text-right">
+                      <WriteButton
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`${removingQuery === item.query ? 'Removing' : 'Remove'} ${item.query}`}
+                        disabled={removeMutation.isPending}
+                        onClick={() => removeQuery(item.query)}
+                      >
+                        {removingQuery === item.query ? 'Removing…' : 'Remove'}
+                      </WriteButton>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {canEdit ? (
+        <div className="border-t border-default pt-4">
+          <label className="block" htmlFor="tracked-query-input">
+            <span className="text-sm font-medium text-secondary">Add queries</span>
+            <textarea
+              id="tracked-query-input"
+              className="mt-1 min-h-28 w-full resize-y rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              placeholder="One query per line"
+              value={newQueryText}
+              onChange={(event) => setNewQueryText(event.target.value)}
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-secondary">{pendingQueries.length} {pendingQueries.length === 1 ? 'query' : 'queries'} to add</p>
+            <WriteButton type="button" size="sm" disabled={pendingQueries.length === 0 || addMutation.isPending} onClick={addQueries}>
+              {addMutation.isPending ? 'Adding…' : 'Add queries'}
+            </WriteButton>
+          </div>
+        </div>
+      ) : !isEmbed() ? <p className="text-sm text-secondary">View only. Your account cannot change tracked queries.</p> : null}
+    </div>
   )
 }
 

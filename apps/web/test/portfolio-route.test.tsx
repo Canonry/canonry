@@ -408,6 +408,19 @@ test('project navigation ignores stale Site Health onboarding markers', async ()
   expect(destination.search).toBe('')
 })
 
+test('project navigation preserves an open run drawer but clears one-shot onboarding markers', async () => {
+  const html = await renderAt('/projects/project_citypoint/technical-aeo?onboarding=site-health&runId=run-synthetic')
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const link = [...doc.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Project sections"] a')]
+    .find(anchor => anchor.textContent === 'AI Visibility')
+
+  expect(link).toBeTruthy()
+  const destination = new URL(link!.href, 'http://localhost')
+  expect(destination.pathname).toBe('/projects/Citypoint%20Dental%20NYC')
+  expect(destination.searchParams.get('runId')).toBe('run-synthetic')
+  expect(destination.searchParams.get('onboarding')).toBeNull()
+})
+
 test('a stale Site Health onboarding marker cannot redirect the project overview', async () => {
   const fixture = createDashboardFixture({})
   const projectName = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.project.name

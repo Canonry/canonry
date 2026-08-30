@@ -54,8 +54,6 @@ import { NotificationsSection } from '../components/project/NotificationsSection
 import {
   fetchTimeline,
   deleteProject as apiDeleteProject,
-  appendQueries as apiAppendQueries,
-  removeQueries as apiRemoveQueries,
   appendCompetitors as apiAppendCompetitors,
   removeCompetitorById as apiRemoveCompetitorById,
   updateProject as apiUpdateProject,
@@ -1474,6 +1472,10 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
 
 type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
 
+function preserveRunDrawerSearch(previous: Record<string, unknown>) {
+  return typeof previous.runId === 'string' ? { runId: previous.runId } : {}
+}
+
 /**
  * Trailing overflow ("More") menu for low-frequency project sections (Report).
  * A standard disclosure: button toggles a `role="menu"`, closes on outside
@@ -1521,6 +1523,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
             <Link
               key={item.key}
               to={item.href}
+              search={preserveRunDrawerSearch}
               role="menuitem"
               className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
               aria-current={item.key === activeTab ? 'page' : undefined}
@@ -1567,6 +1570,7 @@ function ProjectPageContent({
   const appendQueries = useAppendQueries()
   const projectSearchParams = useSearch({ strict: false }) as {
     manageQueries?: boolean
+    queries?: 'tracked' | 'discover' | 'test'
     runId?: string
     siteHealthRunId?: string
     scope?: string
@@ -1580,10 +1584,6 @@ function ProjectPageContent({
       search: (previous: Record<string, unknown>) => ({ ...previous, siteHealthRunId: undefined }),
     })
   }, [navigate])
-  const [managingQueries, setManagingQueries] = useState(manageQueriesRequested)
-  const [newQueryText, setNewQueryText] = useState('')
-  const [querySaving, setQuerySaving] = useState(false)
-  const [removingQuery, setRemovingQuery] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1625,6 +1625,22 @@ function ProjectPageContent({
   const visibilityEvidence = model?.visibilityEvidence ?? []
   const projectName = model?.project.name ?? ''
   const projectLabel = model?.project.displayName || model?.project.name || projectName
+  // `manageQueries` was an overview-local drawer state. Preserve old links by
+  // translating it once into the stable Queries URL, retaining a run drawer or
+  // any other valid project search state while clearing the legacy flag.
+  useEffect(() => {
+    if (!manageQueriesRequested || !projectName) return
+    void navigate({
+      to: '/projects/$projectName/discovery',
+      params: { projectName },
+      search: (previous: Record<string, unknown>) => ({
+        ...previous,
+        manageQueries: undefined,
+        queries: 'tracked' as const,
+      }),
+      replace: true,
+    })
+  }, [manageQueriesRequested, navigate, projectName])
   const triggerRunMutation = useTriggerRun()
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
@@ -1902,15 +1918,6 @@ function ProjectPageContent({
   )
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
-  // The authoritative tracked-query set — every query the project tracks,
-  // including ones added but not yet run (build-dashboard seeds a "pending"
-  // evidence row for those). This is the same source as the "N queries tracked"
-  // header count, so the manage list and the count never diverge. Sorted for a
-  // stable order in the manage panel.
-  const trackedQueries = useMemo(
-    () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
-    [visibilityEvidence],
-  )
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -2024,37 +2031,6 @@ function ProjectPageContent({
     }
   }
 
-  async function handleAddQueries() {
-    const queries = newQueryText.split('\n').map(k => k.trim()).filter(Boolean)
-    if (queries.length === 0) return
-    setQuerySaving(true)
-    try {
-      await apiAppendQueries(projectName, queries)
-      void refetch()
-      setNewQueryText('')
-    } finally {
-      setQuerySaving(false)
-    }
-  }
-
-  async function handleRemoveQuery(query: string) {
-    setRemovingQuery(query)
-    try {
-      await apiRemoveQueries(projectName, [query])
-      void refetch()
-    } catch (err) {
-      addToast({
-        title: 'Could not remove query',
-        detail: err instanceof Error ? err.message : `Failed to remove "${query}"`,
-        tone: 'negative',
-        dedupeKey: 'query:remove',
-        dedupeMode: 'replace',
-      })
-    } finally {
-      setRemovingQuery(null)
-    }
-  }
-
   async function handleAddCompetitor() {
     const domain = newCompetitorDomain.trim()
     if (!domain) return
@@ -2141,7 +2117,7 @@ function ProjectPageContent({
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
     { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'discovery', label: 'Queries', href: `${projectTabBase}/discovery` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
@@ -2225,6 +2201,7 @@ function ProjectPageContent({
             <Link
               key={item.key}
               to={item.href}
+              search={preserveRunDrawerSearch}
               className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
               aria-current={item.key === tab ? 'page' : undefined}
             >
@@ -2238,6 +2215,7 @@ function ProjectPageContent({
             <Link
               key={projectSettingsTab.key}
               to={projectSettingsTab.href}
+              search={preserveRunDrawerSearch}
               className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
               aria-current={tab === 'settings' ? 'page' : undefined}
             >
@@ -2272,13 +2250,14 @@ function ProjectPageContent({
             return refreshed.data ?? []
           }}
           onManageProjectQueries={() => {
-            // Local state does not survive this navigation: it remounts the page
-            // and resets, which left the operator on Overview with the manager
-            // shut. The URL carries the intent instead.
             void navigate({
-              to: '/projects/$projectName',
+              to: '/projects/$projectName/discovery',
               params: { projectName },
-              search: { manageQueries: true },
+              search: (previous: Record<string, unknown>) => ({
+                ...previous,
+                manageQueries: undefined,
+                queries: 'tracked' as const,
+              }),
             })
           }}
           onPublished={() => {
@@ -2414,51 +2393,6 @@ function ProjectPageContent({
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen={isEmbed()}
           >
-            {!isEmbed() && (
-              <div className="mb-3 flex items-center justify-end">
-                <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
-                  {managingQueries ? 'Done' : 'Manage queries'}
-                </WriteButton>
-              </div>
-            )}
-            {!isEmbed() && managingQueries && (
-              <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
-                {trackedQueries.length > 0 ? (
-                  <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
-                    {trackedQueries.map((q) => (
-                      <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
-                          aria-label={`Remove query ${q}`}
-                          title={`Stop tracking "${q}"`}
-                          disabled={removingQuery !== null}
-                          onClick={() => { void handleRemoveQuery(q) }}
-                        >
-                          {removingQuery === q ? 'Removing…' : 'Remove'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
-                )}
-                <textarea
-                  className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  rows={3}
-                  placeholder="Enter queries to add, one per line"
-                  value={newQueryText}
-                  onChange={(e) => setNewQueryText(e.target.value)}
-                />
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
-                  <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
-                    {querySaving ? 'Adding...' : 'Add queries'}
-                  </WriteButton>
-                </div>
-              </div>
-            )}
             {model.project.locations.length > 0 && (
               <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                 <button
@@ -2750,7 +2684,7 @@ function ProjectPageContent({
       ) : tab === 'report' ? (
         <ReportPage projectName={model.project.name} />
       ) : tab === 'discovery' ? (
-        <DiscoverySection projectName={projectName} />
+        <DiscoverySection projectName={projectName} workspace={projectSearchParams.queries} />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection
           projectName={model.project.name}
