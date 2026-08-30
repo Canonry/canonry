@@ -21,6 +21,7 @@ export const PROJECT_QUERY_DOMAINS = {
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
+  measurement: 'getApiV1ProjectsByNameMeasurement',
   runs: 'getApiV1ProjectsByNameRuns',
 } as const
 

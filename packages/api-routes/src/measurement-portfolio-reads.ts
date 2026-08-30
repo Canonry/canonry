@@ -156,7 +156,13 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
 
 function countMetric(rate: MeasurementRate): MetricValue {
   if (rate.numerator === null) return unavailable(metricReason(rate.reason))
-  return { state: 'available', value: rate.numerator, numerator: rate.numerator, denominator: rate.denominator }
+  return {
+    state: 'available',
+    value: rate.numerator,
+    numerator: rate.numerator,
+    denominator: rate.denominator,
+    ...(rate.rate === null ? {} : { rate: rate.rate }),
+  }
 }
 
 /** The materializer reads through its explicit DB argument; the report kernel never does. */

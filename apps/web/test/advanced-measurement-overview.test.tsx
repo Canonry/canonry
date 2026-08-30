@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { MeasurementPortfolioSummaryResponse } from '@ainyc/canonry-api-client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -17,6 +18,29 @@ function ratio(numerator: number, denominator: number): AdvancedMeasurementMetri
 
 function unavailable(reason: string): AdvancedMeasurementMetric {
   return { numerator: null, denominator: null, reason }
+}
+
+function portfolioSummary(): MeasurementPortfolioSummaryResponse {
+  const coverage = { state: 'available' as const, value: 0.5, numerator: 1, denominator: 2 }
+  return {
+    portfolio: { groupKey: null, label: null, measurementScope: 'full' },
+    measurement: {
+      state: 'complete',
+      displayedRunId: 'run-1',
+      planRevision: 2,
+      completedAt: '2026-08-02T12:00:00.000Z',
+    },
+    queryClass: 'non-brand',
+    metrics: {
+      propertiesMentioned: { state: 'available', value: 1, numerator: 1, denominator: 2, rate: 0.5 },
+      mentionCoverage: coverage,
+      citationCoverage: coverage,
+    },
+    weakestProperties: [],
+    markets: [],
+    totalProperties: 2,
+    truncated: false,
+  }
 }
 
 function property(
@@ -118,14 +142,14 @@ function report(overrides: Partial<AdvancedMeasurementOverviewReport> = {}): Adv
     },
     overall: nonBrand,
     classScopes: { nonBrand, branded },
-    flaggedResults: [{ id: 'flag-1', property: 'Downtown Office', summary: 'One URL needs review.', tone: 'caution' }],
+    flaggedResults: [{ id: 'flag-1', property: 'Downtown Office', summary: 'One ambiguous source-to-Property match.', tone: 'caution' }],
     ...overrides,
   }
 }
 
 /**
- * The default view is All queries, which reads `report.overall`. The base
- * fixture sets `overall: nonBrand`, but a test that overrides
+ * The base fixture uses the non-brand scope for the legacy `overall` fallback,
+ * but a test that overrides
  * `classScopes.nonBrand` replaces only that half — leaving `overall` pointing
  * at the unmodified scope and the override invisible. This keeps the two in
  * step, exactly as the base fixture does.
@@ -205,7 +229,7 @@ describe('AdvancedMeasurementOverview', () => {
     expect(statusLine.textContent).not.toContain('8 of 8')
     expect(statusLine.textContent).not.toContain('slots completed')
     expect(statusLine.textContent).toContain('Aug 2, 2026')
-    expect(statusLine.textContent).toContain('1 flagged result needs review.')
+    expect(statusLine.textContent).toContain('1 ambiguous source-to-Property match.')
   })
 
   it('does not render an unavailable slot denominator as zero', () => {
@@ -241,7 +265,7 @@ describe('AdvancedMeasurementOverview', () => {
 
     expect(screen.getByRole('button', { name: 'Show details for Uptown Office' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Show details for Downtown Office' })).toBeNull()
-    expect(screen.queryByText('Flagged results (1)')).toBeNull()
+    expect(screen.queryByText('Ambiguous matches (1)')).toBeNull()
   })
 
   it('withholds stale report content while a server view changes', () => {
@@ -392,7 +416,7 @@ describe('AdvancedMeasurementOverview', () => {
     expect(screen.getByText('Rival Co.')).toBeTruthy()
     fireEvent.click(within(screen.getByLabelText('Query type')).getByRole('radio', { name: 'Branded' }))
     expect(screen.queryByText('Brand share of voice')).toBeNull()
-    expect((screen.getByText('Flagged results (1)').closest('details') as HTMLDetailsElement).open).toBe(false)
+    expect((screen.getByText('Ambiguous matches (1)').closest('details') as HTMLDetailsElement).open).toBe(false)
   })
 
   it('hides competitor share of voice when a group has no confirmed competitors', () => {
@@ -707,7 +731,7 @@ describe('status strip (defect 1)', () => {
     expect(screen.getByText('1 property is unavailable.')).toBeTruthy()
   })
 
-  it('renders the flagged-results count with correct singular/plural agreement', () => {
+  it('names ambiguous source matches with correct singular/plural agreement', () => {
     const current = report()
     renderOverview({
       report: {
@@ -715,7 +739,7 @@ describe('status strip (defect 1)', () => {
         flaggedResults: [{ id: 'flag-1', property: 'Downtown Office', summary: 'x', tone: 'caution', count: 3 }],
       },
     })
-    expect(screen.getByText('3 flagged results need review.')).toBeTruthy()
+    expect(screen.getByText('3 ambiguous source-to-Property matches.')).toBeTruthy()
   })
 
   it('falls through to metricReasons.plan_v1 when the setup needs republishing', () => {
@@ -1051,6 +1075,45 @@ describe('outcome count row', () => {
     expect(screen.queryByLabelText('Property outcomes')).toBeNull()
   })
 
+  it.each(['loading', 'error'] as const)('keeps loaded outcomes visible while the Portfolio pulse is %s', (portfolioSummaryState) => {
+    renderOverview({
+      report: withOutcomes({
+        bothSignals: 1, mentionedOnly: 1, citedOnly: 1, neither: 1, notMeasured: 1, total: 5,
+      }),
+      portfolioSummaryState,
+    })
+
+    expect(screen.getAllByLabelText('Property outcomes')).toHaveLength(1)
+  })
+
+  it('lets a ready Portfolio pulse own the outcome partition exactly once', () => {
+    renderOverview({
+      report: withOutcomes({
+        bothSignals: 1, mentionedOnly: 1, citedOnly: 1, neither: 1, notMeasured: 1, total: 5,
+      }),
+      portfolioSummaryState: 'ready',
+      portfolioSummary: portfolioSummary(),
+    })
+
+    expect(screen.getAllByLabelText('Property outcomes')).toHaveLength(1)
+  })
+
+  it('does not flash the cached Pulse while a cleared search is still applied by the parent', () => {
+    renderOverview({
+      report: withOutcomes({
+        bothSignals: 1, mentionedOnly: 1, citedOnly: 1, neither: 1, notMeasured: 1, total: 5,
+      }),
+      viewSearch: 'harbor',
+      portfolioSummaryState: 'ready',
+      portfolioSummary: portfolioSummary(),
+    })
+
+    const box = screen.getByPlaceholderText('Search properties')
+    expect(screen.queryByRole('heading', { name: 'Portfolio pulse' })).toBeNull()
+    fireEvent.change(box, { target: { value: '' } })
+    expect(screen.queryByRole('heading', { name: 'Portfolio pulse' })).toBeNull()
+  })
+
   // The parent trims the term before storing it, so a pause after a space
   // echoes back a shorter string. Writing that echo into the controlled input
   // deletes the space the user just typed, and the next word merges onto the
@@ -1163,7 +1226,7 @@ describe('sorting and status', () => {
               ...scope.aggregate,
               properties: [
                 { ...first!, status: { label: 'Complete', tone: 'positive' as const } },
-                { ...second!, status: { label: 'Review', tone: 'caution' as const } },
+                { ...second!, status: { label: 'Ambiguous match', tone: 'caution' as const } },
               ],
             },
           },
@@ -1177,6 +1240,6 @@ describe('sorting and status', () => {
     // status lives in the header, outside this table.)
     expect(within(table).queryByText('Complete')).toBeNull()
     // The exception still shows, next to the Property it belongs to.
-    expect(within(table).getByText('Review')).toBeTruthy()
+    expect(within(table).getByText('Ambiguous match')).toBeTruthy()
   })
 })

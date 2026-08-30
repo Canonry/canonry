@@ -187,6 +187,13 @@ describe('measurement metric value', () => {
     expect(measurementMetricValueSchema.parse({ state: 'available', value: 0.5, numerator: 3, denominator: 6 }))
       .toEqual({ state: 'available', value: 0.5, numerator: 3, denominator: 6 })
   })
+
+  it('carries a bounded server-computed rate beside a count value', () => {
+    expect(measurementMetricValueSchema.parse({ state: 'available', value: 3, numerator: 3, denominator: 6, rate: 0.5 }))
+      .toEqual({ state: 'available', value: 3, numerator: 3, denominator: 6, rate: 0.5 })
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 3, rate: -0.1 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 3, rate: 1.1 }).success).toBe(false)
+  })
 })
 
 describe('measurement overview response', () => {

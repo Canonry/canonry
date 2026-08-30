@@ -111,7 +111,7 @@ export function indexV2EvidenceByTarget(
 }
 
 function propertyStatus(row: MeasurementOverviewResponse['properties']['items'][number]): AdvancedMeasurementProperty['status'] {
-  if (row.flags > 0) return { label: 'Review', tone: 'caution' }
+  if (row.flags > 0) return { label: 'Ambiguous match', tone: 'caution' }
   const reasons = [row.mentionCoverage, row.citationCoverage]
     .filter((value): value is Extract<typeof value, { state: 'unavailable' }> => value.state === 'unavailable')
     .map(value => value.reason)
@@ -141,7 +141,7 @@ function reportDate(value?: string): string {
 
 function nextActionText(overview: MeasurementOverviewResponse): string | undefined {
   const count = overview.nextAction.count ?? overview.flags.total
-  if (overview.nextAction.kind === 'review_flags') return `${count} flagged ${count === 1 ? 'result needs' : 'results need'} review.`
+  if (overview.nextAction.kind === 'review_flags') return `${count} ambiguous source-to-Property ${count === 1 ? 'match' : 'matches'}.`
   if (overview.nextAction.kind === 'complete_setup') return 'Finish setup.'
   if (overview.nextAction.kind === 'republish_setup') return 'Setup update required.'
   if (overview.nextAction.kind === 'run_measurement') return 'Ready to measure.'
@@ -232,7 +232,7 @@ export function adaptV2MeasurementOverview({
   const flaggedResults = overview.properties.items.flatMap(row => row.flags > 0 ? [{
     id: `property:${row.targetKey}`,
     property: row.label,
-    summary: `${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review.`,
+    summary: `${row.flags} ambiguous source-to-Property ${row.flags === 1 ? 'match' : 'matches'}.`,
     tone: 'caution' as const,
     count: row.flags,
   }] : [])

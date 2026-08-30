@@ -1,0 +1,1724 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Advanced Measurement, Portfolio Pulse</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(0.145 0.008 286);
+      --bg-elevated: oklch(0.19 0.009 286);
+      --surface: oklch(0.21 0.009 286 / 0.56);
+      --surface-subtle: oklch(0.21 0.009 286 / 0.3);
+      --surface-hover: oklch(0.27 0.012 286 / 0.52);
+      --surface-active: oklch(0.3 0.014 286 / 0.65);
+      --border: oklch(0.31 0.012 286 / 0.62);
+      --border-subtle: oklch(0.28 0.01 286 / 0.44);
+      --border-strong: oklch(0.45 0.014 286);
+      --text: oklch(0.97 0.004 286);
+      --heading: oklch(0.93 0.005 286);
+      --strong: oklch(0.86 0.006 286);
+      --secondary: oklch(0.72 0.011 286);
+      --muted: oklch(0.62 0.012 286);
+      --faint: oklch(0.54 0.011 286);
+      --accent: oklch(0.78 0.115 178);
+      --accent-soft: oklch(0.3 0.055 178 / 0.62);
+      --positive: oklch(0.76 0.13 156);
+      --positive-soft: oklch(0.27 0.05 156 / 0.65);
+      --caution: oklch(0.79 0.12 78);
+      --caution-soft: oklch(0.3 0.05 78 / 0.62);
+      --negative: oklch(0.72 0.16 25);
+      --negative-soft: oklch(0.29 0.06 25 / 0.65);
+      --info: oklch(0.76 0.105 235);
+      --info-soft: oklch(0.28 0.05 235 / 0.62);
+      --mono: "Geist Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: "Geist", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --shadow: 0 18px 60px oklch(0.08 0.01 286 / 0.34);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--bg); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    button:disabled, select:disabled { cursor: not-allowed; opacity: 0.48; }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    a { color: var(--accent); }
+    [hidden] { display: none !important; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .prototype-bar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto;
+      align-items: stretch;
+      min-height: 62px;
+      border-bottom: 1px solid var(--border);
+      background: oklch(0.17 0.01 286 / 0.97);
+      box-shadow: 0 8px 28px oklch(0.08 0.01 286 / 0.16);
+    }
+    .prototype-title {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: 9px 18px;
+      border-right: 1px solid var(--border-subtle);
+    }
+    .eyebrow {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .prototype-title strong {
+      overflow: hidden;
+      color: var(--heading);
+      font-size: 14px;
+      font-weight: 630;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dataset-note {
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      color: var(--secondary);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .app-shell { min-height: calc(100vh - 62px); }
+    .sidebar {
+      position: sticky;
+      top: 62px;
+      align-self: start;
+      height: calc(100vh - 62px);
+      overflow-y: auto;
+      border-right: 1px solid var(--border-subtle);
+      background: oklch(0.16 0.008 286);
+      padding: 20px 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px 18px;
+      color: var(--heading);
+      font-weight: 720;
+      letter-spacing: -0.02em;
+    }
+    .brand-mark {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .project-switcher {
+      width: 100%;
+      min-height: 42px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--heading);
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .project-switcher small { display: block; color: var(--muted); font-size: 11px; }
+    .side-label {
+      margin: 18px 8px 6px;
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .side-nav { display: grid; gap: 2px; }
+    .side-nav a {
+      display: flex;
+      align-items: center;
+      min-height: 36px;
+      border-radius: 5px;
+      color: var(--secondary);
+      padding: 7px 9px;
+      text-decoration: none;
+    }
+    .side-nav a:hover { background: var(--surface-hover); color: var(--heading); }
+    .side-nav a.active { background: var(--surface-active); color: var(--text); font-weight: 580; }
+
+    .main { min-width: 0; }
+    .project-frame {
+      width: min(100%, 1500px);
+      margin: 0 auto;
+      padding: 24px clamp(20px, 3.2vw, 48px) 0;
+    }
+    .project-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 28px;
+      padding-bottom: 20px;
+    }
+    .project-identity h1 {
+      margin: 0;
+      color: var(--heading);
+      font-size: 25px;
+      font-weight: 680;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+    .project-identity p { margin: 6px 0 0; color: var(--secondary); font-size: 13px; }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+    .tag {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      padding: 2px 6px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.02em;
+    }
+    .project-header-right { display: grid; justify-items: end; gap: 9px; text-align: right; }
+    .project-period { margin: 0; color: var(--muted); font-size: 12px; }
+    .project-header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px 12px; }
+    .schedule-summary {
+      border: 0;
+      background: transparent;
+      color: var(--secondary);
+      padding: 5px 0;
+      font-size: 12px;
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      text-underline-offset: 3px;
+    }
+    .schedule-summary:hover { color: var(--accent); text-decoration-color: currentColor; }
+    .project-subnav {
+      display: flex;
+      align-items: stretch;
+      gap: 2px;
+      overflow-x: auto;
+      border-bottom: 1px solid var(--border);
+      scrollbar-width: thin;
+    }
+    .project-subnav button {
+      position: relative;
+      min-height: 43px;
+      flex: 0 0 auto;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 11px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .project-subnav button:hover { color: var(--heading); }
+    .project-subnav button.active { color: var(--text); font-weight: 620; }
+    .project-subnav button.active::after {
+      position: absolute;
+      right: 8px;
+      bottom: -1px;
+      left: 8px;
+      height: 2px;
+      background: var(--accent);
+      content: "";
+    }
+    .project-subnav .subnav-spacer { flex: 1 1 auto; min-width: 18px; }
+    .content {
+      width: min(100%, 1500px);
+      margin: 0 auto;
+      padding: 24px clamp(20px, 3.2vw, 48px) 72px;
+    }
+    .breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .breadcrumb button {
+      border: 0;
+      background: transparent;
+      color: var(--secondary);
+      padding: 0;
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      text-underline-offset: 3px;
+    }
+    .breadcrumb button:hover { color: var(--accent); text-decoration-color: currentColor; }
+    .breadcrumb-separator { color: var(--faint); }
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 22px;
+      margin-top: 12px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .page-head h1 {
+      margin: 0;
+      color: var(--heading);
+      font-size: 23px;
+      font-weight: 660;
+      letter-spacing: -0.025em;
+      line-height: 1.18;
+    }
+    .page-head p { max-width: 68ch; margin: 7px 0 0; color: var(--secondary); }
+    .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .button {
+      display: inline-flex;
+      min-height: 36px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--heading);
+      padding: 7px 12px;
+      font-weight: 570;
+      line-height: 1;
+    }
+    .button:hover { background: var(--surface-hover); }
+    .button.primary { border-color: oklch(0.79 0.02 286); background: var(--text); color: var(--bg); }
+    .button.primary:hover { background: var(--strong); }
+    .button.ghost { border-color: transparent; background: transparent; color: var(--secondary); }
+    .button.ghost:hover { background: var(--surface-hover); color: var(--heading); }
+    .button.small { min-height: 30px; padding: 5px 9px; font-size: 12px; }
+    .button.icon { width: 32px; min-height: 32px; padding: 0; }
+
+    .status-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 9px 14px;
+      min-height: 43px;
+      border-bottom: 1px solid var(--border);
+      color: var(--secondary);
+      font-size: 13px;
+    }
+    .status-line .spacer { flex: 1; }
+    .badge {
+      display: inline-flex;
+      min-height: 22px;
+      align-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--strong);
+      font-size: 11px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .badge.positive { border-color: oklch(0.5 0.09 156); background: var(--positive-soft); color: var(--positive); }
+    .badge.caution { border-color: oklch(0.5 0.08 78); background: var(--caution-soft); color: var(--caution); }
+    .badge.negative { border-color: oklch(0.5 0.1 25); background: var(--negative-soft); color: var(--negative); }
+    .badge.info { border-color: oklch(0.5 0.08 235); background: var(--info-soft); color: var(--info); }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 12px 18px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .field { display: grid; gap: 5px; min-width: 140px; }
+    .field.grow { flex: 1; min-width: 220px; }
+    .field label, .field-label { color: var(--strong); font-size: 12px; font-weight: 620; }
+    .control {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 7px 10px;
+    }
+    input.control::placeholder { color: var(--faint); }
+    .segment {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-subtle);
+    }
+    .segment button {
+      min-height: 34px;
+      border: 0;
+      border-right: 1px solid var(--border);
+      background: transparent;
+      color: var(--secondary);
+      padding: 6px 11px;
+    }
+    .segment button:last-child { border-right: 0; }
+    .segment button:hover { background: var(--surface-hover); color: var(--heading); }
+    .segment button[aria-pressed="true"] { background: var(--surface-active); color: var(--text); font-weight: 610; }
+
+    .section { margin-top: 24px; }
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px 18px;
+      margin-bottom: 10px;
+    }
+    .section-head h2 { margin: 0; color: var(--heading); font-size: 16px; font-weight: 640; }
+    .section-head p { margin: 0; color: var(--secondary); font-size: 13px; }
+    .section-note { max-width: 75ch; margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+
+    .metrics-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      border-block: 1px solid var(--border);
+    }
+    .metrics-strip.three { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+    .pulse-metrics .metric-summary dd { font-size: 24px; }
+    .metric-summary { min-width: 0; padding: 15px 18px; border-right: 1px solid var(--border-subtle); }
+    .metric-summary:first-child { padding-left: 0; }
+    .metric-summary:last-child { border-right: 0; }
+    .metric-summary dt { color: var(--secondary); font-size: 12px; }
+    .metric-summary dd { margin: 5px 0 0; color: var(--heading); font-family: var(--mono); font-size: 17px; font-weight: 640; font-variant-numeric: tabular-nums; }
+    .metric-summary small { display: block; margin-top: 3px; color: var(--muted); font-family: var(--sans); font-size: 11px; }
+
+    .outcomes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 24px;
+      margin-top: 11px;
+    }
+    .outcome { display: inline-flex; align-items: baseline; gap: 6px; padding: 0; }
+    .outcome strong { color: var(--heading); font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+    .outcome span { color: var(--secondary); font-size: 12px; }
+    .outcome.neither strong { color: var(--negative); }
+    .outcome.unavailable strong { color: var(--faint); }
+    .distribution {
+      display: flex;
+      height: 7px;
+      overflow: hidden;
+      border-radius: 2px;
+      background: var(--surface-active);
+    }
+    .distribution span { min-width: 2px; }
+    .distribution .both { background: var(--positive); }
+    .distribution .mention-only { background: var(--accent); }
+    .distribution .cite-only { background: var(--info); }
+    .distribution .neither { background: var(--negative); }
+    .distribution .unavailable { background: var(--border-strong); }
+
+    .scope-trend {
+      margin-top: 24px;
+      border-block: 1px solid var(--border);
+      padding: 18px 0 12px;
+    }
+    .trend-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px 24px;
+    }
+    .trend-head h2 { margin: 0; color: var(--heading); font-size: 16px; font-weight: 640; }
+    .trend-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .trend-latest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .trend-key { display: inline-flex; align-items: center; gap: 6px; color: var(--secondary); font-size: 12px; }
+    .trend-key::before { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); content: ""; }
+    .trend-key.cited::before { background: var(--positive); }
+    .trend-key strong { color: var(--heading); font-family: var(--mono); font-size: 13px; }
+    .trend-chart { width: 100%; height: 245px; margin-top: 12px; overflow: hidden; }
+    .trend-chart svg { display: block; width: 100%; height: 100%; }
+    .trend-grid { stroke: var(--border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .trend-axis-label { fill: var(--faint); font-family: var(--mono); font-size: 10px; }
+    .trend-line { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.25; vector-effect: non-scaling-stroke; }
+    .trend-line.mention { stroke: var(--accent); }
+    .trend-line.citation { stroke: var(--positive); }
+    .trend-dot { stroke: var(--bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .trend-dot.mention { fill: var(--accent); }
+    .trend-dot.citation { fill: var(--positive); }
+    .trend-date-row { display: none; }
+    .trend-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-top: 15px; }
+    .trend-control-group { display: flex; flex-wrap: wrap; gap: 10px; }
+    .trend-readout { display: flex; align-items: baseline; gap: 9px; }
+    .trend-readout strong { color: var(--heading); font-family: var(--mono); font-size: 25px; font-variant-numeric: tabular-nums; }
+    .trend-readout span { color: var(--positive); font-family: var(--mono); font-size: 12px; }
+    .trend-legend-list { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 13px 0 0; padding: 0; list-style: none; }
+    .trend-legend-item { display: inline-grid; grid-template-columns: 8px auto auto; align-items: center; gap: 7px; color: var(--secondary); font-size: 12px; }
+    .trend-legend-item::before { width: 7px; height: 7px; border-radius: 50%; background: var(--series-color); content: ""; }
+    .trend-legend-item strong { color: var(--heading); font-family: var(--mono); font-size: 12px; }
+    .scope-change { margin-top: 24px; border-block: 1px solid var(--border); padding: 18px 0; }
+    .change-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); margin-top: 13px; }
+    .change-item { padding: 0 18px; border-right: 1px solid var(--border-subtle); }
+    .change-item:first-child { padding-left: 0; }
+    .change-item:last-child { border-right: 0; }
+    .change-item span { display: block; color: var(--muted); font-size: 11px; }
+    .change-item strong { display: block; margin-top: 4px; color: var(--heading); font-family: var(--mono); font-size: 16px; }
+
+    .workspace-tabs { display: inline-flex; margin-top: 18px; border-bottom: 1px solid var(--border); }
+    .workspace-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 8px 13px; }
+    .workspace-tabs button:hover { color: var(--heading); }
+    .workspace-tabs button.active { border-bottom-color: var(--accent); color: var(--text); font-weight: 620; }
+    .query-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; padding: 16px 0; }
+    .query-toolbar .grow { flex: 1; min-width: 260px; }
+    .query-composer {
+      margin: 0 0 18px;
+      border-block: 1px solid var(--border);
+      background: var(--surface-subtle);
+      padding: 16px;
+    }
+    .query-composer-grid { display: grid; grid-template-columns: minmax(280px, 1.25fr) minmax(180px, .75fr) minmax(180px, .75fr); gap: 12px; }
+    textarea.control { min-height: 92px; resize: vertical; }
+    .query-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; border-block: 1px solid var(--border); padding: 11px 0; color: var(--secondary); font-size: 12px; }
+    .query-notice strong { color: var(--heading); }
+    .test-layout { display: grid; grid-template-columns: minmax(340px, .85fr) minmax(420px, 1.15fr); gap: 22px; margin-top: 18px; }
+    .test-pane + .test-pane { border-left: 1px solid var(--border); padding-left: 22px; }
+    .test-pane h2, .settings-section h2 { margin: 0; color: var(--heading); font-size: 16px; }
+    .test-pane > p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .form-stack { display: grid; gap: 12px; margin-top: 16px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .test-batches { display: grid; gap: 2px; margin-top: 14px; }
+    .test-batch { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; color: var(--secondary); padding: 10px 4px; text-align: left; }
+    .test-batch:hover, .test-batch.active { background: var(--surface-hover); color: var(--heading); }
+    .test-result { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .settings-section { padding: 22px 0; border-top: 1px solid var(--border); }
+    .settings-section:first-of-type { margin-top: 20px; }
+    .settings-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px; margin-top: 14px; }
+    .settings-facts { display: grid; gap: 5px; color: var(--secondary); font-size: 12px; }
+    .settings-facts strong { color: var(--heading); font-size: 14px; }
+    .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .schedule-editor { max-width: 760px; margin-top: 16px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+    .promotion-panel { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 18px; }
+    .promotion-panel .section-head { align-items: flex-start; }
+    .promotion-panel .section-head h2 { margin: 3px 0 0; color: var(--heading); font-size: 18px; }
+    .promotion-panel .section-head p { max-width: 70ch; margin: 5px 0 0; color: var(--secondary); }
+    .promotion-steps {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 16px 0 0;
+      padding: 0;
+      border-bottom: 1px solid var(--border);
+      list-style: none;
+    }
+    .promotion-step {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 48px;
+      color: var(--faint);
+      padding: 9px 12px;
+      font-size: 12px;
+    }
+    .promotion-step:first-child { padding-left: 0; }
+    .promotion-step-number {
+      display: inline-grid;
+      width: 23px;
+      height: 23px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .promotion-step.current { color: var(--heading); font-weight: 620; }
+    .promotion-step.current .promotion-step-number { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .promotion-step.complete { color: var(--secondary); }
+    .promotion-step.complete .promotion-step-number { border-color: oklch(0.5 0.09 156); background: var(--positive-soft); color: var(--positive); }
+    .promotion-body { max-width: 980px; padding-top: 18px; }
+    .promotion-body h3 { margin: 0; color: var(--heading); font-size: 16px; }
+    .promotion-body > p { max-width: 70ch; margin: 6px 0 0; color: var(--secondary); }
+    .promotion-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 17px; color: var(--muted); font-size: 12px; }
+    .promotion-fields { display: grid; grid-template-columns: minmax(280px, 1.4fr) minmax(180px, .6fr); gap: 14px; margin-top: 18px; }
+    .promotion-query {
+      border-block: 1px solid var(--border);
+      padding: 14px 0;
+      color: var(--heading);
+      font-size: 15px;
+      font-weight: 610;
+      line-height: 1.5;
+    }
+    .assignment-preview { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+    .assignment-preview span { border: 1px solid var(--border); border-radius: 4px; color: var(--secondary); padding: 3px 7px; font-size: 11px; }
+    .promotion-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 22px; border-top: 1px solid var(--border); padding-top: 16px; }
+    .promotion-actions-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .review-list { margin: 20px 0 0; border-block: 1px solid var(--border); }
+    .review-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+    .review-row:last-child { border-bottom: 0; }
+    .review-row dt { color: var(--muted); font-size: 12px; }
+    .review-row dd { margin: 0; color: var(--strong); }
+    .review-impact { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 15px; color: var(--secondary); font-size: 12px; }
+    .review-impact strong { color: var(--heading); font-family: var(--mono); }
+    .scope-table-actions { width: 1%; text-align: right; }
+    .portfolio-groups table { min-width: 720px; }
+    .scope-table table { min-width: 760px; }
+    .scope-link { display: inline-flex; min-height: 30px; align-items: center; border: 0; background: transparent; color: var(--accent); padding: 3px 4px; font-weight: 620; }
+    .scope-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .scope-meta { color: var(--secondary); font-size: 12px; }
+    .question-signal { display: inline-flex; align-items: center; gap: 6px; color: var(--secondary); font-size: 12px; white-space: nowrap; }
+    .signal-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--border-strong); }
+    .signal-dot.yes { background: var(--positive); }
+    .signal-dot.no { background: var(--negative); }
+
+    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 7px; }
+    table { width: 100%; border-collapse: collapse; }
+    caption { text-align: left; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: oklch(0.185 0.009 286 / 0.98);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 680;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr.data-row:hover td { background: var(--surface-hover); }
+    tbody tr.selected td { background: var(--accent-soft); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .property-name { color: var(--heading); font-weight: 610; }
+    .subline { margin-top: 2px; color: var(--faint); font-size: 11px; font-weight: 450; }
+    .metric-cell { min-width: 116px; }
+    .metric-value { display: block; color: var(--heading); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; }
+    .metric-fraction { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .not-measured { color: var(--secondary); font-size: 12px; }
+    .delta { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .delta.up { color: var(--positive); }
+    .delta.down { color: var(--negative); }
+    .delta.flat { color: var(--muted); }
+    .text-button { border: 0; background: transparent; color: var(--heading); padding: 0; text-align: left; }
+    .text-button:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    .expand-button { display: inline-grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--secondary); }
+    .expand-button:hover { background: var(--surface-hover); color: var(--heading); }
+    .expanded-row td { background: var(--surface-subtle); padding: 0; }
+    .expanded-content { padding: 12px 16px 16px 48px; }
+    .mini-table { max-width: 960px; }
+    .mini-table th, .mini-table td { padding: 7px 10px; }
+    .table-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 10px;
+      color: var(--secondary);
+      font-size: 12px;
+    }
+
+    .explorer-grid {
+      display: grid;
+      grid-template-columns: 200px minmax(430px, 1fr) 300px;
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface-subtle);
+    }
+    .explorer-tree, .inspector { min-width: 0; padding: 14px; background: oklch(0.17 0.008 286 / 0.64); }
+    .explorer-tree { border-right: 1px solid var(--border); }
+    .inspector { border-left: 1px solid var(--border); }
+    .panel-title { margin: 0 0 10px; color: var(--heading); font-size: 12px; font-weight: 660; letter-spacing: 0.04em; text-transform: uppercase; }
+    .tree-list { display: grid; gap: 2px; margin-top: 10px; }
+    .tree-item {
+      display: flex;
+      width: 100%;
+      min-height: 33px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--secondary);
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .tree-item:hover { background: var(--surface-hover); color: var(--heading); }
+    .tree-item.active { background: var(--surface-active); color: var(--text); font-weight: 610; }
+    .tree-item span:last-child { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+    .explorer-results { min-width: 0; background: var(--bg); }
+    .explorer-toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; border-bottom: 1px solid var(--border); }
+    .explorer-table { max-height: 556px; overflow: auto; }
+    .explorer-table table { min-width: 760px; }
+    .inspector h3 { margin: 0; color: var(--heading); font-size: 17px; font-weight: 640; }
+    .inspector .market { margin: 3px 0 14px; color: var(--secondary); font-size: 12px; }
+    .inspector-section { padding: 14px 0; border-top: 1px solid var(--border-subtle); }
+    .inspector-section h4 { margin: 0 0 9px; color: var(--strong); font-size: 12px; font-weight: 630; }
+    .inspector-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .inspector-metric span { display: block; color: var(--muted); font-size: 11px; }
+    .inspector-metric strong { display: block; margin-top: 3px; color: var(--heading); font-family: var(--mono); font-size: 15px; }
+    .engine-list, .evidence-list { display: grid; gap: 7px; }
+    .engine-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; color: var(--secondary); font-size: 12px; }
+    .engine-row span:not(:first-child) { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .evidence-item { padding: 9px 0; border-top: 1px solid var(--border-subtle); }
+    .evidence-item:first-child { border-top: 0; padding-top: 0; }
+    .evidence-item strong { display: block; color: var(--strong); font-size: 12px; }
+    .evidence-item span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .queue-grid {
+      display: grid;
+      grid-template-columns: 190px minmax(460px, 1fr) 300px;
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+    }
+    .queue-nav { padding: 14px; border-right: 1px solid var(--border); background: var(--surface-subtle); }
+    .queue-nav-list { display: grid; gap: 3px; }
+    .queue-view {
+      display: flex;
+      width: 100%;
+      min-height: 39px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--secondary);
+      padding: 8px 9px;
+      text-align: left;
+    }
+    .queue-view:hover { background: var(--surface-hover); color: var(--heading); }
+    .queue-view.active { background: var(--surface-active); color: var(--text); font-weight: 610; }
+    .queue-view span:last-child { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+    .queue-results { min-width: 0; background: var(--bg); }
+    .queue-results .table-wrap { max-height: 570px; border: 0; border-radius: 0; }
+    .queue-results table { min-width: 780px; }
+    .queue-detail { min-width: 0; padding: 16px; border-left: 1px solid var(--border); background: var(--surface-subtle); }
+    .queue-detail h3 { margin: 0; color: var(--heading); font-size: 17px; }
+    .queue-detail .property-context { margin: 4px 0 16px; color: var(--secondary); font-size: 12px; }
+    .fact-list { margin: 0; }
+    .fact-list > div { display: grid; grid-template-columns: 112px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-subtle); }
+    .fact-list dt { color: var(--muted); font-size: 12px; }
+    .fact-list dd { margin: 0; color: var(--strong); font-size: 12px; }
+    .quote {
+      margin: 12px 0 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      padding: 11px 12px;
+      color: var(--secondary);
+      font-size: 12px;
+    }
+    .queue-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
+    .compare-picker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 10px 14px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .selection-summary { margin-left: auto; color: var(--secondary); font-size: 12px; }
+    .comparison-table table { min-width: 900px; }
+    .comparison-table th:first-child, .comparison-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-elevated); }
+    .comparison-table thead th:first-child { z-index: 3; }
+    .scope-cell { min-width: 190px; }
+    .scope-cell .remove { float: right; margin-left: 8px; }
+    .remove {
+      display: inline-grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+    }
+    .remove:hover { background: var(--surface-hover); color: var(--heading); }
+    .heat { min-width: 112px; }
+    .heat-track { height: 4px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: var(--surface-active); }
+    .heat-track span { display: block; height: 100%; background: var(--accent); }
+    .matrix table { min-width: 780px; }
+    .matrix-cell { min-width: 125px; }
+    .matrix-cell strong { display: block; color: var(--heading); font-family: var(--mono); font-size: 12px; }
+    .matrix-cell span { display: block; color: var(--muted); font-size: 10px; }
+
+    .prototype-footnote {
+      margin-top: 24px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .prototype-footnote summary { cursor: pointer; color: var(--secondary); font-weight: 620; }
+    .prototype-footnote ul { max-width: 76ch; margin: 10px 0 0; padding-left: 18px; }
+    .prototype-footnote li + li { margin-top: 5px; }
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 50;
+      max-width: 360px;
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow);
+      color: var(--strong);
+      padding: 11px 14px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 180ms ease-out, transform 180ms ease-out;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1220px) {
+      .prototype-bar { grid-template-columns: minmax(280px, 1fr) auto; }
+      .explorer-grid, .queue-grid { grid-template-columns: 205px minmax(500px, 1fr); }
+      .inspector, .queue-detail { grid-column: 1 / -1; border-top: 1px solid var(--border); border-left: 0; }
+      .inspector { display: grid; grid-template-columns: minmax(220px, 0.8fr) repeat(2, minmax(220px, 1fr)); gap: 0 24px; }
+      .inspector > .inspector-section { border-top: 0; }
+    }
+    @media (max-width: 940px) {
+      .prototype-bar { position: static; grid-template-columns: 1fr; }
+      .prototype-title { border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+      .dataset-note { min-height: 38px; padding-block: 8px; }
+      .app-shell { display: block; }
+      .sidebar { display: none; }
+      .project-header { display: block; }
+      .project-header-right { justify-items: start; margin-top: 18px; text-align: left; }
+      .project-header-actions { justify-content: flex-start; }
+      .content { padding-inline: 18px; }
+      .project-frame { padding-inline: 18px; }
+      .metrics-strip { grid-template-columns: repeat(2, 1fr); }
+      .metrics-strip.three { grid-template-columns: repeat(2, 1fr); }
+      .metric-summary:nth-child(2) { border-right: 0; }
+      .metric-summary:nth-child(-n+2) { border-bottom: 1px solid var(--border-subtle); }
+      .metric-summary:nth-child(3) { padding-left: 0; }
+      .explorer-grid, .queue-grid { display: block; }
+      .explorer-tree, .queue-nav { border-right: 0; border-bottom: 1px solid var(--border); }
+      .tree-list, .queue-nav-list { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .inspector { display: block; border-top: 1px solid var(--border); }
+      .test-layout { grid-template-columns: 1fr; }
+      .test-pane + .test-pane { border-top: 1px solid var(--border); border-left: 0; padding-top: 20px; padding-left: 0; }
+      .query-composer-grid { grid-template-columns: 1fr 1fr; }
+      .query-composer-grid .field:first-child { grid-column: 1 / -1; }
+      .promotion-fields { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .page-head { display: block; }
+      .head-actions { justify-content: flex-start; margin-top: 14px; }
+      .metrics-strip { display: block; }
+      .metrics-strip.three { display: block; }
+      .metric-summary { border-right: 0; border-bottom: 1px solid var(--border-subtle); padding-left: 0; }
+      .metric-summary:last-child { border-bottom: 0; }
+      .outcomes { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); }
+      .tree-list, .queue-nav-list { grid-template-columns: 1fr; }
+      .selection-summary { width: 100%; margin-left: 0; }
+      .trend-chart { height: 190px; }
+      .trend-chart svg { height: 165px; }
+      .trend-axis-label { display: none; }
+      .trend-date-row { display: flex; align-items: center; justify-content: space-between; margin: 3px 8px 0; color: var(--faint); font-family: var(--mono); font-size: 10px; }
+      .change-grid, .query-composer-grid, .form-grid { display: block; }
+      .change-item { border-right: 0; border-bottom: 1px solid var(--border-subtle); padding: 10px 0; }
+      .change-item:last-child { border-bottom: 0; }
+      .query-composer-grid .field, .form-grid .field { margin-top: 10px; }
+      .promotion-steps { grid-template-columns: 1fr; }
+      .promotion-step { min-height: 38px; padding-left: 0; }
+      .review-row { grid-template-columns: 1fr; gap: 4px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="prototype-bar">
+    <div class="prototype-title">
+      <span class="eyebrow">Selected direction</span>
+      <strong>Advanced Measurement · Portfolio Pulse</strong>
+    </div>
+    <div class="dataset-note">225 Properties · 15 Groups · synthetic</div>
+  </header>
+
+  <div class="app-shell">
+    <main class="main">
+      <div class="project-frame">
+        <header class="project-header">
+          <div class="project-identity">
+            <h1>Northstar Demo</h1>
+            <p>northstar.example · 225-property synthetic portfolio</p>
+            <div class="tag-row"><span class="tag">US</span><span class="tag">EN</span><span class="tag">PROPERTY PORTFOLIO</span></div>
+          </div>
+          <div class="project-header-right">
+            <p class="project-period">Last 30 days</p>
+            <div class="project-header-actions">
+              <button type="button" class="schedule-summary" data-project-section="settings">Next AI sweep · Wednesday at 9:00 AM UTC</button>
+              <button type="button" class="button" data-run-sweep>Run AI sweep</button>
+            </div>
+          </div>
+        </header>
+        <nav class="project-subnav" aria-label="Project sections">
+          <button type="button" data-project-section="visibility">AI Visibility</button>
+          <button type="button" data-toast="Search Engines remains unchanged in the current project UI.">Search Engines</button>
+          <button type="button" data-toast="Activity remains traffic and conversion activity, not AI sweep history.">Activity</button>
+          <button type="button" data-toast="Site Health remains unchanged in the current project UI.">Site Health</button>
+          <button type="button" data-toast="Conversions remains unchanged in the current project UI.">Conversions</button>
+          <button type="button" data-toast="Local Presence remains unchanged in the current project UI.">Local Presence</button>
+          <button type="button" data-project-section="queries">Queries</button>
+          <span class="subnav-spacer" aria-hidden="true"></span>
+          <button type="button" data-toast="Report and Change History live under More in the current UI.">More</button>
+          <button type="button" data-project-section="settings">Settings</button>
+        </nav>
+      </div>
+      <div id="flow-root" class="content" role="region" aria-label="Portfolio Pulse prototype" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const groupDefinitions = [
+      { key: 'metro-alpha', label: 'Metro Alpha', count: 15 },
+      { key: 'metro-bravo', label: 'Metro Bravo', count: 15 },
+      { key: 'metro-charlie', label: 'Metro Charlie', count: 15 },
+      { key: 'metro-delta', label: 'Metro Delta', count: 15 },
+      { key: 'metro-echo', label: 'Metro Echo', count: 15 },
+      { key: 'metro-foxtrot', label: 'Metro Foxtrot', count: 15 },
+      { key: 'metro-golf', label: 'Metro Golf', count: 15 },
+      { key: 'metro-hotel', label: 'Metro Hotel', count: 15 },
+      { key: 'metro-india', label: 'Metro India', count: 15 },
+      { key: 'metro-juliet', label: 'Metro Juliet', count: 15 },
+      { key: 'metro-kilo', label: 'Metro Kilo', count: 15 },
+      { key: 'metro-lima', label: 'Metro Lima', count: 15 },
+      { key: 'metro-mike', label: 'Metro Mike', count: 15 },
+      { key: 'metro-november', label: 'Metro November', count: 15 },
+      { key: 'metro-oscar', label: 'Metro Oscar', count: 15 },
+    ]
+    const nameStems = [
+      'Arden', 'Avery', 'Beacon', 'Briar', 'Crescent', 'District', 'Emerson', 'Foundry',
+      'Harbor', 'Juniper', 'Kendall', 'Landmark', 'Mason', 'Northline', 'Orchard', 'Preserve',
+      'Quarry', 'Ridge', 'Station', 'Terrace', 'Union', 'Vantage', 'Wren', 'Yards',
+    ]
+    const providers = ['OpenAI', 'Gemini', 'Perplexity']
+    const recommendedNames = ['Blue Oak Demo', 'Harborstone Demo', 'Pine & Peak Demo', 'Signal Demo', 'Summit Grove Demo', 'Willowline Demo']
+
+    function routeFromHash() {
+      const parts = location.hash.slice(1).split('/').filter(Boolean)
+      if (parts[0] === 'queries') {
+        const queryView = ['tracked', 'discover', 'test'].includes(parts[1]) ? parts[1] : 'tracked'
+        return { section: 'queries', queryView, pulseGroup: null, pulseProperty: null }
+      }
+      if (parts[0] === 'settings') return { section: 'settings', queryView: 'tracked', pulseGroup: null, pulseProperty: null }
+      if (parts[1] === 'group' && parts[2]) return { section: 'visibility', queryView: 'tracked', pulseGroup: parts[2], pulseProperty: null }
+      if (parts[1] === 'property' && parts[2]) return { section: 'visibility', queryView: 'tracked', pulseGroup: null, pulseProperty: parts[2] }
+      return { section: 'visibility', queryView: 'tracked', pulseGroup: null, pulseProperty: null }
+    }
+    const initialRoute = routeFromHash()
+    const state = {
+      section: initialRoute.section,
+      queryView: initialRoute.queryView,
+      queryClass: 'nonBrand',
+      pulseGroup: initialRoute.pulseGroup,
+      pulseProperty: initialRoute.pulseProperty,
+      trendMetric: 'mentioned',
+      trendMode: 'byEngine',
+      queryComposer: false,
+      researchComplete: true,
+      promotionStep: 0,
+      promotionQuery: '',
+      publishedQuery: '',
+      scheduleEditing: false,
+    }
+
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)) }
+    function percent(numerator, denominator) { return denominator > 0 ? Math.round((numerator / denominator) * 100) : null }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+      })[character])
+    }
+    function slug(value) { return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
+    function allocate(total, count) {
+      const base = Math.floor(total / count)
+      const remainder = total % count
+      return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0))
+    }
+    function propertyName(group, localIndex, globalIndex) {
+      const stem = nameStems[(globalIndex * 5 + localIndex) % nameStems.length]
+      const pattern = globalIndex % 3
+      if (pattern === 0) return `Northstar Demo ${stem}`
+      if (pattern === 1) return `The ${stem} at ${group.label}`
+      return `${stem} ${group.label}`
+    }
+    function makeMetrics(index, groupIndex, kind) {
+      const isNonBrand = kind === 'nonBrand'
+      const unavailable = isNonBrand ? index % 17 === 0 : index % 7 === 0
+      const measured = unavailable ? 0 : isNonBrand
+        ? 8 + ((index * 5 + groupIndex * 3) % 17)
+        : 4 + ((index * 3 + groupIndex) % 8)
+      let mentioned = measured === 0 ? 0 : Math.round(measured * ((isNonBrand ? 31 : 69) + ((index * 11 + groupIndex * 7) % (isNonBrand ? 48 : 26))) / 100)
+      let cited = measured === 0 ? 0 : Math.round(measured * ((isNonBrand ? 8 : 43) + ((index * 13 + groupIndex * 5) % (isNonBrand ? 55 : 43))) / 100)
+      if (isNonBrand && measured > 0 && index % 13 === 0) cited = 0
+      if (isNonBrand && measured > 0 && index % 31 === 0) mentioned = 0
+      if (isNonBrand && measured > 0 && index % 47 === 0) { mentioned = 0; cited = 0 }
+      if (!isNonBrand && measured > 0 && index % 29 === 0) cited = 0
+      mentioned = clamp(mentioned, 0, measured)
+      cited = clamp(cited, 0, measured)
+      const intendedDelta = ((index * 7 + groupIndex * 3 + (isNonBrand ? 0 : 4)) % 17) - 8
+      const previousCited = measured === 0 ? 0 : clamp(cited - Math.round(measured * intendedDelta / 100), 0, measured)
+      const previousMentioned = measured === 0 ? 0 : clamp(mentioned - Math.round(measured * (intendedDelta / 2) / 100), 0, measured)
+      const measuredSplit = allocate(measured, providers.length)
+      const mentionedSplit = allocate(mentioned, providers.length)
+      const citedSplit = allocate(cited, providers.length)
+      return {
+        measured,
+        mentioned,
+        cited,
+        previousMentioned,
+        previousCited,
+        delta: measured > 0 ? percent(cited, measured) - percent(previousCited, measured) : null,
+        providers: providers.map((provider, providerIndex) => ({
+          provider,
+          measured: measuredSplit[providerIndex],
+          mentioned: mentionedSplit[providerIndex],
+          cited: citedSplit[providerIndex],
+        })),
+      }
+    }
+
+    const properties = []
+    let globalPropertyIndex = 0
+    groupDefinitions.forEach((group, groupIndex) => {
+      for (let localIndex = 0; localIndex < group.count; localIndex += 1) {
+        const name = propertyName(group, localIndex, globalPropertyIndex)
+        const nonBrand = makeMetrics(globalPropertyIndex, groupIndex, 'nonBrand')
+        const branded = makeMetrics(globalPropertyIndex, groupIndex, 'branded')
+        const evidenceIncomplete = nonBrand.measured > 0 && globalPropertyIndex % 37 === 0
+        const stale = globalPropertyIndex % 41 === 0
+        const crossProperty = globalPropertyIndex % 29 === 0
+        let issue = null
+        if (nonBrand.measured === 0) issue = 'not-measured'
+        else if (evidenceIncomplete) issue = 'incomplete'
+        else if (nonBrand.delta <= -5) issue = 'regressed'
+        else if (percent(nonBrand.cited, nonBrand.measured) < 20) issue = 'weak'
+        else if (crossProperty) issue = 'cross-property'
+        else if (stale) issue = 'stale'
+        properties.push({
+          id: `property-${globalPropertyIndex + 1}`,
+          name,
+          groupKey: group.key,
+          groupLabel: group.label,
+          nonBrand,
+          branded,
+          issue,
+          stale,
+          evidenceIncomplete,
+          crossProperty,
+          urls: [`https://portfolio.example/properties/${slug(name)}/`],
+          queries: [
+            `best apartments in ${group.label}`,
+            `luxury apartments near ${group.label}`,
+            `${name} reviews`,
+          ],
+          recommended: [
+            recommendedNames[(globalPropertyIndex + groupIndex) % recommendedNames.length],
+            recommendedNames[(globalPropertyIndex + groupIndex + 2) % recommendedNames.length],
+          ],
+        })
+        globalPropertyIndex += 1
+      }
+    })
+
+    function metricFor(property, classKey) { return property[classKey] }
+    function median(values) {
+      if (values.length === 0) return null
+      const sorted = [...values].sort((a, b) => a - b)
+      const middle = Math.floor(sorted.length / 2)
+      return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2)
+    }
+    function aggregate(rows, classKey) {
+      const metrics = rows.map(property => metricFor(property, classKey))
+      const measuredRows = metrics.filter(metric => metric.measured > 0)
+      const measured = metrics.reduce((sum, metric) => sum + metric.measured, 0)
+      const mentioned = metrics.reduce((sum, metric) => sum + metric.mentioned, 0)
+      const cited = metrics.reduce((sum, metric) => sum + metric.cited, 0)
+      const previousCited = metrics.reduce((sum, metric) => sum + metric.previousCited, 0)
+      const previousMentioned = metrics.reduce((sum, metric) => sum + metric.previousMentioned, 0)
+      const outcomes = { both: 0, mentionOnly: 0, citeOnly: 0, neither: 0, unavailable: 0 }
+      metrics.forEach(metric => {
+        if (metric.measured === 0) outcomes.unavailable += 1
+        else if (metric.mentioned > 0 && metric.cited > 0) outcomes.both += 1
+        else if (metric.mentioned > 0) outcomes.mentionOnly += 1
+        else if (metric.cited > 0) outcomes.citeOnly += 1
+        else outcomes.neither += 1
+      })
+      const providerTotals = providers.map((provider, providerIndex) => ({
+        provider,
+        measured: metrics.reduce((sum, metric) => sum + metric.providers[providerIndex].measured, 0),
+        mentioned: metrics.reduce((sum, metric) => sum + metric.providers[providerIndex].mentioned, 0),
+        cited: metrics.reduce((sum, metric) => sum + metric.providers[providerIndex].cited, 0),
+      }))
+      return {
+        propertyCount: rows.length,
+        measuredPropertyCount: measuredRows.length,
+        propertiesMentioned: measuredRows.filter(metric => metric.mentioned > 0).length,
+        propertiesCited: measuredRows.filter(metric => metric.cited > 0).length,
+        measured,
+        mentioned,
+        cited,
+        previousMentioned,
+        previousCited,
+        mentionCoverage: percent(mentioned, measured),
+        citationCoverage: percent(cited, measured),
+        previousCitationCoverage: percent(previousCited, measured),
+        previousMentionCoverage: percent(previousMentioned, measured),
+        delta: measured > 0 ? percent(cited, measured) - percent(previousCited, measured) : null,
+        medianCitation: median(measuredRows.map(metric => percent(metric.cited, metric.measured))),
+        outcomes,
+        providers: providerTotals,
+      }
+    }
+    function groupRows(groupKey) { return properties.filter(property => property.groupKey === groupKey) }
+    function groupSummaries(classKey) {
+      return groupDefinitions.map(group => ({ ...group, rows: groupRows(group.key), aggregate: aggregate(groupRows(group.key), classKey) }))
+    }
+    function formatMetric(numerator, denominator, label = '') {
+      const value = percent(numerator, denominator)
+      if (value === null) return `<span class="not-measured" title="No matching measured answers">Not measured</span>`
+      return `<span class="metric-value">${value}%</span><span class="metric-fraction">${numerator.toLocaleString()} of ${denominator.toLocaleString()}${label ? ` ${escapeHtml(label)}` : ''}</span>`
+    }
+    function pulseStatusFor(property, metric) {
+      if (metric.measured === 0) return ['Not measured', 'caution']
+      if (property.evidenceIncomplete) return ['Evidence incomplete', 'caution']
+      if (property.crossProperty) return ['Ambiguous source', 'caution']
+      return ['Measured', 'positive']
+    }
+    function badge(label, tone) { return `<span class="badge ${tone}">${escapeHtml(label)}</span>` }
+    function queryClassControl(value, owner) {
+      return `<div class="field"><span class="field-label">Query type</span><div class="segment" role="group" aria-label="Query type">
+        <button type="button" data-query-class="nonBrand" data-owner="${owner}" aria-pressed="${value === 'nonBrand'}">Non-brand</button>
+        <button type="button" data-query-class="branded" data-owner="${owner}" aria-pressed="${value === 'branded'}">Branded</button>
+      </div></div>`
+    }
+    function outcomesHtml(outcomes) {
+      const total = Object.values(outcomes).reduce((sum, value) => sum + value, 0) || 1
+      return `<div class="distribution" aria-label="Property outcome distribution">
+          <span class="both" style="width:${outcomes.both / total * 100}%" title="${outcomes.both} mentioned and cited"></span>
+          <span class="mention-only" style="width:${outcomes.mentionOnly / total * 100}%" title="${outcomes.mentionOnly} mentioned only"></span>
+          <span class="cite-only" style="width:${outcomes.citeOnly / total * 100}%" title="${outcomes.citeOnly} cited only"></span>
+          <span class="neither" style="width:${outcomes.neither / total * 100}%" title="${outcomes.neither} neither signal"></span>
+          ${outcomes.unavailable > 0 ? `<span class="unavailable" style="width:${outcomes.unavailable / total * 100}%" title="${outcomes.unavailable} not measured"></span>` : ''}
+        </div>
+        <div class="outcomes">
+          <div class="outcome" title="Mentioned and cited"><strong>${outcomes.both}</strong><span>Both</span></div>
+          <div class="outcome"><strong>${outcomes.mentionOnly}</strong><span>Mention only</span></div>
+          <div class="outcome"><strong>${outcomes.citeOnly}</strong><span>Citation only</span></div>
+          <div class="outcome neither"><strong>${outcomes.neither}</strong><span>Neither</span></div>
+          ${outcomes.unavailable > 0 ? `<div class="outcome unavailable"><strong>${outcomes.unavailable}</strong><span>Not measured</span></div>` : ''}
+        </div>`
+    }
+
+    function pulseScopeHeader({ title, context, measuredLabel, group = null, property = null }) {
+      const portfolioCrumb = group || property
+        ? '<button type="button" data-pulse-back="portfolio">Portfolio</button>'
+        : '<span>Portfolio</span>'
+      const groupCrumb = group
+        ? `${property ? `<button type="button" data-pulse-back="group" data-group-key="${group.key}">${escapeHtml(group.label)}</button>` : `<span>${escapeHtml(group.label)}</span>`}`
+        : ''
+      return `<div class="breadcrumb"><span>Northstar Demo</span><span class="breadcrumb-separator">/</span>${portfolioCrumb}${groupCrumb ? `<span class="breadcrumb-separator">/</span>${groupCrumb}` : ''}${property ? `<span class="breadcrumb-separator">/</span><span>${escapeHtml(property.name)}</span>` : ''}</div>
+        <div class="page-head">
+          <div><h1>${escapeHtml(title)}</h1>${context ? `<p>${escapeHtml(context)}</p>` : ''}</div>
+          <div class="head-actions">
+            ${group || property ? `<button type="button" class="button" data-spot-check="${property ? 'Property' : 'Group'}">Spot check ${property ? 'Property' : 'Group'}</button>` : ''}
+            <button type="button" class="button" data-open-query-view="test">Test queries</button>
+            <button type="button" class="button ghost" data-project-section="settings">Measurement setup</button>
+          </div>
+        </div>
+        <div class="status-line"><span class="badge positive">Complete</span><span>Latest full sweep · 2 days ago</span><span>${escapeHtml(measuredLabel)}</span><span class="spacer"></span><button type="button" class="scope-link" data-open-query-view="tracked">36 tracked queries</button></div>`
+    }
+
+    function projectQueryTrendHtml(rows, classKey) {
+      const summary = aggregate(rows, classKey)
+      if (summary.measured === 0) {
+        return `<section class="scope-trend" aria-labelledby="project-trend-title"><div class="trend-head"><div><h2 id="project-trend-title">Visibility over time</h2><p>Run a full AI sweep to start the project trend.</p></div></div></section>`
+      }
+      const metricLabels = { mentioned: 'Mentioned', cited: 'Cited', mentionShare: 'Mention share' }
+      const metric = state.trendMetric
+      const mentionShare = Math.round(((summary.propertiesMentioned + Math.max(0, summary.propertyCount - summary.propertiesMentioned) * .2) / summary.propertyCount) * 100)
+      const current = metric === 'cited' ? summary.citationCoverage : metric === 'mentionShare' ? mentionShare : summary.mentionCoverage
+      const previous = metric === 'cited' ? summary.previousCitationCoverage : metric === 'mentionShare' ? mentionShare - 2 : summary.previousMentionCoverage
+      const now = current ?? 0
+      const delta = previous === null || previous === undefined ? null : now - previous
+      const dates = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6', 'Week 7', 'Week 8']
+      const offsets = [-7, -5, -6, -3, -4, -2, delta === null ? -1 : -delta, 0]
+      const engines = [
+        { label: 'OpenAI', color: 'var(--accent)', shift: 4 },
+        { label: 'Gemini', color: 'var(--positive)', shift: 0 },
+        { label: 'Perplexity', color: 'var(--info)', shift: -3 },
+      ]
+      const visibleSeries = state.trendMode === 'overall' || metric === 'mentionShare'
+        ? [{ label: 'All engines', color: 'var(--accent)', shift: 0 }]
+        : engines
+      const x = index => 52 + index * 100
+      const y = value => 16 + (100 - value) * 1.72
+      const grid = [100, 75, 50, 25, 0].map(value => `<line class="trend-grid" x1="52" y1="${y(value)}" x2="752" y2="${y(value)}"></line><text class="trend-axis-label" x="42" y="${y(value) + 3}" text-anchor="end">${value}%</text>`).join('')
+      const dateLabels = [0, 2, 4, 7].map(index => `<text class="trend-axis-label" x="${x(index)}" y="216" text-anchor="middle">${dates[index]}</text>`).join('')
+      const lines = visibleSeries.map((series, seriesIndex) => {
+        const values = dates.map((_, index) => clamp(Math.round(now + series.shift + offsets[index] + ((seriesIndex + index) % 3) - 1), 0, 100))
+        values[values.length - 1] = clamp(now + series.shift, 0, 100)
+        const points = values.map((value, index) => `${x(index)},${y(value)}`).join(' ')
+        return `<polyline class="trend-line" style="stroke:${series.color}" points="${points}"></polyline><circle class="trend-dot" style="fill:${series.color}" cx="752" cy="${y(values[values.length - 1])}" r="4"></circle>`
+      }).join('')
+      return `<section class="scope-trend" aria-labelledby="project-trend-title">
+        <div class="trend-head"><div><h2 id="project-trend-title">Visibility over time</h2><p>Project queries · all tracked queries · full sweeps only</p></div><button type="button" class="scope-link" data-toast="Change History compares full project sweeps and query coverage changes.">View history&nbsp;→</button></div>
+        <div class="trend-controls">
+          <div class="trend-control-group">
+            <div class="segment" role="group" aria-label="Trend metric">${Object.entries(metricLabels).map(([key, label]) => `<button type="button" data-trend-metric="${key}" aria-pressed="${metric === key}">${label}</button>`).join('')}</div>
+            ${metric !== 'mentionShare' ? `<div class="segment" role="group" aria-label="Trend series"><button type="button" data-trend-mode="byEngine" aria-pressed="${state.trendMode === 'byEngine'}">By engine</button><button type="button" data-trend-mode="overall" aria-pressed="${state.trendMode === 'overall'}">All engines</button></div>` : ''}
+            <div class="segment" role="group" aria-label="Trend window"><button type="button" data-toast="7-day trend window">7d</button><button type="button" data-toast="30-day trend window">30d</button><button type="button" data-toast="90-day trend window">90d</button><button type="button" aria-pressed="true">All</button></div>
+          </div>
+          <div class="trend-readout"><strong>${now}%</strong>${delta === null ? '' : `<span>${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts</span>`}</div>
+        </div>
+        <ul class="trend-legend-list" aria-label="Trend series">${visibleSeries.map(series => `<li class="trend-legend-item" style="--series-color:${series.color}"><span>${series.label}</span><strong>${clamp(now + series.shift, 0, 100)}%</strong></li>`).join('')}</ul>
+        <div class="trend-chart" role="img" aria-label="${metricLabels[metric]} trend for all tracked project queries across eight full sweeps">
+          <svg viewBox="0 0 800 228" preserveAspectRatio="none" aria-hidden="true">${grid}${lines}${dateLabels}</svg>
+          <div class="trend-date-row" aria-hidden="true"><span>Week 1</span><span>Week 3</span><span>Week 5</span><span>Week 8</span></div>
+        </div>
+      </section>`
+    }
+
+    function measurementChangeHtml(rows, classKey, label) {
+      const summary = aggregate(rows, classKey)
+      const mentionDelta = summary.previousMentionCoverage === null || summary.mentionCoverage === null
+        ? null
+        : summary.mentionCoverage - summary.previousMentionCoverage
+      const citationDelta = summary.previousCitationCoverage === null || summary.citationCoverage === null
+        ? null
+        : summary.citationCoverage - summary.previousCitationCoverage
+      const changedProperties = rows.filter(property => {
+        const metric = metricFor(property, classKey)
+        return metric.delta !== null && metric.delta !== 0
+      }).length
+      const signed = value => value === null ? 'N/A' : `${value > 0 ? '+' : ''}${value} pp`
+      return `<section class="scope-change" aria-labelledby="scope-change-title">
+        <div class="trend-head"><div><h2 id="scope-change-title">Since last full sweep</h2><p>${escapeHtml(label)} · comparable plan and engine scope</p></div><button type="button" class="scope-link" data-toast="This uses the existing current-versus-previous measurement change read.">View changes&nbsp;→</button></div>
+        <div class="change-grid">
+          <div class="change-item"><span>Mention coverage</span><strong>${signed(mentionDelta)}</strong></div>
+          <div class="change-item"><span>Citation coverage</span><strong>${signed(citationDelta)}</strong></div>
+          <div class="change-item"><span>Properties changed</span><strong>${changedProperties} of ${rows.length}</strong></div>
+        </div>
+      </section>`
+    }
+
+    function renderPulsePortfolio() {
+      const summaries = groupSummaries(state.queryClass)
+      const portfolio = aggregate(properties, state.queryClass)
+      return `${pulseScopeHeader({ title: 'Portfolio pulse', context: '', measuredLabel: `${portfolio.measuredPropertyCount} of ${portfolio.propertyCount} Properties measured` })}
+        <div class="toolbar">${queryClassControl(state.queryClass, 'pulse')}</div>
+        <section class="section" aria-labelledby="portfolio-summary-title">
+          <div class="section-head"><h2 id="portfolio-summary-title">Portfolio</h2><p>${portfolio.propertyCount} Properties</p></div>
+          <dl class="metrics-strip three pulse-metrics">
+            <div class="metric-summary"><dt>Properties mentioned</dt><dd>${portfolio.propertiesMentioned} of ${portfolio.propertyCount}</dd><small>${percent(portfolio.propertiesMentioned, portfolio.propertyCount)}%</small></div>
+            <div class="metric-summary"><dt>Mentioned answers</dt><dd>${portfolio.mentionCoverage ?? 'N/A'}%</dd><small>${portfolio.mentioned.toLocaleString()} of ${portfolio.measured.toLocaleString()} answers</small></div>
+            <div class="metric-summary"><dt>Cited answers</dt><dd>${portfolio.citationCoverage ?? 'N/A'}%</dd><small>${portfolio.cited.toLocaleString()} of ${portfolio.measured.toLocaleString()} answers</small></div>
+          </dl>
+          <div class="section-head" style="margin-top:16px"><h2>Outcomes</h2><p>${portfolio.propertyCount} Properties</p></div>
+          ${outcomesHtml(portfolio.outcomes)}
+        </section>
+        ${projectQueryTrendHtml(properties, state.queryClass)}
+        <section class="section" aria-labelledby="group-rollup-title">
+          <div class="section-head"><h2 id="group-rollup-title">Groups</h2><p>${groupDefinitions.length}</p></div>
+          <div class="table-wrap portfolio-groups"><table><caption class="sr-only">Advanced Measurement Group rollup, weakest mention coverage first</caption>
+            <thead><tr><th>Group</th><th>Properties</th><th>Mention</th><th>Citation</th></tr></thead><tbody>
+              ${[...summaries].sort((a, b) => (a.aggregate.mentionCoverage ?? 101) - (b.aggregate.mentionCoverage ?? 101)).map(group => `<tr class="data-row">
+                <td><button type="button" class="text-button property-name" data-open-pulse-group="${group.key}">${escapeHtml(group.label)}</button></td>
+                <td>${group.aggregate.propertyCount}</td>
+                <td class="metric-cell">${formatMetric(group.aggregate.mentioned, group.aggregate.measured)}</td>
+                <td class="metric-cell">${formatMetric(group.aggregate.cited, group.aggregate.measured)}</td>
+              </tr>`).join('')}
+            </tbody></table></div>
+        </section>`
+    }
+
+    function renderPulseGroup(group) {
+      const rows = groupRows(group.key)
+      const summary = aggregate(rows, state.queryClass)
+      const ranked = [...rows].sort((a, b) => (percent(metricFor(a, state.queryClass).cited, metricFor(a, state.queryClass).measured) ?? 101) - (percent(metricFor(b, state.queryClass).cited, metricFor(b, state.queryClass).measured) ?? 101))
+      return `${pulseScopeHeader({ title: group.label, context: `Group · ${rows.length} Properties`, measuredLabel: `${summary.measuredPropertyCount} of ${rows.length} Properties measured`, group })}
+        <div class="toolbar">${queryClassControl(state.queryClass, 'pulse')}</div>
+        <section class="section" aria-labelledby="group-summary-title"><div class="section-head"><h2 id="group-summary-title">Group pulse</h2><p>${summary.propertyCount} Properties</p></div>
+          <dl class="metrics-strip three pulse-metrics">
+            <div class="metric-summary"><dt>Properties mentioned</dt><dd>${summary.propertiesMentioned} of ${summary.propertyCount}</dd><small>${percent(summary.propertiesMentioned, summary.propertyCount)}%</small></div>
+            <div class="metric-summary"><dt>Mentioned answers</dt><dd>${summary.mentionCoverage ?? 'N/A'}%</dd><small>${summary.mentioned} of ${summary.measured} answers</small></div>
+            <div class="metric-summary"><dt>Cited answers</dt><dd>${summary.citationCoverage ?? 'N/A'}%</dd><small>${summary.cited} of ${summary.measured} answers</small></div>
+          </dl>
+          <div class="section-head" style="margin-top:16px"><h2>Outcomes</h2><p>${summary.propertyCount} Properties</p></div>
+          ${outcomesHtml(summary.outcomes)}
+        </section>
+        ${measurementChangeHtml(rows, state.queryClass, `${group.label} Group`)}
+        <section class="section" aria-labelledby="group-properties-title"><div class="section-head"><h2 id="group-properties-title">Properties</h2><p>Lowest citation first</p></div>
+          <div class="table-wrap scope-table"><table><caption class="sr-only">${escapeHtml(group.label)} Properties</caption><thead><tr><th>Property</th><th>Mention</th><th>Citation</th><th>Status</th></tr></thead><tbody>
+            ${ranked.map(property => {
+              const metric = metricFor(property, state.queryClass)
+              const [status, tone] = pulseStatusFor(property, metric)
+              return `<tr class="data-row"><td><button type="button" class="text-button property-name" data-open-pulse-property="${property.id}">${escapeHtml(property.name)}</button><div class="subline">1 URL · ${property.queries.length} query patterns</div></td><td>${formatMetric(metric.mentioned, metric.measured)}</td><td>${formatMetric(metric.cited, metric.measured)}</td><td>${property.issue ? badge(status, tone) : '<span class="subline">Measured</span>'}</td></tr>`
+            }).join('')}
+          </tbody></table></div>
+        </section>`
+    }
+
+    function renderPulseProperty(property) {
+      const group = groupDefinitions.find(candidate => candidate.key === property.groupKey)
+      const metric = metricFor(property, state.queryClass)
+      const summary = aggregate([property], state.queryClass)
+      const [status, tone] = pulseStatusFor(property, metric)
+      const propertyIndex = properties.findIndex(candidate => candidate.id === property.id)
+      const alternativeSources = ['marketplace-a.example', 'marketplace-b.example', 'marketplace-c.example']
+      return `${pulseScopeHeader({ title: property.name, context: `Property · ${property.groupLabel} · 1 URL`, measuredLabel: metric.measured ? `${metric.measured} answers measured` : 'Not measured', group, property })}
+        <div class="toolbar">${queryClassControl(state.queryClass, 'pulse')}<span style="align-self:center">${badge(status, tone)}</span></div>
+        <section class="section" aria-labelledby="property-summary-title"><div class="section-head"><h2 id="property-summary-title">Current sweep</h2></div>
+          <dl class="metrics-strip three pulse-metrics">
+            <div class="metric-summary"><dt>Mentioned answers</dt><dd>${summary.mentionCoverage ?? 'N/A'}%</dd><small>${metric.mentioned} of ${metric.measured} answers</small></div>
+            <div class="metric-summary"><dt>Cited answers</dt><dd>${summary.citationCoverage ?? 'N/A'}%</dd><small>${metric.cited} of ${metric.measured} answers</small></div>
+            <div class="metric-summary"><dt>Answers measured</dt><dd>${metric.measured || 'N/A'}</dd><small>${state.queryClass === 'nonBrand' ? 'Non-brand' : 'Branded'}</small></div>
+          </dl>
+        </section>
+        ${measurementChangeHtml([property], state.queryClass, property.name)}
+        <section class="section" aria-labelledby="property-engines-title"><div class="section-head"><h2 id="property-engines-title">Answer engines</h2></div>
+          <div class="table-wrap"><table><caption class="sr-only">${escapeHtml(property.name)} answer engine results</caption><thead><tr><th>Engine</th><th>Answers</th><th>Mention</th><th>Citation</th></tr></thead><tbody>
+            ${metric.providers.map(provider => `<tr><td class="property-name">${provider.provider}</td><td>${provider.measured}</td><td>${formatMetric(provider.mentioned, provider.measured)}</td><td>${formatMetric(provider.cited, provider.measured)}</td></tr>`).join('')}
+          </tbody></table></div>
+        </section>
+        <section class="section" aria-labelledby="property-answers-title"><div class="section-head"><h2 id="property-answers-title">Latest answers</h2><p>Open a row for stored answer and source evidence</p></div>
+          <div class="table-wrap scope-table"><table><caption class="sr-only">${escapeHtml(property.name)} latest answer evidence</caption><thead><tr><th>Question</th><th>Engine</th><th>Mention</th><th>Citation</th><th>Top source</th><th><span class="sr-only">Open</span></th></tr></thead><tbody>
+            ${property.queries.map((query, index) => {
+              const wasMeasured = metric.measured > 0
+              const cited = wasMeasured && (index === 0 || metric.cited > index + 1)
+              const mentioned = wasMeasured && (index !== 0 ? metric.mentioned > index : propertyIndex % 2 === 0)
+              const mentionCell = wasMeasured ? `<span class="question-signal"><span class="signal-dot ${mentioned ? 'yes' : 'no'}"></span>${mentioned ? 'Yes' : 'No'}</span>` : '<span class="not-measured">Not measured</span>'
+              const citationCell = wasMeasured ? `<span class="question-signal"><span class="signal-dot ${cited ? 'yes' : 'no'}"></span>${cited ? 'Yes' : 'No'}</span>` : '<span class="not-measured">Not measured</span>'
+              const source = wasMeasured ? (cited ? 'northstar.example' : alternativeSources[index]) : '—'
+              return `<tr class="data-row"><td class="property-name">${escapeHtml(query)}</td><td>${providers[index]}</td><td>${mentionCell}</td><td>${citationCell}</td><td>${escapeHtml(source)}</td><td class="scope-table-actions"><button type="button" class="scope-link" data-toast="A production build would open the stored answer and source evidence.">Evidence&nbsp;→</button></td></tr>`
+            }).join('')}
+          </tbody></table></div>
+        </section>`
+    }
+
+    function renderPulse() {
+      const property = state.pulseProperty ? properties.find(candidate => candidate.id === state.pulseProperty) : null
+      if (property) return renderPulseProperty(property)
+      const group = state.pulseGroup ? groupDefinitions.find(candidate => candidate.key === state.pulseGroup) : null
+      if (group) return renderPulseGroup(group)
+      return renderPulsePortfolio()
+    }
+
+    function queryWorkspaceHeader(title, description = '') {
+      const tabs = [
+        { key: 'tracked', label: 'Tracked' },
+        { key: 'discover', label: 'Discover' },
+        { key: 'test', label: 'Test' },
+      ]
+      return `<div class="breadcrumb"><span>Northstar Demo</span><span class="breadcrumb-separator">/</span><span>Queries</span></div>
+        <div class="page-head"><div><h1>${escapeHtml(title)}</h1>${description ? `<p>${escapeHtml(description)}</p>` : ''}</div></div>
+        <nav class="workspace-tabs" aria-label="Query workflows">${tabs.map(tab => `<button type="button" class="${state.queryView === tab.key ? 'active' : ''}" data-query-view="${tab.key}" aria-current="${state.queryView === tab.key ? 'page' : 'false'}">${tab.label}</button>`).join('')}</nav>`
+    }
+
+    function trackedQueryRows() {
+      const unique = [...new Set(properties.flatMap(property => property.queries))]
+      const rows = unique.slice(0, 12).map((query, index) => ({
+        query,
+        classLabel: index % 4 === 0 ? 'Branded' : 'Non-brand',
+        assigned: index % 5 === 0 ? properties.length : 8 + ((index * 17) % 74),
+        mentioned: 38 + ((index * 11) % 42),
+        cited: 18 + ((index * 7) % 31),
+        lastMeasured: index === 10 ? 'Not measured' : '2 days ago',
+      }))
+      if (state.publishedQuery) {
+        rows.unshift({ query: state.publishedQuery, classLabel: 'Non-brand', assigned: 15, mentioned: null, cited: null, lastMeasured: 'Awaiting first sweep' })
+        rows.length = 12
+      }
+      return rows
+    }
+
+    function trackedQueryRowHtml(row) {
+      const measured = typeof row.mentioned === 'number' && typeof row.cited === 'number' && row.lastMeasured === '2 days ago'
+      const measuredCell = value => measured ? `<span class="metric-value">${value}%</span>` : '<span class="not-measured">Not measured</span>'
+      const lastMeasured = row.lastMeasured === 'Awaiting first sweep' ? badge('Awaiting first sweep', 'caution') : row.lastMeasured
+      return `<tr class="data-row"><td class="property-name">${escapeHtml(row.query)}</td><td>${row.classLabel}</td><td>${row.assigned} of ${properties.length}</td><td>${lastMeasured}</td><td>${measuredCell(row.mentioned)}</td><td>${measuredCell(row.cited)}</td><td class="scope-table-actions"><button type="button" class="scope-link" data-toast="Assignment editing opens the Advanced Measurement draft, preserving the published plan.">Assignments&nbsp;→</button></td></tr>`
+    }
+
+    function promotionStepsHtml(step) {
+      const steps = ['Assign', 'Confirm']
+      return `<ol class="promotion-steps" aria-label="Add query to measurement progress">${steps.map((label, index) => {
+        const stepNumber = index + 1
+        const stateClass = stepNumber < step ? 'complete' : stepNumber === step ? 'current' : ''
+        return `<li class="promotion-step ${stateClass}" ${stepNumber === step ? 'aria-current="step"' : ''}><span class="promotion-step-number">${stepNumber < step ? '✓' : stepNumber}</span><span>${label}</span></li>`
+      }).join('')}</ol>`
+    }
+
+    function renderPromotionPanel() {
+      if (!state.promotionStep) return ''
+      const query = state.promotionQuery || 'What are the best luxury apartments in Metro Golf?'
+      const step = state.promotionStep
+      const source = state.queryView === 'discover' ? 'Discovery candidate' : 'Saved test'
+      const sourceDetail = state.queryView === 'discover' ? 'Portfolio discovery · sample candidates' : 'OpenAI · Metro Golf · sample run'
+      if (step === 1) {
+        return `<section class="promotion-panel" aria-labelledby="promotion-title">
+          <div class="section-head"><div><span class="eyebrow">Measurement draft</span><h2 id="promotion-title" tabindex="-1">Add to measurement</h2><p>Choose the published scope without leaving this workspace.</p></div><button type="button" class="button small ghost" data-promotion-cancel>Cancel</button></div>
+          ${promotionStepsHtml(step)}
+          <div class="promotion-body">
+            <h3>Assign query</h3>
+            <p>Choose how the query enters the portfolio measurement.</p>
+            <div class="promotion-origin"><span class="badge info">${source}</span><span>${sourceDetail}</span><span class="badge positive">No duplicate found</span></div>
+            <div class="promotion-query">${escapeHtml(query)}</div>
+            <div class="promotion-fields">
+              <div class="field"><label for="promotion-class">Query type</label><select id="promotion-class" class="control"><option>Non-brand</option><option>Branded</option></select></div>
+              <div class="field"><label for="promotion-scope">Use a Group to select Properties</label><select id="promotion-scope" class="control"><option>Metro Golf · 15 Properties</option><option>All 225 Properties</option><option>Specific Properties…</option></select></div>
+            </div>
+            <div class="assignment-preview" aria-label="Selected Property preview"><span>Northstar Demo Station</span><span>The Arden at Metro Golf</span><span>Emerson Metro Golf</span><span>+12 Properties</span></div>
+            <p class="section-note">The published plan stores 15 Property assignments, not a live Group reference. If the normalized query already exists, this step updates its assignments instead of creating a duplicate.</p>
+            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-cancel>Discard draft</button><button type="button" class="button primary" data-promotion-next>Continue to confirmation</button></div>
+          </div>
+        </section>`
+      }
+      return `<section class="promotion-panel" aria-labelledby="promotion-title">
+          <div class="section-head"><div><span class="eyebrow">Measurement draft</span><h2 id="promotion-title" tabindex="-1">Add to measurement</h2><p>Review the exact plan change before publishing.</p></div><button type="button" class="button small ghost" data-promotion-cancel>Cancel</button></div>
+          ${promotionStepsHtml(step)}
+          <div class="promotion-body">
+            <h3>Confirm measurement change</h3>
+            <p>The current published revision remains live until this change is published.</p>
+            <dl class="review-list">
+              <div class="review-row"><dt>Query</dt><dd class="property-name">${escapeHtml(query)}</dd></div>
+              <div class="review-row"><dt>Query type</dt><dd>Non-brand</dd></div>
+              <div class="review-row"><dt>Assigned Properties</dt><dd>Metro Golf selection · 15 Properties</dd></div>
+              <div class="review-row"><dt>First official measurement</dt><dd>Next full AI sweep · Wednesday at 9:00 AM UTC</dd></div>
+            </dl>
+            <div class="review-impact"><span><strong>1</strong> query added</span><span><strong>15</strong> Property assignments</span><span><strong>0</strong> runs started</span></div>
+            <p class="section-note">Publishing changes the long-term plan. It does not count the saved test as official evidence or start a sweep.</p>
+            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-back>Back</button><button type="button" class="button primary" data-promotion-publish>Publish new revision</button></div>
+          </div>
+        </section>`
+    }
+
+    function renderTrackedQueries() {
+      const rows = trackedQueryRows()
+      return `${queryWorkspaceHeader('Tracked queries', 'The published query basket and its Property assignments.')}
+        <div class="query-toolbar">
+          <div class="field grow"><label for="tracked-search">Search queries</label><input id="tracked-search" class="control" type="search" placeholder="Query text"></div>
+          <div class="field"><label for="tracked-class">Query type</label><select id="tracked-class" class="control"><option>All</option><option>Non-brand</option><option>Branded</option></select></div>
+          <button type="button" class="button" data-toggle-query-composer>${state.queryComposer ? 'Cancel' : '+ Add query'}</button>
+        </div>
+        ${state.queryComposer ? `<section class="query-composer" aria-labelledby="query-composer-title">
+          <div class="section-head"><div><h2 id="query-composer-title">Add to measurement</h2><p>New queries stay in draft until assigned and published.</p></div></div>
+          <div class="query-composer-grid">
+            <div class="field"><label for="new-tracked-query">Queries</label><textarea id="new-tracked-query" class="control" placeholder="One query per line">best luxury apartments near metro golf</textarea></div>
+            <div class="field"><label for="new-query-class">Query type</label><select id="new-query-class" class="control"><option>Non-brand</option><option>Branded</option></select></div>
+            <div class="field"><label for="new-query-scope">Assign to</label><select id="new-query-scope" class="control"><option>Choose Properties…</option><option>All 225 Properties</option><option>Metro Golf · 15 Properties</option><option>Specific Properties…</option></select></div>
+          </div>
+          <div class="head-actions" style="margin-top:14px"><button type="button" class="button ghost" data-toggle-query-composer>Cancel</button><button type="button" class="button primary" data-toast="Added to the measurement draft. Publish the draft before the next full sweep.">Add to draft</button></div>
+        </section>` : ''}
+        <div class="table-wrap"><table><caption class="sr-only">Tracked project queries</caption><thead><tr><th>Query</th><th>Type</th><th>Assigned Properties</th><th>Last measured</th><th>Mention</th><th>Citation</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+          ${rows.map(trackedQueryRowHtml).join('')}
+        </tbody></table></div>
+        <div class="table-footer"><span>Showing 12 of ${state.publishedQuery ? 37 : 36} tracked queries</span><button type="button" class="button small" data-toast="The production list uses server paging.">Show more</button></div>`
+    }
+
+    function renderDiscoverQueries() {
+      const candidates = [
+        ['best apartments near major employers', 'Cited opportunity', '18 Properties'],
+        ['luxury apartments with short commutes', 'Aspirational', '32 Properties'],
+        ['pet friendly apartments with dog parks', 'Cited opportunity', '71 Properties'],
+        ['apartments with flexible lease terms', 'Coverage gap', '44 Properties'],
+      ]
+      return `${queryWorkspaceHeader('Discover queries', 'Find candidate demand, then choose what enters measurement.')}
+        <div class="test-layout">
+          <section class="test-pane"><h2>New discovery</h2><p>Describe the renter and market you want to cover.</p>
+            <div class="form-stack"><div class="field"><label for="discovery-icp">Audience and intent</label><textarea id="discovery-icp" class="control">Prospective renters comparing professionally managed apartments across a synthetic national portfolio.</textarea></div><div><button type="button" class="button" data-toast="A discovery session would start without changing the tracked query basket.">Find candidates</button></div></div>
+          </section>
+          <section class="test-pane"><h2>Latest candidates</h2><p>Sample discovery · 63 candidates found</p>
+            <div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Candidate</th><th>Signal</th><th>Suggested scope</th><th></th></tr></thead><tbody>${candidates.map(candidate => `<tr><td class="property-name">${candidate[0]}</td><td>${candidate[1]}</td><td>${candidate[2]}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(candidate[0])}">Add&nbsp;→</button></td></tr>`).join('')}</tbody></table></div>
+          </section>
+        </div>
+        ${renderPromotionPanel()}`
+    }
+
+    function renderTestQueries() {
+      const testQueries = [
+        'What are the best luxury apartments in Metro Golf?',
+        'Which Metro Golf apartments have coworking spaces?',
+        'Where can I find pet-friendly apartments near central Metro Golf?',
+      ]
+      return `${queryWorkspaceHeader('Test queries', 'Run saved checks without changing the official measurement.')}
+        <div class="query-notice"><span class="badge info">Test</span><strong>Saved separately</strong><span>Does not change tracked queries, Portfolio Pulse, trends, or the AI sweep schedule.</span></div>
+        <div class="test-layout">
+          <section class="test-pane"><h2>New test</h2><p>Use arbitrary prompts with one API model and location.</p>
+            <div class="form-stack">
+              <div class="field"><label for="test-query-text">Queries</label><textarea id="test-query-text" class="control">${testQueries.join('\n')}</textarea></div>
+              <div class="form-grid"><div class="field"><label for="test-provider">API provider</label><select id="test-provider" class="control"><option>Project default</option><option>OpenAI</option><option>Gemini</option></select></div><div class="field"><label for="test-location">Location</label><select id="test-location" class="control"><option>Metro Golf</option><option>Project default</option><option>No location</option></select></div></div>
+              <div><button type="button" class="button primary" data-run-research>Run 3 test queries</button></div>
+            </div>
+            <div class="settings-section" style="margin-top:20px"><h2>Spot check published measurement</h2><p class="section-note">Run assigned questions for one Group or Property. The probe stays out of official reporting.</p><div class="form-grid" style="margin-top:12px"><div class="field"><label for="spot-check-scope">Scope</label><select id="spot-check-scope" class="control"><option>Metro Golf Group</option><option>Northstar Demo Station</option><option>All published queries</option></select></div><div class="field" style="align-self:end"><button type="button" class="button" data-spot-check="Selected scope">Run spot check</button></div></div></div>
+          </section>
+          <section class="test-pane"><h2>Saved tests</h2><p>Standalone answer and source evidence.</p><div class="test-batches">
+            <button type="button" class="test-batch active"><span>3 Metro Golf queries</span><span>OpenAI</span><span class="badge positive">Complete</span></button>
+            <button type="button" class="test-batch"><span>5 apartment comparison queries</span><span>Gemini</span><span class="badge positive">Complete</span></button>
+            <button type="button" class="test-batch"><span>2 brand recall queries</span><span>OpenAI</span><span class="badge caution">Partial</span></button>
+          </div></section>
+        </div>
+        ${state.researchComplete ? `<section class="test-result" aria-labelledby="test-results-title"><div class="section-head"><div><h2 id="test-results-title">Test results</h2><p>OpenAI · Metro Golf · sample run</p></div></div><div class="table-wrap"><table><thead><tr><th>Query</th><th>Mention</th><th>Citation</th><th>Sources</th><th></th></tr></thead><tbody>${testQueries.map((query, index) => `<tr><td class="property-name">${escapeHtml(query)}</td><td>${index === 1 ? badge('Not mentioned', '') : badge('Mentioned', 'positive')}</td><td>${index === 0 ? badge('Cited', 'positive') : badge('Not cited', '')}</td><td>${index === 0 ? 'northstar.example · marketplace-a.example' : index === 1 ? 'marketplace-a.example · marketplace-b.example' : 'marketplace-c.example'}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(query)}">Add to measurement&nbsp;→</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
+        ${renderPromotionPanel()}`
+    }
+
+    function renderQueries() {
+      if (state.queryView === 'discover') return renderDiscoverQueries()
+      if (state.queryView === 'test') return renderTestQueries()
+      return renderTrackedQueries()
+    }
+
+    function renderSettings() {
+      return `<div class="breadcrumb"><span>Northstar Demo</span><span class="breadcrumb-separator">/</span><span>Settings</span></div>
+        <div class="page-head"><div><h1>Settings</h1><p>Project configuration and automation.</p></div></div>
+        <section class="settings-section" aria-labelledby="measurement-settings-title"><div class="section-head"><div><span class="eyebrow">Advanced measurement</span><h2 id="measurement-settings-title">Measurement setup</h2></div><button type="button" class="button" data-toast="The setup draft opens with the current revision still published.">Edit measurement</button></div><div class="settings-row"><div class="settings-facts"><strong>Published · current revision</strong><span>225 Properties · 15 Groups · 36 tracked queries</span><span>Last published 5 days ago</span></div></div></section>
+        <section class="settings-section" aria-labelledby="schedule-settings-title"><div class="section-head"><div><span class="eyebrow">Automation</span><h2 id="schedule-settings-title">AI visibility sweep</h2></div>${state.scheduleEditing ? '' : '<button type="button" class="button" data-edit-schedule>Edit schedule</button>'}</div>
+          ${state.scheduleEditing ? `<div class="schedule-editor"><div class="form-grid"><div class="field"><label for="schedule-frequency">Frequency</label><select id="schedule-frequency" class="control"><option>Every Wednesday</option><option>Every day</option><option>Every Monday</option><option>Every Friday</option></select></div><div class="field"><label for="schedule-time">Time</label><select id="schedule-time" class="control"><option>9:00 AM</option><option>1:00 PM</option><option>6:00 PM</option></select></div><div class="field"><label for="schedule-timezone">Timezone</label><select id="schedule-timezone" class="control"><option>UTC</option><option>America/New_York</option><option>America/Chicago</option></select></div></div><div class="head-actions" style="margin-top:14px;justify-content:flex-start"><button type="button" class="button ghost" data-cancel-schedule>Cancel</button><button type="button" class="button primary" data-save-schedule>Save schedule</button></div></div>` : `<div class="settings-row"><div class="settings-facts"><strong>Every Wednesday at 9:00 AM · UTC</strong><span>Next run · this Wednesday at 9:00 AM</span><span>Last run · previous Wednesday at 9:03 AM</span></div><div class="settings-actions"><span class="badge positive">Active</span><button type="button" class="button small" data-toast="The project-wide AI sweep schedule would be paused.">Pause</button><button type="button" class="button small ghost" data-toast="The project-wide AI sweep schedule would be removed.">Remove</button></div></div>`}
+        </section>
+        <p class="section-note">One schedule runs the full published plan. Groups and Properties inherit its official results; they do not have separate schedules.</p>`
+    }
+
+    function render() {
+      const root = document.getElementById('flow-root')
+      root.innerHTML = state.section === 'queries'
+        ? renderQueries()
+        : state.section === 'settings'
+          ? renderSettings()
+          : renderPulse()
+      root.setAttribute('aria-label', state.section === 'queries' ? 'Query workspace prototype' : state.section === 'settings' ? 'Project settings prototype' : 'Portfolio Pulse prototype')
+      document.querySelectorAll('.project-subnav [data-project-section]').forEach(button => {
+        button.classList.toggle('active', button.dataset.projectSection === state.section)
+        if (button.dataset.projectSection === state.section) button.setAttribute('aria-current', 'page')
+        else button.removeAttribute('aria-current')
+      })
+    }
+
+    function clearPromotion() {
+      state.promotionStep = 0
+      state.promotionQuery = ''
+    }
+
+    function focusPromotionPanel() {
+      document.getElementById('promotion-title')?.focus()
+    }
+
+    function focusQueryWorkspace() {
+      document.querySelector(`[data-query-view="${state.queryView}"]`)?.focus()
+    }
+
+    let toastTimer = null
+    function showToast(message) {
+      const toast = document.getElementById('toast')
+      toast.textContent = message
+      toast.classList.add('visible')
+      window.clearTimeout(toastTimer)
+      toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2600)
+    }
+
+    document.addEventListener('click', event => {
+      const target = event.target.closest('button, a')
+      if (!target) return
+      if (target.dataset.toast) {
+        event.preventDefault()
+        showToast(target.dataset.toast)
+        return
+      }
+      if (target.dataset.projectSection) {
+        state.section = target.dataset.projectSection
+        if (state.section !== 'queries') clearPromotion()
+        if (state.section === 'visibility') history.pushState(null, '', '#pulse')
+        else if (state.section === 'queries') history.pushState(null, '', `#queries/${state.queryView}`)
+        else history.pushState(null, '', '#settings')
+        render()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+      if (target.dataset.openQueryView) {
+        state.section = 'queries'
+        clearPromotion()
+        state.queryView = target.dataset.openQueryView
+        history.pushState(null, '', `#queries/${state.queryView}`)
+        render()
+        focusQueryWorkspace()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+      if (target.dataset.queryView) {
+        clearPromotion()
+        state.queryView = target.dataset.queryView
+        history.pushState(null, '', `#queries/${state.queryView}`)
+        render()
+        focusQueryWorkspace()
+        return
+      }
+      if (target.dataset.trendMetric) {
+        state.trendMetric = target.dataset.trendMetric
+        if (state.trendMetric === 'mentionShare') state.trendMode = 'overall'
+        render()
+        return
+      }
+      if (target.dataset.trendMode) {
+        state.trendMode = target.dataset.trendMode
+        render()
+        return
+      }
+      if (target.dataset.toggleQueryComposer !== undefined) {
+        state.queryComposer = !state.queryComposer
+        render()
+        return
+      }
+      if (target.dataset.runResearch !== undefined) {
+        state.researchComplete = true
+        render()
+        showToast('Test complete. Saved separately from official measurement.')
+        return
+      }
+      if (target.dataset.addToMeasurement !== undefined) {
+        state.section = 'queries'
+        state.queryComposer = false
+        state.promotionQuery = target.dataset.promotionQuery || 'What are the best luxury apartments in Metro Golf?'
+        state.promotionStep = 1
+        render()
+        focusPromotionPanel()
+        return
+      }
+      if (target.dataset.promotionNext !== undefined) {
+        state.promotionStep = 2
+        render()
+        focusPromotionPanel()
+        return
+      }
+      if (target.dataset.promotionBack !== undefined) {
+        state.promotionStep = 1
+        render()
+        focusPromotionPanel()
+        return
+      }
+      if (target.dataset.promotionPublish !== undefined) {
+        state.publishedQuery = state.promotionQuery
+        clearPromotion()
+        state.queryView = 'tracked'
+        history.pushState(null, '', '#queries/tracked')
+        render()
+        focusQueryWorkspace()
+        showToast('Published new revision. The query is awaiting its first sweep.')
+        return
+      }
+      if (target.dataset.promotionCancel !== undefined) {
+        clearPromotion()
+        render()
+        focusQueryWorkspace()
+        return
+      }
+      if (target.dataset.spotCheck) {
+        showToast(`${target.dataset.spotCheck} probe queued. It will not affect Portfolio Pulse or trends.`)
+        return
+      }
+      if (target.dataset.runSweep !== undefined) {
+        showToast('Full project AI sweep queued for the published measurement plan.')
+        return
+      }
+      if (target.dataset.editSchedule !== undefined) {
+        state.scheduleEditing = true
+        render()
+        return
+      }
+      if (target.dataset.cancelSchedule !== undefined) {
+        state.scheduleEditing = false
+        render()
+        return
+      }
+      if (target.dataset.saveSchedule !== undefined) {
+        state.scheduleEditing = false
+        render()
+        showToast('Project-wide AI sweep schedule saved.')
+        return
+      }
+      if (target.dataset.queryClass) {
+        state.queryClass = target.dataset.queryClass
+        render()
+        return
+      }
+      if (target.dataset.openPulseGroup) {
+        state.section = 'visibility'
+        state.pulseGroup = target.dataset.openPulseGroup
+        state.pulseProperty = null
+        history.pushState(null, '', `#pulse/group/${state.pulseGroup}`)
+        render()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+      if (target.dataset.openPulseProperty) {
+        state.section = 'visibility'
+        state.pulseGroup = null
+        state.pulseProperty = target.dataset.openPulseProperty
+        history.pushState(null, '', `#pulse/property/${state.pulseProperty}`)
+        render()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+      if (target.dataset.pulseBack) {
+        state.section = 'visibility'
+        if (target.dataset.pulseBack === 'group') {
+          state.pulseGroup = target.dataset.groupKey
+          state.pulseProperty = null
+          history.pushState(null, '', `#pulse/group/${state.pulseGroup}`)
+        } else {
+          state.pulseGroup = null
+          state.pulseProperty = null
+          history.pushState(null, '', '#pulse')
+        }
+        render()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+    })
+
+    function syncRouteFromLocation() {
+      const next = routeFromHash()
+      clearPromotion()
+      state.section = next.section
+      state.queryView = next.queryView
+      state.pulseGroup = next.pulseGroup
+      state.pulseProperty = next.pulseProperty
+      render()
+    }
+    window.addEventListener('hashchange', syncRouteFromLocation)
+    window.addEventListener('popstate', syncRouteFromLocation)
+
+    render()
+  </script>
+</body>
+</html>

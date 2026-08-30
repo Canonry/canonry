@@ -3,7 +3,7 @@ import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import { DEFAULT_MEASUREMENT_VIEW, measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
@@ -88,6 +88,7 @@ import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
+  getApiV1ProjectsByNameMeasurementPortfolioSummaryOptions,
   getApiV1ProjectsByNameScheduleOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
@@ -1703,7 +1704,7 @@ function ProjectPageContent({
     const previous = lastMeasurementPlanIdentity.current
     if (measurementPlanIdentity !== null) lastMeasurementPlanIdentity.current = measurementPlanIdentity
     if (!shouldResetMeasurementView(previous, measurementPlanIdentity)) return
-    setAdvancedMeasurementView({ scope: 'all', queryClass: 'all' })
+    setAdvancedMeasurementView(DEFAULT_MEASUREMENT_VIEW)
     setHasExpandedAdvancedProperty(false)
   }, [measurementPlanIdentity, setAdvancedMeasurementView])
   const advancedMeasurementOverviewQueryInput = {
@@ -1816,6 +1817,27 @@ function ProjectPageContent({
       },
     }
   }, [advancedMeasurementOverviewPagesInconsistent, advancedMeasurementOverviewQuery.data])
+  const advancedMeasurementPortfolioSummaryQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementPortfolioSummaryOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: {
+        queryClass: advancedMeasurementView.queryClass,
+        ...(advancedMeasurementView.scope === 'group' && advancedMeasurementView.groupKey
+          ? { groupKey: advancedMeasurementView.groupKey }
+          : {}),
+        ...(advancedMeasurementDisplayedRunId
+          ? { runId: advancedMeasurementDisplayedRunId }
+          : {}),
+      },
+    }),
+    enabled: tab === 'overview'
+      && Boolean(projectName)
+      && activeMeasurementPlanSchemaVersion === 2
+      && mergedAdvancedMeasurementOverview !== undefined,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
   const advancedMeasurementReport = useMemo(() => {
     if (!activeMeasurementPlan) return undefined
     if (activeMeasurementPlan.plan.schemaVersion === 1) {
@@ -1860,6 +1882,11 @@ function ProjectPageContent({
       : advancedMeasurementReportQuery.isError && !hasCachedAdvancedMeasurementReport
         ? 'error' as const
         : 'ready' as const
+  const advancedMeasurementPortfolioSummaryState = advancedMeasurementPortfolioSummaryQuery.data !== undefined
+    ? 'ready' as const
+    : advancedMeasurementPortfolioSummaryQuery.isError
+      ? 'error' as const
+      : 'loading' as const
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
@@ -2549,12 +2576,64 @@ function ProjectPageContent({
             )}
             report={advancedMeasurementReport}
             reportState={advancedMeasurementReportState}
+            portfolioSummary={activeMeasurementPlanSchemaVersion === 2
+              ? advancedMeasurementPortfolioSummaryQuery.data
+              : undefined}
+            portfolioSummaryState={activeMeasurementPlanSchemaVersion === 2
+              ? advancedMeasurementPortfolioSummaryState
+              : undefined}
+            onRetryPortfolioSummary={() => { void advancedMeasurementPortfolioSummaryQuery.refetch() }}
+            projectTrend={activeMeasurementPlanSchemaVersion === 2 ? (
+              <VisibilityTrendSection
+                projectName={model.project.name}
+                competitorDomains={competitorDomains}
+                analyticsRevision={latestVisibilityRevision}
+              />
+            ) : undefined}
+            renderGroupLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed()
+              ? ({ id, name }) => (
+                  <Link
+                    to="/projects/$projectName"
+                    params={{ projectName }}
+                    search={(previous: Record<string, unknown>) => ({
+                      ...previous,
+                      ...measurementViewSearch({
+                        scope: 'group',
+                        groupKey: id,
+                        queryClass: advancedMeasurementView.queryClass,
+                      }),
+                    })}
+                    className="rounded-sm font-medium text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
+                  >
+                    {name}
+                  </Link>
+                )
+              : undefined}
+            renderPortfolioLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed()
+              ? () => (
+                  <Link
+                    to="/projects/$projectName"
+                    params={{ projectName }}
+                    search={(previous: Record<string, unknown>) => ({
+                      ...previous,
+                      ...measurementViewSearch({ scope: 'all', queryClass: advancedMeasurementView.queryClass }),
+                    })}
+                    className="rounded-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
+                  >
+                    Portfolio
+                  </Link>
+                )
+              : undefined}
             onOpenSetup={!isEmbed() ? () => {
               void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } })
             } : undefined}
             onRetryReport={() => {
               if (activeMeasurementPlanSchemaVersion === 2) {
-                void Promise.all([advancedMeasurementOverviewQuery.refetch(), advancedMeasurementReportQuery.refetch()])
+                void Promise.all([
+                  advancedMeasurementOverviewQuery.refetch(),
+                  advancedMeasurementReportQuery.refetch(),
+                  advancedMeasurementPortfolioSummaryQuery.refetch(),
+                ])
               }
               else void advancedMeasurementReportQuery.refetch()
             }}

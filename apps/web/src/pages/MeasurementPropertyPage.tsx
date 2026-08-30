@@ -175,8 +175,8 @@ function AnswerSources({ row }: { row: AnswerRow }) {
  *
  * The row above it can only ever say whether this Property was named. It cannot
  * say what the engine actually recommended, and that is the thing an operator
- * opens the row to find out: a "not mentioned" row on a Buckhead query turns
- * out to be an answer recommending two OTHER buildings from the same brand.
+ * opens the row to find out: a "not mentioned" row on a local-market query can
+ * turn out to be an answer recommending two other properties from the brand.
  * None of that is visible in a signal badge or a source count.
  *
  * Fetched per row rather than with the list because an answer runs to several
@@ -732,7 +732,7 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
         <div>
           <h2 id="property-urls" className="text-base font-semibold text-heading">
             URLs that count as this Property
-            <InfoTooltip text="A cited source URL is credited to this Property when it matches one of these. The most specific matcher wins, so a URL covered by two Properties at the same specificity is flagged for review instead of being credited to either." />
+            <InfoTooltip text="A cited source URL is credited to this Property when it matches one of these. The most specific matcher wins, so a URL covered by two Properties at the same specificity is recorded as an ambiguous source-to-Property match instead of being credited to either." />
           </h2>
         </div>
         <p className="supporting-copy">{urls.length} configured</p>
@@ -952,7 +952,7 @@ export function MeasurementPropertyPage() {
             </ToneBadge>
           ) : null}
           {selectedRow && selectedRow.flags > 0 ? (
-            <ToneBadge tone="caution">{selectedRow.flags} flagged</ToneBadge>
+            <ToneBadge tone="caution">{selectedRow.flags} ambiguous {selectedRow.flags === 1 ? 'match' : 'matches'}</ToneBadge>
           ) : null}
         </div>
       </div>

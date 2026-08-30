@@ -595,6 +595,28 @@ describe('measurement-plan CLI commands', () => {
     expect(output).not.toMatch(/\d+%/)
   })
 
+  it('labels ambiguous source-to-Property matches consistently', async () => {
+    getMeasurementOverview.mockResolvedValueOnce({
+      ...OVERVIEW,
+      properties: {
+        ...OVERVIEW.properties,
+        items: [{ ...OVERVIEW.properties.items[0], flags: 2 }],
+      },
+      flags: { total: 2 },
+    })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    const output = logged.join('\n')
+    expect(output).toContain('Ambiguous  2 source-to-Property matches')
+    expect(output).not.toContain('Flagged')
+  })
+
   it('rejects a question class outside the published vocabulary', () => {
     expect(() => command('measurement-plan property').run({
       positionals: ['acme'], values: { 'target-key': 'harbor-view', 'query-class': 'brand' }, format: 'json', dryRun: false,

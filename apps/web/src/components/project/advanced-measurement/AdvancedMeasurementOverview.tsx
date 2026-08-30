@@ -1,11 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
+import type { MeasurementPortfolioSummaryResponse } from '@ainyc/canonry-api-client'
 import type { MetricTone } from '../../../view-models.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
+import { PortfolioPulse } from './PortfolioPulse.js'
 
 /**
  * `all` is what the API has always accepted and the dashboard never offered, so
@@ -180,6 +182,13 @@ export interface AdvancedMeasurementOverviewProps {
   onLoadMore?: (cursor: string) => void
   onPropertyExpand?: (propertyId: string) => void
   onRetryEvidence?: () => void
+  /** Compact portfolio/group roll-up, pinned to the same displayed run as `report`. */
+  portfolioSummary?: MeasurementPortfolioSummaryResponse
+  portfolioSummaryState?: 'loading' | 'ready' | 'error'
+  onRetryPortfolioSummary?: () => void
+  projectTrend?: ReactNode
+  renderGroupLink?: (group: { id: string; name: string }) => ReactNode
+  renderPortfolioLink?: () => ReactNode
   /**
    * Renders the Property name as a link to its own page. The caller owns
    * routing so this component stays presentational; without it the name is
@@ -600,6 +609,12 @@ export function AdvancedMeasurementOverview({
   onLoadMore,
   onPropertyExpand,
   onRetryEvidence,
+  portfolioSummary,
+  portfolioSummaryState,
+  onRetryPortfolioSummary,
+  projectTrend,
+  renderGroupLink,
+  renderPortfolioLink,
   renderPropertyLink,
 }: AdvancedMeasurementOverviewProps) {
   const usesServerView = report.currentView != null
@@ -675,6 +690,16 @@ export function AdvancedMeasurementOverview({
   )
   const activeSort: AdvancedMeasurementSort = selectedSort
   const normalizedSearch = search.trim().toLocaleLowerCase()
+  const hasPendingOrAppliedSearch = normalizedSearch.length > 0 || Boolean(viewSearch?.trim())
+  // Search narrows the server overview's outcomes but not the portfolio
+  // summary endpoint. Hide the rollup while searching so one filtered
+  // Property is never presented beside a full-portfolio denominator. Both the
+  // local draft and the last parent-applied term matter: when a term is cleared,
+  // the parent remains filtered until the debounce completes.
+  const usesPortfolioPulse = usesServerView && portfolioSummaryState !== undefined && !hasPendingOrAppliedSearch
+  const portfolioPulseShowsOutcomes = usesPortfolioPulse
+    && portfolioSummaryState === 'ready'
+    && portfolioSummary !== undefined
   const filteredProperties = useMemo(() => (
     !usesServerView && normalizedSearch
       ? aggregate.properties.filter(property => property.name.toLocaleLowerCase().includes(normalizedSearch))
@@ -700,7 +725,7 @@ export function AdvancedMeasurementOverview({
       ?? (unavailableProperties > 0
         ? `${unavailableProperties} ${unavailableProperties === 1 ? 'property is' : 'properties are'} unavailable.`
         : flaggedResultsTotal > 0
-          ? `${flaggedResultsTotal} flagged ${flaggedResultsTotal === 1 ? 'result needs' : 'results need'} review.`
+          ? `${flaggedResultsTotal} ambiguous source-to-Property ${flaggedResultsTotal === 1 ? 'match' : 'matches'}.`
           : null)
   // Slot progress is only informative while the measurement hasn't reached a
   // terminal state — a completed run always has completedSlots === totalSlots,
@@ -820,6 +845,20 @@ export function AdvancedMeasurementOverview({
         </div>
       </div>
 
+      {usesPortfolioPulse ? (
+        <PortfolioPulse
+          summary={isViewLoading ? undefined : portfolioSummary}
+          state={isViewLoading ? 'loading' : portfolioSummaryState}
+          outcomes={isViewLoading ? undefined : report.currentView?.outcomes}
+          projectTrend={report.currentView?.scope.kind === 'all' ? projectTrend : undefined}
+          onRetry={onRetryPortfolioSummary}
+          onSelectGroup={groupKey => handleGroupChange(groupKey)}
+          onOpenPortfolio={() => handleGroupChange(ALL_PROPERTIES)}
+          renderGroupLink={renderGroupLink}
+          renderPortfolioLink={renderPortfolioLink}
+        />
+      ) : null}
+
       {!isViewLoading && showShareOfVoice ? <CompetitorShareOfVoice values={aggregate.shareOfVoice ?? []} /> : null}
 
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
@@ -832,7 +871,7 @@ export function AdvancedMeasurementOverview({
         </div>
         {/* Directly under the count it partitions, so the unit is stated once
             and the row visibly sums to it. */}
-        {report.currentView?.outcomes ? <OutcomeCounts outcomes={report.currentView.outcomes} /> : null}
+        {!portfolioPulseShowsOutcomes && report.currentView?.outcomes ? <OutcomeCounts outcomes={report.currentView.outcomes} /> : null}
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="evidence-table min-w-[720px]">
             <caption className="sr-only">Property measurement results</caption>
@@ -947,13 +986,13 @@ export function AdvancedMeasurementOverview({
       </section> : <div className="h-44 animate-pulse rounded-md bg-surface-subtle" aria-label="Updating Property results" />}
 
       {!isViewLoading && !normalizedSearch && flaggedResultsTotal > 0 ? (
-        <section aria-label="Flagged results" className="border-t border-default pt-4">
+        <section aria-label="Ambiguous source-to-Property matches" className="border-t border-default pt-4">
           <details>
-            <summary className="cursor-pointer text-sm font-medium text-heading">Flagged results ({flaggedResultsTotal})</summary>
+            <summary className="cursor-pointer text-sm font-medium text-heading">Ambiguous matches ({flaggedResultsTotal})</summary>
             <ul className="mt-3 space-y-3">
               {report.flaggedResults.slice(0, flaggedLimit).map(result => (
                 <li key={result.id} className="flex flex-wrap items-start gap-2 text-sm">
-                  <ToneBadge tone={result.tone}>Flagged</ToneBadge>
+                  <ToneBadge tone={result.tone}>Ambiguous</ToneBadge>
                   <span className="font-medium text-heading">{result.property}</span>
                   <span className="text-secondary">{result.summary}</span>
                 </li>
@@ -961,12 +1000,12 @@ export function AdvancedMeasurementOverview({
             </ul>
             {flaggedLimit < report.flaggedResults.length ? (
               <div className="mt-3 flex items-center gap-3 text-sm text-secondary">
-                <span>Showing details for {report.flaggedResults.slice(0, flaggedLimit).reduce((total, result) => total + (result.count ?? 1), 0)} of {flaggedResultsTotal} flagged results</span>
+                <span>Showing details for {report.flaggedResults.slice(0, flaggedLimit).reduce((total, result) => total + (result.count ?? 1), 0)} of {flaggedResultsTotal} ambiguous matches</span>
                 <Button size="sm" variant="outline" onClick={() => setFlaggedLimit(limit => Math.min(report.flaggedResults.length, limit + FLAGGED_RESULTS_INCREMENT))}>Show 50 more</Button>
               </div>
             ) : loadedFlaggedCount < flaggedResultsTotal ? (
               <div className="mt-3 flex items-center gap-3 text-sm text-secondary">
-                <span>Showing details for {loadedFlaggedCount} of {flaggedResultsTotal} flagged results</span>
+                <span>Showing details for {loadedFlaggedCount} of {flaggedResultsTotal} ambiguous matches</span>
                 {usesServerView && report.currentView!.nextCursor && onLoadMore ? (
                   <Button size="sm" variant="outline" disabled={isLoadingMore} onClick={() => onLoadMore(report.currentView!.nextCursor!)}>
                     {isLoadingMore ? 'Loading…' : isLoadMoreError ? 'Retry loading more Properties' : 'Load more Properties'}

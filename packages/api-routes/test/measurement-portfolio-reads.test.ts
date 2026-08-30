@@ -295,6 +295,8 @@ describe('measurement portfolio reads', () => {
     if (harborOnly.propertiesMentioned.state === 'available' && regional.propertiesMentioned.state === 'available') {
       expect(harborOnly.propertiesMentioned.denominator).toBe(1)
       expect(regional.propertiesMentioned.denominator).toBe(2)
+      expect(harborOnly.propertiesMentioned.rate).toBe(harborOnly.propertiesMentioned.numerator / harborOnly.propertiesMentioned.denominator)
+      expect(regional.propertiesMentioned.rate).toBe(regional.propertiesMentioned.numerator / regional.propertiesMentioned.denominator)
     }
 
     // Same computation as the group-scoped read, so the dashboard and the CLI

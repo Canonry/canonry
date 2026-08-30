@@ -60,6 +60,13 @@ test('invalidates the project-scoped runs list so the project page refreshes aft
   expect(predicateMatches('getApiV1ProjectsByNameRuns')).toBe(true)
 })
 
+test('invalidates Advanced Measurement snapshots after an answer-visibility run', () => {
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+  expect(predicateMatches('getApiV1ProjectsByNameMeasurementOverview')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameMeasurementPortfolioSummary')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameMeasurementPropertyEvidence')).toBe(true)
+})
+
 test('does not prefix-invalidate the analytics trend after an answer-visibility run', () => {
   // The trend key ends in the revision of the NEWEST completed|partial
   // non-probe sweep (`['analytics-metrics', project, window, frameKey,
@@ -179,11 +186,12 @@ test('invalidates every Site Health operation for site-audit runs', () => {
   expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoDeadLinks')).toBe(true)
 })
 
-test('does not invalidate domain-scoped operations for answer-visibility runs', () => {
+test('invalidates measurement data but not unrelated domains for answer-visibility runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
   expect(predicateMatches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameBingCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGaTraffic')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(false)
+  expect(predicateMatches('getApiV1ProjectsByNameMeasurementOverview')).toBe(true)
 })

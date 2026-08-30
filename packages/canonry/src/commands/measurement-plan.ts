@@ -457,7 +457,7 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   lines.push('')
   lines.push(`Mentioned  ${metricText(row ? row.mentionCoverage : response.metrics.mentionCoverage)}`)
   lines.push(`Cited      ${metricText(row ? row.citationCoverage : response.metrics.citationCoverage)}`)
-  if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
+  if (row && row.flags > 0) lines.push(`Ambiguous  ${row.flags} source-to-Property ${row.flags === 1 ? 'match' : 'matches'}`)
 
   if (row && row.providers.length > 0) {
     lines.push('')

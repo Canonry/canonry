@@ -229,7 +229,13 @@ function providerRows(property: MeasurementOverviewPropertyRow): MeasurementProp
 /** A count metric reads out as the numerator, with the eligible population beside it. */
 function countMetric(rate: MeasurementRate): MetricValue {
   if (rate.numerator === null) return unavailable(metricReason(rate.reason))
-  return { state: 'available', value: rate.numerator, numerator: rate.numerator, denominator: rate.denominator }
+  return {
+    state: 'available',
+    value: rate.numerator,
+    numerator: rate.numerator,
+    denominator: rate.denominator,
+    ...(rate.rate === null ? {} : { rate: rate.rate }),
+  }
 }
 
 function normalizedText(value: string): string {

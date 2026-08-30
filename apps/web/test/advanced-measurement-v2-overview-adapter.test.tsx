@@ -266,7 +266,7 @@ describe('version-two measurement overview adapter', () => {
     expect(() => adaptV2MeasurementOverview({ overview, activePlan })).toThrow('All Properties or group scope')
   })
 
-  it('keeps server-wide flagged totals visible before the flagged Property page is loaded', () => {
+  it('keeps server-wide ambiguous-source totals visible before the matching Property page is loaded', () => {
     const { activePlan, overview } = fixture()
     overview.flags.total = 3
     overview.nextAction = { kind: 'review_flags', count: 3 }
@@ -280,9 +280,9 @@ describe('version-two measurement overview adapter', () => {
       />,
     )
 
-    expect(screen.getByText('3 flagged results need review.')).toBeTruthy()
-    fireEvent.click(screen.getByText('Flagged results (3)'))
-    expect(screen.getByText('Showing details for 0 of 3 flagged results')).toBeTruthy()
+    expect(screen.getByText('3 ambiguous source-to-Property matches.')).toBeTruthy()
+    fireEvent.click(screen.getByText('Ambiguous matches (3)'))
+    expect(screen.getByText('Showing details for 0 of 3 ambiguous matches')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more Properties' }))
     expect(onLoadMore).toHaveBeenCalledWith('page-2')
   })

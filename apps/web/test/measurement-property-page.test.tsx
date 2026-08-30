@@ -118,7 +118,11 @@ function overviewResponse(queryClass: 'branded' | 'non-brand', row: {
   mentionCoverage: Metric
   citationCoverage: Metric
   providers?: Array<{ provider: string; mentionCoverage: Metric; citationCoverage: Metric }>
-}, options: { measurementState?: 'complete' | 'not_measured'; nextAction?: 'none' | 'run_measurement' } = {}) {
+}, options: {
+  measurementState?: 'complete' | 'not_measured'
+  nextAction?: 'none' | 'run_measurement'
+  flags?: number
+} = {}) {
   return {
     mode: 'active-v2' as const,
     scope: { kind: 'property' as const, key: TARGET_KEY, label: 'Harbor House' },
@@ -145,12 +149,12 @@ function overviewResponse(queryClass: 'branded' | 'non-brand', row: {
         mentionCoverage: row.mentionCoverage,
         citationCoverage: row.citationCoverage,
         providers: row.providers ?? [],
-        flags: 0,
+        flags: options.flags ?? 0,
       }],
       nextCursor: null,
       totalEstimate: 1,
     },
-    flags: { total: 0 },
+    flags: { total: options.flags ?? 0 },
   }
 }
 
@@ -661,6 +665,24 @@ describe('Property page', () => {
     expect(screen.queryByText(/revision \d+/i)).toBeNull()
     expect(screen.getByLabelText('Query type').className).toContain('h-11')
   })
+
+  it('labels ambiguous source-to-Property matches consistently', async () => {
+    await renderPropertyPage({
+      branded: overviewResponse('branded', {
+        mentionCoverage: unavailable('no_population'),
+        citationCoverage: unavailable('no_population'),
+      }),
+      nonBrand: overviewResponse('non-brand', {
+        mentionCoverage: available(3, 4),
+        citationCoverage: available(2, 4),
+      }, { flags: 2 }),
+    })
+
+    expect(await screen.findByText('2 ambiguous matches')).toBeTruthy()
+    expect(screen.getByRole('button', {
+      name: /recorded as an ambiguous source-to-Property match instead of being credited to either/i,
+    })).toBeTruthy()
+  })
 })
 
 describe('Property answer evidence', () => {
@@ -1034,12 +1056,10 @@ describe('Reading the answer', () => {
   })
 })
 
-// Two queries repeated down almost every row — the production shape that
-// motivated collapsing the Queries cell into a count. A real screenshot had
-// nine rows where four carried this exact joined string and the rest carried
-// one half of it.
-const REPEATED_QUERY_A = 'best apartments in buckhead atlanta'
-const REPEATED_QUERY_B = 'luxury apartments buckhead atlanta'
+// Two fictional queries repeat down almost every row, which exercises the
+// production-shaped layout that collapses the Queries cell into a count.
+const REPEATED_QUERY_A = 'best apartments in north district'
+const REPEATED_QUERY_B = 'luxury apartments in north district'
 const REPEATED_QUERIES_TEXT = `${REPEATED_QUERY_A} · ${REPEATED_QUERY_B}`
 
 type CompetitorRowFixture = {

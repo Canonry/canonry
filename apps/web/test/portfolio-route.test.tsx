@@ -96,7 +96,7 @@ async function renderAt(
     const q = {
       scope: measurement.overviewKey?.scope ?? 'all',
       ...(measurement.overviewKey?.groupKey ? { groupKey: measurement.overviewKey.groupKey } : {}),
-      queryClass: measurement.overviewKey?.queryClass ?? 'all',
+      queryClass: measurement.overviewKey?.queryClass ?? 'non-brand',
       limit: 50,
     }
     queryClient.setQueryData(
@@ -233,12 +233,45 @@ function measurementOverviewResponse(overrides: {
         label: overrides.label ?? 'Harbor House',
         mentionCoverage: { state: 'available' as const, value: 1, numerator: 1, denominator: 1 },
         citationCoverage: { state: 'available' as const, value: 1, numerator: 1, denominator: 1 },
+        providers: [],
         flags: 0,
       }],
       nextCursor: overrides.nextCursor ?? null,
       totalEstimate: overrides.totalEstimate ?? 1,
     },
+    outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
     flags: { total: 0 },
+  }
+}
+
+function measurementPortfolioSummaryResponse(groupKey?: string, queryClass: 'all' | 'non-brand' | 'branded' = 'non-brand') {
+  const metric = { state: 'available' as const, value: 1, numerator: 1, denominator: 1 }
+  const countMetric = { ...metric, rate: 1 }
+  return {
+    portfolio: {
+      groupKey: groupKey ?? null,
+      label: groupKey === 'north' ? 'North' : null,
+      measurementScope: 'full' as const,
+    },
+    measurement: {
+      state: 'complete' as const,
+      displayedRunId: 'run-synthetic',
+      planRevision: 4,
+      completedAt: '2026-08-02T12:05:00.000Z',
+    },
+    queryClass,
+    metrics: { propertiesMentioned: countMetric, mentionCoverage: metric, citationCoverage: metric },
+    weakestProperties: [],
+    markets: groupKey ? [] : [{
+      groupKey: 'north',
+      label: 'North',
+      propertyCount: 1,
+      propertiesMentioned: countMetric,
+      mentionCoverage: metric,
+      citationCoverage: metric,
+    }],
+    totalProperties: groupKey ? 1 : 218,
+    truncated: false,
   }
 }
 
@@ -443,6 +476,8 @@ test('a version-two Overview uses server scope, search and pagination and defers
   let releaseSearch: (() => void) | undefined
   let failRetrySearch = true
   const searchGate = new Promise<void>(resolve => { releaseSearch = resolve })
+  const fixture = createDashboardFixture({})
+  const drawerRunId = fixture.dashboard.projects.flatMap(project => project.recentRuns)[0]!.id
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -468,7 +503,12 @@ test('a version-two Overview uses server scope, search and pagination and defers
           failRetrySearch = false
           return jsonResponse({ code: 'INTERNAL_ERROR', message: 'Synthetic failure' }, 500)
         }
-        return jsonResponse(measurementOverviewResponse({ label: 'Recovered Search Result' }))
+        return jsonResponse(measurementOverviewResponse({
+          scope: 'group',
+          scopeKey: 'north',
+          scopeLabel: 'North',
+          label: 'Recovered Search Result',
+        }))
       }
       if (url.searchParams.get('cursor') === 'cursor-2') {
         return jsonResponse(measurementOverviewResponse({
@@ -496,14 +536,19 @@ test('a version-two Overview uses server scope, search and pagination and defers
       }
       return jsonResponse(measurementOverviewResponse({ nextCursor: 'cursor-2', totalEstimate: 2 }))
     }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) {
+      return jsonResponse(measurementPortfolioSummaryResponse(
+        url.searchParams.get('groupKey') ?? undefined,
+        (url.searchParams.get('queryClass') ?? 'non-brand') as 'all' | 'non-brand' | 'branded',
+      ))
+    }
     if (url.pathname.endsWith('/measurement-report')) return jsonResponse(measurementReportResponse(4))
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
 
-  const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?runId=${drawerRunId}`] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -516,28 +561,42 @@ test('a version-two Overview uses server scope, search and pagination and defers
   expect(await page.findByText('Harbor House')).toBeTruthy()
   const firstOverviewUrl = observed.find(path => path.includes('/measurement-overview?'))
   expect(firstOverviewUrl).toContain('scope=all')
-  // All queries is the default now — the operator has not yet said which lane
-  // he is asking about, and defaulting to one silently hid the other.
-  expect(firstOverviewUrl).toContain('queryClass=all')
+  expect(firstOverviewUrl).toContain('queryClass=non-brand')
   expect(firstOverviewUrl).toContain('limit=50')
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
+  expect(await page.findByRole('heading', { name: 'Portfolio pulse' })).toBeTruthy()
+  expect(page.getByRole('dialog')).toBeTruthy()
+  await waitFor(() => expect(observed.some(path => path.includes('/measurement-portfolio-summary?')
+    && path.includes('queryClass=non-brand')
+    && path.includes('runId=run-synthetic'))).toBe(true))
 
   fireEvent.click(page.getByRole('button', { name: 'Show 50 more' }))
   expect(await page.findByText('Harbor Annex')).toBeTruthy()
   expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=run-synthetic'))).toBe(true)
 
-  // Group is a segmented radiogroup at <=5 groups, so pick the option by label.
-  fireEvent.click(within(page.getByLabelText('Group')).getByRole('radio', { name: 'North' }))
+  // The Pulse row is a real URL-backed link, so Groups remain shareable rather
+  // than becoming local dropdown state.
+  const pulseGroups = page.getByRole('table', { name: /Advanced measurement Groups/ })
+  fireEvent.click(within(pulseGroups).getByRole('link', { name: 'North' }))
   expect(await page.findByText('North Property')).toBeTruthy()
+  expect(router.state.location.search.runId).toBe(drawerRunId)
+  expect(page.getByRole('dialog')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('groupKey=north'))).toBe(true)
+  await waitFor(() => expect(observed.some(path => path.includes('/measurement-portfolio-summary?')
+    && path.includes('groupKey=north')
+    && path.includes('queryClass=non-brand')
+    && path.includes('runId=run-synthetic'))).toBe(true))
 
+  expect(page.getByRole('heading', { name: 'North' })).toBeTruthy()
   fireEvent.change(page.getByLabelText('Search properties'), { target: { value: 'harbor' } })
   await waitFor(() => expect(observed.some(path => path.includes('search=harbor'))).toBe(true))
+  await waitFor(() => expect(page.queryByRole('heading', { name: 'North' })).toBeNull())
   expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('harbor')
   expect(page.queryByText('North Property')).toBeNull()
   expect(page.getByLabelText('Updating Property results')).toBeTruthy()
   releaseSearch!()
   expect(await page.findByText('Harbor Search Result')).toBeTruthy()
+  expect(page.getByLabelText('Property outcomes')).toBeTruthy()
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
 
   fireEvent.click(page.getByText('Harbor Search Result').closest('tr')!)
@@ -549,6 +608,13 @@ test('a version-two Overview uses server scope, search and pagination and defers
   fireEvent.click(page.getByRole('button', { name: 'Retry report' }))
   expect(await page.findByText('Recovered Search Result')).toBeTruthy()
   expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('retry')
+
+  fireEvent.change(page.getByLabelText('Search properties'), { target: { value: '' } })
+  const groupPulse = (await page.findByRole('heading', { name: 'North' })).closest('section')!
+  fireEvent.click(within(groupPulse).getByRole('link', { name: 'Portfolio' }))
+  expect(await page.findByRole('heading', { name: 'Portfolio pulse' })).toBeTruthy()
+  expect(router.state.location.search.runId).toBe(drawerRunId)
+  expect(page.getByRole('dialog')).toBeTruthy()
 })
 
 test('a direct Portfolio URL falls back safely in embed mode', async () => {

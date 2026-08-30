@@ -360,6 +360,8 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
     value: z.number(),
     numerator: z.number().int().nonnegative().optional(),
     denominator: z.number().int().positive().optional(),
+    /** Server-computed ratio for count metrics whose `value` remains the count. */
+    rate: z.number().min(0).max(1).optional(),
   }).strict(),
   z.object({
     state: z.literal('unavailable'),

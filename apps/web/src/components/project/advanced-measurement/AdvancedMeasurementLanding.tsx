@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { MeasurementPortfolioSummaryResponse } from '@ainyc/canonry-api-client'
 
 import { Button } from '../../ui/button.js'
 import {
@@ -21,6 +22,12 @@ export interface AdvancedMeasurementLandingProps {
   onLoadMore?: (cursor: string) => void
   onPropertyExpand?: (targetKey: string) => void
   onRetryEvidence?: () => void
+  portfolioSummary?: MeasurementPortfolioSummaryResponse
+  portfolioSummaryState?: 'loading' | 'ready' | 'error'
+  onRetryPortfolioSummary?: () => void
+  projectTrend?: ReactNode
+  renderGroupLink?: (group: { id: string; name: string }) => ReactNode
+  renderPortfolioLink?: () => ReactNode
   /** Passed straight through so the overview table can link a Property to its own page. */
   renderPropertyLink?: (property: { id: string; name: string }) => ReactNode
   isRunningMeasurement?: boolean
@@ -44,6 +51,12 @@ export function AdvancedMeasurementLanding({
   onLoadMore,
   onPropertyExpand,
   onRetryEvidence,
+  portfolioSummary,
+  portfolioSummaryState,
+  onRetryPortfolioSummary,
+  projectTrend,
+  renderGroupLink,
+  renderPortfolioLink,
   renderPropertyLink,
   isRunningMeasurement,
   isOpeningSetup,
@@ -89,6 +102,12 @@ export function AdvancedMeasurementLanding({
           onLoadMore={onLoadMore}
           onPropertyExpand={onPropertyExpand}
           onRetryEvidence={onRetryEvidence}
+          portfolioSummary={portfolioSummary}
+          portfolioSummaryState={portfolioSummaryState}
+          onRetryPortfolioSummary={onRetryPortfolioSummary}
+          projectTrend={projectTrend}
+          renderGroupLink={renderGroupLink}
+          renderPortfolioLink={renderPortfolioLink}
           renderPropertyLink={renderPropertyLink}
           isRunningMeasurement={isRunningMeasurement}
           isRepublishingSetup={isOpeningSetup}

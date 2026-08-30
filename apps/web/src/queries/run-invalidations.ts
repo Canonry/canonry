@@ -42,6 +42,12 @@ export function invalidateQueriesForRunKind(
 
   switch (kind) {
     case RunKinds['answer-visibility']:
+      // Advanced Measurement snapshots are run-pinned reads. Unlike the
+      // project-wide trend, their keys do not carry `latestVisibilityRevision`,
+      // so a completed sweep must mark the measurement domain stale directly.
+      // This keeps the Overview, Portfolio pulse, and Property evidence on the
+      // same newly-completed run while the page remains mounted.
+      void invalidateProjectQueryDomain(queryClient, 'measurement')
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
       // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).
