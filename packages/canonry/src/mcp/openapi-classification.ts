@@ -55,6 +55,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // Advanced Measurement v2 routes are fully exposed through the MCP setup
   // toolkit, so the OpenAPI coverage gate verifies their tool mappings.
   'GET /api/v1/projects/{name}/measurement-setup': 'included',
+  'GET /api/v1/projects/{name}/measurement-query-statuses': 'included',
   'GET /api/v1/projects/{name}/measurement-plan/draft': 'included',
   'GET /api/v1/projects/{name}/measurement-plan/draft/targets': 'included',
   'GET /api/v1/projects/{name}/measurement-plan/draft/assignments': 'included',

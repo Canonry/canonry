@@ -928,6 +928,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/measurement-query-statuses',
+    summary: 'Get server-derived measurement readiness for tracked queries',
+    description: 'Returns one deterministic row per current tracked query. Membership, eligible official full-run selection, manifest validation, and completeness are resolved on the server against the active immutable plan; no provider work occurs.',
+    tags: ['measurement-plans'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Tracked-query measurement statuses returned.', 'MeasurementQueryStatusesResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/measurement-plan/draft',
     summary: 'Get the server-side setup draft',
     description: 'Returns the single draft for the project, or an explicit null for a project with none. The response ETag is required on every subsequent mutation.',

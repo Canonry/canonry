@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
@@ -9,6 +9,7 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
+import { projectScheduleQueryOptions } from '../src/queries/schedule-query.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
@@ -47,7 +48,7 @@ async function renderAt(
    * decidable. These render one synchronous pass, so an unseeded query stays
    * pending for the whole render.
    */
-  options: { schedule?: unknown; seedPlan?: boolean } = {},
+  options: { schedule?: unknown; scheduleReadFailure?: boolean; seedPlan?: boolean } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
@@ -59,7 +60,17 @@ async function renderAt(
     getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } }),
     [],
   )
-  if (options.schedule !== undefined) {
+  if (options.scheduleReadFailure) {
+    const scheduleKey = getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } })
+    // Keep the captured 500 visible for the synchronous SSR assertion. The
+    // interactive retry behavior is covered by ScheduleSection; this test
+    // verifies the project header's interpretation of that same error state.
+    queryClient.setQueryDefaults(scheduleKey, { retryOnMount: false })
+    await queryClient.fetchQuery({
+      ...projectScheduleQueryOptions(projectName),
+      retry: false,
+    }).catch(() => undefined)
+  } else if (options.schedule !== undefined) {
     queryClient.setQueryData(
       getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } }),
       options.schedule,
@@ -118,6 +129,42 @@ async function renderAt(
       </DashboardProvider>
     </QueryClientProvider>,
   )
+}
+
+async function renderSettingsScheduleDeepLink() {
+  const fixture = createDashboardFixture({})
+  const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } }),
+    [],
+  )
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
+    { active: null },
+  )
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
+    simpleMeasurementSetupResponse(),
+  )
+  // The first entry makes a back-button assertion meaningful: clearing the
+  // one-time marker must REPLACE the deep-link entry, not push another URL
+  // that returns to an editor on Back.
+  const router = createAppRouter(queryClient, {
+    initialEntries: [
+      '/projects/project_citypoint/settings',
+      '/projects/project_citypoint/settings?schedule=edit',
+    ],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+  return { page, router }
 }
 
 function measurementPlanResponse(revision: number, populated = false) {
@@ -872,6 +919,31 @@ function schedule(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function installSettingsScheduleApi() {
+  let scheduleExists = true
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : null
+    const url = new URL(request?.url ?? String(input), window.location.origin)
+    const method = request?.method ?? init?.method ?? 'GET'
+    const pathname = decodeURIComponent(url.pathname)
+    if (pathname.endsWith('/schedule')) {
+      if (method === 'GET') return scheduleExists ? jsonResponse(schedule()) : jsonResponse({ code: 'NOT_FOUND' }, 404)
+      if (method === 'PUT') return jsonResponse(schedule())
+      if (method === 'DELETE') {
+        scheduleExists = false
+        return jsonResponse({})
+      }
+    }
+    if (pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (pathname.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    // These unrelated Settings reads are intentionally not part of this route
+    // test. A failed side query must not block the schedule deep-link flow.
+    return jsonResponse({ code: 'UNAVAILABLE' }, 503)
+  }) as typeof fetch
+  return () => { globalThis.fetch = realFetch }
+}
+
 // On a managed instance the sweep is scheduled, so the header states when the
 // next one fires and the manual trigger beside it is the override. The button
 // is deliberately secondary: as the primary it told every reader that running
@@ -887,6 +959,83 @@ test('the header states when the next AI sweep fires', async () => {
   // kinds. The disabled state already called it a sweep, so the label only
   // admitted what it did once you had clicked it.
   expect(html).not.toContain('Run now')
+})
+
+test('the header links the next sweep to the one-time Settings editor handoff and preserves only runId', async () => {
+  const html = await renderAt(
+    '/projects/project_citypoint?runId=run-header&scope=group:ignored&class=branded',
+    undefined,
+    undefined,
+    { schedule: schedule() },
+  )
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const link = [...doc.querySelectorAll<HTMLAnchorElement>('a')]
+    .find(anchor => anchor.textContent?.includes('Next AI sweep'))
+
+  expect(link).toBeTruthy()
+  const destination = new URL(link!.href, 'http://localhost')
+  expect(destination.pathname).toBe('/projects/Citypoint%20Dental%20NYC/settings')
+  expect(destination.searchParams.get('schedule')).toBe('edit')
+  expect(destination.searchParams.get('runId')).toBe('run-header')
+  expect(destination.searchParams.get('scope')).toBeNull()
+  expect(destination.searchParams.get('class')).toBeNull()
+})
+
+test('the header makes a missing AI sweep schedule explicit without inventing a next date', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: null })
+
+  expect(html).toContain('No AI sweep scheduled')
+  expect(html).not.toContain('Next AI sweep')
+})
+
+test('the header does not turn a failed schedule read into a false no-schedule state', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => jsonResponse({ code: 'UNAVAILABLE' }, 500)) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { scheduleReadFailure: true })
+
+  expect(html).toContain('AI sweep schedule unavailable')
+  expect(html).not.toContain('No AI sweep scheduled')
+  expect(html).not.toContain('Next AI sweep')
+})
+
+test('the Settings schedule deep link opens once, clears with replace on cancel, and does not reopen on Back', async () => {
+  const restoreFetch = installSettingsScheduleApi()
+  onTestFinished(restoreFetch)
+  const { page, router } = await renderSettingsScheduleDeepLink()
+
+  expect(await page.findByLabelText('Frequency')).toBeTruthy()
+  fireEvent.click(page.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => {
+    const search = router.state.location.search as { schedule?: string }
+    expect(search.schedule).toBeUndefined()
+  })
+  expect(page.queryByLabelText('Frequency')).toBeNull()
+
+  await act(async () => { router.history.back() })
+  await waitFor(() => {
+    const search = router.state.location.search as { schedule?: string }
+    expect(search.schedule).toBeUndefined()
+  })
+  expect(page.queryByLabelText('Frequency')).toBeNull()
+})
+
+test('the Settings schedule deep link clears its marker after save and remove', async () => {
+  const restoreFetch = installSettingsScheduleApi()
+  onTestFinished(restoreFetch)
+
+  const saved = await renderSettingsScheduleDeepLink()
+  expect(await saved.page.findByLabelText('Frequency')).toBeTruthy()
+  fireEvent.click(saved.page.getByRole('button', { name: 'Save schedule' }))
+  await waitFor(() => expect((saved.router.state.location.search as { schedule?: string }).schedule).toBeUndefined())
+  saved.page.unmount()
+
+  const removed = await renderSettingsScheduleDeepLink()
+  expect(await removed.page.findByLabelText('Frequency')).toBeTruthy()
+  fireEvent.click(removed.page.getByRole('button', { name: 'Remove schedule' }))
+  await waitFor(() => expect((removed.router.state.location.search as { schedule?: string }).schedule).toBeUndefined())
+  expect(await removed.page.findByText('No AI visibility sweep is scheduled. Set one to automatically trigger visibility sweeps.')).toBeTruthy()
 })
 
 test('a DISABLED schedule promises no next sweep, even though the row still carries a stale nextRunAt', async () => {

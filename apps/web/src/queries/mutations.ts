@@ -398,6 +398,10 @@ export function useAppendQueries() {
       // above uses a different key shape (from the generated SDK helper),
       // so there's no overlap.
       void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
+      // A newly tracked query gets a deterministic server-derived measurement
+      // row. Refresh that status endpoint with the basket, rather than leaving
+      // the Tracked workspace to briefly show a pooled or missing state.
+      void invalidateProjectQueryDomain(queryClient, 'measurement')
     },
   })
 }

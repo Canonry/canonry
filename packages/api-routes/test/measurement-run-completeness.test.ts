@@ -97,6 +97,46 @@ describe('measurementRunCompleteness', () => {
     })
   })
 
+  it.each([null, '', '   '])('fails closed when an otherwise complete run has an unbound snapshot (%j)', (executionId) => {
+    const { db, projectId, now } = harness()
+    const runId = `r-unbound-${executionId === null ? 'null' : executionId.length}`
+    db.insert(runs).values({
+      id: runId,
+      projectId,
+      status: 'completed',
+      measurementPlanVersionId: null,
+      measurementManifest: {
+        schemaVersion: 1,
+        expectedSlots: [
+          { executionId: 'e1', queryText: 'widget pricing', provider: 'openai', context: null },
+          { executionId: 'e2', queryText: 'widget pricing', provider: 'gemini', context: null },
+        ],
+      },
+      createdAt: now,
+    }).run()
+    db.insert(querySnapshots).values([
+      {
+        id: crypto.randomUUID(), runId, queryId: null, provider: 'openai',
+        citationState: 'cited', citedDomains: [], competitorOverlap: [],
+        measurementExecutionId: 'e1', createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(), runId, queryId: null, provider: 'gemini',
+        citationState: 'not-cited', citedDomains: [], competitorOverlap: [],
+        measurementExecutionId: 'e2', createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(), runId, queryId: null, provider: 'openai',
+        citationState: 'cited', citedDomains: [], competitorOverlap: [],
+        measurementExecutionId: executionId, createdAt: now,
+      },
+    ]).run()
+
+    expect(measurementRunCompleteness(db, runId)).toEqual({
+      planned: true, executed: 2, expected: 2, complete: false,
+    })
+  })
+
   it('reports planned:false for a run with no manifest', () => {
     const { db, projectId, now } = harness()
     const runId = 'r-planless'

@@ -98,6 +98,11 @@ describe('ApiClient Advanced Measurement v2 reads', () => {
       expected: { method: 'GET', pathname: `/api/v1/projects/${PROJECT}/measurement-setup` },
     },
     {
+      name: 'per-query status',
+      invoke: (api: ApiClient) => api.getMeasurementQueryStatuses(PROJECT),
+      expected: { method: 'GET', pathname: `/api/v1/projects/${PROJECT}/measurement-query-statuses` },
+    },
+    {
       name: 'overview',
       invoke: (api: ApiClient) => api.getMeasurementOverview(PROJECT, { scope: 'all', sort: 'citationCoverage-asc' }),
       expected: {

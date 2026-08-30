@@ -125,6 +125,11 @@ describe('project-scoped API keys', () => {
     expect((await authed('GET', '/api/v1/projects/project-a', SCOPED_KEY)).statusCode).toBe(200)
   })
 
+  it('a scoped key can read its own per-query measurement status but not a sibling', async () => {
+    expect((await authed('GET', '/api/v1/projects/project-a/measurement-query-statuses', SCOPED_KEY)).statusCode).toBe(200)
+    expect((await authed('GET', '/api/v1/projects/project-b/measurement-query-statuses', SCOPED_KEY)).statusCode).toBe(403)
+  })
+
   it('a scoped read-only key can download its own project results', async () => {
     expect((await authed('GET', '/api/v1/projects/project-a/results/export', SCOPED_KEY)).statusCode).toBe(200)
   })

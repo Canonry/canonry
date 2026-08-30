@@ -50,6 +50,7 @@ async function spec(): Promise<Spec> {
 
 const DRAFT = '/api/v1/projects/{name}/measurement-plan/draft'
 const OVERVIEW = '/api/v1/projects/{name}/measurement-overview'
+const QUERY_STATUSES = '/api/v1/projects/{name}/measurement-query-statuses'
 const OVERVIEW_SORTS = [
   'label-asc',
   'label-desc',
@@ -60,6 +61,16 @@ const OVERVIEW_SORTS = [
 ]
 
 describe('advanced measurement v2 openapi surface', () => {
+  it('publishes the typed tracked-query status read', async () => {
+    const document = await spec()
+    const operation = document.paths[QUERY_STATUSES]?.get
+
+    expect(operation?.responses?.['200']?.content?.['application/json']?.schema?.$ref)
+      .toBe('#/components/schemas/MeasurementQueryStatusesResponse')
+    expect(JSON.stringify(document.components?.schemas?.MeasurementQueryStatusesResponse))
+      .toContain('awaiting_first_sweep')
+  })
+
   it('types every draft action against a contract, not a loose object', async () => {
     const document = await spec()
     const cases: Array<[string, string]> = [

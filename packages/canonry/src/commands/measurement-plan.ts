@@ -55,6 +55,7 @@ function readDiscoveryRule(source: string): MeasurementDiscoveryRule {
  */
 export const ADVANCED_MEASUREMENT_OPERATIONS = [
   'setup',
+  'query-statuses',
   'overview',
   'portfolio-summary',
   'property-questions',
@@ -154,6 +155,10 @@ export async function runAdvancedMeasurementOperation(
     case 'setup':
       advancedEmptyInputSchema.parse(input)
       result = await client.getMeasurementSetup(project)
+      break
+    case 'query-statuses':
+      advancedEmptyInputSchema.parse(input)
+      result = await client.getMeasurementQueryStatuses(project)
       break
     case 'overview':
       result = await client.getMeasurementOverview(project, measurementOverviewQuerySchema.parse(input))

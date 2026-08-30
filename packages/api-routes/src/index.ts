@@ -24,6 +24,7 @@ import { measurementOverviewRoutes, type MeasurementOverviewCache } from './meas
 import { measurementPropertyEvidenceRoutes } from './measurement-property-evidence.js'
 import { measurementPortfolioReadRoutes } from './measurement-portfolio-reads.js'
 import { measurementQuestionReadRoutes } from './measurement-question-reads.js'
+import { measurementQueryStatusRoutes } from './measurement-query-statuses.js'
 import { applyRoutes } from './apply.js'
 import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
@@ -525,6 +526,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(measurementPropertyEvidenceRoutes)
     await api.register(measurementPortfolioReadRoutes)
     await api.register(measurementQuestionReadRoutes)
+    await api.register(measurementQueryStatusRoutes)
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       onProjectUpserted: opts.onProjectUpserted,

@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { CheckCircle2, Play, RefreshCw } from 'lucide-react'
-import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import {
+  RunKinds,
+  RunStatuses,
+  type DiscoveryBucket,
+  type DiscoverySessionDto,
+  type MeasurementQueryStatus,
+  type RunDto,
+} from '@ainyc/canonry-contracts'
 
 import {
   promoteDiscovery,
@@ -15,8 +22,10 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromoteOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
+  getApiV1ProjectsByNameMeasurementQueryStatusesOptions,
   getApiV1ProjectsByNameQueriesOptions,
   getApiV1ProjectsByNameQueriesQueryKey,
+  getApiV1ProjectsByNameRunsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1RunsQueryKey,
   deleteApiV1ProjectsByNameQueriesMutation,
@@ -24,6 +33,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { RUNS_STALE_MS } from '../../queries/query-client.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
@@ -34,7 +44,29 @@ import { assertCanWrite } from '../../lib/write-guard.js'
 
 type QueryWorkspace = 'tracked' | 'discover' | 'test'
 
+const measurementStatusPresentation: Record<MeasurementQueryStatus, { label: string; tone: 'neutral' | 'caution' | 'positive' }> = {
+  not_in_plan: { label: 'Not in plan', tone: 'neutral' },
+  awaiting_first_sweep: { label: 'Awaiting first sweep', tone: 'caution' },
+  partial: { label: 'Partial', tone: 'caution' },
+  measured: { label: 'Measured', tone: 'positive' },
+}
+
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
+const ACTIVE_VISIBILITY_RUN_STATUSES = new Set<RunDto['status']>([RunStatuses.queued, RunStatuses.running])
+
+function latestOfficialFullSweepId(runs: readonly RunDto[] | undefined): string | null {
+  const latest = runs?.reduce<RunDto | null>((current, run) => {
+    if (
+      run.kind !== RunKinds['answer-visibility']
+      || (run.status !== RunStatuses.completed && run.status !== RunStatuses.partial)
+      || run.trigger === 'probe'
+      || run.measurementScope != null
+    ) return current
+    if (!current || run.createdAt > current.createdAt || (run.createdAt === current.createdAt && run.id > current.id)) return run
+    return current
+  }, null)
+  return latest?.id ?? null
+}
 
 export function DiscoverySection({
   projectName,
@@ -93,7 +125,59 @@ function TrackedQueriesSection({ projectName }: { projectName: string }) {
     staleTime: 0,
     refetchOnMount: 'always',
   })
+  const measurementStatusesQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementQueryStatusesOptions({ client: heyClient, path: { name: projectName } }),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+  // The project-scoped run list already has the lightest useful external-state
+  // signal: it polls quickly only while a sweep is active and otherwise at its
+  // normal idle cadence. Keep it active for every non-empty basket, including
+  // one whose current badges are all Measured: a later scheduled full sweep
+  // can legitimately make the authoritative status Partial. Statuses themselves
+  // are still refetched only when a new official full sweep becomes terminal.
+  const hasTrackedQueries = (trackedQueriesQuery.data?.length ?? 0) > 0
+  const measurementRunsQuery = useQuery({
+    ...getApiV1ProjectsByNameRunsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { kind: RunKinds['answer-visibility'] },
+    }),
+    enabled: hasTrackedQueries && !measurementStatusesQuery.isError,
+    staleTime: RUNS_STALE_MS,
+    refetchOnWindowFocus: 'always',
+    refetchInterval: (query) => query.state.data?.some(run => ACTIVE_VISIBILITY_RUN_STATUSES.has(run.status))
+      ? 3_000
+      : RUNS_STALE_MS,
+  })
+  const latestSweepId = useMemo(
+    () => latestOfficialFullSweepId(measurementRunsQuery.data),
+    [measurementRunsQuery.data],
+  )
+  const handledSweepId = useRef<string | null>(null)
+  const statusSweepId = measurementStatusesQuery.data?.latestOfficialFullRun?.id ?? null
+  const refetchMeasurementStatuses = measurementStatusesQuery.refetch
+
+  useEffect(() => {
+    if (!latestSweepId) return
+    if (statusSweepId === latestSweepId) {
+      handledSweepId.current = latestSweepId
+      return
+    }
+    if (handledSweepId.current === latestSweepId) return
+    handledSweepId.current = latestSweepId
+    void refetchMeasurementStatuses()
+  }, [latestSweepId, refetchMeasurementStatuses, statusSweepId])
   const queryKey = getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } })
+  const statusesByQueryId = useMemo(
+    () => new Map(measurementStatusesQuery.data?.queries.map(status => [status.queryId, status.status])),
+    [measurementStatusesQuery.data],
+  )
+  // Do not let retained TanStack data claim a status after the authoritative
+  // status read failed. Likewise, after a basket/plan mutation, show a brief
+  // loading state instead of flashing a status from the previous plan.
+  const measurementStatusLoading = measurementStatusesQuery.isFetching && !measurementStatusesQuery.isError
+  const measurementStatusUnavailable = measurementStatusesQuery.isError
 
   const invalidateTrackedState = async () => {
     await Promise.all([
@@ -183,13 +267,37 @@ function TrackedQueriesSection({ projectName }: { projectName: string }) {
       ) : (trackedQueriesQuery.data?.length ?? 0) === 0 ? (
         <p className="border-y border-default py-4 text-sm text-secondary">No tracked queries yet. Add queries here, or promote a completed Test query.</p>
       ) : (
-        <div className="overflow-x-auto border-y border-default">
-          <table className="evidence-table min-w-[560px]">
-            <thead><tr><th>Query</th>{canEdit ? <th className="w-28 text-right">Action</th> : null}</tr></thead>
+        <div className="space-y-3">
+          {measurementStatusLoading ? (
+            <p role="status" aria-live="polite" className="text-sm text-secondary">Loading measurement status</p>
+          ) : null}
+          {measurementStatusUnavailable ? (
+            <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">
+              <p>Could not load measurement status.</p>
+              <Button className="mt-3" type="button" size="sm" variant="outline" onClick={() => { void measurementStatusesQuery.refetch() }}>
+                Retry measurement status
+              </Button>
+            </div>
+          ) : null}
+          <div className="overflow-x-auto border-y border-default">
+            <table className="evidence-table min-w-[720px]">
+              <thead><tr><th>Query</th><th>Measurement status</th>{canEdit ? <th className="w-28 text-right">Action</th> : null}</tr></thead>
             <tbody>
               {trackedQueriesQuery.data?.map((item) => (
                 <tr key={item.id}>
                   <td className="text-sm text-strong">{item.query}</td>
+                  <td aria-label={measurementStatusLoading ? 'Measurement status: Loading' : undefined}>
+                    {measurementStatusLoading ? (
+                      <span className="text-sm text-secondary">Loading</span>
+                    ) : measurementStatusUnavailable ? (
+                      <span className="text-sm text-secondary">Status unavailable</span>
+                    ) : (() => {
+                      const status = statusesByQueryId.get(item.id)
+                      if (!status) return <span className="text-sm text-secondary">Status unavailable</span>
+                      const presentation = measurementStatusPresentation[status]
+                      return <span aria-label={`Measurement status: ${presentation.label}`}><ToneBadge tone={presentation.tone}>{presentation.label}</ToneBadge></span>
+                    })()}
+                  </td>
                   {canEdit ? (
                     <td className="text-right">
                       <WriteButton
@@ -208,6 +316,7 @@ function TrackedQueriesSection({ projectName }: { projectName: string }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -340,6 +449,9 @@ function FindQueriesSection({ projectName }: { projectName: string }) {
           && query.queryKey[0] === 'projects'
           && query.queryKey.length > 1,
       })
+      // Promotion mutates the tracked basket. The server owns measurement
+      // membership, so its per-query statuses must be read again as well.
+      void invalidateProjectQueryDomain(queryClient, 'measurement')
       addToast({
         title: 'Queries added',
         detail: promoteResultDetail(result),

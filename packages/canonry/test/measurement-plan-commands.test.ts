@@ -13,6 +13,7 @@ const getMeasurementReport = vi.fn()
 const getMeasurementOverview = vi.fn()
 const getMeasurementPropertyEvidence = vi.fn()
 const getMeasurementSetup = vi.fn()
+const getMeasurementQueryStatuses = vi.fn()
 const listMeasurementQuerySets = vi.fn()
 const getMeasurementPlanDraft = vi.fn()
 const previewMeasurementDraftAssignments = vi.fn()
@@ -34,6 +35,7 @@ vi.mock('../src/client.js', () => ({
     getMeasurementOverview,
     getMeasurementPropertyEvidence,
     getMeasurementSetup,
+    getMeasurementQueryStatuses,
     listMeasurementQuerySets,
     getMeasurementPlanDraft,
     previewMeasurementDraftAssignments,
@@ -118,6 +120,13 @@ const PROPERTY_EVIDENCE = {
     nextCursor: null,
     totalEstimate: 1,
   },
+}
+
+const QUERY_STATUSES = {
+  setupMode: 'active-v2',
+  activeRevision: 7,
+  latestOfficialFullRun: null,
+  queries: [{ queryId: 'query-1', status: 'measured' }],
 }
 
 /**
@@ -214,6 +223,7 @@ describe('measurement-plan CLI commands', () => {
     getMeasurementOverview.mockResolvedValue(OVERVIEW)
     getMeasurementPropertyEvidence.mockResolvedValue(PROPERTY_EVIDENCE)
     getMeasurementSetup.mockResolvedValue({ mode: 'active-v2' })
+    getMeasurementQueryStatuses.mockResolvedValue(QUERY_STATUSES)
     listMeasurementQuerySets.mockResolvedValue({ querySets: [] })
     getMeasurementPlanDraft.mockResolvedValue({
       etag: '"mpd_7"',
@@ -296,6 +306,19 @@ describe('measurement-plan CLI commands', () => {
     expect(() => command('measurement-plan advanced').run({
       positionals: ['acme', 'nope'], values: {}, format: 'json', dryRun: false,
     })).toThrow('unsupported Advanced Measurement operation')
+  })
+
+  it('reads server-derived per-query statuses through the Advanced Measurement CLI bridge', async () => {
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan advanced').run({
+      positionals: ['acme', 'query-statuses'], values: {}, format: 'json', dryRun: false,
+    })
+
+    log.mockRestore()
+    expect(getMeasurementQueryStatuses).toHaveBeenCalledWith('acme')
+    expect(JSON.parse(logged.join('\n'))).toEqual(QUERY_STATUSES)
   })
 
   it('streams Advanced Measurement collections as JSONL with paging context', async () => {

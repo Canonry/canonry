@@ -3,6 +3,7 @@ import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classi
 
 const advancedMeasurementV2Operations = [
   'GET /api/v1/projects/{name}/measurement-setup',
+  'GET /api/v1/projects/{name}/measurement-query-statuses',
   'GET /api/v1/projects/{name}/measurement-plan/draft',
   'GET /api/v1/projects/{name}/measurement-plan/draft/targets',
   'GET /api/v1/projects/{name}/measurement-plan/draft/assignments',
@@ -53,6 +54,7 @@ const advancedMeasurementV2Operations = [
 
 function isAdvancedMeasurementV2Operation(operation: string): boolean {
   return operation.includes('/measurement-setup')
+    || operation.includes('/measurement-query-statuses')
     || operation.includes('/measurement-plan/draft')
     || operation === 'POST /api/v1/projects/{name}/measurement-plan/actions/deactivate'
     || operation.includes('/measurement-overview')
@@ -69,7 +71,7 @@ function isAdvancedMeasurementV2Operation(operation: string): boolean {
 
 describe('Advanced Measurement v2 MCP OpenAPI classification', () => {
   it('lists every exposed operation', () => {
-    expect(advancedMeasurementV2Operations).toHaveLength(47)
+    expect(advancedMeasurementV2Operations).toHaveLength(48)
 
     const classifiedOperations = Object.keys(MCP_OPENAPI_OPERATION_CLASSIFICATIONS)
       .filter(isAdvancedMeasurementV2Operation)

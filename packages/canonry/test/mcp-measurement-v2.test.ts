@@ -244,6 +244,13 @@ const readToolCases = [
     args: [project],
   },
   {
+    name: 'canonry_measurement_query_statuses',
+    operation: 'GET /api/v1/projects/{name}/measurement-query-statuses',
+    input: { project },
+    method: 'getMeasurementQueryStatuses',
+    args: [project],
+  },
+  {
     name: 'canonry_measurement_overview',
     operation: 'GET /api/v1/projects/{name}/measurement-overview',
     input: { project, scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' },
@@ -369,6 +376,7 @@ function toolFor(name: string) {
 function makeClient() {
   return {
     getMeasurementSetup: vi.fn().mockResolvedValue({}),
+    getMeasurementQueryStatuses: vi.fn().mockResolvedValue({}),
     getMeasurementOverview: vi.fn().mockResolvedValue({}),
     getMeasurementPlanDraft: vi.fn().mockResolvedValue({}),
     getMeasurementDraftTargets: vi.fn().mockResolvedValue({}),
@@ -419,9 +427,9 @@ describe('Advanced Measurement v2 MCP tools', () => {
   })
 
   it('has exactly nine read tools and seven write tools', () => {
-    expect(readToolCases).toHaveLength(9)
+    expect(readToolCases).toHaveLength(10)
     expect(writeToolCases).toHaveLength(7)
-    expect(readToolCases.map(({ name }) => toolFor(name).access)).toEqual(Array(9).fill('read'))
+    expect(readToolCases.map(({ name }) => toolFor(name).access)).toEqual(Array(10).fill('read'))
     expect(writeToolCases.map(({ name }) => toolFor(name).access)).toEqual(Array(7).fill('write'))
   })
 

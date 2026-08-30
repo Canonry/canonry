@@ -2243,6 +2243,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getMeasurementSetup(input.project),
   }),
   defineTool({
+    name: 'canonry_measurement_query_statuses',
+    title: 'Get per-query measurement status',
+    description: 'Return server-derived status for every currently tracked query. It reports active-plan membership and the latest eligible official full sweep without starting provider work.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/measurement-query-statuses'],
+    handler: (client, input) => client.getMeasurementQueryStatuses(input.project),
+  }),
+  defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
     description: 'Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',

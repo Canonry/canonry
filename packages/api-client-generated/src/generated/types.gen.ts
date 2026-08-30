@@ -5723,6 +5723,21 @@ export type MeasurementOverviewResponse = {
     };
 };
 
+export type MeasurementQueryStatusesResponse = {
+    setupMode: 'simple' | 'active-v1' | 'active-v2';
+    activeRevision: number | null;
+    latestOfficialFullRun: {
+        id: string;
+        status: 'completed' | 'partial';
+        createdAt: string;
+        finishedAt: string | null;
+    } | null;
+    queries: Array<{
+        queryId: string;
+        status: 'not_in_plan' | 'awaiting_first_sweep' | 'partial' | 'measured';
+    }>;
+};
+
 export type MeasurementPortfolioSummaryResponse = {
     portfolio: {
         groupKey: string | null;
@@ -11402,6 +11417,36 @@ export type GetApiV1ProjectsByNameMeasurementSetupResponses = {
 };
 
 export type GetApiV1ProjectsByNameMeasurementSetupResponse = GetApiV1ProjectsByNameMeasurementSetupResponses[keyof GetApiV1ProjectsByNameMeasurementSetupResponses];
+
+export type GetApiV1ProjectsByNameMeasurementQueryStatusesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-query-statuses';
+};
+
+export type GetApiV1ProjectsByNameMeasurementQueryStatusesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameMeasurementQueryStatusesError = GetApiV1ProjectsByNameMeasurementQueryStatusesErrors[keyof GetApiV1ProjectsByNameMeasurementQueryStatusesErrors];
+
+export type GetApiV1ProjectsByNameMeasurementQueryStatusesResponses = {
+    /**
+     * Tracked-query measurement statuses returned.
+     */
+    200: MeasurementQueryStatusesResponse;
+};
+
+export type GetApiV1ProjectsByNameMeasurementQueryStatusesResponse = GetApiV1ProjectsByNameMeasurementQueryStatusesResponses[keyof GetApiV1ProjectsByNameMeasurementQueryStatusesResponses];
 
 export type GetApiV1ProjectsByNameMeasurementPlanDraftData = {
     body?: never;

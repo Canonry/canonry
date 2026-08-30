@@ -87,6 +87,8 @@ interface FrozenExecutionNode {
   queryText: string
   context: LocationContext | null
   expectedSnapshots: number
+  providers: readonly string[]
+  models: Readonly<Record<string, string>>
 }
 
 function frozenExecutionNodes(plan: StoredMeasurementPlan): FrozenExecutionNode[] {
@@ -96,6 +98,8 @@ function frozenExecutionNodes(plan: StoredMeasurementPlan): FrozenExecutionNode[
       queryText: node.queryText,
       context: node.context.location,
       expectedSnapshots: node.expectedSnapshots,
+      providers: node.context.providers,
+      models: node.context.models,
     }))
   }
   return plan.executionNodes.map(node => ({
@@ -103,7 +107,17 @@ function frozenExecutionNodes(plan: StoredMeasurementPlan): FrozenExecutionNode[
     queryText: node.queryText,
     context: node.context,
     expectedSnapshots: node.expectedSnapshots,
+    providers: [],
+    models: {},
   }))
+}
+
+function requestedModelFor(node: FrozenExecutionNode, provider: string): string | undefined {
+  const normalizedProvider = provider.trim().toLocaleLowerCase('en')
+  for (const [configuredProvider, model] of Object.entries(node.models)) {
+    if (configuredProvider.trim().toLocaleLowerCase('en') === normalizedProvider && model.trim()) return model.trim()
+  }
+  return undefined
 }
 
 function manifestFromNodes(
@@ -143,11 +157,25 @@ export function buildMeasurementRunManifest(
  * expects and from whom.
  */
 export function buildMeasurementPlanV2Manifest(plan: MeasurementPlanV2): MeasurementRunManifestV1 {
-  const providersByNode = new Map(plan.executionNodes.map(node => [
-    node.stableKey,
-    normalizedProviders(node.context.providers),
-  ]))
-  return manifestFromNodes(frozenExecutionNodes(plan), node => providersByNode.get(node.stableKey) ?? [])
+  const nodes = frozenExecutionNodes(plan)
+  const expectedSlots: MeasurementRunManifestV1['expectedSlots'] = []
+  for (const node of [...nodes].sort((left, right) => compareText(left.stableKey, right.stableKey))) {
+    const providers = normalizedProviders(node.providers)
+    if (node.expectedSnapshots !== providers.length) {
+      throw new Error(`measurement manifest provider roster does not satisfy execution ${node.stableKey}`)
+    }
+    for (const provider of providers) {
+      const requestedModel = requestedModelFor(node, provider)
+      expectedSlots.push({
+        executionId: manifestExecutionId(node.stableKey),
+        queryText: node.queryText,
+        provider,
+        context: node.context,
+        ...(requestedModel ? { requestedModel } : {}),
+      })
+    }
+  }
+  return buildMeasurementRunManifestV1({ expectedSlots })
 }
 
 function manifestFailure(message: string): never {
@@ -179,6 +207,10 @@ function parseManifest(
     if (!node) manifestFailure(`unknown execution ${slot.executionId}`)
     if (slot.queryText !== node.queryText) manifestFailure(`query text mismatch for ${node.stableKey}`)
     if (canonicalContext(slot.context) !== canonicalContext(node.context)) manifestFailure(`context mismatch for ${node.stableKey}`)
+    const requestedModel = requestedModelFor(node, slot.provider)
+    if (requestedModel !== undefined && slot.requestedModel !== requestedModel) {
+      manifestFailure(`requested model mismatch for ${node.stableKey}`)
+    }
     const nodeProvider = `${node.stableKey}\u0000${slot.provider}`
     if (seenNodeProviders.has(nodeProvider)) manifestFailure('duplicate node provider')
     seenNodeProviders.add(nodeProvider)
@@ -232,7 +264,12 @@ function slotLocation(slot: MeasurementRunManifestV1['expectedSlots'][number]): 
   return slot.context?.label ?? null
 }
 
-function validateExecutionSnapshot(
+/**
+ * Verify that one persisted execution row still belongs to the frozen slot it
+ * claims. Consumers that summarize per-slot completion reuse this rather than
+ * trusting the execution-id/provider pair alone.
+ */
+export function validateMeasurementExecutionSnapshot(
   snapshot: typeof querySnapshots.$inferSelect,
   slot: MeasurementRunManifestV1['expectedSlots'][number],
 ): void {
@@ -291,7 +328,7 @@ function observationInputs(
     if (snapshot.measurementExecutionId !== null) {
       const slot = slotsByExecution.get(`${snapshot.measurementExecutionId}\u0000${snapshot.provider.trim().toLocaleLowerCase('en')}`)
       if (!slot) throw new Error(`measurement snapshot provenance is corrupt: ${snapshot.id}`)
-      validateExecutionSnapshot(snapshot, slot)
+      validateMeasurementExecutionSnapshot(snapshot, slot)
       if (!supportsRequestedContext(snapshot, slot)) return []
       validateSupportedLocation(snapshot, slot)
     }

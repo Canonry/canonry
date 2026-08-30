@@ -1,4 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ScheduleDto } from '@ainyc/canonry-contracts'
+import {
+  deleteApiV1ProjectsByNameScheduleMutation,
+  getApiV1ProjectsByNameScheduleQueryKey,
+  putApiV1ProjectsByNameScheduleMutation,
+} from '@ainyc/canonry-api-client/react-query'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -6,9 +13,11 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { fetchSchedule, saveSchedule, removeSchedule, isEmbed, type ApiSchedule } from '../../api.js'
+import { heyClient, isEmbed } from '../../api.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { assertCanWrite } from '../../lib/write-guard.js'
+import { projectScheduleQueryOptions } from '../../queries/schedule-query.js'
 
-// --- Schedule helpers ---
 const FREQ_OPTIONS = [
   { value: 'daily', label: 'Every day' },
   { value: 'weekly@mon', label: 'Every Monday' },
@@ -35,9 +44,35 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney',
 ] as const
 
-
-export function ScheduleSection({ projectName }: { projectName: string }) {
-  const [schedule, setSchedule] = useState<ApiSchedule | null | 'loading'>('loading')
+export function ScheduleSection({
+  projectName,
+  scheduleEditRequested = false,
+  onScheduleEditHandled,
+  isActiveV2 = false,
+}: {
+  projectName: string
+  /** A one-time Settings handoff from the project header. */
+  scheduleEditRequested?: boolean
+  /** Clears the portable `schedule=edit` marker after a terminal editor action. */
+  onScheduleEditHandled?: () => void
+  isActiveV2?: boolean
+}) {
+  const account = useAccount()
+  const queryClient = useQueryClient()
+  const scheduleOptions = { client: heyClient, path: { name: projectName } } as const
+  const scheduleKey = getApiV1ProjectsByNameScheduleQueryKey(scheduleOptions)
+  const scheduleQuery = useQuery({
+    ...projectScheduleQueryOptions(projectName),
+    retry: false,
+  })
+  const saveMutation = useMutation({
+    ...putApiV1ProjectsByNameScheduleMutation(),
+    onMutate: () => assertCanWrite(account),
+  })
+  const removeMutation = useMutation({
+    ...deleteApiV1ProjectsByNameScheduleMutation(),
+    onMutate: () => assertCanWrite(account),
+  })
   const [editing, setEditing] = useState(false)
   const [freq, setFreq] = useState('daily')
   const [hour, setHour] = useState(6)
@@ -45,16 +80,21 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   const [timezone, setTimezone] = useState('UTC')
   const [tzOther, setTzOther] = useState(false)
   const [tzOtherValue, setTzOtherValue] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [removing, setRemoving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const consumedScheduleEdit = useRef(false)
 
-  useEffect(() => {
-    fetchSchedule(projectName).then(setSchedule).catch(() => setSchedule(null))
-  }, [projectName])
+  const schedule = scheduleQuery.data ?? null
+  const scheduleReadError = scheduleQuery.isError
+  const canEdit = account.canWrite && !isEmbed()
+  const editorReady = scheduleQuery.data !== undefined
 
-  const startEditing = () => {
-    if (schedule && schedule !== 'loading') {
+  const consumeScheduleEdit = useCallback(() => {
+    if (scheduleEditRequested) onScheduleEditHandled?.()
+  }, [onScheduleEditHandled, scheduleEditRequested])
+
+  const startEditing = useCallback(() => {
+    if (!canEdit) return
+    if (schedule) {
       const parsed = parsePreset(schedule.preset ?? null, schedule.cronExpr)
       setFreq(parsed.freq)
       setHour(parsed.hour)
@@ -71,21 +111,38 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       setTzOther(false)
       setTzOtherValue('')
     }
-    setError(null)
+    setMutationError(null)
     setEditing(true)
-  }
+  }, [canEdit, schedule])
+
+  useEffect(() => {
+    if (!scheduleEditRequested) {
+      consumedScheduleEdit.current = false
+      return
+    }
+    if (consumedScheduleEdit.current || !editorReady) return
+    consumedScheduleEdit.current = true
+    if (canEdit) startEditing()
+    else consumeScheduleEdit()
+  }, [canEdit, consumeScheduleEdit, editorReady, scheduleEditRequested, startEditing])
+
+  const invalidateSchedule = useCallback(async (next: ScheduleDto | null | undefined) => {
+    if (next !== undefined) queryClient.setQueryData(scheduleKey, next)
+    await queryClient.invalidateQueries({ queryKey: scheduleKey })
+  }, [queryClient, scheduleKey])
 
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
+    if (!canEdit || saveMutation.isPending) return
+    setMutationError(null)
     try {
       const effectiveTz = tzOther ? tzOtherValue.trim() || 'UTC' : timezone
-      const body: Parameters<typeof saveSchedule>[1] = { timezone: effectiveTz }
+      const body: { timezone: string; preset?: string; cron?: string } = { timezone: effectiveTz }
       if (freq === 'custom') body.cron = customCron.trim()
       else body.preset = buildPreset(freq, hour)
-      const result = await saveSchedule(projectName, body)
-      setSchedule(result)
+      const result = await saveMutation.mutateAsync({ client: heyClient, path: { name: projectName }, body })
+      await invalidateSchedule(result)
       setEditing(false)
+      consumeScheduleEdit()
       addToast({
         title: 'Schedule saved',
         detail: scheduleLabel(result.preset ?? null, result.cronExpr, result.timezone),
@@ -93,26 +150,23 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeKey: `schedule:${projectName}`,
         dedupeMode: 'replace',
       })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save schedule')
-    } finally {
-      setSaving(false)
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to save schedule')
     }
   }
 
   const handleToggleEnabled = async () => {
-    if (!schedule || schedule === 'loading') return
-    setSaving(true)
-    setError(null)
+    if (!canEdit || !schedule || saveMutation.isPending) return
+    setMutationError(null)
     try {
-      const body: Parameters<typeof saveSchedule>[1] = {
+      const body: { timezone: string; enabled: boolean; preset?: string; cron?: string } = {
         timezone: schedule.timezone,
         enabled: !schedule.enabled,
       }
       if (schedule.preset) body.preset = schedule.preset
       else body.cron = schedule.cronExpr
-      const nextSchedule = await saveSchedule(projectName, body)
-      setSchedule(nextSchedule)
+      const nextSchedule = await saveMutation.mutateAsync({ client: heyClient, path: { name: projectName }, body })
+      await invalidateSchedule(nextSchedule)
       addToast({
         title: nextSchedule.enabled ? 'Schedule resumed' : 'Schedule paused',
         detail: scheduleLabel(nextSchedule.preset ?? null, nextSchedule.cronExpr, nextSchedule.timezone),
@@ -120,20 +174,19 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeKey: `schedule:toggle:${projectName}`,
         dedupeMode: 'replace',
       })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update schedule')
-    } finally {
-      setSaving(false)
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to update schedule')
     }
   }
 
   const handleRemove = async () => {
-    setRemoving(true)
-    setError(null)
+    if (!canEdit || removeMutation.isPending) return
+    setMutationError(null)
     try {
-      await removeSchedule(projectName)
-      setSchedule(null)
+      await removeMutation.mutateAsync({ client: heyClient, path: { name: projectName } })
+      await invalidateSchedule(null)
       setEditing(false)
+      consumeScheduleEdit()
       addToast({
         title: 'Schedule removed',
         detail: `${projectName} will no longer run automatically.`,
@@ -141,11 +194,15 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeKey: `schedule:remove:${projectName}`,
         dedupeMode: 'drop',
       })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove schedule')
-    } finally {
-      setRemoving(false)
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to remove schedule')
     }
+  }
+
+  const cancelEditing = () => {
+    setEditing(false)
+    setMutationError(null)
+    consumeScheduleEdit()
   }
 
   return (
@@ -153,136 +210,144 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Automation</p>
-          <h2>Scheduled runs</h2>
+          <h2>AI visibility sweep</h2>
+          {isActiveV2 ? (
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">One schedule runs the full published plan. Groups and Properties inherit its official results; they do not have separate schedules.</p>
+          ) : null}
         </div>
-        {!isEmbed() && schedule !== 'loading' && !editing && (
+        {canEdit && !scheduleQuery.isPending && !scheduleReadError && !editing ? (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
             {schedule ? 'Edit schedule' : '+ Set schedule'}
           </Button>
-        )}
+        ) : null}
       </div>
 
-      {schedule === 'loading' && <p className="supporting-copy">Loading...</p>}
+      {scheduleQuery.isPending ? <p role="status" className="supporting-copy">Loading AI visibility sweep…</p> : null}
 
-      {schedule !== 'loading' && !editing && schedule === null && (
+      {scheduleReadError ? (
+        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">
+          <p>Could not load the AI visibility sweep schedule.</p>
+          <Button className="mt-3" type="button" size="sm" variant="outline" onClick={() => { void scheduleQuery.refetch() }}>Retry</Button>
+        </div>
+      ) : null}
+
+      {!scheduleQuery.isPending && !scheduleReadError && !editing && schedule === null ? (
         <Card className="surface-card compact-card">
-          <p className="supporting-copy">No schedule configured. Set one to automatically trigger visibility sweeps.</p>
+          <p className="supporting-copy">No AI visibility sweep is scheduled. Set one to automatically trigger visibility sweeps.</p>
         </Card>
-      )}
+      ) : null}
 
-      {schedule !== 'loading' && !editing && schedule !== null && (
+      {!scheduleQuery.isPending && !scheduleReadError && !editing && schedule !== null ? (
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <p className="text-sm font-medium text-strong">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
               <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
-              {schedule.nextRunAt && (
-                <p className="text-xs text-muted">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
-              )}
-              {schedule.lastRunAt && (
-                <p className="text-xs text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
-              )}
+              {schedule.nextRunAt ? <p className="text-xs text-muted">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p> : null}
+              {schedule.lastRunAt ? <p className="text-xs text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p> : null}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>
-                {schedule.enabled ? 'Active' : 'Paused'}
-              </ToneBadge>
-              {!isEmbed() && (
-                <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
+            <div className="flex shrink-0 items-center gap-2">
+              <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>{schedule.enabled ? 'Active' : 'Paused'}</ToneBadge>
+              {canEdit ? (
+                <Button type="button" variant="outline" size="sm" disabled={saveMutation.isPending} onClick={asyncHandler(handleToggleEnabled)}>
                   {schedule.enabled ? 'Pause' : 'Resume'}
                 </Button>
-              )}
-              {!isEmbed() && (
-                <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
-                  {removing ? 'Removing...' : 'Remove'}
+              ) : null}
+              {canEdit ? (
+                <Button type="button" variant="ghost" size="sm" disabled={removeMutation.isPending} onClick={asyncHandler(handleRemove)}>
+                  {removeMutation.isPending ? 'Removing...' : 'Remove'}
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
-          {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
+          {mutationError ? <p className="mt-2 text-sm text-negative-400">{mutationError}</p> : null}
         </Card>
-      )}
+      ) : null}
 
-      {!isEmbed() && editing && (
-        <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
+      {canEdit && editing ? (
+        <div className="mt-4 space-y-3 rounded-lg border border-base bg-bg-elevated/40 p-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Frequency</label>
+              <label className="text-xs font-medium text-secondary" htmlFor="schedule-frequency">Frequency</label>
               <select
+                id="schedule-frequency"
                 className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
                 value={freq}
-                onChange={(e) => setFreq(e.target.value)}
+                onChange={(event) => setFreq(event.target.value)}
               >
-                {FREQ_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {FREQ_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Time</label>
+              <label className="text-xs font-medium text-secondary" htmlFor="schedule-hour">Time</label>
               <select
+                id="schedule-hour"
                 className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
                 value={hour}
                 disabled={freq === 'twice-daily' || freq === 'custom'}
-                onChange={(e) => setHour(parseInt(e.target.value))}
+                onChange={(event) => setHour(parseInt(event.target.value, 10))}
               >
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>{formatHour(i)}</option>
-                ))}
+                {Array.from({ length: 24 }, (_, index) => <option key={index} value={index}>{formatHour(index)}</option>)}
               </select>
             </div>
           </div>
-          {freq === 'custom' && (
+          {freq === 'custom' ? (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Cron expression</label>
+              <label className="text-xs font-medium text-secondary" htmlFor="schedule-cron">Cron expression</label>
               <input
-                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 font-mono focus:border-mono-500 focus:outline-none"
+                id="schedule-cron"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="0 9 * * 1-5"
                 value={customCron}
-                onChange={(e) => setCustomCron(e.target.value)}
+                onChange={(event) => setCustomCron(event.target.value)}
               />
             </div>
-          )}
+          ) : null}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-secondary">Timezone</label>
+            <label className="text-xs font-medium text-secondary" htmlFor="schedule-timezone">Timezone</label>
             <select
+              id="schedule-timezone"
               className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
               value={tzOther ? 'Other' : timezone}
-              onChange={(e) => {
-                if (e.target.value === 'Other') { setTzOther(true); setTimezone('Other') }
-                else { setTzOther(false); setTimezone(e.target.value) }
+              onChange={(event) => {
+                if (event.target.value === 'Other') {
+                  setTzOther(true)
+                  setTimezone('Other')
+                } else {
+                  setTzOther(false)
+                  setTimezone(event.target.value)
+                }
               }}
             >
-              {COMMON_TIMEZONES.map(tz => (
-                <option key={tz} value={tz}>{tz}</option>
-              ))}
-              <option value="Other">Other (enter manually){'\u2026'}</option>
+              {COMMON_TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+              <option value="Other">Other (enter manually)…</option>
             </select>
-            {tzOther && (
+            {tzOther ? (
               <input
+                aria-label="Other timezone"
                 className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="e.g. America/New_York"
                 value={tzOtherValue}
-                onChange={(e) => setTzOtherValue(e.target.value)}
+                onChange={(event) => setTzOtherValue(event.target.value)}
               />
-            )}
+            ) : null}
           </div>
-          {error && <p className="text-negative-400 text-sm">{error}</p>}
-          <div className="flex gap-2 justify-end">
-            <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setError(null) }}>Cancel</Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={saving || (freq === 'custom' && !customCron.trim())}
-              onClick={asyncHandler(handleSave)}
-            >
-              {saving ? 'Saving...' : 'Save schedule'}
+          {mutationError ? <p className="text-sm text-negative-400">{mutationError}</p> : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {schedule ? (
+              <Button type="button" variant="ghost" size="sm" disabled={removeMutation.isPending} onClick={asyncHandler(handleRemove)}>
+                {removeMutation.isPending ? 'Removing...' : 'Remove schedule'}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" size="sm" onClick={cancelEditing}>Cancel</Button>
+            <Button type="button" size="sm" disabled={saveMutation.isPending || (freq === 'custom' && !customCron.trim())} onClick={asyncHandler(handleSave)}>
+              {saveMutation.isPending ? 'Saving...' : 'Save schedule'}
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
     </section>
   )
 }

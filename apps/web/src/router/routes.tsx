@@ -73,6 +73,8 @@ type SearchParams = {
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
+  /** One-time handoff from the project header into the AI sweep editor. */
+  schedule?: 'edit'
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -113,6 +115,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
       : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
+    schedule: search.schedule === 'edit' ? 'edit' : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,

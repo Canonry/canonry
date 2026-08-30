@@ -18,6 +18,7 @@ import type {
   MeasurementDiscoveryResponse,
   MeasurementReportResponse,
   MeasurementSetupResponse,
+  MeasurementQueryStatusesResponse,
   MeasurementOverviewQuery,
   MeasurementOverviewResponse,
   MeasurementPropertyEvidenceQuery,
@@ -558,6 +559,7 @@ import {
   postApiV1ProjectsByNameMeasurementDiscovery,
   getApiV1ProjectsByNameMeasurementReport,
   getApiV1ProjectsByNameMeasurementSetup,
+  getApiV1ProjectsByNameMeasurementQueryStatuses,
   getApiV1ProjectsByNameMeasurementPropertyEvidence,
   getApiV1ProjectsByNameMeasurementPortfolioSummary,
   getApiV1ProjectsByNameMeasurementPropertyQuestions,
@@ -1382,6 +1384,12 @@ export class ApiClient {
   async getMeasurementSetup(project: string): Promise<MeasurementSetupResponse> {
     return this.invoke<MeasurementSetupResponse>(() =>
       getApiV1ProjectsByNameMeasurementSetup({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getMeasurementQueryStatuses(project: string): Promise<MeasurementQueryStatusesResponse> {
+    return this.invoke<MeasurementQueryStatusesResponse>(() =>
+      getApiV1ProjectsByNameMeasurementQueryStatuses({ client: this.heyClient, path: { name: project } }),
     )
   }
 

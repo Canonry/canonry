@@ -87,7 +87,6 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameMeasurementPortfolioSummaryOptions,
-  getApiV1ProjectsByNameScheduleOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameQueriesOptions,
@@ -97,6 +96,7 @@ import {
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
+import { projectScheduleQueryOptions } from '../queries/schedule-query.js'
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
@@ -1573,6 +1573,7 @@ function ProjectPageContent({
     queries?: 'tracked' | 'discover' | 'test'
     runId?: string
     siteHealthRunId?: string
+    schedule?: 'edit'
     scope?: string
     class?: string
   }
@@ -1582,6 +1583,13 @@ function ProjectPageContent({
       to: '.',
       replace: true,
       search: (previous: Record<string, unknown>) => ({ ...previous, siteHealthRunId: undefined }),
+    })
+  }, [navigate])
+  const releaseScheduleEdit = useCallback(() => {
+    void navigate({
+      to: '.',
+      replace: true,
+      search: (previous: Record<string, unknown>) => ({ ...previous, schedule: undefined }),
     })
   }, [navigate])
   const [addingCompetitor, setAddingCompetitor] = useState(false)
@@ -1652,10 +1660,10 @@ function ProjectPageContent({
   // sweep is scheduled, so "it runs itself" is the honest headline and the
   // manual trigger beside it is the override. `nextRunAt` is computed from the
   // cron server-side (`schedules.ts`) — the browser never parses a cron.
-  // 404 means no schedule for this project, which the query surfaces as an
-  // error and the header renders as nothing.
+  // A 404 is normalized to the meaningful empty state by
+  // `projectScheduleQueryOptions`; other failures remain retryable errors.
   const sweepScheduleQuery = useQuery({
-    ...getApiV1ProjectsByNameScheduleOptions({ client: heyClient, path: { name: projectName } }),
+    ...projectScheduleQueryOptions(projectName),
     enabled: !isEmbed() && Boolean(projectName),
     retry: false,
   })
@@ -1679,6 +1687,17 @@ function ProjectPageContent({
   const nextSweepLabel = sweepSchedule?.enabled && sweepSchedule.nextRunAt
     ? `Next AI sweep ${new Date(sweepSchedule.nextRunAt).toLocaleString()}`
     : null
+  const noSweepState = sweepScheduleQuery.isPending
+    ? null
+    : sweepScheduleQuery.isError
+      ? 'AI sweep schedule unavailable'
+      : sweepSchedule === null
+      ? 'No AI sweep scheduled'
+      : sweepSchedule === undefined
+        ? 'AI sweep schedule unavailable'
+      : sweepSchedule.enabled
+        ? 'No upcoming AI sweep is scheduled'
+        : 'AI sweep schedule is paused'
   const activeMeasurementPlan = activeMeasurementPlanQuery.data?.active ?? null
 
   // A bookmark outlives the group it names. Once the plan has actually loaded
@@ -2172,7 +2191,20 @@ function ProjectPageContent({
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
           {!isEmbed() && (
             <div className="flex items-center gap-3">
-              {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+              {nextSweepLabel ? (
+                <Link
+                  to="/projects/$projectName/settings"
+                  params={{ projectName }}
+                  search={(previous: Record<string, unknown>) => ({
+                    ...(typeof previous.runId === 'string' ? { runId: previous.runId } : {}),
+                    schedule: 'edit' as const,
+                  })}
+                  aria-label="Edit AI visibility sweep schedule"
+                  className="text-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
+                >
+                  {nextSweepLabel}
+                </Link>
+              ) : noSweepState ? <p className="text-sm text-secondary">{noSweepState}</p> : null}
               {/* Secondary, not primary. The schedule beside it is what actually
                   runs the sweep; this is the override for when you can't wait
                   for it. Deleting the project used to sit here too — an
@@ -2264,6 +2296,7 @@ function ProjectPageContent({
             void Promise.all([
               measurementSetupQuery.refetch(),
               activeMeasurementPlanQuery.refetch(),
+              invalidateProjectQueryDomain(queryClient, 'measurement'),
             ]).finally(() => {
               void navigate({ to: '/projects/$projectName', params: { projectName } })
             })
@@ -2639,7 +2672,12 @@ function ProjectPageContent({
               )}
             </section>
           ) : null}
-          <ScheduleSection projectName={model.project.name} />
+          <ScheduleSection
+            projectName={model.project.name}
+            scheduleEditRequested={projectSearchParams.schedule === 'edit'}
+            onScheduleEditHandled={releaseScheduleEdit}
+            isActiveV2={activeMeasurementPlanSchemaVersion === 2}
+          />
           <NotificationsSection projectName={model.project.name} />
           {/* Deleting the project lives here, at the far end of Settings, rather
               than as an icon in the page header where it sat one misclick from
