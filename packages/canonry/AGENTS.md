@@ -135,6 +135,11 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 ### MCP adapter
 
+The Advanced Measurement `replace-query` draft action shares its typed request
+across CLI, MCP, and the dashboard. It changes draft assignments, not the active
+plan. `ApiClient.replaceMeasurementDraftQuery` must forward the ETag and
+idempotency key unchanged. The action never starts provider work.
+
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
 
 MCP parity is the default for every new public API/CLI capability. When adding a command or `ApiClient` method, either add the matching tool in `src/mcp/tool-registry.ts` and update `docs/mcp.md` + MCP tests, or classify the OpenAPI operation as `deferred` / `excluded-protocol` in `src/mcp/openapi-classification.ts` with a short rationale. Security-sensitive credential/token operations may be deferred, but the PR must explain the exception.

@@ -437,6 +437,18 @@ describe('ApiClient Advanced Measurement v2 draft actions', () => {
       },
     },
     {
+      name: 'replace query text',
+      invoke: (api: ApiClient) => api.replaceMeasurementDraftQuery(PROJECT, {
+        queryId: 'northstar-query',
+        queryText: 'Quiet apartments near transit',
+      }, IDEMPOTENCY_KEY, ETAG),
+      expected: {
+        method: 'POST',
+        pathname: `/api/v1/projects/${PROJECT}/measurement-plan/draft/actions/replace-query`,
+        headers: ordinaryHeaders,
+      },
+    },
+    {
       name: 'remove assignment',
       invoke: (api: ApiClient) => api.removeMeasurementDraftAssignment(PROJECT, {
         targetKey: target.stableKey,

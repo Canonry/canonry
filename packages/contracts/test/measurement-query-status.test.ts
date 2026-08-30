@@ -43,4 +43,101 @@ describe('measurement query status contract', () => {
       queries: [{ queryId: 'query-alpha', status: 'measured', inferredInBrowser: true }],
     })).toThrow()
   })
+
+  it('models catalog state, legacy-safe unavailable scope, v2 class facts, and frozen-plan orphans', () => {
+    const parsed = measurementQueryStatusesResponseSchema.parse({
+      setupMode: 'active-v2',
+      activeRevision: 3,
+      latestOfficialFullRun: null,
+      queries: [
+        {
+          queryId: 'query-alpha',
+          status: 'awaiting_first_sweep',
+          catalogState: 'current',
+          currentQueryText: 'Alpha question',
+          assignmentScope: {
+            mode: 'advanced_assigned',
+            activePlanQueryText: 'Alpha question',
+            queryTextMatchesPlan: true,
+            assignedTargetCount: 2,
+            classState: 'mixed',
+            queryClasses: ['branded', 'non-brand'],
+            classCounts: [
+              { queryClass: 'branded', assignedTargetCount: 1 },
+              { queryClass: 'non-brand', assignedTargetCount: 1 },
+            ],
+            groupCoverage: [{
+              groupKey: 'metro',
+              label: 'Metro',
+              memberCount: 3,
+              assignedMemberCount: 2,
+              coverage: 'partial',
+              classCounts: [
+                { queryClass: 'branded', assignedTargetCount: 1 },
+                { queryClass: 'non-brand', assignedTargetCount: 1 },
+              ],
+            }],
+          },
+        },
+        {
+          queryId: 'query-beta',
+          status: 'not_in_plan',
+          catalogState: 'current',
+          currentQueryText: 'Beta question',
+          assignmentScope: {
+            mode: 'advanced_unassigned',
+            activePlanQueryText: null,
+            queryTextMatchesPlan: null,
+            assignedTargetCount: 0,
+            classState: 'none',
+            queryClasses: [],
+            classCounts: [],
+            groupCoverage: [],
+          },
+        },
+      ],
+      activePlanOrphans: [{
+        queryId: 'query-gone',
+        status: 'awaiting_first_sweep',
+        catalogState: 'missing',
+        currentQueryText: null,
+        assignmentScope: {
+          mode: 'advanced_assigned',
+          activePlanQueryText: 'Frozen question',
+          queryTextMatchesPlan: null,
+          assignedTargetCount: 1,
+          classState: 'branded',
+          queryClasses: ['branded'],
+          classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+          groupCoverage: [],
+        },
+      }],
+    })
+
+    expect(parsed.queries[0]?.assignmentScope?.classState).toBe('mixed')
+    expect(parsed.activePlanOrphans[0]?.catalogState).toBe('missing')
+
+    expect(() => measurementQueryStatusesResponseSchema.parse({
+      setupMode: 'active-v1',
+      activeRevision: 1,
+      latestOfficialFullRun: null,
+      queries: [{
+        queryId: 'query-legacy',
+        status: 'not_in_plan',
+        catalogState: 'current',
+        currentQueryText: 'Legacy question',
+        assignmentScope: {
+          mode: 'legacy',
+          activePlanQueryText: null,
+          queryTextMatchesPlan: null,
+          assignedTargetCount: 0,
+          classState: 'none',
+          queryClasses: [],
+          classCounts: [],
+          groupCoverage: [],
+        },
+      }],
+      activePlanOrphans: [],
+    })).toThrow()
+  })
 })

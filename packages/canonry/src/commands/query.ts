@@ -68,6 +68,23 @@ export async function replaceQueries(
   console.log(`Set ${queries.length} ${queries.length === 1 ? 'query' : 'queries'} for "${project}".`)
 }
 
+export async function editQuery(
+  project: string,
+  queryId: string,
+  query: string,
+  expectedQuery: string,
+  format?: string,
+): Promise<void> {
+  const replacement = await getClient().replaceQuery(project, queryId, { query, expectedQuery })
+
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(replacement, null, 2))
+    return
+  }
+
+  console.log(`Created replacement query "${replacement.query}" for "${project}".`)
+}
+
 export async function removeQueries(project: string, queries: string[], format?: string): Promise<void> {
   const client = getClient()
   const existing = await client.listQueries(project) as Array<{ query: string }>

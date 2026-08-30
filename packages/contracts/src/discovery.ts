@@ -404,6 +404,9 @@ export type DiscoveryPromoteResult = z.infer<typeof discoveryPromoteResultSchema
  *
  * - `'cli'` — operator-entered via `canonry query add` / `competitor add` (or
  *   the v55 backfill for pre-discovery rows).
+ * - `'query-edit:<previousQueryId>'` — a new catalog identity created by a
+ *   browser/API wording edit. The old id stays traceable without pooling its
+ *   historical answer evidence under the new question.
  * - `'discovery:<sessionId>'` — adopted out of a discovery session via
  *   `canonry discover promote`.
  *
@@ -412,6 +415,7 @@ export type DiscoveryPromoteResult = z.infer<typeof discoveryPromoteResultSchema
  */
 export const queryProvenanceSchema = z.union([
   z.literal('cli'),
+  z.string().regex(/^query-edit:.+$/),
   z.string().regex(/^discovery:.+$/),
   z.string().regex(/^research:.+$/),
 ])

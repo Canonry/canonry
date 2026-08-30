@@ -318,8 +318,11 @@ test('discoveryRunRequestSchema caps maxProbes at DISCOVERY_MAX_PROBES_CAP', () 
   expect(() => discoveryRunRequestSchema.parse({ maxProbes: 10_000 })).toThrow()
 })
 
-test('queryProvenanceSchema accepts "cli" and "discovery:<sessionId>" shapes', () => {
+test('queryProvenanceSchema accepts CLI, query-edit, and discovery shapes', () => {
   expect(queryProvenanceSchema.parse('cli')).toBe('cli')
+  expect(queryProvenanceSchema.parse('query-edit:550e8400-e29b-41d4-a716-446655440000')).toBe(
+    'query-edit:550e8400-e29b-41d4-a716-446655440000',
+  )
   expect(queryProvenanceSchema.parse('discovery:abc-123-def')).toBe('discovery:abc-123-def')
   expect(queryProvenanceSchema.parse('discovery:550e8400-e29b-41d4-a716-446655440000')).toBe(
     'discovery:550e8400-e29b-41d4-a716-446655440000',
@@ -328,6 +331,7 @@ test('queryProvenanceSchema accepts "cli" and "discovery:<sessionId>" shapes', (
 
 test('queryProvenanceSchema rejects other strings', () => {
   expect(() => queryProvenanceSchema.parse('manual')).toThrow()
+  expect(() => queryProvenanceSchema.parse('query-edit:')).toThrow()
   expect(() => queryProvenanceSchema.parse('discovery:')).toThrow()
   expect(() => queryProvenanceSchema.parse('')).toThrow()
 })

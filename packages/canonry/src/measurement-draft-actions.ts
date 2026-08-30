@@ -17,6 +17,7 @@ import {
   measurementDraftRemoveCompetitorRequestSchema,
   measurementDraftRemoveGroupRequestSchema,
   measurementDraftReplaceAssignmentsRequestSchema,
+  measurementDraftReplaceQueryRequestSchema,
   measurementDraftRenameTargetRequestSchema,
   measurementDraftUpsertCompetitorRequestSchema,
   measurementDraftUpsertGroupRequestSchema,
@@ -61,6 +62,7 @@ export const measurementDraftOperationSchema = z.discriminatedUnion('action', [
     request: measurementDraftPreviewAssignmentsRequestSchema,
   }).strict().describe('Read-semantic assignment impact preview.'),
   mutationOperationSchema('replace-assignments', measurementDraftReplaceAssignmentsRequestSchema),
+  mutationOperationSchema('replace-query', measurementDraftReplaceQueryRequestSchema),
   mutationOperationSchema('apply-paired-assignments', measurementDraftApplyPairedAssignmentsRequestSchema),
   mutationOperationSchema('remove-assignment', measurementDraftRemoveAssignmentRequestSchema),
   mutationOperationSchema('clear-assignments', measurementDraftClearAssignmentsRequestSchema),
@@ -114,6 +116,8 @@ export function runMeasurementDraftAction(
       return client.previewMeasurementDraftAssignments(project, actionInput.request)
     case 'replace-assignments':
       return client.replaceMeasurementDraftAssignments(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
+    case 'replace-query':
+      return client.replaceMeasurementDraftQuery(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'apply-paired-assignments':
       return client.applyPairedMeasurementDraftAssignments(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'remove-assignment':

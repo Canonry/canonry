@@ -175,6 +175,18 @@ export const queryDtoSchema = z.object({
 
 export type QueryDto = z.infer<typeof queryDtoSchema>
 
+/**
+ * A guarded single-query replacement for projects that have not entered
+ * measurement-plan authoring. `expectedQuery` deliberately remains raw: it is
+ * a compare-and-swap guard, not operator input to normalize.
+ */
+export const queryReplaceRequestSchema = z.object({
+  query: z.string().trim().min(1).max(4000),
+  expectedQuery: z.string().min(1).max(4000),
+}).strict()
+
+export type QueryReplaceRequest = z.infer<typeof queryReplaceRequestSchema>
+
 /** @deprecated Legacy alias kept for the `/keywords` back-compat surface. New code should use {@link queryDtoSchema}. */
 export const keywordDtoSchema = z.object({
   id: z.string(),

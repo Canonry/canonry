@@ -1579,6 +1579,8 @@ function ProjectPageContent({
   const projectSearchParams = useSearch({ strict: false }) as {
     manageQueries?: boolean
     queries?: 'tracked' | 'discover' | 'test'
+    measurementStep?: 'queries'
+    measurementQueryId?: string
     measurementRunId?: string
     runId?: string
     siteHealthRunId?: string
@@ -2309,8 +2311,10 @@ function ProjectPageContent({
 
       {tab === 'portfolio' && !isEmbed() ? (
         <AdvancedMeasurementSection
-          key={projectName}
+          key={`${projectName}:${projectSearchParams.measurementQueryId ?? ''}:${projectSearchParams.measurementStep ?? ''}`}
           projectName={projectName}
+          initialStep={projectSearchParams.measurementStep}
+          initialQueryId={projectSearchParams.measurementQueryId}
           canEdit={canWrite}
           queries={portfolioQueriesQuery.data ?? []}
           isQueryLoading={isPortfolioQueriesLoading}

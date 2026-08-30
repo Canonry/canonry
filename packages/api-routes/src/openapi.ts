@@ -930,7 +930,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-query-statuses',
     summary: 'Get server-derived measurement readiness for tracked queries',
-    description: 'Returns one deterministic row per current tracked query. Membership, eligible official full-run selection, manifest validation, and completeness are resolved on the server against the active immutable plan; no provider work occurs.',
+    description: 'Returns one deterministic row per current tracked query plus any frozen active-plan query missing from the catalog. Membership, assignment scope and class facts, eligible official full-run selection, manifest validation, and completeness are resolved on the server against the active immutable plan; no provider work occurs.',
     tags: ['measurement-plans'],
     parameters: [nameParameter],
     responses: {
@@ -1055,6 +1055,14 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Replace the audience for project queries',
     description: 'Atomically removes every prior Property assignment for the named questions and writes the exact resolved audience. Other questions are untouched.',
     request: 'MeasurementDraftReplaceAssignmentsRequest',
+  }),
+  measurementDraftAction({
+    action: 'replace-query',
+    summary: 'Replace one draft query with a new saved-query identity',
+    description: 'Creates a new saved query and transfers only the source query\'s current draft assignments. It never renames or deletes the source catalog query, active revision, or historical evidence. A collision with another saved query is refused instead of merged.',
+    request: 'MeasurementDraftReplaceQueryRequest',
+    response: 'MeasurementDraftReplaceQueryResponse',
+    responseDescription: 'Replacement query identity and the updated draft ETag returned.',
   }),
   measurementDraftAction({
     action: 'apply-paired-assignments',
@@ -1731,6 +1739,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/queries',
     summary: 'Replace queries',
+    description: 'Declaratively replaces only catalog rows that are safe to change. Rows assigned to an active measurement plan or draft must be edited in the measurement workspace; an identical request remains a no-op.',
     tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
@@ -1749,12 +1758,15 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonArrayResponse('Queries replaced.', 'QueryDto'),
+      400: errorResponse('The request would change a measurement-plan or draft-assigned query.'),
+      409: errorResponse('A planless answer-visibility run is in progress.'),
     },
   },
   {
     method: 'delete',
     path: '/api/v1/projects/{name}/queries',
     summary: 'Delete specific queries',
+    description: 'Deletes only unassigned catalog rows. A request naming any active-plan or draft-assigned row is rejected atomically.',
     tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
@@ -1774,17 +1786,41 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonArrayResponse('Remaining queries returned.', 'QueryDto'),
       400: errorResponse('Invalid query delete request.'),
+      409: errorResponse('A planless answer-visibility run is in progress.'),
     },
   },
   {
     method: 'delete',
     path: '/api/v1/projects/{name}/queries/{id}',
     summary: 'Delete one query by ID',
+    description: 'Deletes an unassigned catalog row. Measurement-plan and draft assignments must be changed in the measurement workspace.',
     tags: ['queries'],
     parameters: [nameParameter, queryIdParameter],
     responses: {
       204: { description: 'Query deleted.' },
+      400: errorResponse('The query is assigned to an active measurement plan or draft.'),
       404: errorResponse('Project or query not found.'),
+      409: errorResponse('A planless answer-visibility run is in progress.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/queries/{id}/replace',
+    summary: 'Replace one simple tracked query with a new identity',
+    description: 'Available only before measurement-plan authoring begins and while no answer-visibility run is queued or running. The exact expectedQuery guard rejects stale edits. A wording change creates a new catalog query ID, preserving historical snapshot wording instead of relabeling prior answers.',
+    tags: ['queries'],
+    parameters: [nameParameter, queryIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': { schema: { $ref: '#/components/schemas/QueryReplaceRequest' } },
+      },
+    },
+    responses: {
+      200: jsonResponse('Replacement query returned.', 'QueryDto'),
+      400: errorResponse('Invalid, stale, or measurement-plan-managed replacement request.'),
+      404: errorResponse('Project or source query not found.'),
+      409: errorResponse('A matching tracked query exists or an answer-visibility run is in progress.'),
     },
   },
   {
@@ -1815,7 +1851,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/queries/replace-preview',
     summary: 'Preview the impact of replacing tracked queries',
-    description: 'Read-only impact summary backing `canonry query replace --dry-run`. Returns current vs proposed query sets, the added/removed/unchanged diff, and the count of snapshots that would detach (queryId → NULL; queryText preserved).',
+    description: 'Read-only impact summary backing `canonry query replace --dry-run`. It rejects a proposed change to a measurement-plan or draft-assigned query, matching the commit route. Otherwise it returns current vs proposed query sets, the added/removed/unchanged diff, and the count of snapshots that would detach (queryId → NULL; queryText preserved).',
     tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
@@ -1835,6 +1871,8 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       // TODO: Add `QueriesReplacePreviewDto` Zod schema in contracts.
       200: rawJsonResponse('Replace preview returned.', looseObjectSchema),
+      400: errorResponse('The proposed change would modify a measurement-plan or draft-assigned query.'),
+      409: errorResponse('A planless answer-visibility run is in progress.'),
       404: errorResponse('Project not found.'),
     },
   },

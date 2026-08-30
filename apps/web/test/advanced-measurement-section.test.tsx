@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   DraftMutationResponse,
   MeasurementDraftAuthoring,
   MeasurementDraftCompilePreviewResponse,
   MeasurementDraftDiffPreviewResponse,
+  MeasurementDraftReplaceQueryResponse,
   MeasurementDraftResponse,
   MeasurementDraftWarning,
   MeasurementPlanV2PublishResponse,
@@ -142,6 +143,11 @@ interface FakeServiceOptions {
   compileChecks?: MeasurementDraftCompilePreviewResponse['checks']
   diffChecks?: MeasurementDraftDiffPreviewResponse['checks']
   assignmentConflictStatus?: 409 | 412
+  replaceQueryConflictStatus?: 409 | 412
+  replaceQueryError?: Error
+  /** The server commits the replacement but the browser never receives it. */
+  replaceQueryLostResponse?: boolean
+  replaceQueryGate?: Promise<void>
   discardConflictStatus?: 404
   diffActiveRevision?: number | null
   latestBaseActiveRevision?: number | null
@@ -171,6 +177,9 @@ function createFakeService(options: FakeServiceOptions = {}) {
   }
   let etagVersion = options.etagVersion ?? (currentDraft ? 7 : 0)
   let assignmentConflictStatus = options.assignmentConflictStatus
+  let replaceQueryConflictStatus = options.replaceQueryConflictStatus
+  let replaceQueryLostResponse = options.replaceQueryLostResponse ?? false
+  const replaceQueryReceipts = new Map<string, MeasurementDraftReplaceQueryResponse>()
   let movedDraftDuringDiff = false
 
   const currentEtag = () => currentDraft ? `"mpd_${etagVersion}"` : null
@@ -336,6 +345,40 @@ function createFakeService(options: FakeServiceOptions = {}) {
         }
       }
       return mutation(options.assignmentWarnings)
+    }),
+    replaceQuery: vi.fn(async (_projectName, etag, input, idempotencyKey?: string) => {
+      await options.replaceQueryGate
+      const receipt = idempotencyKey ? replaceQueryReceipts.get(idempotencyKey) : undefined
+      if (receipt) return clone(receipt)
+      const draft = requireDraft(etag)
+      if (replaceQueryConflictStatus !== undefined) {
+        const status = replaceQueryConflictStatus
+        replaceQueryConflictStatus = undefined
+        etagVersion += 1
+        throw new ApiError('The setup changed in another session.', status)
+      }
+      if (options.replaceQueryError) throw options.replaceQueryError
+      const replacementQuery = {
+        id: `q-replacement-${etagVersion + 1}`,
+        query: input.queryText,
+        createdAt: NOW,
+      }
+      draft.authoring.assignments = draft.authoring.assignments.map(assignment => (
+        assignment.queryId === input.queryId
+          ? { ...assignment, queryId: replacementQuery.id }
+          : assignment
+      ))
+      const response: MeasurementDraftReplaceQueryResponse = {
+        ...mutation(),
+        previousQueryId: input.queryId,
+        replacementQuery,
+      }
+      if (idempotencyKey) replaceQueryReceipts.set(idempotencyKey, clone(response))
+      if (replaceQueryLostResponse) {
+        replaceQueryLostResponse = false
+        throw new Error('The saved replacement response was lost.')
+      }
+      return response
     }),
     applyPairedAssignments: vi.fn(async (_projectName, etag, pairs) => {
       await options.pairedAssignmentGate
@@ -639,6 +682,187 @@ test('turns simple path wildcards into deterministic sitemap exclusions', () => 
 })
 
 describe('AdvancedMeasurementSection server draft controller', () => {
+  test('opens a query assignment handoff directly without applying or publishing anything', async () => {
+    const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }) })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-private' })
+
+    await screen.findByLabelText(`Select query ${QUERIES[1]!.query}`)
+    await waitFor(() => expect((screen.getByLabelText(`Select query ${QUERIES[1]!.query}`) as HTMLInputElement).checked).toBe(true))
+    expect(screen.queryByRole('heading', { name: 'Properties' })).toBeNull()
+    expect(fake.service.applyAssignments).not.toHaveBeenCalled()
+    expect(fake.service.publish).not.toHaveBeenCalled()
+    expect(fake.getDraft()?.authoring.assignments).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Assign 1 query to all/ })).toBeNull()
+    expect(screen.queryByLabelText('Query text')).toBeNull()
+    expect(screen.queryByRole('button', { name: `Edit query ${QUERIES[1]!.query}` })).toBeNull()
+    expect(screen.getByLabelText('Apply to')).toHaveProperty('value', 'specific')
+  })
+
+  test('does not use a query handoff to skip unconfirmed Properties', async () => {
+    const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1, 'proposed')], baseActiveRevision: 4 }) })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-private' })
+    expect(await screen.findByRole('heading', { name: 'Properties' })).toBeTruthy()
+    expect(screen.queryByLabelText(`Select query ${QUERIES[1]!.query}`)).toBeNull()
+  })
+
+  test('keeps a query edit scoped to its assigned Property instead of selecting the portfolio', async () => {
+    const draft = draftFixture({ targets: [property(1), property(2), property(3)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 })
+    draft.authoring.assignments = draft.authoring.assignments.slice(0, 1)
+    const fake = createFakeService({ initialDraft: draft })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby' })
+    await waitFor(() => expect(fake.service.previewAssignments).toHaveBeenCalledWith(
+      PROJECT, { targetKeys: ['property-001'], queryIds: ['q-nearby'] },
+    ))
+    expect(fake.service.applyAssignments).not.toHaveBeenCalled()
+    expect(fake.service.publish).not.toHaveBeenCalled()
+  })
+
+  test('replaces handed-off query text in the draft while preserving its assigned Properties and types', async () => {
+    const draft = draftFixture({ targets: [property(1), property(2)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 })
+    draft.authoring.assignments[0] = {
+      ...draft.authoring.assignments[0]!,
+      queryClass: 'branded',
+      classificationSource: 'manual',
+    }
+    const onRetryQueries = vi.fn()
+    const fake = createFakeService({ initialDraft: draft })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby', onRetryQueries })
+
+    await screen.findByRole('button', { name: `Edit query ${QUERIES[0]!.query}` })
+    expect((screen.getByLabelText('Query text') as HTMLInputElement).value).toBe(QUERIES[0]!.query)
+    expect(screen.getByText('2 Properties assigned')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save to draft' })).toHaveProperty('disabled', true)
+
+    fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'best event venues nearby' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+
+    await waitFor(() => expect(fake.service.replaceQuery).toHaveBeenCalledWith(
+      PROJECT,
+      '"mpd_7"',
+      { queryId: 'q-nearby', queryText: 'best event venues nearby' },
+      expect.any(String),
+    ))
+    expect(fake.getDraft()?.authoring.assignments).toEqual([
+      {
+        targetKey: 'property-001',
+        queryId: 'q-replacement-8',
+        queryClass: 'branded',
+        classificationSource: 'manual',
+      },
+      {
+        targetKey: 'property-002',
+        queryId: 'q-replacement-8',
+        queryClass: 'non-brand',
+        classificationSource: 'rule',
+      },
+    ])
+    expect(fake.service.applyAssignments).not.toHaveBeenCalled()
+    expect(fake.service.publish).not.toHaveBeenCalled()
+    expect(onRetryQueries).toHaveBeenCalledTimes(1)
+    expect((screen.getByLabelText('Query text') as HTMLInputElement).value).toBe('best event venues nearby')
+  })
+
+  test('replays a committed replacement after its response is lost, restoring the new query and its exact Properties', async () => {
+    const onRetryQueries = vi.fn()
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1), property(2)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+      replaceQueryLostResponse: true,
+    })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby', onRetryQueries })
+
+    const input = await screen.findByLabelText('Query text') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'best event venues nearby' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+
+    expect(await screen.findByText('The saved replacement response was lost.')).toBeTruthy()
+    expect(fake.getDraft()?.authoring.assignments.map(assignment => assignment.queryId)).toEqual([
+      'q-replacement-8',
+      'q-replacement-8',
+    ])
+
+    // The browser still has the old ETag, so only the original receipt key
+    // can safely recover the committed result without a second replacement.
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+    await waitFor(() => expect(fake.service.replaceQuery).toHaveBeenCalledTimes(2))
+    const calls = vi.mocked(fake.service.replaceQuery).mock.calls
+    expect(calls[0]?.[1]).toBe('"mpd_7"')
+    expect(calls[1]?.[1]).toBe('"mpd_7"')
+    expect(calls[0]?.[3]).toMatch(/^.+$/)
+    expect(calls[1]?.[3]).toBe(calls[0]?.[3])
+
+    await waitFor(() => expect((screen.getByLabelText('Query text') as HTMLInputElement).value).toBe('best event venues nearby'))
+    expect(screen.getByText('2 Properties assigned')).toBeTruthy()
+    expect(fake.getDraft()?.authoring.assignments.map(assignment => assignment.queryId)).toEqual([
+      'q-replacement-8',
+      'q-replacement-8',
+    ])
+    expect(onRetryQueries).toHaveBeenCalledTimes(1)
+  })
+
+  test('submits an in-flight query wording edit only once when Save is clicked twice', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+      replaceQueryGate: gate,
+    })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby' })
+
+    const input = await screen.findByLabelText('Query text') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'best event venues nearby' } })
+    const save = screen.getByRole('button', { name: 'Save to draft' })
+    act(() => {
+      save.click()
+      save.click()
+    })
+    await waitFor(() => expect(fake.service.replaceQuery).toHaveBeenCalledTimes(1))
+
+    release?.()
+    await waitFor(() => expect((screen.getByLabelText('Query text') as HTMLInputElement).value).toBe('best event venues nearby'))
+    expect(fake.getDraft()?.authoring.assignments.map(assignment => assignment.queryId)).toEqual(['q-replacement-8'])
+  })
+
+  test('keeps query text available and reports a safe error when a draft replacement is refused', async () => {
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+      replaceQueryError: new Error('A saved query already uses that text.'),
+    })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby' })
+
+    const input = await screen.findByLabelText('Query text') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'best event venues nearby' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+
+    expect(await screen.findByText('A saved query already uses that text.')).toBeTruthy()
+    expect(input.value).toBe('best event venues nearby')
+    expect(fake.service.applyAssignments).not.toHaveBeenCalled()
+    expect(fake.service.publish).not.toHaveBeenCalled()
+  })
+
+  test('reloads the draft before retrying a query replacement after a stale ETag', async () => {
+    const onRetryQueries = vi.fn()
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+      replaceQueryConflictStatus: 412,
+    })
+    renderSection(fake, { initialStep: 'queries', initialQueryId: 'q-nearby', onRetryQueries })
+
+    const input = await screen.findByLabelText('Query text') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'best event venues nearby' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+
+    expect(await screen.findByText('This setup changed in another session. The latest draft is loaded; review your changes again.')).toBeTruthy()
+    expect(input.value).toBe(QUERIES[0]!.query)
+    expect(onRetryQueries).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(input, { target: { value: 'best event venues nearby' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to draft' }))
+    await waitFor(() => expect(fake.service.replaceQuery).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(fake.service.replaceQuery).mock.calls[1]![1]).toBe('"mpd_8"')
+    expect(fake.service.applyAssignments).not.toHaveBeenCalled()
+    expect(fake.service.publish).not.toHaveBeenCalled()
+  })
+
   test('starts an Advanced draft from Simple with the active revision the setup read supplied', async () => {
     const fake = createFakeService()
     renderSection(fake)

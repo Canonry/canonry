@@ -5,10 +5,13 @@ import {
   measurementPlanV2Schema,
   measurementQueryClassSchema,
   measurementV2CompetitorSchema,
+  measurementV2ExecutionContextSchema,
+  measurementV2QueryProvenanceSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
 import { measurementDiscoveryRuleSchema } from './measurement-service.js'
 import { providerNameSchema } from './provider.js'
+import { queryDtoSchema } from './project.js'
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const measurementDraftQueryIdSchema = z.string().trim().min(1).max(256)
@@ -69,9 +72,25 @@ export const measurementDraftAssignmentSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   queryId: measurementDraftQueryIdSchema,
   contextOverride: measurementDraftContextOverrideSchema.optional(),
+  /**
+   * Exact frozen v2 execution contexts seeded from an active revision.
+   * Unlike `contextOverride`, these are never expanded against the current
+   * defaults: one list entry becomes one execution node exactly as frozen.
+   */
+  executionContexts: z.array(measurementV2ExecutionContextSchema).min(1).optional(),
+  /** Frozen source facts for a query carried forward from an active v2 revision. */
+  queryProvenance: measurementV2QueryProvenanceSchema.optional(),
   queryClass: measurementDraftQueryClassSchema,
   classificationSource: measurementClassificationSourceSchema,
-}).strict()
+}).strict().superRefine((value, context) => {
+  if (value.contextOverride !== undefined && value.executionContexts !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['executionContexts'],
+      message: 'An assignment uses either an exact frozen execution context or a mutable context override, not both.',
+    })
+  }
+})
 export type MeasurementDraftAssignment = z.output<typeof measurementDraftAssignmentSchema>
 
 export const measurementDraftCompetitorSchema = measurementV2CompetitorSchema
@@ -186,6 +205,24 @@ export const measurementDraftMutationResponseSchema = z.object({
   counts: measurementDraftCountsSchema,
 }).strict()
 export type DraftMutationResponse = z.output<typeof measurementDraftMutationResponseSchema>
+
+/**
+ * Creates a new saved-query identity and swaps only its draft assignments.
+ * It deliberately cannot rename or delete the source catalog query.
+ */
+export const measurementDraftReplaceQueryRequestSchema = z.object({
+  queryId: measurementDraftQueryIdSchema,
+  // Match the bounded research-query contract. A draft edit must not create
+  // an unbounded catalog row that no normal query entry point accepts.
+  queryText: z.string().trim().min(1).max(4000),
+}).strict()
+export type MeasurementDraftReplaceQueryRequest = z.output<typeof measurementDraftReplaceQueryRequestSchema>
+
+export const measurementDraftReplaceQueryResponseSchema = measurementDraftMutationResponseSchema.extend({
+  previousQueryId: measurementDraftQueryIdSchema,
+  replacementQuery: queryDtoSchema,
+}).strict()
+export type MeasurementDraftReplaceQueryResponse = z.output<typeof measurementDraftReplaceQueryResponseSchema>
 
 export const measurementDraftResponseSchema = z.object({
   draft: measurementPlanDraftSchema.nullable(),

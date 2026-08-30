@@ -8,6 +8,8 @@ import type {
   MeasurementDraftGroupMembershipRow,
   MeasurementDraftGroupMembershipRowStatus,
   MeasurementDraftPreviewGroupMembershipResponse,
+  MeasurementDraftReplaceQueryRequest,
+  MeasurementDraftReplaceQueryResponse,
   MeasurementPlanV2PublishResponse,
   MeasurementSetupResponse,
 } from '@ainyc/canonry-contracts'
@@ -31,6 +33,7 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQuery,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertTarget,
@@ -116,6 +119,13 @@ export interface AdvancedMeasurementService {
   previewAssignments(projectName: string, input: MeasurementAudienceAssignmentInput): Promise<MeasurementAudienceAssignmentPreview>
   applyAssignments(projectName: string, etag: string, input: MeasurementAudienceAssignmentInput): Promise<DraftMutationResponse>
   replaceAssignments(projectName: string, etag: string, input: MeasurementAudienceAssignmentInput): Promise<DraftMutationResponse>
+  /** Reuse `idempotencyKey` for an unchanged retry after an uncertain response. */
+  replaceQuery(
+    projectName: string,
+    etag: string,
+    input: MeasurementDraftReplaceQueryRequest,
+    idempotencyKey?: string,
+  ): Promise<MeasurementDraftReplaceQueryResponse>
   applyPairedAssignments(projectName: string, etag: string, pairs: { targetKey: string; queryId: string }[]): Promise<DraftMutationResponse>
   removeAssignment(projectName: string, etag: string, targetKeys: string[], queryId: string): Promise<DraftMutationResponse>
   excludeTarget(projectName: string, etag: string, targetKey: string): Promise<DraftMutationResponse>
@@ -143,15 +153,15 @@ export interface AdvancedMeasurementService {
   discard(projectName: string, etag: string): Promise<{ discarded: boolean }>
 }
 
-function idempotencyKey(): string {
+export function createMeasurementDraftIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function mutationHeaders(etag: string) {
+function mutationHeaders(etag: string, idempotencyKey?: string) {
   return {
     'If-Match': etag,
-    'Idempotency-Key': idempotencyKey(),
+    'Idempotency-Key': idempotencyKey ?? createMeasurementDraftIdempotencyKey(),
   }
 }
 
@@ -185,7 +195,7 @@ export const advancedMeasurementService: AdvancedMeasurementService = {
   createDraft: (projectName, expectedActiveRevision) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsCreate({
     client: heyClient,
     path: { name: projectName },
-    headers: { 'Idempotency-Key': idempotencyKey() },
+    headers: { 'Idempotency-Key': createMeasurementDraftIdempotencyKey() },
     body: { expectedActiveRevision },
   })),
   importSitemap: (projectName, etag, body) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsImportSitemap({
@@ -216,6 +226,12 @@ export const advancedMeasurementService: AdvancedMeasurementService = {
     path: { name: projectName },
     headers: mutationHeaders(etag),
     body: input,
+  })),
+  replaceQuery: (projectName, etag, body, idempotencyKey) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQuery({
+    client: heyClient,
+    path: { name: projectName },
+    headers: mutationHeaders(etag, idempotencyKey),
+    body,
   })),
   applyPairedAssignments: (projectName, etag, pairs) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments({
     client: heyClient,

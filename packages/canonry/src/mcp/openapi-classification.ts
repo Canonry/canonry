@@ -26,6 +26,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // the by-text bulk delete tool above already covers the agent workflow —
   // defer the by-id tool until an agent actually needs id-addressed deletes.
   'DELETE /api/v1/projects/{name}/queries/{id}': 'deferred',
+  'POST /api/v1/projects/{name}/queries/{id}/replace': 'included',
   'POST /api/v1/projects/{name}/queries': 'included',
   'POST /api/v1/projects/{name}/queries/generate': 'included',
   'POST /api/v1/projects/{name}/queries/replace-preview': 'included',
@@ -71,6 +72,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-query': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments': 'included',

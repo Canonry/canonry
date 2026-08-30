@@ -4670,6 +4670,24 @@ export type MeasurementDraftAssignmentPage = {
             };
             locations?: Array<string>;
         };
+        executionContexts?: Array<{
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            location: {
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            } | null;
+        }>;
+        queryProvenance?: {
+            source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
+            sourceId: string | null;
+            capturedAt: string;
+        };
         queryClass: 'branded' | 'non-brand' | 'unclassified';
         classificationSource: 'rule' | 'operator';
     }>;
@@ -5198,6 +5216,35 @@ export type MeasurementDraftReplaceAssignmentsRequest = {
     };
 };
 
+export type MeasurementDraftReplaceQueryRequest = {
+    queryId: string;
+    queryText: string;
+};
+
+export type MeasurementDraftReplaceQueryResponse = {
+    etag: string;
+    changed: boolean;
+    warnings: Array<{
+        code: string;
+        message: string;
+        path: Array<string | number>;
+    }>;
+    counts: {
+        targets: number;
+        includedTargets: number;
+        assignments: number;
+        unclassifiedAssignments: number;
+        groups: number;
+        competitors: number;
+    };
+    previousQueryId: string;
+    replacementQuery: {
+        id: string;
+        query: string;
+        createdAt: string;
+    };
+};
+
 export type MeasurementDraftRenameTargetRequest = {
     targetKey: string;
     label: string;
@@ -5464,6 +5511,24 @@ export type MeasurementDraftResponse = {
                         [key: string]: string;
                     };
                     locations?: Array<string>;
+                };
+                executionContexts?: Array<{
+                    providers: Array<string>;
+                    models: {
+                        [key: string]: string;
+                    };
+                    location: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                }>;
+                queryProvenance?: {
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
+                    sourceId: string | null;
+                    capturedAt: string;
                 };
                 queryClass: 'branded' | 'non-brand' | 'unclassified';
                 classificationSource: 'rule' | 'operator';
@@ -5735,6 +5800,192 @@ export type MeasurementQueryStatusesResponse = {
     queries: Array<{
         queryId: string;
         status: 'not_in_plan' | 'awaiting_first_sweep' | 'partial' | 'measured';
+        catalogState?: 'current' | 'missing';
+        currentQueryText?: string | null;
+        assignmentScope?: {
+            mode: 'simple';
+            activePlanQueryText: null;
+            queryTextMatchesPlan: null;
+            assignedTargetCount: null;
+            classState: 'unavailable';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'legacy';
+            activePlanQueryText: string | null;
+            queryTextMatchesPlan: boolean | null;
+            assignedTargetCount: null;
+            classState: 'unavailable';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'advanced_unassigned';
+            activePlanQueryText: null;
+            queryTextMatchesPlan: null;
+            assignedTargetCount: 0;
+            classState: 'none';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'advanced_assigned';
+            activePlanQueryText: string;
+            queryTextMatchesPlan: boolean | null;
+            assignedTargetCount: number;
+            classState: 'branded' | 'non-brand' | 'mixed';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        };
+    }>;
+    activePlanOrphans: Array<{
+        queryId: string;
+        status: 'not_in_plan' | 'awaiting_first_sweep' | 'partial' | 'measured';
+        catalogState: 'missing';
+        currentQueryText: null;
+        assignmentScope: {
+            mode: 'simple';
+            activePlanQueryText: null;
+            queryTextMatchesPlan: null;
+            assignedTargetCount: null;
+            classState: 'unavailable';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'legacy';
+            activePlanQueryText: string | null;
+            queryTextMatchesPlan: boolean | null;
+            assignedTargetCount: null;
+            classState: 'unavailable';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'advanced_unassigned';
+            activePlanQueryText: null;
+            queryTextMatchesPlan: null;
+            assignedTargetCount: 0;
+            classState: 'none';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        } | {
+            mode: 'advanced_assigned';
+            activePlanQueryText: string;
+            queryTextMatchesPlan: boolean | null;
+            assignedTargetCount: number;
+            classState: 'branded' | 'non-brand' | 'mixed';
+            queryClasses: Array<'branded' | 'non-brand'>;
+            classCounts: Array<{
+                queryClass: 'branded' | 'non-brand';
+                assignedTargetCount: number;
+            }>;
+            groupCoverage: Array<{
+                groupKey: string;
+                label: string;
+                memberCount: number;
+                assignedMemberCount: number;
+                coverage: 'partial' | 'complete';
+                classCounts: Array<{
+                    queryClass: 'branded' | 'non-brand';
+                    assignedTargetCount: number;
+                }>;
+            }>;
+        };
     }>;
 };
 
@@ -8844,6 +9095,11 @@ export type QueryDto = {
     id: string;
     query: string;
     createdAt: string;
+};
+
+export type QueryReplaceRequest = {
+    query: string;
+    expectedQuery: string;
 };
 
 export type ResultsExportDto = {
@@ -12237,6 +12493,66 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignmentsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignmentsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignmentsResponses];
 
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryData = {
+    body: MeasurementDraftReplaceQueryRequest;
+    headers: {
+        /**
+         * Current draft ETag. Missing returns 428; stale returns 412.
+         */
+        'If-Match': string;
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/replace-query';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The idempotency key was already used with a different request body.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The draft changed since it was loaded.
+     */
+    412: ErrorEnvelope;
+    /**
+     * The draft ETag was not supplied in `If-Match`.
+     */
+    428: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryResponses = {
+    /**
+     * Replacement query identity and the updated draft ETag returned.
+     */
+    200: MeasurementDraftReplaceQueryResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQueryResponses];
+
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsData = {
     body: MeasurementDraftApplyPairedAssignmentsRequest;
     headers: {
@@ -14388,6 +14704,10 @@ export type DeleteApiV1ProjectsByNameQueriesErrors = {
      * Invalid query delete request.
      */
     400: ErrorEnvelope;
+    /**
+     * A planless answer-visibility run is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameQueriesError = DeleteApiV1ProjectsByNameQueriesErrors[keyof DeleteApiV1ProjectsByNameQueriesErrors];
@@ -14459,6 +14779,19 @@ export type PutApiV1ProjectsByNameQueriesData = {
     url: '/api/v1/projects/{name}/queries';
 };
 
+export type PutApiV1ProjectsByNameQueriesErrors = {
+    /**
+     * The request would change a measurement-plan or draft-assigned query.
+     */
+    400: ErrorEnvelope;
+    /**
+     * A planless answer-visibility run is in progress.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameQueriesError = PutApiV1ProjectsByNameQueriesErrors[keyof PutApiV1ProjectsByNameQueriesErrors];
+
 export type PutApiV1ProjectsByNameQueriesResponses = {
     /**
      * Queries replaced.
@@ -14486,9 +14819,17 @@ export type DeleteApiV1ProjectsByNameQueriesByIdData = {
 
 export type DeleteApiV1ProjectsByNameQueriesByIdErrors = {
     /**
+     * The query is assigned to an active measurement plan or draft.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project or query not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A planless answer-visibility run is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameQueriesByIdError = DeleteApiV1ProjectsByNameQueriesByIdErrors[keyof DeleteApiV1ProjectsByNameQueriesByIdErrors];
@@ -14501,6 +14842,48 @@ export type DeleteApiV1ProjectsByNameQueriesByIdResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameQueriesByIdResponse = DeleteApiV1ProjectsByNameQueriesByIdResponses[keyof DeleteApiV1ProjectsByNameQueriesByIdResponses];
+
+export type PostApiV1ProjectsByNameQueriesByIdReplaceData = {
+    body: QueryReplaceRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Query ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/queries/{id}/replace';
+};
+
+export type PostApiV1ProjectsByNameQueriesByIdReplaceErrors = {
+    /**
+     * Invalid, stale, or measurement-plan-managed replacement request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or source query not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * A matching tracked query exists or an answer-visibility run is in progress.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameQueriesByIdReplaceError = PostApiV1ProjectsByNameQueriesByIdReplaceErrors[keyof PostApiV1ProjectsByNameQueriesByIdReplaceErrors];
+
+export type PostApiV1ProjectsByNameQueriesByIdReplaceResponses = {
+    /**
+     * Replacement query returned.
+     */
+    200: QueryDto;
+};
+
+export type PostApiV1ProjectsByNameQueriesByIdReplaceResponse = PostApiV1ProjectsByNameQueriesByIdReplaceResponses[keyof PostApiV1ProjectsByNameQueriesByIdReplaceResponses];
 
 export type PostApiV1ProjectsByNameQueriesReplacePreviewData = {
     body: {
@@ -14518,9 +14901,17 @@ export type PostApiV1ProjectsByNameQueriesReplacePreviewData = {
 
 export type PostApiV1ProjectsByNameQueriesReplacePreviewErrors = {
     /**
+     * The proposed change would modify a measurement-plan or draft-assigned query.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A planless answer-visibility run is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameQueriesReplacePreviewError = PostApiV1ProjectsByNameQueriesReplacePreviewErrors[keyof PostApiV1ProjectsByNameQueriesReplacePreviewErrors];

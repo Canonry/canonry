@@ -207,7 +207,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       // Replace queries + competitors. Query rows are the FK anchor for every
       // historical snapshot, so unchanged texts must keep their EXISTING rows —
       // delete-all + reinsert would orphan the project's whole sweep history.
-      replaceProjectQueries(tx, projectId, configQueries, now)
+      replaceProjectQueries(tx, { projectId, projectName: name }, configQueries, now)
 
       writeAuditLog(tx, {
         projectId,

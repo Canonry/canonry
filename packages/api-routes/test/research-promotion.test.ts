@@ -27,6 +27,9 @@ import {
   parseStoredMeasurementPlanAnyVersion,
   ResearchQueryStatuses,
   ResearchRunStatuses,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
 } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -570,7 +573,10 @@ describe('research promotion commit route', () => {
     db.insert(runs).values({
       id: 'completed-comparable-run',
       projectId: 'project-a',
+      kind: RunKinds['answer-visibility'],
       status: 'completed',
+      trigger: RunTriggers.manual,
+      measurementScope: null,
       measurementPlanVersionId: 'version-v2',
       createdAt: NOW,
     }).run()
@@ -583,6 +589,45 @@ describe('research promotion commit route', () => {
 
     expect(preview.statusCode, preview.body).toBe(200)
     expect(preview.json()).toMatchObject({ mode: 'advanced', setup: { state: 'operational', activeRevision: 3 } })
+  })
+
+  it('keeps promotion setup awaiting its first official full run when only probes or scoped runs completed', async () => {
+    const { app, db } = harness()
+    activateV2Plan(db)
+    db.insert(runs).values([
+      {
+        id: 'completed-probe',
+        projectId: 'project-a',
+        kind: RunKinds['answer-visibility'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.probe,
+        measurementScope: null,
+        measurementPlanVersionId: 'version-v2',
+        createdAt: NOW,
+      },
+      {
+        id: 'completed-scoped-run',
+        projectId: 'project-a',
+        kind: RunKinds['answer-visibility'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.manual,
+        measurementScope: { groups: [], targets: ['target-a'], queries: [], resolvedTargets: ['target-a'] },
+        measurementPlanVersionId: 'version-v2',
+        createdAt: NOW,
+      },
+    ]).run()
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: PROMOTION_PATH,
+      payload: { targetKeys: ['target-a'], queryClass: 'non-brand' },
+    })
+
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json()).toMatchObject({
+      mode: 'advanced',
+      setup: { state: 'awaiting_first_run', mode: 'active-v2', activeRevision: 2 },
+    })
   })
 
   it('preserves research provenance when a simply promoted query is assigned to v2 later', async () => {

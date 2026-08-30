@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import { comparableMeasurementVersionIds } from './measurement-report-adapter.js'
+import { latestMeasurementRun } from './measurement-report-adapter.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
   AppError,
@@ -15,6 +15,8 @@ import {
   measurementDraftApplyGroupMembershipRequestSchema,
   measurementDraftEtag,
   measurementDraftEtagStale,
+  measurementDraftReplaceQueryRequestSchema,
+  measurementDraftReplaceQueryResponseSchema,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
@@ -23,6 +25,7 @@ import {
   measurementQuerySetUpsertRequestSchema,
   measurementQueryTemplateApplyRequestSchema,
   measurementQueryTemplateUpsertRequestSchema,
+  normalizeQueryText,
   notFound,
   parseStoredMeasurementPlanAnyVersion,
   RunStatuses,
@@ -31,9 +34,11 @@ import {
   type MeasurementDraftAssignment,
   type MeasurementDraftAuthoring,
   type MeasurementDraftGroup,
+  type MeasurementDraftReplaceQueryResponse,
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
   type MeasurementPlanV2,
+  type MeasurementV2ExecutionContext,
   type MeasurementV2UrlMatcher,
   type StoredMeasurementPlan,
 } from '@ainyc/canonry-contracts'
@@ -47,7 +52,6 @@ import {
   measurementSegments,
   projects,
   queries,
-  runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
@@ -223,6 +227,14 @@ function emptyAuthoring(project: ProjectRow, opts: MeasurementDraftRoutesOptions
   }
 }
 
+function copyFrozenExecutionContext(context: MeasurementV2ExecutionContext): MeasurementV2ExecutionContext {
+  return {
+    providers: [...context.providers],
+    models: { ...context.models },
+    location: context.location ? { ...context.location } : null,
+  }
+}
+
 /**
  * Seeds the draft from whatever is already active.
  *
@@ -243,10 +255,40 @@ export function seedAuthoring(
 
   if (active.schemaVersion === 2) {
     const assignments = new Map<string, MeasurementDraftAssignment>()
+    const contextsByExecutionNodeKey = new Map(active.executionNodes.map(node => [node.stableKey, node.context]))
+    const provenanceByQueryId = new Map(active.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.provenance]))
     for (const assignment of active.assignments) {
-      assignments.set(`${assignment.targetKey} ${assignment.queryId}`, {
+      const context = contextsByExecutionNodeKey.get(assignment.executionNodeKey)
+      if (!context) {
+        // The stored v2 decoder normally prevents this. Keep the draft
+        // boundary fail-closed too: a missing execution node cannot be
+        // reconstructed from defaults without widening the active plan.
+        throw new Error(`Active measurement plan assignment references missing execution node ${assignment.executionNodeKey}`)
+      }
+      const key = `${assignment.targetKey} ${assignment.queryId}`
+      const existing = assignments.get(key)
+      if (existing) {
+        if (existing.queryClass !== assignment.queryClass) {
+          // One draft row owns the class for a Target/query pair. A corrupted
+          // active revision that disagrees across its execution nodes cannot
+          // be safely collapsed by choosing whichever row happened to sort
+          // first.
+          throw new Error(`Active measurement plan assignments disagree about class for ${assignment.targetKey} / ${assignment.queryId}`)
+        }
+        const contexts = [...(existing.executionContexts ?? [])]
+        const identity = canonicalJson(context)
+        if (!contexts.some(candidate => canonicalJson(candidate) === identity)) {
+          contexts.push(copyFrozenExecutionContext(context))
+        }
+        assignments.set(key, { ...existing, executionContexts: contexts })
+        continue
+      }
+      const provenance = provenanceByQueryId.get(assignment.queryId)
+      assignments.set(key, {
         targetKey: assignment.targetKey,
         queryId: assignment.queryId,
+        executionContexts: [copyFrozenExecutionContext(context)],
+        ...(provenance ? { queryProvenance: { ...provenance } } : {}),
         queryClass: assignment.queryClass,
         classificationSource: 'operator',
       })
@@ -492,15 +534,11 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const active = activePlanVersionRow(app.db, project.id)
     const draft = draftRow(app.db, project.id)
     const activeSchemaVersion: 1 | 2 | null = active ? (active.schemaVersion === 2 ? 2 : 1) : null
+    // Readiness means a completed, full official measurement. Reuse the
+    // active-report selector so probes and scoped spot checks cannot satisfy
+    // the first-run gate, while label-only comparable revisions still do.
     const completedRun = active
-      ? app.db.select({ id: runs.id }).from(runs).where(and(
-          eq(runs.projectId, project.id),
-          // The comparable chain, not the bare active id: a label-only
-          // republish must not flip setup back to awaiting_first_run while
-          // the overview keeps serving the prior run.
-          inArray(runs.measurementPlanVersionId, comparableMeasurementVersionIds(app.db, project.id, active.id)),
-          eq(runs.status, RunStatuses.completed),
-        )).get()
+      ? latestMeasurementRun(app.db, project.id, active.id, [RunStatuses.completed])
       : undefined
 
     // Exactly one state, in the precedence of §0.5: a draft over an active v1
@@ -686,6 +724,146 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       return settled
     })
   }
+
+  /**
+   * A query text edit is deliberately NOT a generic catalog rename. The old
+   * query remains the immutable identity behind active revisions and prior
+   * evidence; this creates a new identity and rewires only the mutable draft.
+   */
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/replace-query', async (request, reply) => {
+    const gate = beginMutation(request, reply, 'replace-query')
+    if (gate.replay !== null) return gate.replay
+    const parsed = measurementDraftReplaceQueryRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid "replace-query" payload', { issues: parsed.error.issues })
+    const ifMatch = requireIfMatch(request)
+    const now = new Date()
+
+    const settled = app.db.transaction<MeasurementDraftReplaceQueryResponse>(tx => {
+      // `beginMutation` gives the common retry path a fast response, but a
+      // concurrent caller can pass that read just before the first writer
+      // commits its receipt. This immediate transaction serializes both the
+      // draft CAS and receipt lookup; the second caller must replay here
+      // before its now-stale If-Match is considered.
+      const concurrentReplay = replayReceipt(tx, gate.project.id, gate.lookup, reply)
+      if (concurrentReplay !== null) {
+        return measurementDraftReplaceQueryResponseSchema.parse(concurrentReplay)
+      }
+      const row = draftRow(tx, gate.project.id)
+      if (!row) throw notFound('Measurement plan draft', gate.project.name)
+      assertDraftEtag(row, ifMatch)
+      const before = parseStoredAuthoring(row.authoringJson)
+      const sourceAssignments = before.assignments.filter(assignment => assignment.queryId === parsed.data.queryId)
+      if (sourceAssignments.length === 0) {
+        throw validationError('This query is not assigned in the current measurement draft. Choose an assigned draft query before replacing it.', {
+          displayToOperator: true,
+        })
+      }
+
+      const sourceAnyProject = tx.select({
+        id: queries.id,
+        projectId: queries.projectId,
+        query: queries.query,
+        createdAt: queries.createdAt,
+      }).from(queries).where(eq(queries.id, parsed.data.queryId)).get()
+      if (sourceAnyProject && sourceAnyProject.projectId !== gate.project.id) {
+        throw validationError('This saved query belongs to another project and cannot be used in this draft.', {
+          displayToOperator: true,
+        })
+      }
+
+      const sourceQuery = sourceAnyProject?.projectId === gate.project.id ? sourceAnyProject : undefined
+      const requestedNormalized = normalizeQueryText(parsed.data.queryText)
+      if (sourceQuery && normalizeQueryText(sourceQuery.query) === requestedNormalized) {
+        const response = {
+          ...mutationResponse(row.etagVersion, false, [], before),
+          previousQueryId: parsed.data.queryId,
+          replacementQuery: { id: sourceQuery.id, query: sourceQuery.query, createdAt: sourceQuery.createdAt },
+        }
+        sweepExpiredMeasurementReceipts(tx, now)
+        writeReceipt(tx, gate.project.id, gate.lookup, response, 200, now)
+        return measurementDraftReplaceQueryResponseSchema.parse(response)
+      }
+
+      const collision = tx.select({ id: queries.id, query: queries.query })
+        .from(queries)
+        .where(eq(queries.projectId, gate.project.id))
+        .all()
+        .find(candidate => candidate.id !== parsed.data.queryId && normalizeQueryText(candidate.query) === requestedNormalized)
+      if (collision) {
+        throw validationError(
+          'A saved query already uses that text. Choose that saved query before replacing assignments.',
+          { displayToOperator: true, conflictingQueryId: collision.id },
+        )
+      }
+
+      const replacementQuery = {
+        id: crypto.randomUUID(),
+        query: parsed.data.queryText,
+        createdAt: now.toISOString(),
+      }
+      const authoring: MeasurementDraftAuthoring = {
+        ...before,
+        assignments: before.assignments.map(assignment => {
+          if (assignment.queryId !== parsed.data.queryId) return assignment
+          // Provenance describes the source question, not an arbitrary edit
+          // of it. The new catalog identity compiles as a fresh manual query.
+          const { queryProvenance: _sourceProvenance, ...withoutSourceProvenance } = assignment
+          return { ...withoutSourceProvenance, queryId: replacementQuery.id }
+        }),
+      }
+      assertMeasurementDraftAuthoringLimits(before, authoring)
+      const etagVersion = row.etagVersion + 1
+      const response = {
+        ...mutationResponse(etagVersion, true, [], authoring),
+        previousQueryId: parsed.data.queryId,
+        replacementQuery,
+      }
+
+      // New query identity, draft CAS, audit and receipt are one transaction:
+      // a stale writer or a failed retry cannot leave a catalog row without
+      // the corresponding draft assignment move.
+      tx.insert(queries).values({
+        id: replacementQuery.id,
+        projectId: gate.project.id,
+        query: replacementQuery.query,
+        provenance: 'measurement-draft:replace-query',
+        createdAt: replacementQuery.createdAt,
+      }).run()
+      const updated = tx.update(measurementPlanDrafts).set({
+        authoringJson: JSON.stringify(authoring),
+        etagVersion,
+        updatedBy: serializeActor(gate.actor),
+        updatedAt: now.toISOString(),
+      }).where(and(
+        eq(measurementPlanDrafts.id, row.id),
+        eq(measurementPlanDrafts.etagVersion, row.etagVersion),
+      )).run()
+      if (updated.changes !== 1) {
+        const actual = draftRow(tx, gate.project.id)
+        if (!actual) throw notFound('Measurement plan draft', gate.project.name)
+        throw measurementDraftEtagStale(ifMatch, measurementDraftEtag(actual.etagVersion))
+      }
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId: gate.project.id,
+        actor: 'api',
+        action: 'measurement-draft.replace-query',
+        entityType: 'measurement-draft',
+        entityId: row.id,
+        diff: {
+          previousEtag: measurementDraftEtag(row.etagVersion),
+          etag: response.etag,
+          previousQueryId: parsed.data.queryId,
+          replacementQueryId: replacementQuery.id,
+          reassignedCount: sourceAssignments.length,
+        },
+      }))
+      sweepExpiredMeasurementReceipts(tx, now)
+      writeReceipt(tx, gate.project.id, gate.lookup, response, 200, now)
+      return measurementDraftReplaceQueryResponseSchema.parse(response)
+    }, { behavior: 'immediate' })
+    reply.header('etag', settled.etag)
+    return settled
+  })
 
   /**
    * This is deliberately a POST read: the audience can be large, but preview

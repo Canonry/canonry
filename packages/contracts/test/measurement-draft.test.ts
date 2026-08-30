@@ -10,6 +10,8 @@ import {
   measurementDraftMutationResponseSchema,
   measurementDraftPreviewAssignmentsResponseSchema,
   measurementDraftPublishRequestSchema,
+  measurementDraftReplaceQueryRequestSchema,
+  measurementDraftReplaceQueryResponseSchema,
   measurementDraftReplaceAssignmentsRequestSchema,
   measurementDraftRemoveAssignmentRequestSchema,
   measurementDraftTargetPageSchema,
@@ -213,6 +215,40 @@ describe('measurement draft action payloads', () => {
     })
     expect(response.etag).toBe('"mpd_8"')
     expect(response.counts.unclassifiedAssignments).toBe(1)
+  })
+
+  it('types a draft query replacement without permitting a generic catalog rename', () => {
+    expect(measurementDraftReplaceQueryRequestSchema.parse({
+      queryId: 'q-best',
+      queryText: 'best harbor point apartments',
+    })).toEqual({ queryId: 'q-best', queryText: 'best harbor point apartments' })
+    expect(() => measurementDraftReplaceQueryRequestSchema.parse({
+      queryId: 'q-best',
+      queryText: 'best harbor point apartments',
+      targetKey: 'harbor-point',
+    })).toThrow()
+
+    const response = measurementDraftReplaceQueryResponseSchema.parse({
+      etag: '"mpd_8"',
+      changed: true,
+      warnings: [],
+      counts: {
+        targets: 1,
+        includedTargets: 1,
+        assignments: 1,
+        unclassifiedAssignments: 0,
+        groups: 0,
+        competitors: 0,
+      },
+      previousQueryId: 'q-best',
+      replacementQuery: {
+        id: 'q-replacement',
+        query: 'best harbor point apartments',
+        createdAt: '2026-08-30T00:00:00.000Z',
+      },
+    })
+    expect(response.previousQueryId).toBe('q-best')
+    expect(response.replacementQuery.id).toBe('q-replacement')
   })
 })
 

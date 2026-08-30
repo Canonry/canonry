@@ -69,6 +69,11 @@ describe('advanced measurement v2 openapi surface', () => {
       .toBe('#/components/schemas/MeasurementQueryStatusesResponse')
     expect(JSON.stringify(document.components?.schemas?.MeasurementQueryStatusesResponse))
       .toContain('awaiting_first_sweep')
+    const schema = JSON.stringify(document.components?.schemas?.MeasurementQueryStatusesResponse)
+    expect(schema).toContain('assignmentScope')
+    expect(schema).toContain('activePlanOrphans')
+    expect(schema).toContain('advanced_assigned')
+    expect(schema).toContain('mixed')
   })
 
   it('types every draft action against a contract, not a loose object', async () => {
@@ -85,6 +90,7 @@ describe('advanced measurement v2 openapi surface', () => {
       ['apply-assignments', 'MeasurementDraftApplyAssignmentsRequest'],
       ['preview-assignments', 'MeasurementDraftPreviewAssignmentsRequest'],
       ['replace-assignments', 'MeasurementDraftReplaceAssignmentsRequest'],
+      ['replace-query', 'MeasurementDraftReplaceQueryRequest'],
       ['remove-assignment', 'MeasurementDraftRemoveAssignmentRequest'],
       ['clear-assignments', 'MeasurementDraftClearAssignmentsRequest'],
       ['classify-assignments', 'MeasurementDraftClassifyAssignmentsRequest'],
@@ -125,6 +131,7 @@ describe('advanced measurement v2 openapi surface', () => {
     expect(headers('preview-assignments')).toEqual([])
     expect(headers('preview-group-membership')).toEqual([])
     expect(headers('replace-assignments')).toEqual(['Idempotency-Key:true', 'If-Match:true'])
+    expect(headers('replace-query')).toEqual(['Idempotency-Key:true', 'If-Match:true'])
     expect(headers('apply-group-membership')).toEqual(['Idempotency-Key:true', 'If-Match:true'])
   })
 
@@ -141,6 +148,18 @@ describe('advanced measurement v2 openapi surface', () => {
     expect(apply?.responses?.['413']).toBeDefined()
     expect(preview?.responses?.['429']).toBeDefined()
     expect(document.paths[`${DRAFT}/actions/preview-assignments`]?.post?.responses?.['429']).toBeDefined()
+  })
+
+  it('types a query replacement as a new catalog identity rather than a generic rename', async () => {
+    const document = await spec()
+    const operation = document.paths[`${DRAFT}/actions/replace-query`]?.post
+
+    expect(operation?.responses?.['200']?.content?.['application/json']?.schema?.$ref)
+      .toBe('#/components/schemas/MeasurementDraftReplaceQueryResponse')
+    const request = document.components?.schemas?.MeasurementDraftReplaceQueryRequest
+    const response = document.components?.schemas?.MeasurementDraftReplaceQueryResponse
+    expect(request?.required).toEqual(expect.arrayContaining(['queryId', 'queryText']))
+    expect(response?.required).toEqual(expect.arrayContaining(['previousQueryId', 'replacementQuery']))
   })
 
   it('documents draft creation as idempotency-only while ordinary mutations require the draft ETag', async () => {

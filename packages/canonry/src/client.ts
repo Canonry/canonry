@@ -47,6 +47,8 @@ import type {
   MeasurementDraftPreviewGroupMembershipRequest,
   MeasurementDraftPreviewGroupMembershipResponse,
   MeasurementDraftReplaceAssignmentsRequest,
+  MeasurementDraftReplaceQueryRequest,
+  MeasurementDraftReplaceQueryResponse,
   MeasurementPlanV2PublishResponse,
   MeasurementQuerySetDetail,
   MeasurementQueryTemplate,
@@ -205,6 +207,7 @@ import type {
   CompetitorDto,
   KeywordDto,
   QueryDto,
+  QueryReplaceRequest,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
@@ -275,6 +278,7 @@ import {
   putApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueries,
   deleteApiV1ProjectsByNameQueries,
+  postApiV1ProjectsByNameQueriesByIdReplace,
   postApiV1ProjectsByNameQueriesReplacePreview,
   postApiV1ProjectsByNameQueriesGenerate,
   getApiV1ProjectsByNameKeywords,
@@ -582,6 +586,7 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQuery,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments,
@@ -1202,6 +1207,16 @@ export class ApiClient {
     )
   }
 
+  async replaceQuery(project: string, id: string, request: QueryReplaceRequest): Promise<QueryDto> {
+    return this.invoke<QueryDto>(() =>
+      postApiV1ProjectsByNameQueriesByIdReplace({
+        client: this.heyClient,
+        path: { name: project, id },
+        body: request,
+      }),
+    )
+  }
+
   async deleteQueries(project: string, queries: string[]): Promise<void> {
     await this.invoke<unknown>(() =>
       deleteApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
@@ -1704,6 +1719,22 @@ export class ApiClient {
   ): Promise<DraftMutationResponse> {
     return this.invoke<DraftMutationResponse>(() =>
       postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+        headers: this.measurementDraftMutationHeaders(idempotencyKey, etag) as never,
+      }),
+    )
+  }
+
+  async replaceMeasurementDraftQuery(
+    project: string,
+    request: MeasurementDraftReplaceQueryRequest,
+    idempotencyKey: string,
+    etag?: string,
+  ): Promise<MeasurementDraftReplaceQueryResponse> {
+    return this.invoke<MeasurementDraftReplaceQueryResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceQuery({
         client: this.heyClient,
         path: { name: project },
         body: request,

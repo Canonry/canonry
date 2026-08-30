@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { normalizeProjectName, orderLocationsDefaultFirst, projectCreateRequestSchema } from '../src/index.js'
+import { normalizeProjectName, orderLocationsDefaultFirst, projectCreateRequestSchema, queryReplaceRequestSchema } from '../src/index.js'
 
 
 // ---------------------------------------------------------------------------
@@ -33,4 +33,14 @@ test('project creation has a dedicated name field and a stable normalized route 
     country: 'US',
     language: 'en',
   }).name).toBe('Acme & Co.')
+})
+
+test('single-query replacement trims new text but preserves the exact stale-text guard', () => {
+  expect(queryReplaceRequestSchema.parse({
+    query: '  New wording  ',
+    expectedQuery: ' Old wording ',
+  })).toEqual({ query: 'New wording', expectedQuery: ' Old wording ' })
+  expect(queryReplaceRequestSchema.safeParse({ query: '', expectedQuery: 'Old wording' }).success).toBe(false)
+  expect(queryReplaceRequestSchema.safeParse({ query: 'New wording', expectedQuery: 'x'.repeat(4001) }).success).toBe(false)
+  expect(queryReplaceRequestSchema.safeParse({ query: 'New wording', expectedQuery: 'Old wording', extra: true }).success).toBe(false)
 })

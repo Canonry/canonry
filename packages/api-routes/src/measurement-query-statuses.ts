@@ -2,12 +2,16 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  QUERY_CLASSES,
   RunStatuses,
   measurementQueryStatusesResponseSchema,
   type MeasurementPlanV2,
+  type MeasurementQueryAssignmentScope,
   type MeasurementQueryStatus,
   type MeasurementQueryStatusesResponse,
   type MeasurementRunManifestV1,
+  type QueryClass,
+  type StoredMeasurementPlan,
 } from '@ainyc/canonry-contracts'
 import {
   queries,
@@ -110,16 +114,176 @@ function completedSlots(
   return { completed, corrupt, incompatible }
 }
 
-function partialStatuses(queryIds: readonly string[], assigned: ReadonlySet<string>): MeasurementQueryStatusesResponse['queries'] {
+type ReadinessRow = Pick<MeasurementQueryStatusesResponse['queries'][number], 'queryId' | 'status'>
+type TrackedQuery = { id: string; query: string }
+
+function partialStatuses(queryIds: readonly string[], assigned: ReadonlySet<string>): ReadinessRow[] {
   return queryIds.map(queryId => ({ queryId, status: assigned.has(queryId) ? 'partial' as const : 'not_in_plan' as const }))
 }
 
-function awaitingStatuses(queryIds: readonly string[], assigned: ReadonlySet<string>): MeasurementQueryStatusesResponse['queries'] {
+function awaitingStatuses(queryIds: readonly string[], assigned: ReadonlySet<string>): ReadinessRow[] {
   return queryIds.map(queryId => ({ queryId, status: assigned.has(queryId) ? 'awaiting_first_sweep' as const : 'not_in_plan' as const }))
 }
 
-function notInPlanStatuses(queryIds: readonly string[]): MeasurementQueryStatusesResponse['queries'] {
+function notInPlanStatuses(queryIds: readonly string[]): ReadinessRow[] {
   return queryIds.map(queryId => ({ queryId, status: 'not_in_plan' as const }))
+}
+
+function classCountsFor(classes: readonly QueryClass[]): Array<{ queryClass: QueryClass; assignedTargetCount: number }> {
+  return QUERY_CLASSES.flatMap((queryClass) => {
+    const assignedTargetCount = classes.filter(candidate => candidate === queryClass).length
+    return assignedTargetCount > 0 ? [{ queryClass, assignedTargetCount }] : []
+  })
+}
+
+function classStateFor(counts: readonly { queryClass: QueryClass }[]): 'branded' | 'non-brand' | 'mixed' {
+  return counts.length === 2 ? 'mixed' : counts[0]!.queryClass
+}
+
+function frozenQueryText(plan: Pick<StoredMeasurementPlan, 'querySnapshots'>, queryId: string): string | null {
+  return plan.querySnapshots.find(snapshot => snapshot.queryId === queryId)?.queryText ?? null
+}
+
+function simpleAssignmentScope(): MeasurementQueryAssignmentScope {
+  return {
+    mode: 'simple',
+    activePlanQueryText: null,
+    queryTextMatchesPlan: null,
+    assignedTargetCount: null,
+    classState: 'unavailable',
+    queryClasses: [],
+    classCounts: [],
+    groupCoverage: [],
+  }
+}
+
+function legacyAssignmentScope(
+  plan: Exclude<StoredMeasurementPlan, MeasurementPlanV2>,
+  queryId: string,
+  currentQueryText: string | null,
+): MeasurementQueryAssignmentScope {
+  const activePlanQueryText = frozenQueryText(plan, queryId)
+  return {
+    mode: 'legacy',
+    activePlanQueryText,
+    queryTextMatchesPlan: activePlanQueryText === null || currentQueryText === null
+      ? null
+      : currentQueryText === activePlanQueryText,
+    assignedTargetCount: null,
+    classState: 'unavailable',
+    queryClasses: [],
+    classCounts: [],
+    groupCoverage: [],
+  }
+}
+
+function advancedAssignmentScope(
+  plan: MeasurementPlanV2,
+  queryId: string,
+  currentQueryText: string | null,
+): MeasurementQueryAssignmentScope {
+  const assignments = plan.assignments.filter(assignment => assignment.queryId === queryId)
+  if (assignments.length === 0) {
+    return {
+      mode: 'advanced_unassigned',
+      activePlanQueryText: null,
+      queryTextMatchesPlan: null,
+      assignedTargetCount: 0,
+      classState: 'none',
+      queryClasses: [],
+      classCounts: [],
+      groupCoverage: [],
+    }
+  }
+
+  const activePlanQueryText = frozenQueryText(plan, queryId)
+  if (activePlanQueryText === null) {
+    throw new Error(`Active v2 plan has assignments without frozen query text: ${queryId}`)
+  }
+  const assignmentByTarget = new Map(assignments.map(assignment => [assignment.targetKey, assignment.queryClass]))
+  const classCounts = classCountsFor([...assignmentByTarget.values()])
+  const groupCoverage = plan.groups
+    .flatMap((group) => {
+      const memberKeys = [...new Set(group.targetKeys)]
+      const classes = memberKeys.flatMap((targetKey) => {
+        const queryClass = assignmentByTarget.get(targetKey)
+        return queryClass === undefined ? [] : [queryClass]
+      })
+      if (classes.length === 0) return []
+      const assignedMemberCount = classes.length
+      return [{
+        groupKey: group.stableKey,
+        label: group.label,
+        memberCount: memberKeys.length,
+        assignedMemberCount,
+        coverage: assignedMemberCount === memberKeys.length ? 'complete' as const : 'partial' as const,
+        classCounts: classCountsFor(classes),
+      }]
+    })
+    .sort((left, right) => compareText(left.label, right.label) || compareText(left.groupKey, right.groupKey))
+
+  return {
+    mode: 'advanced_assigned',
+    activePlanQueryText,
+    queryTextMatchesPlan: currentQueryText === null ? null : currentQueryText === activePlanQueryText,
+    assignedTargetCount: assignmentByTarget.size,
+    classState: classStateFor(classCounts),
+    queryClasses: classCounts.map(count => count.queryClass),
+    classCounts,
+    groupCoverage,
+  }
+}
+
+function orphanQueryIds(plan: Pick<StoredMeasurementPlan, 'querySnapshots'>, trackedById: ReadonlyMap<string, TrackedQuery>): string[] {
+  return plan.querySnapshots
+    .filter(snapshot => !trackedById.has(snapshot.queryId))
+    .sort((left, right) => compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId))
+    .map(snapshot => snapshot.queryId)
+}
+
+function decorateCurrentRows(
+  readinessRows: readonly ReadinessRow[],
+  trackedById: ReadonlyMap<string, TrackedQuery>,
+  assignmentScopeFor: (queryId: string, currentQueryText: string) => MeasurementQueryAssignmentScope,
+) {
+  return readinessRows.map((row) => {
+    const tracked = trackedById.get(row.queryId)
+    if (!tracked) throw new Error(`Tracked query disappeared while deriving measurement status: ${row.queryId}`)
+    return {
+      ...row,
+      catalogState: 'current' as const,
+      currentQueryText: tracked.query,
+      assignmentScope: assignmentScopeFor(row.queryId, tracked.query),
+    }
+  })
+}
+
+function decorateOrphanRows(
+  orphanIds: readonly string[],
+  readinessByQueryId: ReadonlyMap<string, ReadinessRow>,
+  assignmentScopeFor: (queryId: string) => MeasurementQueryAssignmentScope,
+) {
+  return orphanIds.map((queryId) => {
+    const readiness = readinessByQueryId.get(queryId)
+    if (!readiness) throw new Error(`Missing readiness for active plan orphan: ${queryId}`)
+    return {
+      ...readiness,
+      catalogState: 'missing' as const,
+      currentQueryText: null,
+      assignmentScope: assignmentScopeFor(queryId),
+    }
+  })
+}
+
+function readinessRowsForIds(
+  queryIds: readonly string[],
+  readinessByQueryId: ReadonlyMap<string, ReadinessRow>,
+): ReadinessRow[] {
+  return queryIds.map((queryId) => {
+    const readiness = readinessByQueryId.get(queryId)
+    if (!readiness) throw new Error(`Missing readiness for query: ${queryId}`)
+    return readiness
+  })
 }
 
 /**
@@ -138,36 +302,71 @@ export function measurementQueryStatuses(
     .all()
     .sort((left, right) => compareText(left.query, right.query) || compareText(left.id, right.id))
   const queryIds = tracked.map(row => row.id)
+  const trackedById = new Map(tracked.map(row => [row.id, row]))
   const active = activeMeasurementPlan(db, projectId)
 
   if (!active) {
+    const readiness = notInPlanStatuses(queryIds)
     return measurementQueryStatusesResponseSchema.parse({
       setupMode: 'simple',
       activeRevision: null,
       latestOfficialFullRun: null,
-      queries: notInPlanStatuses(queryIds),
+      queries: decorateCurrentRows(readiness, trackedById, () => simpleAssignmentScope()),
+      activePlanOrphans: [],
     })
   }
 
-  if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+  const activePlan = active.plan
+  if (activePlan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+    const legacyPlan = activePlan
+    const orphanIds = orphanQueryIds(legacyPlan, trackedById)
+    const readiness = notInPlanStatuses([...queryIds, ...orphanIds])
+    const readinessByQueryId = new Map(readiness.map(row => [row.queryId, row]))
     return measurementQueryStatusesResponseSchema.parse({
       setupMode: 'active-v1',
       activeRevision: active.version.revision,
       latestOfficialFullRun: null,
-      queries: notInPlanStatuses(queryIds),
+      queries: decorateCurrentRows(
+        readinessRowsForIds(queryIds, readinessByQueryId),
+        trackedById,
+        (queryId, currentQueryText) => legacyAssignmentScope(legacyPlan, queryId, currentQueryText),
+      ),
+      activePlanOrphans: decorateOrphanRows(
+        orphanIds,
+        readinessByQueryId,
+        queryId => legacyAssignmentScope(legacyPlan, queryId, null),
+      ),
     })
   }
 
-  const plan = active.plan
+  const plan = activePlan
   const assigned = assignedQueryIds(plan)
-  const run = latestMeasurementRun(db, projectId, active.version.id, [RunStatuses.completed, RunStatuses.partial])
-  if (!run) {
+  const orphanIds = orphanQueryIds(plan, trackedById)
+  const statusQueryIds = [...queryIds, ...orphanIds]
+  const v2Response = (
+    latestOfficialFullRun: MeasurementQueryStatusesResponse['latestOfficialFullRun'],
+    readiness: readonly ReadinessRow[],
+  ): MeasurementQueryStatusesResponse => {
+    const readinessByQueryId = new Map(readiness.map(row => [row.queryId, row]))
     return measurementQueryStatusesResponseSchema.parse({
       setupMode: 'active-v2',
       activeRevision: active.version.revision,
-      latestOfficialFullRun: null,
-      queries: awaitingStatuses(queryIds, assigned),
+      latestOfficialFullRun,
+      queries: decorateCurrentRows(
+        readinessRowsForIds(queryIds, readinessByQueryId),
+        trackedById,
+        (queryId, currentQueryText) => advancedAssignmentScope(plan, queryId, currentQueryText),
+      ),
+      activePlanOrphans: decorateOrphanRows(
+        orphanIds,
+        readinessByQueryId,
+        queryId => advancedAssignmentScope(plan, queryId, null),
+      ),
     })
+  }
+  const run = latestMeasurementRun(db, projectId, active.version.id, [RunStatuses.completed, RunStatuses.partial])
+  if (!run) {
+    return v2Response(null, awaitingStatuses(statusQueryIds, assigned))
   }
 
   const provenance = {
@@ -180,12 +379,7 @@ export function measurementQueryStatuses(
   // A terminal partial run is not a trustworthy published sweep even where a
   // few slots happened to land. Its partial state is itself authoritative.
   if (run.status !== RunStatuses.completed) {
-    return measurementQueryStatusesResponseSchema.parse({
-      setupMode: 'active-v2',
-      activeRevision: active.version.revision,
-      latestOfficialFullRun: provenance,
-      queries: partialStatuses(queryIds, assigned),
-    })
+    return v2Response(provenance, partialStatuses(statusQueryIds, assigned))
   }
 
   let manifest: MeasurementRunManifestV1
@@ -196,36 +390,21 @@ export function measurementQueryStatuses(
     manifest = measurementRunExpectedSlots(run, plan)
     if (!sameSlots(manifest, buildMeasurementPlanV2Manifest(plan))) throw new Error('manifest provider roster differs from active plan')
   } catch {
-    return measurementQueryStatusesResponseSchema.parse({
-      setupMode: 'active-v2',
-      activeRevision: active.version.revision,
-      latestOfficialFullRun: provenance,
-      queries: partialStatuses(queryIds, assigned),
-    })
+    return v2Response(provenance, partialStatuses(statusQueryIds, assigned))
   }
 
   const wholeRun = measurementRunCompleteness(db, run.id)
   if (!wholeRun.planned) {
-    return measurementQueryStatusesResponseSchema.parse({
-      setupMode: 'active-v2',
-      activeRevision: active.version.revision,
-      latestOfficialFullRun: provenance,
-      queries: partialStatuses(queryIds, assigned),
-    })
+    return v2Response(provenance, partialStatuses(statusQueryIds, assigned))
   }
 
   const expectedByQuery = expectedSlotsByQuery(plan, manifest)
   const queryIdByExecution = new Map(plan.executionNodes.map(node => [node.stableKey, node.queryId]))
   const evidence = completedSlots(db, run.id, manifest, queryIdByExecution)
   if (evidence.incompatible) {
-    return measurementQueryStatusesResponseSchema.parse({
-      setupMode: 'active-v2',
-      activeRevision: active.version.revision,
-      latestOfficialFullRun: provenance,
-      queries: partialStatuses(queryIds, assigned),
-    })
+    return v2Response(provenance, partialStatuses(statusQueryIds, assigned))
   }
-  const statusRows = queryIds.map((queryId) => {
+  const statusRows = statusQueryIds.map((queryId) => {
     if (!assigned.has(queryId)) return { queryId, status: 'not_in_plan' as const }
     const expected = expectedByQuery.get(queryId)
     const complete = expected !== undefined
@@ -235,12 +414,7 @@ export function measurementQueryStatuses(
     return { queryId, status }
   })
 
-  return measurementQueryStatusesResponseSchema.parse({
-    setupMode: 'active-v2',
-    activeRevision: active.version.revision,
-    latestOfficialFullRun: provenance,
-    queries: statusRows,
-  })
+  return v2Response(provenance, statusRows)
 }
 
 export async function measurementQueryStatusRoutes(app: FastifyInstance): Promise<void> {

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { normalizeQueryText } from '@ainyc/canonry-contracts'
 import { extractErrorMessage } from '../../../lib/extract-error-message.js'
 import type {
   MeasurementDraftAuthoring,
   MeasurementDraftCompileCheck,
   MeasurementDraftDiff,
+  MeasurementDraftReplaceQueryResponse,
   MeasurementDraftResponse,
   MeasurementDraftWarning,
   MeasurementSetupResponse,
@@ -30,6 +32,7 @@ import type {
 import {
   advancedMeasurementService,
   assignmentPreviewErrorMessage,
+  createMeasurementDraftIdempotencyKey,
   isDraftConflict,
   setupErrorMessage,
   type AdvancedMeasurementService,
@@ -42,6 +45,7 @@ import {
 type SetupStep = 'import' | 'properties' | 'groups' | 'queries' | 'review'
 type Draft = NonNullable<MeasurementDraftResponse['draft']>
 type DraftTarget = MeasurementDraftAuthoring['targets'][number]
+type PendingQueryReplacement = Pick<MeasurementDraftReplaceQueryResponse, 'previousQueryId' | 'replacementQuery'>
 
 interface ReviewedSetup {
   etag: string
@@ -49,6 +53,12 @@ interface ReviewedSetup {
   compiledChecksum: string
   changes: { title: string; items: string[] }
   providerCalls: number
+}
+
+interface PendingQueryReplacementIntent {
+  sourceQueryId: string
+  queryText: string
+  idempotencyKey: string
 }
 
 export interface AdvancedMeasurementSectionProps {
@@ -59,6 +69,9 @@ export interface AdvancedMeasurementSectionProps {
   onRetryQueries?: () => void
   publishedPlan?: MeasurementPlanResponse['active']
   canEdit?: boolean
+  /** Explicit query-workspace handoff; never bypass Property confirmation. */
+  initialStep?: 'queries'
+  initialQueryId?: string
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -796,6 +809,8 @@ export function AdvancedMeasurementSection({
   onRetryQueries,
   publishedPlan,
   canEdit = true,
+  initialStep,
+  initialQueryId,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -814,6 +829,9 @@ export function AdvancedMeasurementSection({
   const [maxVisibleProperties, setMaxVisibleProperties] = useState(DEFAULT_VISIBLE_PROPERTIES)
   const [includedPropertyIds, setIncludedPropertyIds] = useState<string[]>([])
   const [selectedQueryIds, setSelectedQueryIds] = useState<string[]>([])
+  const [editingQueryId, setEditingQueryId] = useState<string | null>(initialQueryId ?? null)
+  const [editingQueryText, setEditingQueryText] = useState<string | null>(null)
+  const [pendingQueryReplacements, setPendingQueryReplacements] = useState<PendingQueryReplacement[]>([])
   const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'all' })
   const [assignmentPreview, setAssignmentPreview] = useState<MeasurementAudienceAssignmentPreview | null>(null)
   const [assignmentPreviewSelectionKey, setAssignmentPreviewSelectionKey] = useState<string | null>(null)
@@ -834,6 +852,13 @@ export function AdvancedMeasurementSection({
   const [reviewed, setReviewed] = useState<ReviewedSetup | null>(null)
   const requestVersionRef = useRef(0)
   const assignmentPreviewVersionRef = useRef(0)
+  // State updates make the visible button disabled, while this ref closes the
+  // same-render double-click window before React has committed that update.
+  const queryReplacementInFlightRef = useRef(false)
+  // A transport failure can happen after the server committed. Keep the same
+  // key for exactly the same source/text intent so the receipt can replay even
+  // though the browser's ETag is now stale.
+  const pendingQueryReplacementIntentRef = useRef<PendingQueryReplacementIntent | null>(null)
 
   const draft = draftResponse?.draft ?? null
   const etag = draftResponse?.etag ?? null
@@ -843,6 +868,15 @@ export function AdvancedMeasurementSection({
       : null
   ), [canEdit, publishedPlan])
   const viewDraft = draft ?? publishedDraftView
+  const catalogQueries = useMemo<QueryDto[]>(() => {
+    const currentIds = new Set(queries.map(query => query.id))
+    return [
+      ...queries,
+      ...pendingQueryReplacements
+        .map(replacement => replacement.replacementQuery)
+        .filter(query => !currentIds.has(query.id)),
+    ]
+  }, [pendingQueryReplacements, queries])
 
   async function loadCurrent(createIfMissing: boolean): Promise<void> {
     const requestVersion = ++requestVersionRef.current
@@ -863,7 +897,18 @@ export function AdvancedMeasurementSection({
       if (requestVersion !== requestVersionRef.current) return
       setSetup(nextSetup)
       setDraftResponse(nextDraft)
-      setStep(initialStepFor(nextDraft.draft))
+      const canOpenQueries = initialStep === 'queries'
+        && nextDraft.draft?.authoring.targets.some(target => target.status === 'included')
+        && !nextDraft.draft.authoring.targets.some(target => target.status === 'proposed')
+      setStep(canOpenQueries ? 'queries' : initialStepFor(nextDraft.draft))
+      if (canOpenQueries) {
+        setAudience({
+          kind: 'specific',
+          propertyIds: [...new Set(nextDraft.draft!.authoring.assignments
+            .filter(assignment => assignment.queryId === initialQueryId)
+            .map(assignment => assignment.targetKey))],
+        })
+      }
       const included = includedPropertyIdsFor(nextDraft.draft)
       setIncludedPropertyIds(included)
     } catch (error) {
@@ -883,6 +928,17 @@ export function AdvancedMeasurementSection({
     if (!isLoading && !draft && publishedDraftView) setStep('properties')
   }, [draft, isLoading, publishedDraftView])
 
+  const initialQuerySelectedRef = useRef(false)
+  useEffect(() => {
+    if (initialQuerySelectedRef.current || !initialQueryId || isLoading || isQueryLoading || isQueryError || step !== 'queries') return
+    initialQuerySelectedRef.current = true
+    const initialQuery = catalogQueries.find(query => query.id === initialQueryId)
+    if (!initialQuery) return
+    setSelectedQueryIds([initialQueryId])
+    setEditingQueryId(initialQueryId)
+    setEditingQueryText(initialQuery.query)
+  }, [catalogQueries, initialQueryId, isLoading, isQueryLoading, isQueryError, step])
+
   async function refreshDraft(): Promise<MeasurementDraftResponse> {
     const next = await service.loadDraft(projectName)
     setDraftResponse(next)
@@ -891,6 +947,8 @@ export function AdvancedMeasurementSection({
 
   async function recoverConflict(message: string): Promise<void> {
     setReviewed(null)
+    setEditingQueryText(null)
+    void onRetryQueries?.()
     try {
       const [nextSetup, nextDraft] = await Promise.all([
         service.loadSetup(projectName),
@@ -958,8 +1016,8 @@ export function AdvancedMeasurementSection({
 
   const setupQueries = useMemo<AdvancedMeasurementQuery[]>(() => {
     if (!viewDraft) return []
-    const projectQueryIds = new Set(queries.map(query => query.id))
-    const available = queries.map(query => ({
+    const projectQueryIds = new Set(catalogQueries.map(query => query.id))
+    const available = catalogQueries.map(query => ({
       id: query.id,
       text: query.query,
       source: 'saved-project-queries' as const,
@@ -979,7 +1037,17 @@ export function AdvancedMeasurementSection({
           .map(assignment => assignment.targetKey)),
       }))
     return [...available, ...missing]
-  }, [queries, viewDraft])
+  }, [catalogQueries, viewDraft])
+  const editingQuery = useMemo(() => (
+    editingQueryId === null
+      ? null
+      : setupQueries.find(query => query.id === editingQueryId && query.text?.trim() && (query.propertyIds?.length ?? 0) > 0) ?? null
+  ), [editingQueryId, setupQueries])
+  const editingQueryPropertyLabels = useMemo(() => (
+    (editingQuery?.propertyIds ?? []).map(propertyId => (
+      confirmedProperties.find(property => property.id === propertyId)?.label ?? propertyId
+    ))
+  ), [confirmedProperties, editingQuery])
 
   const setupGroups = useMemo<AdvancedMeasurementGroup[]>(() => (
     (viewDraft?.authoring.groups ?? []).map(group => ({
@@ -1176,6 +1244,70 @@ export function AdvancedMeasurementSection({
     if (next) {
       setSelectedQueryIds(current => current.filter(queryId => queryId !== selection.queryId))
       setAssignmentNotice('Query assignments replaced.')
+    }
+  }
+
+  function editQuery(queryId: string): void {
+    if (!canEdit || isQueryLoading || isQueryError || busyAction) return
+    const query = setupQueries.find(candidate => candidate.id === queryId)
+    if (!query?.text?.trim()) return
+    setEditingQueryId(queryId)
+    setEditingQueryText(query.text)
+    setActionError(null)
+    setSelectedQueryIds(current => current.includes(queryId) ? current : [...current, queryId])
+  }
+
+  async function saveQueryText(): Promise<void> {
+    const sourceQuery = editingQuery
+    const sourceText = sourceQuery?.text?.trim()
+    const queryText = (editingQueryText ?? sourceQuery?.text ?? '').trim()
+    if (!canEdit || isQueryLoading || isQueryError || !sourceQuery || !sourceText || !queryText || normalizeQueryText(queryText) === normalizeQueryText(sourceText) || busyAction || queryReplacementInFlightRef.current) return
+
+    const previousIntent = pendingQueryReplacementIntentRef.current
+    const intent = previousIntent?.sourceQueryId === sourceQuery.id && previousIntent.queryText === queryText
+      ? previousIntent
+      : {
+          sourceQueryId: sourceQuery.id,
+          queryText,
+          idempotencyKey: createMeasurementDraftIdempotencyKey(),
+        }
+    pendingQueryReplacementIntentRef.current = intent
+    queryReplacementInFlightRef.current = true
+
+    try {
+      const replacementResult: { current: MeasurementDraftReplaceQueryResponse | null } = { current: null }
+      const next = await mutate(
+        'replace-query',
+        async currentEtag => {
+          const result = await service.replaceQuery(
+            projectName,
+            currentEtag,
+            { queryId: sourceQuery.id, queryText },
+            intent.idempotencyKey,
+          )
+          replacementResult.current = result
+          return result
+        },
+        'Could not save this query.',
+      )
+      const replacement = replacementResult.current
+      if (!next || !replacement) return
+
+      setPendingQueryReplacements(current => current.some(item => item.replacementQuery.id === replacement.replacementQuery.id)
+        ? current
+        : [...current, replacement])
+      setSelectedQueryIds(current => {
+        const replaced = current.map(queryId => queryId === replacement.previousQueryId ? replacement.replacementQuery.id : queryId)
+        return replaced.includes(replacement.replacementQuery.id) ? replaced : [...replaced, replacement.replacementQuery.id]
+      })
+      setEditingQueryId(replacement.replacementQuery.id)
+      setEditingQueryText(replacement.replacementQuery.query)
+      if (pendingQueryReplacementIntentRef.current.idempotencyKey === intent.idempotencyKey) {
+        pendingQueryReplacementIntentRef.current = null
+      }
+      void onRetryQueries?.()
+    } finally {
+      queryReplacementInFlightRef.current = false
     }
   }
 
@@ -1632,6 +1764,16 @@ export function AdvancedMeasurementSection({
             assignmentImpactError: assignmentPreviewError,
             onRetryAssignmentImpact: () => setAssignmentPreviewRetry(value => value + 1),
             assignmentNotice,
+            queryEditor: canEdit && editingQuery?.text ? {
+              originalValue: editingQuery.text,
+              value: editingQueryText ?? editingQuery.text,
+              assignedPropertyLabels: editingQueryPropertyLabels,
+              isSaving: busyAction === 'replace-query',
+              isDisabled: isQueryLoading || isQueryError,
+              onValueChange: setEditingQueryText,
+              onSave: saveQueryText,
+            } : undefined,
+            onEditQuery: canEdit && !isQueryLoading && !isQueryError ? editQuery : undefined,
             onReplaceAssignments: replaceQueryAssignments,
             isReplacingAssignments: busyAction === 'replace-assignments',
             onCreateAndPairQuestions: canEdit && onCreateQueries ? createAndPairQuestions : undefined,

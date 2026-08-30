@@ -4,20 +4,27 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MEASUREMENT_GROUP_MEMBERSHIP_CSV_MAX_BYTES,
+  canonicalMeasurementPlanV2Json,
   measurementDraftApplyGroupMembershipResponseSchema,
   measurementDraftCompilePreviewResponseSchema,
   measurementDraftDiffPreviewResponseSchema,
   measurementDraftMutationResponseSchema,
+  measurementDraftReplaceQueryResponseSchema,
   measurementDraftPreviewAssignmentsResponseSchema,
   measurementDraftPreviewGroupMembershipResponseSchema,
   measurementDraftResponseSchema,
   measurementPlanResponseSchema,
   measurementPlanVersionResponseSchema,
+  measurementPlanV2ChecksumJson,
+  measurementPlanV2Schema,
   measurementPlanV2PublishResponseSchema,
   measurementSetupResponseSchema,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys,
@@ -31,12 +38,14 @@ import {
   migrate,
   projects,
   queries,
+  querySnapshots,
   runs,
   schedules,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { canonicalJson, requestChecksum, sha256Hex } from '../src/measurement-draft-repo.js'
 
 const ROOT_KEY = 'cnry_draft_root'
 const NOW = '2026-08-02T00:00:00.000Z'
@@ -1169,6 +1178,106 @@ describe('measurement draft publish', () => {
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(3)
   })
 
+  it('round-trips frozen heterogeneous execution contexts and query provenance from an active v2 plan', async () => {
+    const initialDraft = await readyDraft()
+    const initialPublish = await publish(initialDraft, null)
+    expect(initialPublish.statusCode, initialPublish.body).toBe(200)
+
+    const sourceQueryId = queryId('best widget supplier')
+    const sourceQueryText = 'best widget supplier'
+    const version = db.select().from(measurementPlanVersions).get()!
+    const active = measurementPlanV2Schema.parse(JSON.parse(version.canonicalJson))
+    const originalAssignment = active.assignments.find(assignment => assignment.queryId === sourceQueryId)!
+    const namedContext = active.executionNodes.find(node => node.stableKey === originalAssignment.executionNodeKey)!.context
+    const nullContext = { providers: ['openai'] as const, models: {}, location: null }
+    const executionKey = (context: typeof namedContext) => `execution-${sha256Hex(canonicalJson({
+      queryId: sourceQueryId,
+      location: context.location
+        ? [context.location.label, context.location.city, context.location.region, context.location.country].join('\u0000')
+        : '',
+      providers: [...context.providers].sort(),
+      models: context.models,
+    }))}`
+    const namedKey = executionKey(namedContext)
+    const nullKey = executionKey(nullContext)
+    const plan = measurementPlanV2Schema.parse({
+      ...active,
+      querySnapshots: active.querySnapshots.map(snapshot => ({
+        ...snapshot,
+        ...(snapshot.queryId === sourceQueryId
+          ? { provenance: { source: 'discovery', sourceId: 'discovery-1', capturedAt: '1970-01-01T00:00:00.000Z' } }
+          : { provenance: { source: 'research', sourceId: 'research-1', capturedAt: '1970-01-01T00:00:00.000Z' } }),
+      })),
+      assignments: [
+        ...active.assignments.filter(assignment => assignment.queryId !== sourceQueryId),
+        { ...originalAssignment, executionNodeKey: namedKey },
+        { ...originalAssignment, executionNodeKey: nullKey },
+      ],
+      executionNodes: [
+        ...active.executionNodes.filter(node => node.queryId !== sourceQueryId),
+        { stableKey: namedKey, queryId: sourceQueryId, queryText: sourceQueryText, context: namedContext, expectedSnapshots: namedContext.providers.length },
+        { stableKey: nullKey, queryId: sourceQueryId, queryText: sourceQueryText, context: nullContext, expectedSnapshots: nullContext.providers.length },
+      ],
+      usageEdges: [
+        ...active.usageEdges.filter(edge => edge.queryId !== sourceQueryId),
+        { executionNodeKey: namedKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId },
+        { executionNodeKey: nullKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId },
+      ],
+      compiledChecksum: '0'.repeat(64),
+    })
+    const frozen = measurementPlanV2Schema.parse({
+      ...plan,
+      compiledChecksum: sha256Hex(measurementPlanV2ChecksumJson(plan)),
+    })
+    const frozenJson = canonicalMeasurementPlanV2Json(frozen)
+    db.update(measurementPlanVersions).set({
+      canonicalJson: frozenJson,
+      checksum: sha256Hex(frozenJson),
+      compiledChecksum: frozen.compiledChecksum,
+    }).where(eq(measurementPlanVersions.id, version.id)).run()
+
+    const seeded = await DraftSession.start(1)
+    const loaded = await request('GET', '/measurement-plan/draft')
+    const sourceAssignment = loaded.json().draft.authoring.assignments
+      .find((assignment: { queryId: string }) => assignment.queryId === sourceQueryId)
+    expect(sourceAssignment).toMatchObject({
+      queryClass: originalAssignment.queryClass,
+      classificationSource: 'operator',
+      executionContexts: expect.arrayContaining([namedContext, nullContext]),
+      queryProvenance: { source: 'discovery', sourceId: 'discovery-1', capturedAt: '1970-01-01T00:00:00.000Z' },
+    })
+
+    // A routine audience reapply without a context override must leave the
+    // frozen list untouched; it is not permission to expand defaults.
+    const reapplied = await seeded.run('apply-assignments', {
+      targetKey: originalAssignment.targetKey,
+      queryIds: [sourceQueryId],
+    })
+    expect(reapplied.json()).toMatchObject({ changed: false, etag: '"mpd_1"' })
+
+    // A frozen active override may name a provider outside an operator's new
+    // default selection. Defaults are not a provider registry, so this must
+    // retain the exact old node rather than reject or remap it.
+    const draftRowBeforePreview = db.select().from(measurementPlanDrafts).get()!
+    const authoringWithNarrowerDefault = JSON.parse(draftRowBeforePreview.authoringJson)
+    authoringWithNarrowerDefault.defaultContext.providers = ['gemini']
+    authoringWithNarrowerDefault.defaultContext.models = { gemini: 'gemini-test' }
+    db.update(measurementPlanDrafts).set({ authoringJson: JSON.stringify(authoringWithNarrowerDefault) })
+      .where(eq(measurementPlanDrafts.id, draftRowBeforePreview.id)).run()
+
+    const preview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(canonicalMeasurementPlanV2Json(preview.json().plan)).toBe(frozenJson)
+    expect(preview.json().plan.executionNodes.map((node: { stableKey: string }) => node.stableKey).sort()).toEqual(
+      frozen.executionNodes.map(node => node.stableKey).sort(),
+    )
+
+    const noOp = await publish(seeded, 1)
+    expect(noOp.statusCode, noOp.body).toBe(200)
+    expect(noOp.json()).toMatchObject({ published: false, active: { revision: 1, compiledChecksum: frozen.compiledChecksum } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
   it('links a cosmetic publish to the revision it supersedes and withholds the link when execution changes', async () => {
     const first = await readyDraft()
     expect((await publish(first, null)).json()).toMatchObject({ published: true, active: { revision: 1 } })
@@ -1231,6 +1340,249 @@ describe('measurement draft publish', () => {
     const revisionSix = db.select().from(measurementPlanVersions)
       .where(eq(measurementPlanVersions.revision, 6)).get()!
     expect(revisionSix.comparableToVersionId).toBeNull()
+  })
+
+  it('replaces a query by creating a new catalog identity and transfers only its exact draft assignments', async () => {
+    const session = await DraftSession.start()
+    const sourceId = queryId('best widget supplier')
+    const unrelatedId = queryId('widget delivery times')
+    await session.run('upsert-target', { target: WIDGETS_TARGET })
+    await session.run('upsert-target', { target: GADGETS_TARGET })
+    await session.run('apply-assignments', {
+      targetKey: 'widgets',
+      queryIds: [sourceId, unrelatedId],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-test' }, locations: ['nyc'] },
+    })
+    await session.run('apply-assignments', {
+      targetKey: 'gadgets',
+      queryIds: [sourceId],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },
+    })
+    await session.run('classify-assignments', {
+      queryClass: 'branded',
+      assignments: [{ targetKey: 'widgets', queryId: sourceId }],
+    })
+    await session.run('classify-assignments', {
+      queryClass: 'non-brand',
+      assignments: [{ targetKey: 'gadgets', queryId: sourceId }],
+    })
+    const before = JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson)
+    const sourceAssignments = before.assignments.filter((assignment: { queryId: string }) => assignment.queryId === sourceId)
+
+    const replaced = await action('replace-query', {
+      payload: { queryId: sourceId, queryText: 'best luxury widget suppliers' },
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-source-query',
+    })
+    expect(replaced.statusCode, replaced.body).toBe(200)
+    expect(measurementDraftReplaceQueryResponseSchema.safeParse(replaced.json()).success).toBe(true)
+    expect(replaced.json()).toMatchObject({ previousQueryId: sourceId, changed: true, etag: '"mpd_8"' })
+    const replacementId = replaced.json().replacementQuery.id as string
+    expect(replacementId).not.toBe(sourceId)
+    expect(replaced.json().replacementQuery).toMatchObject({ query: 'best luxury widget suppliers', createdAt: expect.any(String) })
+
+    // The source catalog identity and every unrelated authoring row remain.
+    expect(db.select().from(queries).where(eq(queries.id, sourceId)).get()).toMatchObject({ query: 'best widget supplier' })
+    expect(db.select().from(queries).where(eq(queries.id, replacementId)).get()).toMatchObject({
+      projectId: 'prj_northwind', query: 'best luxury widget suppliers', provenance: 'measurement-draft:replace-query',
+    })
+    const after = JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson)
+    expect(after.assignments.filter((assignment: { queryId: string }) => assignment.queryId === sourceId)).toEqual([])
+    expect(after.assignments.filter((assignment: { queryId: string }) => assignment.queryId === replacementId)).toEqual(
+      sourceAssignments.map((assignment: Record<string, unknown>) => ({ ...assignment, queryId: replacementId })),
+    )
+    expect(after.assignments.find((assignment: { queryId: string }) => assignment.queryId === unrelatedId)).toEqual(
+      before.assignments.find((assignment: { queryId: string }) => assignment.queryId === unrelatedId),
+    )
+    expect(db.select().from(auditLog).where(eq(auditLog.action, 'measurement-draft.replace-query')).all()).toHaveLength(1)
+  })
+
+  it('makes same-text replacement a true no-op and replays a successful replacement without duplicate rows', async () => {
+    const sameText = await readyDraft()
+    const sourceId = queryId('best widget supplier')
+    const catalogBefore = db.select().from(queries).all()
+    const noOp = await action('replace-query', {
+      payload: { queryId: sourceId, queryText: 'best widget supplier' },
+      ifMatch: sameText.etag,
+      idempotencyKey: 'replace-same-text',
+    })
+    expect(noOp.statusCode, noOp.body).toBe(200)
+    expect(noOp.json()).toMatchObject({ changed: false, etag: sameText.etag, previousQueryId: sourceId, replacementQuery: { id: sourceId } })
+    expect(db.select().from(queries).all()).toEqual(catalogBefore)
+
+    const retryDraft = sameText
+    const retrySourceId = sourceId
+    const first = await action('replace-query', {
+      payload: { queryId: retrySourceId, queryText: 'best independent widget suppliers' },
+      ifMatch: retryDraft.etag,
+      idempotencyKey: 'replace-retry',
+    })
+    expect(first.statusCode, first.body).toBe(200)
+    const replay = await action('replace-query', {
+      payload: { queryId: retrySourceId, queryText: 'best independent widget suppliers' },
+      ifMatch: retryDraft.etag,
+      idempotencyKey: 'replace-retry',
+    })
+    expect(replay.statusCode, replay.body).toBe(200)
+    expect(replay.json()).toEqual(first.json())
+    expect(db.select().from(queries).where(eq(queries.query, 'best independent widget suppliers')).all()).toHaveLength(1)
+  })
+
+  it('rechecks a receipt inside the immediate transaction before a concurrent retry sees a stale ETag', async () => {
+    const session = await readyDraft()
+    const sourceId = queryId('best widget supplier')
+    const payload = { queryId: sourceId, queryText: 'best concurrent widget suppliers' }
+    const first = await action('replace-query', {
+      payload,
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-concurrent-winner',
+    })
+    expect(first.statusCode, first.body).toBe(200)
+
+    // Simulate the narrow interval after beginMutation's receipt lookup but
+    // before this call acquires its transaction. The stored response matches
+    // the same request, while the draft ETag has already advanced.
+    const retryKey = 'replace-concurrent-retry'
+    const originalTransaction = db.transaction.bind(db)
+    const transactionSpy = vi.spyOn(db, 'transaction').mockImplementationOnce((callback, config) =>
+      originalTransaction((tx) => {
+        tx.insert(measurementOperationReceipts).values({
+          projectId: 'prj_northwind',
+          operation: 'replace-query',
+          idempotencyKey: retryKey,
+          requestChecksum: requestChecksum(payload),
+          responseJson: first.body,
+          statusCode: 200,
+          createdAt: NOW,
+          expiresAt: '2030-01-01T00:00:00.000Z',
+        }).run()
+        return callback(tx)
+      }, config),
+    )
+    try {
+      const replay = await action('replace-query', {
+        payload,
+        ifMatch: session.etag,
+        idempotencyKey: retryKey,
+      })
+      expect(replay.statusCode, replay.body).toBe(200)
+      expect(replay.json()).toEqual(first.json())
+    } finally {
+      transactionSpy.mockRestore()
+    }
+
+    expect(db.select().from(queries).where(eq(queries.query, payload.queryText)).all()).toHaveLength(1)
+  })
+
+  it('refuses stale, colliding, foreign, and unassigned sources without creating a catalog row', async () => {
+    const session = await readyDraft()
+    const sourceId = queryId('best widget supplier')
+    const beforeQueries = db.select().from(queries).all()
+    const beforeDraft = db.select().from(measurementPlanDrafts).get()!
+    const stale = await action('replace-query', {
+      payload: { queryId: sourceId, queryText: 'stale replacement' },
+      ifMatch: '"mpd_999"',
+      idempotencyKey: 'replace-stale',
+    })
+    expect(stale.statusCode).toBe(412)
+    expect(db.select().from(queries).all()).toEqual(beforeQueries)
+    expect(db.select().from(measurementPlanDrafts).get()).toEqual(beforeDraft)
+    expect(db.select().from(measurementOperationReceipts)
+      .where(eq(measurementOperationReceipts.operation, 'replace-query')).all()).toEqual([])
+
+    const collision = await action('replace-query', {
+      payload: { queryId: sourceId, queryText: '  NORTHWIND WIDGET REVIEWS  ' },
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-collision',
+    })
+    expect(collision.statusCode).toBe(400)
+    expect(collision.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', details: { displayToOperator: true } } })
+    expect(db.select().from(queries).all()).toEqual(beforeQueries)
+
+    const unassigned = await action('replace-query', {
+      payload: { queryId: queryId('widget delivery times'), queryText: 'unassigned source' },
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-unassigned',
+    })
+    expect(unassigned.statusCode).toBe(400)
+
+    db.insert(projects).values({
+      id: 'prj_other', name: 'other', displayName: 'Other', canonicalDomain: 'other.example', ownedDomains: [],
+      country: 'US', language: 'en', providers: [], providerModels: {}, locations: [], createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(queries).values({ id: 'qry_foreign', projectId: 'prj_other', query: 'foreign query', createdAt: NOW }).run()
+    const row = db.select().from(measurementPlanDrafts).get()!
+    const foreignAuthoring = JSON.parse(row.authoringJson)
+    foreignAuthoring.assignments[0].queryId = 'qry_foreign'
+    db.update(measurementPlanDrafts).set({ authoringJson: JSON.stringify(foreignAuthoring) })
+      .where(eq(measurementPlanDrafts.id, row.id)).run()
+    const foreign = await action('replace-query', {
+      payload: { queryId: 'qry_foreign', queryText: 'cannot claim foreign query' },
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-foreign',
+    })
+    expect(foreign.statusCode).toBe(400)
+    expect(foreign.json()).toMatchObject({ error: { details: { displayToOperator: true } } })
+    expect(db.select().from(queries).where(eq(queries.query, 'cannot claim foreign query')).all()).toEqual([])
+  })
+
+  it('repairs an orphaned draft source and publishes a new revision while old evidence stays on the old query identity', async () => {
+    const first = await readyDraft()
+    const initial = await publish(first, null)
+    expect(initial.statusCode, initial.body).toBe(200)
+    const sourceId = queryId('best widget supplier')
+    const versionOne = db.select().from(measurementPlanVersions).get()!
+    db.insert(runs).values({
+      id: 'run_old_query', projectId: 'prj_northwind', status: 'completed', measurementPlanVersionId: versionOne.id, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values({
+      id: 'snap_old_query', runId: 'run_old_query', queryId: sourceId, queryText: 'best widget supplier', provider: 'openai',
+      citationState: 'not-cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: NOW,
+    }).run()
+
+    const session = await DraftSession.start(1)
+    const replaced = await action('replace-query', {
+      payload: { queryId: sourceId, queryText: 'best premium widget supplier' },
+      ifMatch: session.etag,
+      idempotencyKey: 'replace-published-source',
+    })
+    expect(replaced.statusCode, replaced.body).toBe(200)
+    session.etag = replaced.json().etag as string
+    const replacementId = replaced.json().replacementQuery.id as string
+    expect(db.select().from(measurementPlans).get()!.activeVersionId).toBe(versionOne.id)
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionOne.id)).get()!.canonicalJson)
+      .toBe(versionOne.canonicalJson)
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, 'snap_old_query')).get()).toMatchObject({
+      queryId: sourceId, queryText: 'best widget supplier',
+    })
+
+    const second = await publish(session, 1)
+    expect(second.statusCode, second.body).toBe(200)
+    expect(second.json()).toMatchObject({ published: true, active: { revision: 2 } })
+    const oldPlan = measurementPlanV2Schema.parse(JSON.parse(versionOne.canonicalJson))
+    const newPlan = second.json().active.plan
+    expect(oldPlan.querySnapshots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ queryId: sourceId, queryText: 'best widget supplier' }),
+    ]))
+    expect(newPlan.querySnapshots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ queryId: replacementId, queryText: 'best premium widget supplier' }),
+    ]))
+
+    // An actual catalog orphan can still be repaired if its ID is genuinely in
+    // the draft; no generic catalog rename/delete path is needed.
+    const orphanDraft = await DraftSession.start(2)
+    const orphanId = queryId('northwind widget reviews')
+    db.delete(queries).where(eq(queries.id, orphanId)).run()
+    const repaired = await action('replace-query', {
+      payload: { queryId: orphanId, queryText: 'northwind premium widget reviews' },
+      ifMatch: orphanDraft.etag,
+      idempotencyKey: 'replace-orphan',
+    })
+    expect(repaired.statusCode, repaired.body).toBe(200)
+    const orphanReplacementId = repaired.json().replacementQuery.id as string
+    const authoring = JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson)
+    expect(authoring.assignments.some((assignment: { queryId: string }) => assignment.queryId === orphanId)).toBe(false)
+    expect(authoring.assignments.some((assignment: { queryId: string }) => assignment.queryId === orphanReplacementId)).toBe(true)
   })
 
   it('deletes only the active-plan pointer on deactivate', async () => {
@@ -1297,7 +1649,10 @@ describe('measurement setup state', () => {
     db.insert(runs).values({
       id: 'run_1',
       projectId: 'prj_northwind',
+      kind: RunKinds['answer-visibility'],
       status: 'completed',
+      trigger: RunTriggers.manual,
+      measurementScope: null,
       measurementPlanVersionId: active.id,
       createdAt: NOW,
     }).run()
@@ -1314,6 +1669,43 @@ describe('measurement setup state', () => {
       nextAction: 'republish_setup',
       mode: 'active-v1',
       activeSchemaVersion: 1,
+    })
+  })
+
+  it('requires an official full completed run before reporting the active plan operational', async () => {
+    const session = await readyDraft()
+    await publish(session, null)
+    const active = db.select().from(measurementPlanVersions).get()!
+    db.insert(runs).values([
+      {
+        id: 'completed-probe',
+        projectId: 'prj_northwind',
+        kind: RunKinds['answer-visibility'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.probe,
+        measurementScope: null,
+        measurementPlanVersionId: active.id,
+        createdAt: NOW,
+      },
+      {
+        id: 'completed-scoped-run',
+        projectId: 'prj_northwind',
+        kind: RunKinds['answer-visibility'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.manual,
+        measurementScope: { groups: [], targets: ['widgets'], queries: [], resolvedTargets: ['widgets'] },
+        measurementPlanVersionId: active.id,
+        createdAt: NOW,
+      },
+    ]).run()
+
+    const setup = await request('GET', '/measurement-setup')
+
+    expect(setup.statusCode, setup.body).toBe(200)
+    expect(setup.json()).toMatchObject({
+      state: 'awaiting_first_run',
+      nextAction: 'run_measurement',
+      mode: 'active-v2',
     })
   })
 })

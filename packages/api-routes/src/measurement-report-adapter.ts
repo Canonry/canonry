@@ -554,7 +554,7 @@ export function runVersionServesActiveVersion(
  * it already had instead of blanking until the next sweep.
  */
 export function latestMeasurementRun(
-  db: DatabaseClient,
+  db: Pick<DatabaseClient, 'select'>,
   projectId: string,
   versionId: string,
   statuses: readonly RunStatus[],

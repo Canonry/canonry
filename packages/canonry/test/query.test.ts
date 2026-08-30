@@ -151,4 +151,50 @@ describe('query commands', () => {
       { keyword: 'legacy phrase' },
     ])
   })
+
+  it('query edit replaces one Simple query and emits the replacement DTO', async () => {
+    await client.appendQueries('test-proj', ['saved question'])
+    const [original] = await client.listQueries('test-proj')
+    expect(original).toBeDefined()
+
+    const result = await invokeCli([
+      'query',
+      'edit',
+      'test-proj',
+      original!.id,
+      'new question',
+      '--expected-query',
+      'saved question',
+      '--format',
+      'json',
+    ])
+
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toBe('')
+    const replacement = parseJsonOutput(result.stdout) as { id: string; query: string; createdAt: string }
+    expect(replacement).toMatchObject({ query: 'new question' })
+    expect(replacement.id).not.toBe(original!.id)
+    expect(replacement.createdAt).toEqual(expect.any(String))
+    await expect(client.listQueries('test-proj')).resolves.toMatchObject([
+      { id: replacement.id, query: 'new question' },
+    ])
+  })
+
+  it('query edit requires the raw expected-query compare-and-swap flag', async () => {
+    const result = await invokeCli(['query', 'edit', 'test-proj', 'query-original', 'new question', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    const parsed = JSON.parse(result.stderr) as {
+      error: { code: string; message: string; details: { command: string; usage: string } }
+    }
+    expect(parsed.error).toMatchObject({
+      code: 'CLI_USAGE_ERROR',
+      message: '--expected-query is required',
+      details: {
+        command: 'query.edit',
+        usage: 'canonry query edit <project> <query-id> <new-query> --expected-query <old-query> [--format json]',
+      },
+    })
+  })
 })

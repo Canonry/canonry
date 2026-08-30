@@ -30,6 +30,7 @@ import {
   gaMeasurementHostScopeSchema,
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
+  queryReplaceRequestSchema,
   notificationCreateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
@@ -239,6 +240,7 @@ const measurementDraftActionOpenApiOperations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-query',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments',
@@ -485,6 +487,12 @@ const queriesInputSchema = z.object({
   project: projectNameSchema,
   request: queryBatchRequestSchema,
 })
+
+const queryEditInputSchema = z.object({
+  project: projectNameSchema,
+  queryId: z.string().trim().min(1),
+  request: queryReplaceRequestSchema,
+}).strict()
 
 const queryGenerateInputSchema = z.object({
   project: projectNameSchema,
@@ -2167,6 +2175,17 @@ export const canonryMcpTools = [
     handler: async (client, input) => {
       await client.putQueries(input.project, uniqueStrings(input.request.queries))
     },
+  }),
+  defineTool({
+    name: 'canonry_query_edit',
+    title: 'Edit query',
+    description: 'Replace one saved Simple-tracking query with a new identity. Requires the exact saved text as a compare-and-swap guard; it does not change a measurement plan or start a sweep.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: queryEditInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/queries/{id}/replace'],
+    handler: (client, input) => client.replaceQuery(input.project, input.queryId, input.request),
   }),
   defineTool({
     name: 'canonry_queries_replace_preview',

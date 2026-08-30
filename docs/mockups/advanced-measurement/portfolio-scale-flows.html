@@ -49,10 +49,10 @@
       line-height: 1.45;
       -webkit-font-smoothing: antialiased;
     }
-    button, input, select { font: inherit; }
+    button, input, select, textarea { font: inherit; }
     button, select { cursor: pointer; }
     button:disabled, select:disabled { cursor: not-allowed; opacity: 0.48; }
-    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
@@ -496,8 +496,6 @@
     }
     .query-composer-grid { display: grid; grid-template-columns: minmax(280px, 1.25fr) minmax(180px, .75fr) minmax(180px, .75fr); gap: 12px; }
     textarea.control { min-height: 92px; resize: vertical; }
-    .query-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; border-block: 1px solid var(--border); padding: 11px 0; color: var(--secondary); font-size: 12px; }
-    .query-notice strong { color: var(--heading); }
     .test-layout { display: grid; grid-template-columns: minmax(340px, .85fr) minmax(420px, 1.15fr); gap: 22px; margin-top: 18px; }
     .test-pane + .test-pane { border-left: 1px solid var(--border); padding-left: 22px; }
     .test-pane h2, .settings-section h2 { margin: 0; color: var(--heading); font-size: 16px; }
@@ -508,6 +506,24 @@
     .test-batch { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; color: var(--secondary); padding: 10px 4px; text-align: left; }
     .test-batch:hover, .test-batch.active { background: var(--surface-hover); color: var(--heading); }
     .test-result { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .test-result table { min-width: 860px; }
+    .test-result td:first-child { min-width: 280px; }
+    .test-composer { margin-top: 22px; }
+    .test-composer .form-stack { margin-top: 0; }
+    .test-composer textarea { min-height: 112px; }
+    .field-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    .field-hint, .result-scope { color: var(--secondary); font-size: 13px; font-weight: 400; }
+    .test-controls { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(180px, .9fr) minmax(0, 2fr); align-items: end; gap: 16px; }
+    .test-run { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+    .test-run .button, .test-result .scope-link, .query-secondary .test-batch { min-height: 44px; }
+    .test-run-info { display: grid; gap: 3px; color: var(--secondary); font-size: 13px; text-align: right; }
+    .test-run-info [role="status"] { color: var(--heading); }
+    .query-secondary { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .query-secondary > summary { min-height: 44px; align-content: center; color: var(--secondary); cursor: pointer; font-size: 14px; }
+    .query-secondary > summary:hover { color: var(--heading); }
+    .query-secondary .test-batches { margin-top: 0; }
+    .query-secondary .settings-row { margin: 8px 0 16px; }
+    .query-secondary .settings-actions { align-items: center; }
     .settings-section { padding: 22px 0; border-top: 1px solid var(--border); }
     .settings-section:first-of-type { margin-top: 20px; }
     .settings-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px; margin-top: 14px; }
@@ -519,40 +535,6 @@
     .promotion-panel .section-head { align-items: flex-start; }
     .promotion-panel .section-head h2 { margin: 3px 0 0; color: var(--heading); font-size: 18px; }
     .promotion-panel .section-head p { max-width: 70ch; margin: 5px 0 0; color: var(--secondary); }
-    .promotion-steps {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      margin: 16px 0 0;
-      padding: 0;
-      border-bottom: 1px solid var(--border);
-      list-style: none;
-    }
-    .promotion-step {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      min-height: 48px;
-      color: var(--faint);
-      padding: 9px 12px;
-      font-size: 12px;
-    }
-    .promotion-step:first-child { padding-left: 0; }
-    .promotion-step-number {
-      display: inline-grid;
-      width: 23px;
-      height: 23px;
-      flex: 0 0 auto;
-      place-items: center;
-      border: 1px solid var(--border);
-      border-radius: 50%;
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 10px;
-    }
-    .promotion-step.current { color: var(--heading); font-weight: 620; }
-    .promotion-step.current .promotion-step-number { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-    .promotion-step.complete { color: var(--secondary); }
-    .promotion-step.complete .promotion-step-number { border-color: oklch(0.5 0.09 156); background: var(--positive-soft); color: var(--positive); }
     .promotion-body { max-width: 980px; padding-top: 18px; }
     .promotion-body h3 { margin: 0; color: var(--heading); font-size: 16px; }
     .promotion-body > p { max-width: 70ch; margin: 6px 0 0; color: var(--secondary); }
@@ -826,6 +808,9 @@
       .inspector { display: block; border-top: 1px solid var(--border); }
       .test-layout { grid-template-columns: 1fr; }
       .test-pane + .test-pane { border-top: 1px solid var(--border); border-left: 0; padding-top: 20px; padding-left: 0; }
+      .test-controls { grid-template-columns: 1fr 1fr; }
+      .test-run { grid-column: 1 / -1; justify-content: space-between; }
+      .test-run-info { text-align: left; }
       .query-composer-grid { grid-template-columns: 1fr 1fr; }
       .query-composer-grid .field:first-child { grid-column: 1 / -1; }
       .promotion-fields { grid-template-columns: 1fr; }
@@ -848,8 +833,8 @@
       .change-item { border-right: 0; border-bottom: 1px solid var(--border-subtle); padding: 10px 0; }
       .change-item:last-child { border-bottom: 0; }
       .query-composer-grid .field, .form-grid .field { margin-top: 10px; }
-      .promotion-steps { grid-template-columns: 1fr; }
-      .promotion-step { min-height: 38px; padding-left: 0; }
+      .test-controls { grid-template-columns: 1fr; }
+      .test-run { flex-wrap: wrap; }
       .review-row { grid-template-columns: 1fr; gap: 4px; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -945,6 +930,17 @@
       'Where can I find pet-friendly apartments near central Metro Golf?',
     ]
     const DEFAULT_TEST_QUERY_TEXT = DEFAULT_TEST_QUERIES.join('\n')
+    const INITIAL_TESTS = [
+      { queries: [...DEFAULT_TEST_QUERIES], provider: 'OpenAI', location: 'Metro Golf' },
+      { queries: [
+        'Which apartments are close to transit?',
+        'Which apartments have flexible leases?',
+        'Which apartments have coworking spaces?',
+        'Which apartments allow pets?',
+        'Which apartments have on-site parking?',
+      ], provider: 'Gemini', location: 'No location' },
+      { queries: ['What amenities does Northstar Demo offer?', 'Where are Northstar Demo properties located?'], provider: 'OpenAI', location: 'Project default' },
+    ]
     const state = {
       section: initialRoute.section,
       queryView: initialRoute.queryView,
@@ -961,11 +957,20 @@
       testQueryText: DEFAULT_TEST_QUERY_TEXT,
       testProvider: 'OpenAI',
       testLocation: 'Metro Golf',
-      testResult: {
-        queries: [...DEFAULT_TEST_QUERIES],
-        provider: 'OpenAI',
-        location: 'Metro Golf',
-      },
+      testResult: INITIAL_TESTS[0],
+      testHistory: [...INITIAL_TESTS],
+      selectedTest: 0,
+      trackedSearch: '',
+      trackedClass: 'All',
+      trackedGroup: '',
+      trackedLimit: 20,
+      editingQueryId: null,
+      promotionClass: 'Non-brand',
+      promotionScope: '',
+      promotionTargets: [],
+      promotionTargetSearch: '',
+      promotionSource: '',
+      promotionRemove: false,
     }
 
     function clamp(value, min, max) { return Math.max(min, Math.min(max, value)) }
@@ -985,21 +990,20 @@
     }
     function testCallCountLabel(batch) {
       const total = batch.allQueries.length
-      if (!total) return 'Add at least one nonempty query before running a test.'
+      if (!total) return 'Enter a query.'
       if (batch.exceedsLimit) {
         const removeCount = total - TEST_BATCH_LIMIT
-        return `${total} ${total === 1 ? 'query' : 'queries'} exceed the ${TEST_BATCH_LIMIT}-query test limit. Remove ${removeCount} ${removeCount === 1 ? 'query' : 'queries'} to continue.`
+        return `${total} queries. Remove ${removeCount} to stay within the ${TEST_BATCH_LIMIT}-query limit.`
       }
       const count = batch.queries.length
-      const queryLabel = count === 1 ? 'query' : 'queries'
       const callLabel = count === 1 ? 'provider call' : 'provider calls'
-      return `${count} ${queryLabel} × 1 provider = ${count} ${callLabel}.`
+      return `${count} ${callLabel}`
     }
     function testRunLabel(batch) {
       if (!batch.allQueries.length) return 'Add test query'
       if (batch.exceedsLimit) return 'Fix test queries'
       const count = batch.queries.length
-      return `Run ${count} test ${count === 1 ? 'query' : 'queries'}`
+      return `Run ${count} ${count === 1 ? 'query' : 'queries'}`
     }
     function updateTestPreflight() {
       const batch = testBatch()
@@ -1385,117 +1389,142 @@
       return renderPulsePortfolio()
     }
 
-    function queryWorkspaceHeader(title, description = '') {
+    function queryWorkspaceHeader(title) {
       const tabs = [
         { key: 'tracked', label: 'Tracked' },
         { key: 'discover', label: 'Discover' },
         { key: 'test', label: 'Test' },
       ]
-      return `<div class="breadcrumb"><span>Northstar Demo</span><span class="breadcrumb-separator">/</span><span>Queries</span></div>
-        <div class="page-head"><div><h1>${escapeHtml(title)}</h1>${description ? `<p>${escapeHtml(description)}</p>` : ''}</div></div>
+      return `<div class="page-head"><h1>${escapeHtml(title)}</h1></div>
         <nav class="workspace-tabs" aria-label="Query workflows">${tabs.map(tab => `<button type="button" class="${state.queryView === tab.key ? 'active' : ''}" data-query-view="${tab.key}" aria-current="${state.queryView === tab.key ? 'page' : 'false'}">${tab.label}</button>`).join('')}</nav>`
     }
 
-    function trackedQueryRows() {
-      const unique = [...new Set(properties.flatMap(property => property.queries))]
-      const rows = unique.slice(0, 12).map((query, index) => ({
-        query,
-        classLabel: index % 4 === 0 ? 'Branded' : 'Non-brand',
-        assigned: index % 5 === 0 ? properties.length : 8 + ((index * 17) % 74),
-        mentioned: 38 + ((index * 11) % 42),
-        cited: 18 + ((index * 7) % 31),
-        lastMeasured: index === 10 ? 'Not measured' : '2 days ago',
-      }))
-      if (state.publishedQuery) {
-        rows.unshift({ query: state.publishedQuery, classLabel: 'Non-brand', assigned: 15, mentioned: null, cited: null, lastMeasured: 'Awaiting first sweep' })
-        rows.length = 12
+    // Fictional published assignments, not fabricated measurement results.
+    // Each shared market query belongs to that market's actual 15 Properties.
+    const trackedCatalog = []
+    for (const property of properties) {
+      for (const query of property.queries) {
+        let row = trackedCatalog.find(candidate => candidate.query === query)
+        if (!row) {
+          row = { id: `query-${trackedCatalog.length + 1}`, query,
+            classLabel: query === `${property.name} reviews` ? 'Branded' : 'Non-brand',
+            targetIds: [], status: 'Scheduled' }
+          trackedCatalog.push(row)
+        }
+        row.targetIds.push(property.id)
       }
-      return rows
+    }
+
+    function trackedQueryRows() {
+      return trackedCatalog.filter(row =>
+        row.query.toLowerCase().includes(state.trackedSearch.toLowerCase())
+        && (state.trackedClass === 'All' || row.classLabel === state.trackedClass)
+        && (!state.trackedGroup || row.targetIds.some(id => properties.find(property => property.id === id)?.groupKey === state.trackedGroup)))
     }
 
     function trackedQueryRowHtml(row) {
-      const measured = typeof row.mentioned === 'number' && typeof row.cited === 'number' && row.lastMeasured === '2 days ago'
-      const measuredCell = value => measured ? `<span class="metric-value">${value}%</span>` : '<span class="not-measured">Not measured</span>'
-      const lastMeasured = row.lastMeasured === 'Awaiting first sweep' ? badge('Awaiting first sweep', 'caution') : row.lastMeasured
-      return `<tr class="data-row"><td class="property-name">${escapeHtml(row.query)}</td><td>${row.classLabel}</td><td>${row.assigned} of ${properties.length}</td><td>${lastMeasured}</td><td>${measuredCell(row.mentioned)}</td><td>${measuredCell(row.cited)}</td><td class="scope-table-actions"><button type="button" class="scope-link" data-toast="Assignment editing opens the Advanced Measurement draft, preserving the published plan.">Assignments&nbsp;→</button></td></tr>`
+      const targets = properties.filter(property => row.targetIds.includes(property.id))
+      const groups = [...new Set(targets.map(property => property.groupLabel))]
+      return `<tr class="data-row"><td class="property-name" style="min-width:280px;width:45%">${escapeHtml(row.query)}</td><td>${row.classLabel}</td><td><span>${row.targetIds.length} ${row.targetIds.length === 1 ? 'Property' : 'Properties'}</span><div class="subline">${groups.length === 1 ? escapeHtml(groups[0]) : `${groups.length} groups`}</div></td><td>${badge(row.status, row.status === 'Awaiting first sweep' ? 'caution' : '')}</td><td class="scope-table-actions"><button type="button" class="button small" aria-label="Edit ${escapeHtml(row.query)}" data-edit-query="${row.id}">Edit</button><button type="button" class="button small ghost" aria-label="Test ${escapeHtml(row.query)}" data-test-tracked-query="${row.id}">Test</button></td></tr>`
     }
 
-    function promotionStepsHtml(step) {
-      const steps = ['Assign', 'Confirm']
-      return `<ol class="promotion-steps" aria-label="Add query to measurement progress">${steps.map((label, index) => {
-        const stepNumber = index + 1
-        const stateClass = stepNumber < step ? 'complete' : stepNumber === step ? 'current' : ''
-        return `<li class="promotion-step ${stateClass}" ${stepNumber === step ? 'aria-current="step"' : ''}><span class="promotion-step-number">${stepNumber < step ? '✓' : stepNumber}</span><span>${label}</span></li>`
-      }).join('')}</ol>`
+    function trackedResultsHtml() {
+      const rows = trackedQueryRows()
+      return `${rows.length ? `<div class="table-wrap"><table><caption class="sr-only">Tracked project queries</caption><thead><tr><th>Query</th><th>Type</th><th>Properties</th><th>Status</th><th>Actions</th></tr></thead><tbody id="tracked-rows">${rows.slice(0, state.trackedLimit).map(trackedQueryRowHtml).join('')}</tbody></table></div>` : '<p class="empty-state">No matching queries. Change or clear your filters.</p>'}
+        <div class="table-footer"><span role="status">Showing ${Math.min(rows.length, state.trackedLimit)} of ${rows.length} queries</span>${rows.length > state.trackedLimit ? '<button type="button" class="button small" data-more-queries>Show more</button>' : ''}</div>`
+    }
+
+    function updateTrackedResults() {
+      const results = document.getElementById('tracked-results')
+      if (results) results.innerHTML = trackedResultsHtml()
+    }
+
+    function promotionTargetIds() {
+      if (state.promotionScope === 'all') return properties.map(property => property.id)
+      if (state.promotionScope === 'specific') return [...state.promotionTargets]
+      return properties.filter(property => property.groupKey === state.promotionScope).map(property => property.id)
+    }
+
+    function promotionHasChanges() {
+      const existing = trackedCatalog.find(row => row.id === state.editingQueryId)
+        || trackedCatalog.find(row => row.query.toLowerCase() === state.promotionQuery.trim().toLowerCase())
+      if (!existing || state.promotionRemove) return true
+      const targets = promotionTargetIds()
+      if (!state.editingQueryId) return targets.some(id => !existing.targetIds.includes(id))
+      return existing.query !== state.promotionQuery.trim() || existing.classLabel !== state.promotionClass
+        || targets.length !== existing.targetIds.length || targets.some(id => !existing.targetIds.includes(id))
+    }
+
+    function promotionError() {
+      const duplicate = trackedCatalog.find(row => row.query.toLowerCase() === state.promotionQuery.trim().toLowerCase())
+      if (duplicate && state.editingQueryId && duplicate.id !== state.editingQueryId) return 'A query with this text already exists. Edit that query instead.'
+      if (duplicate && !state.editingQueryId && duplicate.classLabel !== state.promotionClass) return `Already tracked as ${duplicate.classLabel}. Edit the existing query to change its type.`
+      return ''
+    }
+
+    function updatePromotionContinue() {
+      const next = document.querySelector('[data-promotion-next]')
+      if (next) next.disabled = !state.promotionQuery.trim() || promotionTargetIds().length === 0 || Boolean(promotionError())
+      const error = document.getElementById('promotion-error')
+      if (error) error.textContent = promotionError()
     }
 
     function renderPromotionPanel() {
       if (!state.promotionStep) return ''
-      const query = state.promotionQuery || 'What are the best luxury apartments in Metro Golf?'
+      const query = state.promotionQuery
       const step = state.promotionStep
-      const source = state.queryView === 'discover' ? 'Discovery candidate' : 'Saved test'
-      const sourceDetail = state.queryView === 'discover'
-        ? 'Portfolio discovery · sample candidates'
-        : `${state.testResult.provider} · ${state.testResult.location} · saved test`
+      const targetIds = promotionTargetIds()
+      const selectedTargets = properties.filter(property => targetIds.includes(property.id))
+      const group = groupDefinitions.find(group => group.key === state.promotionScope)
+      const scopeLabel = group?.label || (state.promotionScope === 'all' ? 'All Properties' : 'Selected Properties')
       if (step === 1) {
         return `<section class="promotion-panel" aria-labelledby="promotion-title">
-          <div class="section-head"><div><span class="eyebrow">Measurement draft</span><h2 id="promotion-title" tabindex="-1">Add to measurement</h2><p>Choose the published scope without leaving this workspace.</p></div><button type="button" class="button small ghost" data-promotion-cancel>Cancel</button></div>
-          ${promotionStepsHtml(step)}
+          <div class="section-head"><h2 id="promotion-title" tabindex="-1">${state.editingQueryId ? 'Edit query' : 'Track query'}</h2></div>
           <div class="promotion-body">
-            <h3>Assign query</h3>
-            <p>Choose how the query enters the portfolio measurement.</p>
-            <div class="promotion-origin"><span class="badge info">${source}</span><span>${sourceDetail}</span><span class="badge positive">No duplicate found</span></div>
-            <div class="promotion-query">${escapeHtml(query)}</div>
+            ${state.promotionSource ? `<div class="promotion-origin">${escapeHtml(state.promotionSource)}</div>` : ''}
+            <div class="field"><label for="promotion-query-text">Query</label><textarea id="promotion-query-text" class="control" rows="2">${escapeHtml(query)}</textarea></div>
             <div class="promotion-fields">
-              <div class="field"><label for="promotion-class">Query type</label><select id="promotion-class" class="control"><option>Non-brand</option><option>Branded</option></select></div>
-              <div class="field"><label for="promotion-scope">Use a Group to select Properties</label><select id="promotion-scope" class="control"><option>Metro Golf · 15 Properties</option><option>All 225 Properties</option><option>Specific Properties…</option></select></div>
+              <div class="field"><label for="promotion-class">Query type</label><select id="promotion-class" class="control">${['Non-brand', 'Branded'].map(label => `<option${state.promotionClass === label ? ' selected' : ''}>${label}</option>`).join('')}</select></div>
+              <div class="field"><label for="promotion-scope">Properties</label><select id="promotion-scope" class="control"><option value="">Choose a group or Properties</option>${groupDefinitions.map(group => `<option value="${group.key}"${state.promotionScope === group.key ? ' selected' : ''}>${group.label} · ${group.count} Properties</option>`).join('')}<option value="all"${state.promotionScope === 'all' ? ' selected' : ''}>All ${properties.length} Properties</option><option value="specific"${state.promotionScope === 'specific' ? ' selected' : ''}>Specific Properties</option></select></div>
             </div>
-            <div class="assignment-preview" aria-label="Selected Property preview"><span>Northstar Demo Station</span><span>The Arden at Metro Golf</span><span>Emerson Metro Golf</span><span>+12 Properties</span></div>
-            <p class="section-note">The published plan stores 15 Property assignments, not a live Group reference. If the normalized query already exists, this step updates its assignments instead of creating a duplicate.</p>
-            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-cancel>Discard draft</button><button type="button" class="button primary" data-promotion-next>Continue to confirmation</button></div>
+            ${state.promotionScope === 'specific' ? `<div class="field"><label for="promotion-target-search">Find Properties</label><input id="promotion-target-search" class="control" type="search" value="${escapeHtml(state.promotionTargetSearch)}"></div><div id="promotion-target-list" style="max-height:220px;overflow:auto">${promotionTargetsHtml()}</div>` : ''}
+            <details class="query-secondary"><summary>${targetIds.length} Properties selected</summary><ul>${selectedTargets.map(property => `<li>${escapeHtml(property.name)} · ${escapeHtml(property.groupLabel)}</li>`).join('')}</ul></details>
+            <p id="promotion-error" role="alert">${escapeHtml(promotionError())}</p>
+            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-cancel>Cancel</button>${state.editingQueryId ? '<button type="button" class="button ghost" data-stop-tracking>Stop tracking</button>' : ''}<button type="button" class="button primary" data-promotion-next ${query.trim() && targetIds.length && !promotionError() ? '' : 'disabled'}>Continue</button></div>
           </div>
         </section>`
       }
       return `<section class="promotion-panel" aria-labelledby="promotion-title">
-          <div class="section-head"><div><span class="eyebrow">Measurement draft</span><h2 id="promotion-title" tabindex="-1">Add to measurement</h2><p>Review the exact plan change before publishing.</p></div><button type="button" class="button small ghost" data-promotion-cancel>Cancel</button></div>
-          ${promotionStepsHtml(step)}
+          <div class="section-head"><h2 id="promotion-title" tabindex="-1">${state.promotionRemove ? 'Stop tracking this query?' : 'Confirm tracking'}</h2></div>
           <div class="promotion-body">
-            <h3>Confirm measurement change</h3>
-            <p>The current published revision remains live until this change is published.</p>
             <dl class="review-list">
               <div class="review-row"><dt>Query</dt><dd class="property-name">${escapeHtml(query)}</dd></div>
-              <div class="review-row"><dt>Query type</dt><dd>Non-brand</dd></div>
-              <div class="review-row"><dt>Assigned Properties</dt><dd>Metro Golf selection · 15 Properties</dd></div>
+              <div class="review-row"><dt>Query type</dt><dd>${state.promotionClass}</dd></div>
+              <div class="review-row"><dt>Assigned Properties</dt><dd>${escapeHtml(scopeLabel)} · ${targetIds.length} Properties</dd></div>
               <div class="review-row"><dt>First official measurement</dt><dd>Next scheduled official run: Wednesday at 9:00 AM UTC</dd></div>
             </dl>
-            <div class="review-impact"><span><strong>1</strong> query added</span><span><strong>15</strong> Property assignments</span><span><strong>0</strong> runs started</span></div>
-            <p class="section-note">Publishing changes the long-term plan. It does not count the saved test as official evidence or start a sweep.</p>
-            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-back>Back</button><button type="button" class="button primary" data-promotion-publish>Publish new revision</button></div>
+            <div class="review-impact">${promotionHasChanges() ? '' : '<span>No changes</span>'}<strong>0 provider calls started</strong></div>
+            ${state.editingQueryId ? '<p class="section-note">Saved results stay unchanged. This updates future measurement.</p>' : ''}
+            <div class="promotion-actions"><button type="button" class="button ghost" data-promotion-back>Back</button><button type="button" class="button primary" data-promotion-publish ${promotionHasChanges() ? '' : 'disabled'}>${state.promotionRemove ? 'Stop tracking' : state.editingQueryId ? 'Save changes' : 'Track query'}</button></div>
           </div>
         </section>`
     }
 
     function renderTrackedQueries() {
-      const rows = trackedQueryRows()
-      return `${queryWorkspaceHeader('Tracked queries', 'The published query basket and its Property assignments.')}
+      return `${queryWorkspaceHeader('Tracked queries')}
         <div class="query-toolbar">
-          <div class="field grow"><label for="tracked-search">Search queries</label><input id="tracked-search" class="control" type="search" placeholder="Query text"></div>
-          <div class="field"><label for="tracked-class">Query type</label><select id="tracked-class" class="control"><option>All</option><option>Non-brand</option><option>Branded</option></select></div>
-          <button type="button" class="button" data-toggle-query-composer>${state.queryComposer ? 'Cancel' : '+ Add query'}</button>
+          <div class="field grow"><label for="tracked-search">Search queries</label><input id="tracked-search" class="control" type="search" placeholder="Query text" value="${escapeHtml(state.trackedSearch)}"></div>
+          <div class="field"><label for="tracked-class">Query type</label><select id="tracked-class" class="control">${['All', 'Non-brand', 'Branded'].map(label => `<option${state.trackedClass === label ? ' selected' : ''}>${label}</option>`).join('')}</select></div>
+          <div class="field"><label for="tracked-group">Group</label><select id="tracked-group" class="control"><option value="">All groups</option>${groupDefinitions.map(group => `<option value="${group.key}"${state.trackedGroup === group.key ? ' selected' : ''}>${group.label}</option>`).join('')}</select></div>
+          <button type="button" class="button" data-toggle-query-composer>+ Add query</button>
         </div>
-        ${state.queryComposer ? `<section class="query-composer" aria-labelledby="query-composer-title">
-          <div class="section-head"><div><h2 id="query-composer-title">Add to measurement</h2><p>New queries stay in draft until assigned and published.</p></div></div>
-          <div class="query-composer-grid">
-            <div class="field"><label for="new-tracked-query">Queries</label><textarea id="new-tracked-query" class="control" placeholder="One query per line">best luxury apartments near metro golf</textarea></div>
-            <div class="field"><label for="new-query-class">Query type</label><select id="new-query-class" class="control"><option>Non-brand</option><option>Branded</option></select></div>
-            <div class="field"><label for="new-query-scope">Assign to</label><select id="new-query-scope" class="control"><option>Choose Properties…</option><option>All 225 Properties</option><option>Metro Golf · 15 Properties</option><option>Specific Properties…</option></select></div>
-          </div>
-          <div class="head-actions" style="margin-top:14px"><button type="button" class="button ghost" data-toggle-query-composer>Cancel</button><button type="button" class="button primary" data-toast="Added to the measurement draft. Publish the draft before the next scheduled official run.">Add to draft</button></div>
-        </section>` : ''}
-        <div class="table-wrap"><table><caption class="sr-only">Tracked project queries</caption><thead><tr><th>Query</th><th>Type</th><th>Assigned Properties</th><th>Last measured</th><th>Mention</th><th>Citation</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
-          ${rows.map(trackedQueryRowHtml).join('')}
-        </tbody></table></div>
-        <div class="table-footer"><span>Showing 12 of ${state.publishedQuery ? 37 : 36} tracked queries</span><button type="button" class="button small" data-toast="The production list uses server paging.">Show more</button></div>`
+        ${renderPromotionPanel()}
+        <div id="tracked-results">${trackedResultsHtml()}</div>`
+    }
+
+    function promotionTargetsHtml() {
+      return properties.filter(property => `${property.name} ${property.groupLabel}`.toLowerCase().includes(state.promotionTargetSearch.toLowerCase()))
+        .map(property => `<label style="display:flex;align-items:center;gap:8px;min-height:44px"><input type="checkbox" data-promotion-target="${property.id}" ${state.promotionTargets.includes(property.id) ? 'checked' : ''}>${escapeHtml(property.name)} · ${escapeHtml(property.groupLabel)}</label>`).join('')
     }
 
     function renderDiscoverQueries() {
@@ -1505,12 +1534,12 @@
         ['pet friendly apartments with dog parks', 'Cited opportunity', '71 Properties'],
         ['apartments with flexible lease terms', 'Coverage gap', '44 Properties'],
       ]
-      return `${queryWorkspaceHeader('Discover queries', 'Find candidate demand, then choose what enters measurement.')}
+      return `${queryWorkspaceHeader('Discover queries')}
         <div class="test-layout">
-          <section class="test-pane"><h2>New discovery</h2><p>Describe the renter and market you want to cover.</p>
-            <div class="form-stack"><div class="field"><label for="discovery-icp">Audience and intent</label><textarea id="discovery-icp" class="control">Prospective renters comparing professionally managed apartments across a synthetic national portfolio.</textarea></div><div><button type="button" class="button" data-toast="A discovery session would start without changing the tracked query basket.">Find candidates</button></div></div>
+          <section class="test-pane">
+            <div class="form-stack"><div class="field"><label for="discovery-icp">Audience and intent</label><textarea id="discovery-icp" class="control">Prospective renters comparing professionally managed apartments across a synthetic national portfolio.</textarea></div><div><button type="button" class="button" data-toast="Candidates found. Tracking unchanged.">Find candidates</button></div><span class="section-note">Does not change tracking.</span></div>
           </section>
-          <section class="test-pane"><h2>Latest candidates</h2><p>Sample discovery · 63 candidates found</p>
+          <section class="test-pane"><h2>Candidates</h2>
             <div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Candidate</th><th>Signal</th><th>Suggested scope</th><th></th></tr></thead><tbody>${candidates.map(candidate => `<tr><td class="property-name">${candidate[0]}</td><td>${candidate[1]}</td><td>${candidate[2]}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(candidate[0])}">Add&nbsp;→</button></td></tr>`).join('')}</tbody></table></div>
           </section>
         </div>
@@ -1521,27 +1550,20 @@
       const batch = testBatch()
       const testQueries = batch.queries
       const savedTest = state.testResult
-      const savedQueryLabel = savedTest.queries.length === 1 ? 'query' : 'queries'
-      return `${queryWorkspaceHeader('Test queries', 'Run saved checks without changing the official measurement.')}
-        <div class="query-notice"><span class="badge info">Test</span><strong>Saved separately</strong><span>Does not change tracked queries, Portfolio Pulse, trends, or the AI sweep schedule.</span></div>
-        <div class="test-layout">
-          <section class="test-pane"><h2>New test</h2><p>Use arbitrary prompts with one API model and location.</p>
-            <div class="form-stack">
-              <div class="field"><label for="test-query-text">Queries</label><textarea id="test-query-text" class="control">${escapeHtml(state.testQueryText)}</textarea></div>
-              <div class="form-grid"><div class="field"><label for="test-provider">API provider</label><select id="test-provider" class="control"><option${state.testProvider === 'OpenAI' ? ' selected' : ''}>OpenAI</option><option${state.testProvider === 'Gemini' ? ' selected' : ''}>Gemini</option></select></div><div class="field"><label for="test-location">Location</label><select id="test-location" class="control"><option${state.testLocation === 'Metro Golf' ? ' selected' : ''}>Metro Golf</option><option${state.testLocation === 'Project default' ? ' selected' : ''}>Project default</option><option${state.testLocation === 'No location' ? ' selected' : ''}>No location</option></select></div></div>
-              <p id="test-batch-limit" class="section-note">Prototype limit: 10 queries. This limit applies only to this mockup.</p>
-              <p id="test-call-count" class="section-note">${testCallCountLabel(batch)}</p>
-              <div><button type="button" class="button primary" data-run-research aria-describedby="test-call-count" ${testQueries.length && !batch.exceedsLimit ? '' : 'disabled'}>${testRunLabel(batch)}</button></div>
+      return `${queryWorkspaceHeader('Test queries')}
+        <section class="test-composer" aria-label="Run test queries">
+          <div class="form-stack">
+            <div class="field"><div class="field-label-row"><label for="test-query-text">Queries</label><span id="test-batch-limit" class="field-hint">Max 10 in prototype</span></div><textarea id="test-query-text" class="control" placeholder="One query per line" aria-describedby="test-batch-limit">${escapeHtml(state.testQueryText)}</textarea></div>
+            <div class="test-controls">
+              <div class="field"><label for="test-provider">Provider</label><select id="test-provider" class="control"><option${state.testProvider === 'OpenAI' ? ' selected' : ''}>OpenAI</option><option${state.testProvider === 'Gemini' ? ' selected' : ''}>Gemini</option></select></div>
+              <div class="field"><label for="test-location">Location</label><select id="test-location" class="control"><option${state.testLocation === 'Metro Golf' ? ' selected' : ''}>Metro Golf</option><option${state.testLocation === 'Project default' ? ' selected' : ''}>Project default</option><option${state.testLocation === 'No location' ? ' selected' : ''}>No location</option></select></div>
+              <div class="test-run"><div class="test-run-info"><span id="test-call-count" role="status">${testCallCountLabel(batch)}</span><span id="test-isolation">Excluded from Pulse and trends</span></div><button type="button" class="button primary" data-run-research aria-describedby="test-call-count test-isolation" ${testQueries.length && !batch.exceedsLimit ? '' : 'disabled'}>${testRunLabel(batch)}</button></div>
             </div>
-            <div class="settings-section" style="margin-top:20px"><h2>Spot check published measurement</h2><p class="section-note">Probe one Property with one provider. It stays out of official reporting.</p><div class="settings-row"><div class="settings-facts"><strong id="spot-check-property">Property: Northstar Demo Station</strong><span id="spot-check-provider">Provider: OpenAI</span></div><div class="settings-actions"><p id="spot-check-call-count" class="section-note">4 assigned queries × 1 provider = 4 provider calls.</p><button type="button" class="button" data-spot-check aria-describedby="spot-check-call-count">Run bounded spot check</button></div></div></div>
-          </section>
-          <section class="test-pane"><h2>Saved tests</h2><p>Standalone answer and source evidence.</p><div class="test-batches">
-            <button type="button" class="test-batch active"><span>${savedTest.queries.length} ${escapeHtml(savedTest.location)} ${savedQueryLabel}</span><span>${escapeHtml(savedTest.provider)}</span><span class="badge positive">Complete</span></button>
-            <button type="button" class="test-batch"><span>5 apartment comparison queries</span><span>Gemini</span><span class="badge positive">Complete</span></button>
-            <button type="button" class="test-batch"><span>2 brand recall queries</span><span>OpenAI</span><span class="badge caution">Partial</span></button>
-          </div></section>
-        </div>
-        ${savedTest.queries.length ? `<section class="test-result" aria-labelledby="test-results-title"><div class="section-head"><div><h2 id="test-results-title">Test results</h2><p>${escapeHtml(savedTest.provider)} · ${escapeHtml(savedTest.location)} · saved test</p></div></div><div class="table-wrap"><table><thead><tr><th>Query</th><th>Mention</th><th>Citation</th><th>Sources</th><th></th></tr></thead><tbody>${savedTest.queries.map((query, index) => `<tr><td class="property-name">${escapeHtml(query)}</td><td>${index === 1 ? badge('Not mentioned', '') : badge('Mentioned', 'positive')}</td><td>${index === 0 ? badge('Cited', 'positive') : badge('Not cited', '')}</td><td>${index === 0 ? 'northstar.example · marketplace-a.example' : index === 1 ? 'marketplace-a.example · marketplace-b.example' : 'marketplace-c.example'}</td><td><button type="button" class="scope-link" data-add-to-measurement data-promotion-query="${escapeHtml(query)}">Add to measurement&nbsp;→</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
+          </div>
+        </section>
+        ${savedTest.queries.length ? `<section class="test-result" aria-labelledby="test-results-title"><div class="section-head"><h2 id="test-results-title" tabindex="-1">Results</h2><span id="test-result-scope" class="result-scope">${escapeHtml(savedTest.provider)} · ${escapeHtml(savedTest.location)}</span></div><div class="table-wrap"><table><thead><tr><th>Query</th><th>Mention</th><th>Citation</th><th>Sources</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${savedTest.queries.map((query, index) => `<tr><td class="property-name">${escapeHtml(query)}</td><td>${index === 1 ? badge('Not mentioned', '') : badge('Mentioned', 'positive')}</td><td>${index === 0 ? badge('Cited', 'positive') : badge('Not cited', '')}</td><td>${index === 0 ? 'northstar.example · marketplace-a.example' : index === 1 ? 'marketplace-a.example · marketplace-b.example' : 'marketplace-c.example'}</td><td><button type="button" class="scope-link" aria-label="Track query: ${escapeHtml(query)}" data-add-to-measurement data-promotion-query="${escapeHtml(query)}">Track query&nbsp;→</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
+        <details id="previous-tests" class="query-secondary"><summary>Test history (${state.testHistory.length})</summary><div class="test-batches">${state.testHistory.map((test, index) => `<button type="button" class="test-batch${index === state.selectedTest ? ' active' : ''}" data-select-test="${index}" aria-current="${index === state.selectedTest ? 'true' : 'false'}"><span>${index === 0 ? 'Latest · ' : ''}${test.queries.length} ${test.queries.length === 1 ? 'query' : 'queries'}</span><span>${escapeHtml(test.provider)}</span><span>${escapeHtml(test.location)}</span></button>`).join('')}</div></details>
+        <details id="property-spot-check" class="query-secondary"><summary>Spot-check a Property</summary><div class="settings-row"><div class="settings-facts"><strong id="spot-check-property">Property: Northstar Demo Station</strong><span id="spot-check-provider">Provider: OpenAI</span><span>Excluded from Pulse and trends</span></div><div class="settings-actions"><p id="spot-check-call-count" class="section-note">4 assigned queries × 1 provider = 4 provider calls.</p><button type="button" class="button" data-spot-check aria-describedby="spot-check-call-count">Run spot check</button></div></div></details>
         ${renderPromotionPanel()}`
     }
 
@@ -1579,6 +1601,13 @@
     function clearPromotion() {
       state.promotionStep = 0
       state.promotionQuery = ''
+      state.editingQueryId = null
+      state.promotionClass = 'Non-brand'
+      state.promotionScope = ''
+      state.promotionTargets = []
+      state.promotionTargetSearch = ''
+      state.promotionSource = ''
+      state.promotionRemove = false
     }
 
     function focusPromotionPanel() {
@@ -1646,8 +1675,44 @@
         return
       }
       if (target.dataset.toggleQueryComposer !== undefined) {
-        state.queryComposer = !state.queryComposer
+        clearPromotion()
+        state.promotionStep = 1
         render()
+        document.getElementById('promotion-query-text')?.focus()
+        return
+      }
+      if (target.dataset.moreQueries !== undefined) {
+        state.trackedLimit += 20
+        updateTrackedResults()
+        return
+      }
+      if (target.dataset.editQuery) {
+        const row = trackedCatalog.find(row => row.id === target.dataset.editQuery)
+        if (!row) return
+        clearPromotion()
+        state.editingQueryId = row.id
+        state.promotionQuery = row.query
+        state.promotionClass = row.classLabel
+        state.promotionTargets = [...row.targetIds]
+        const group = groupDefinitions.find(group => {
+          const members = properties.filter(property => property.groupKey === group.key)
+          return members.length === row.targetIds.length && members.every(property => row.targetIds.includes(property.id))
+        })
+        state.promotionScope = row.targetIds.length === properties.length ? 'all' : group?.key || 'specific'
+        state.promotionStep = 1
+        render()
+        focusPromotionPanel()
+        return
+      }
+      if (target.dataset.testTrackedQuery) {
+        const row = trackedCatalog.find(row => row.id === target.dataset.testTrackedQuery)
+        if (!row) return
+        clearPromotion()
+        state.testQueryText = row.query
+        state.queryView = 'test'
+        history.pushState(null, '', '#queries/test')
+        render()
+        document.getElementById('test-query-text')?.focus()
         return
       }
       if (target.dataset.runResearch !== undefined) {
@@ -1661,39 +1726,79 @@
           provider: state.testProvider,
           location: state.testLocation,
         }
+        state.testHistory.unshift(state.testResult)
+        state.selectedTest = 0
         render()
-        showToast(`Test probe complete, ${batch.queries.length} ${batch.queries.length === 1 ? 'provider call' : 'provider calls'}. Saved separately from official measurement.`)
+        showToast(`Test saved. ${batch.queries.length} ${batch.queries.length === 1 ? 'provider call' : 'provider calls'}.`)
+        return
+      }
+      if (target.dataset.selectTest !== undefined) {
+        const index = Number(target.dataset.selectTest)
+        if (!Number.isInteger(index) || !state.testHistory[index]) return
+        clearPromotion()
+        state.selectedTest = index
+        state.testResult = state.testHistory[index]
+        render()
+        document.getElementById('test-results-title')?.focus()
         return
       }
       if (target.dataset.addToMeasurement !== undefined) {
+        clearPromotion()
         state.section = 'queries'
         state.queryComposer = false
         state.promotionQuery = target.dataset.promotionQuery || 'What are the best luxury apartments in Metro Golf?'
+        state.promotionSource = state.queryView === 'discover' ? 'Discovery candidate' : `${state.testResult.provider} · ${state.testResult.location} · saved test`
+        state.promotionScope = state.promotionQuery.includes('Metro Golf') ? 'metro-golf' : ''
         state.promotionStep = 1
         render()
         focusPromotionPanel()
         return
       }
       if (target.dataset.promotionNext !== undefined) {
+        if (!state.promotionQuery.trim() || !promotionTargetIds().length || promotionError()) return
         state.promotionStep = 2
         render()
         focusPromotionPanel()
         return
       }
       if (target.dataset.promotionBack !== undefined) {
+        state.promotionRemove = false
         state.promotionStep = 1
         render()
         focusPromotionPanel()
         return
       }
       if (target.dataset.promotionPublish !== undefined) {
-        state.publishedQuery = state.promotionQuery
+        if (!promotionHasChanges() || !state.promotionQuery.trim() || !promotionTargetIds().length || (!state.promotionRemove && promotionError())) return
+        const existingIndex = trackedCatalog.findIndex(row => row.id === state.editingQueryId
+          || row.query.toLowerCase() === state.promotionQuery.trim().toLowerCase())
+        const existing = trackedCatalog[existingIndex]
+        const removed = state.promotionRemove
+        if (existingIndex >= 0) trackedCatalog.splice(existingIndex, 1)
+        if (!removed) trackedCatalog.unshift({ id: existing?.id || `added-${Date.now()}`, query: state.promotionQuery.trim(), classLabel: state.promotionClass, targetIds: [...new Set([...(!state.editingQueryId ? existing?.targetIds || [] : []), ...promotionTargetIds()])], status: 'Awaiting first sweep' })
+        state.trackedSearch = ''
+        state.trackedClass = 'All'
+        state.trackedGroup = ''
+        state.trackedLimit = 20
         clearPromotion()
         state.queryView = 'tracked'
         history.pushState(null, '', '#queries/tracked')
         render()
         focusQueryWorkspace()
-        showToast('Published new revision. 0 provider calls started. It will wait for the next scheduled official run.')
+        showToast(removed ? 'Tracking stopped. Saved results unchanged.' : 'Query tracked. 0 provider calls started.')
+        return
+      }
+      if (target.dataset.stopTracking !== undefined) {
+        const existing = trackedCatalog.find(row => row.id === state.editingQueryId)
+        if (!existing) return
+        state.promotionQuery = existing.query
+        state.promotionClass = existing.classLabel
+        state.promotionScope = 'specific'
+        state.promotionTargets = [...existing.targetIds]
+        state.promotionRemove = true
+        state.promotionStep = 2
+        render()
+        focusPromotionPanel()
         return
       }
       if (target.dataset.promotionCancel !== undefined) {
@@ -1764,9 +1869,21 @@
 
     document.addEventListener('input', event => {
       const target = event.target
-      if (!target || target.id !== 'test-query-text') return
-      state.testQueryText = target.value
-      updateTestPreflight()
+      if (!target) return
+      if (target.id === 'test-query-text') {
+        state.testQueryText = target.value
+        updateTestPreflight()
+      } else if (target.id === 'tracked-search') {
+        state.trackedSearch = target.value
+        state.trackedLimit = 20
+        updateTrackedResults()
+      } else if (target.id === 'promotion-query-text') {
+        state.promotionQuery = target.value
+        updatePromotionContinue()
+      } else if (target.id === 'promotion-target-search') {
+        state.promotionTargetSearch = target.value
+        document.getElementById('promotion-target-list').innerHTML = promotionTargetsHtml()
+      }
     })
 
     document.addEventListener('change', event => {
@@ -1774,6 +1891,14 @@
       if (!target) return
       if (target.id === 'test-provider') state.testProvider = target.value
       else if (target.id === 'test-location') state.testLocation = target.value
+      else if (target.id === 'tracked-class') { state.trackedClass = target.value; state.trackedLimit = 20; updateTrackedResults(); return }
+      else if (target.id === 'tracked-group') { state.trackedGroup = target.value; state.trackedLimit = 20; updateTrackedResults(); return }
+      else if (target.id === 'promotion-class') state.promotionClass = target.value
+      else if (target.id === 'promotion-scope') state.promotionScope = target.value
+      else if (target.dataset.promotionTarget) {
+        const id = target.dataset.promotionTarget
+        state.promotionTargets = target.checked ? [...state.promotionTargets, id] : state.promotionTargets.filter(value => value !== id)
+      }
       else return
       render()
     })

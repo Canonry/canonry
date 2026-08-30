@@ -24,6 +24,32 @@ const trackedQueries = [
   { id: 'query-measured', query: 'Which demo result is measured?', createdAt: '2026-08-28T10:00:00.000Z' },
 ]
 
+function advancedUnassignedScope() {
+  return {
+    mode: 'advanced_unassigned' as const,
+    activePlanQueryText: null,
+    queryTextMatchesPlan: null,
+    assignedTargetCount: 0,
+    classState: 'none' as const,
+    queryClasses: [],
+    classCounts: [],
+    groupCoverage: [],
+  }
+}
+
+function advancedAssignedScope(queryText: string) {
+  return {
+    mode: 'advanced_assigned' as const,
+    activePlanQueryText: queryText,
+    queryTextMatchesPlan: true,
+    assignedTargetCount: 1,
+    classState: 'branded' as const,
+    queryClasses: ['branded'],
+    classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+    groupCoverage: [],
+  }
+}
+
 const statuses = {
   setupMode: 'active-v2' as const,
   activeRevision: 7,
@@ -32,11 +58,28 @@ const statuses = {
     createdAt: '2026-08-28T10:00:00.000Z', finishedAt: '2026-08-28T10:01:00.000Z',
   },
   queries: [
-    { queryId: 'query-not-in-plan', status: 'not_in_plan' as const },
-    { queryId: 'query-awaiting', status: 'awaiting_first_sweep' as const },
-    { queryId: 'query-partial', status: 'partial' as const },
-    { queryId: 'query-measured', status: 'measured' as const },
+    {
+      queryId: 'query-not-in-plan', status: 'not_in_plan' as const,
+      catalogState: 'current' as const, currentQueryText: trackedQueries[0]!.query,
+      assignmentScope: advancedUnassignedScope(),
+    },
+    {
+      queryId: 'query-awaiting', status: 'awaiting_first_sweep' as const,
+      catalogState: 'current' as const, currentQueryText: trackedQueries[1]!.query,
+      assignmentScope: advancedAssignedScope(trackedQueries[1]!.query),
+    },
+    {
+      queryId: 'query-partial', status: 'partial' as const,
+      catalogState: 'current' as const, currentQueryText: trackedQueries[2]!.query,
+      assignmentScope: advancedAssignedScope(trackedQueries[2]!.query),
+    },
+    {
+      queryId: 'query-measured', status: 'measured' as const,
+      catalogState: 'current' as const, currentQueryText: trackedQueries[3]!.query,
+      assignmentScope: advancedAssignedScope(trackedQueries[3]!.query),
+    },
   ],
+  activePlanOrphans: [],
 }
 
 async function renderTracked(role: 'admin' | 'viewer' | null = null) {
@@ -75,12 +118,63 @@ test('renders the four server-derived tracked-query measurement labels', async (
 
   await renderTracked()
 
-  for (const label of ['Not in plan', 'Awaiting first sweep', 'Partial', 'Measured']) {
-    expect(await screen.findByText(label)).toBeTruthy()
+  for (const label of ['Not in active plan', 'Awaiting first sweep', 'Partial', 'Measured']) {
+    expect(await screen.findByLabelText(`Measurement status: ${label}`)).toBeTruthy()
   }
   expect(screen.getByRole('columnheader', { name: 'Measurement status' })).toBeTruthy()
   expect(screen.getByLabelText('Measurement status: Measured')).toBeTruthy()
   expect(requests).toContain('/api/v1/projects/demo/measurement-query-statuses')
+})
+
+test('searches queries and filters by the server-derived measurement state', async () => {
+  const restoreFetch = mockFetch((url) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/queries') return jsonResponse(trackedQueries)
+    if (path === '/api/v1/projects/demo/measurement-query-statuses') return jsonResponse(statuses)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  await renderTracked()
+  await screen.findByLabelText('Measurement status: Measured')
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), {
+    target: { value: 'evidence' },
+  })
+  expect(screen.getByText('Where is the demo evidence?')).toBeTruthy()
+  expect(screen.queryByText('Which demo result is measured?')).toBeNull()
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), {
+    target: { value: '' },
+  })
+  fireEvent.change(screen.getByLabelText('Measurement status'), {
+    target: { value: 'not_in_plan' },
+  })
+  expect(screen.getByText('What is a demo signal?')).toBeTruthy()
+  expect(screen.queryByText('Which demo result is measured?')).toBeNull()
+  expect(screen.getByLabelText('Measurement status: Not in active plan')).toBeTruthy()
+})
+
+test('keeps the add form collapsed until an operator explicitly opens it', async () => {
+  const restoreFetch = mockFetch((url) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/queries') return jsonResponse(trackedQueries)
+    if (path === '/api/v1/projects/demo/measurement-query-statuses') return jsonResponse(statuses)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  await renderTracked()
+  await screen.findByLabelText('Measurement status: Measured')
+
+  const add = screen.getByRole('button', { name: 'Save queries' })
+  expect(add.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByLabelText('Queries to add')).toBeNull()
+
+  fireEvent.click(add)
+  expect(screen.getByLabelText('Queries to add')).toBeTruthy()
+  expect(screen.getByText('Save queries, then choose their Properties.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Close add queries' })).toBeTruthy()
 })
 
 test('renders a loading state while the server-derived status is pending', async () => {
@@ -99,7 +193,7 @@ test('renders a loading state while the server-derived status is pending', async
 
   expect(await screen.findByText('Loading measurement status')).toBeTruthy()
   resolveStatus(jsonResponse(statuses))
-  expect(await screen.findByText('Measured')).toBeTruthy()
+  expect(await screen.findByLabelText('Measurement status: Measured')).toBeTruthy()
 })
 
 test('renders an error with retry instead of inventing a status', async () => {
@@ -119,7 +213,7 @@ test('renders an error with retry instead of inventing a status', async () => {
 
   expect((await screen.findByRole('alert')).textContent).toContain('Could not load measurement status.')
   fireEvent.click(screen.getByRole('button', { name: 'Retry measurement status' }))
-  await waitFor(() => expect(screen.getByText('Measured')).toBeTruthy())
+  await waitFor(() => expect(screen.getByLabelText('Measurement status: Measured')).toBeTruthy())
   expect(statusRequests).toBe(2)
 })
 
@@ -139,13 +233,13 @@ test('replaces retained statuses with loading, then unavailable, when a refetch 
   onTestFinished(restoreFetch)
 
   const { queryClient } = await renderTracked()
-  expect(await screen.findByText('Measured')).toBeTruthy()
+  expect(await screen.findByLabelText('Measurement status: Measured')).toBeTruthy()
 
   void queryClient.invalidateQueries({
     queryKey: getApiV1ProjectsByNameMeasurementQueryStatusesQueryKey({ client: heyClient, path: { name: 'demo' } }),
   })
   expect(await screen.findByText('Loading measurement status')).toBeTruthy()
-  expect(screen.queryByText('Measured')).toBeNull()
+  expect(screen.queryByLabelText('Measurement status: Measured')).toBeNull()
 
   resolveFailedRefetch(jsonResponse({ code: 'UNAVAILABLE' }, 503))
   expect((await screen.findByRole('alert')).textContent).toContain('Could not load measurement status.')
@@ -191,7 +285,7 @@ test('refreshes already-Measured badges after the project run list reports an ex
   onTestFinished(restoreFetch)
 
   await renderTracked()
-  expect(await screen.findAllByText('Measured')).toHaveLength(3)
+  expect(await screen.findAllByLabelText('Measurement status: Measured')).toHaveLength(3)
   await waitFor(() => expect(runListRequests).toBe(1))
 
   resolveRunList(jsonResponse([{
@@ -206,7 +300,7 @@ test('refreshes already-Measured badges after the project run list reports an ex
     finishedAt: '2026-08-28T10:06:00.000Z',
   }]))
 
-  await waitFor(() => expect(screen.getAllByText('Partial')).toHaveLength(3))
+  await waitFor(() => expect(screen.getAllByLabelText('Measurement status: Partial')).toHaveLength(3))
   expect(statusRequests).toBe(2)
 })
 
@@ -239,7 +333,7 @@ test('never leaves a Measured badge visible when the external-sweep status refre
   onTestFinished(restoreFetch)
 
   await renderTracked()
-  expect(await screen.findAllByText('Measured')).toHaveLength(3)
+  expect(await screen.findAllByLabelText('Measurement status: Measured')).toHaveLength(3)
   await waitFor(() => expect(runListRequests).toBe(1))
 
   resolveRunList(jsonResponse([{
@@ -255,10 +349,10 @@ test('never leaves a Measured badge visible when the external-sweep status refre
   }]))
 
   expect(await screen.findByText('Loading measurement status')).toBeTruthy()
-  expect(screen.queryAllByText('Measured')).toHaveLength(0)
+  expect(screen.queryAllByLabelText('Measurement status: Measured')).toHaveLength(0)
   resolveFailedRefetch(jsonResponse({ code: 'UNAVAILABLE' }, 503))
   expect((await screen.findByRole('alert')).textContent).toContain('Could not load measurement status.')
-  expect(screen.queryAllByText('Measured')).toHaveLength(0)
+  expect(screen.queryAllByLabelText('Measurement status: Measured')).toHaveLength(0)
   expect(screen.getAllByText('Status unavailable')).toHaveLength(trackedQueries.length)
 })
 
@@ -274,7 +368,7 @@ test('keeps server-derived status visible to viewers and hides tracked-query wri
 
   await renderTracked('viewer')
 
-  expect(await screen.findByText('Measured')).toBeTruthy()
+  expect(await screen.findByLabelText('Measurement status: Measured')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Add queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
 })

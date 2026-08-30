@@ -157,6 +157,11 @@ test('legacy manageQueries hands off to tracked Queries without closing a run dr
   expect(router.state.location.search.manageQueries).toBeUndefined()
 })
 
+test('query assignment handoff has its own validated context and preserves the run drawer', async () => {
+  const { router } = await renderRoute('/?measurementStep=queries&measurementQueryId=q-nearby&runId=run_citypoint_001')
+  expect(router.state.location.search).toMatchObject({ measurementStep: 'queries', measurementQueryId: 'q-nearby', runId: 'run_citypoint_001' })
+})
+
 // ── Smart redirects ──
 
 test('/ redirects to /setup when portfolio is empty', async () => {

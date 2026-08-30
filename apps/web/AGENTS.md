@@ -254,6 +254,24 @@ Token migration guardrails:
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
   checkboxes, or shared rectangular buttons for interactive choices.
 
+### Query workspace
+
+`DiscoverySection` owns the Tracked, Discover, and Test tabs. `ResearchQueriesSection`
+owns the Test form, saved answers, and tracking preview.
+
+- Use the server's `measurement-query-statuses` response for assignment scope and query class.
+- Show missing catalog queries from `activePlanOrphans`. Their published assignments can still run.
+- If scope is unavailable, disable catalog changes. Do not infer Simple mode from missing data.
+- For assigned Advanced queries, open the draft editor instead of the generic query deletion route.
+- Keep the current published plan active until the operator publishes the draft.
+- Save query text with the guarded `replace-query` draft action. Preserve the exact assignment scope and execution settings.
+- Use `measurementStep=queries` and `measurementQueryId` for the assignment-editor link. Preserve the separate `runId` drawer parameter.
+- Select the existing assigned Properties on entry. Do not default an edit to the whole portfolio.
+- Give unassigned saved queries an Assign Properties action. Start with no Properties selected.
+- Keep test results separate from official measurements. Show the selected provider, model, location, and query count before the Run action.
+- Preserve the context of saved test results when the operator changes the test form.
+- Keep test history and model overrides behind disclosure. Keep loading and failure states visible.
+
 ## Common Mistakes
 
 - **Importing `recharts` directly** — use `ChartPrimitives.tsx` exports.

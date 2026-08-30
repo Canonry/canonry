@@ -1,4 +1,4 @@
-import { addQueries, generateQueries, importQueries, listQueries, removeQueries, replaceQueries } from '../commands/query.js'
+import { addQueries, editQuery, generateQueries, importQueries, listQueries, removeQueries, replaceQueries } from '../commands/query.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -47,6 +47,31 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
         })
       }
       await replaceQueries(project, queries, { dryRun: input.dryRun, format: input.format })
+    },
+  },
+  {
+    path: ['query', 'edit'],
+    usage: 'canonry query edit <project> <query-id> <new-query> --expected-query <old-query> [--format json]',
+    options: { 'expected-query': stringOption() },
+    run: async (input) => {
+      const usage = 'canonry query edit <project> <query-id> <new-query> --expected-query <old-query> [--format json]'
+      const project = requireProject(input, 'query.edit', usage)
+      const queryId = requirePositional(input, 1, {
+        command: 'query.edit',
+        usage,
+        message: 'project name, query ID, and new query required',
+      })
+      const query = requirePositional(input, 2, {
+        command: 'query.edit',
+        usage,
+        message: 'project name, query ID, and new query required',
+      })
+      const expectedQuery = requireStringOption(input, 'expected-query', {
+        command: 'query.edit',
+        usage,
+        message: '--expected-query is required',
+      })
+      await editQuery(project, queryId, query, expectedQuery, input.format)
     },
   },
   {
@@ -138,12 +163,12 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['query'],
-    usage: 'canonry query <add|replace|remove|delete|list|import|generate> <project> [args]',
+    usage: 'canonry query <add|replace|edit|remove|delete|list|import|generate> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'query',
-        usage: 'canonry query <add|replace|remove|delete|list|import|generate> <project> [args]',
-        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate'],
+        usage: 'canonry query <add|replace|edit|remove|delete|list|import|generate> <project> [args]',
+        available: ['add', 'replace', 'edit', 'remove', 'delete', 'list', 'import', 'generate'],
       })
     },
   },

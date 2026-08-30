@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { normalizeQueryText } from '@ainyc/canonry-contracts'
 
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
@@ -61,6 +62,16 @@ export interface AdvancedMeasurementReplaceAssignmentsSelection {
   propertyIds: readonly string[]
 }
 
+export interface AdvancedMeasurementQueryTextEditor {
+  originalValue: string
+  value: string
+  assignedPropertyLabels: readonly string[]
+  isSaving?: boolean
+  isDisabled?: boolean
+  onValueChange: (value: string) => void
+  onSave: () => void | Promise<void>
+}
+
 export interface AdvancedMeasurementQueriesStepProps {
   access?: AdvancedMeasurementAccess
   availability?: AdvancedMeasurementAvailability
@@ -95,6 +106,9 @@ export interface AdvancedMeasurementQueriesStepProps {
   assignmentImpactError?: string | null
   onRetryAssignmentImpact?: () => void
   assignmentNotice?: string | null
+  /** Edits the selected saved query through the draft-scoped replacement action. */
+  queryEditor?: AdvancedMeasurementQueryTextEditor
+  onEditQuery?: (queryId: string) => void
   onReplaceAssignments?: (selection: AdvancedMeasurementReplaceAssignmentsSelection) => void | Promise<void>
   isReplacingAssignments?: boolean
   onBack?: () => void
@@ -643,6 +657,8 @@ export function AdvancedMeasurementQueriesStep({
   assignmentImpactError = null,
   onRetryAssignmentImpact,
   assignmentNotice = null,
+  queryEditor,
+  onEditQuery,
   onReplaceAssignments,
   isReplacingAssignments = false,
   onBack,
@@ -718,6 +734,48 @@ export function AdvancedMeasurementQueriesStep({
       </div>
 
       {viewer ? <ViewerNotice /> : null}
+
+      {viewer || !queryEditor ? null : (
+        <section aria-label="Edit query" className="border-y border-default py-4">
+          <label className="block max-w-2xl">
+            <span className="text-sm font-medium text-heading">Query text</span>
+            <input
+              aria-label="Query text"
+              className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+              disabled={isBusy || queryEditor.isSaving || queryEditor.isDisabled}
+              value={queryEditor.value}
+              onChange={event => queryEditor.onValueChange(event.currentTarget.value)}
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+              <p>{queryEditor.assignedPropertyLabels.length === 1
+                ? '1 Property assigned'
+                : `${queryEditor.assignedPropertyLabels.length} Properties assigned`}</p>
+              {queryEditor.assignedPropertyLabels.length > 0 ? (
+                <details>
+                  <summary className="cursor-pointer text-link outline-none focus-visible:ring-2 focus-visible:ring-mono-400">View assigned Properties</summary>
+                  <ul className="mt-2 space-y-1">
+                    {queryEditor.assignedPropertyLabels.map(label => <li key={label}>{label}</li>)}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isBusy
+                || queryEditor.isSaving
+                || queryEditor.isDisabled
+                || queryEditor.value.trim().length === 0
+                || normalizeQueryText(queryEditor.value) === normalizeQueryText(queryEditor.originalValue)}
+              onClick={() => { void Promise.resolve(queryEditor.onSave()) }}
+            >
+              {queryEditor.isSaving ? 'Saving…' : 'Save to draft'}
+            </Button>
+          </div>
+        </section>
+      )}
 
       {viewer ? null : (
         <fieldset className="border-y border-default py-4">
@@ -1044,7 +1102,7 @@ export function AdvancedMeasurementQueriesStep({
               {viewer ? null : <th><span className="sr-only">Select query</span></th>}
               <th>Query</th>
               <th>Properties</th>
-              {viewer ? null : <th><span className="sr-only">Clear query assignments</span></th>}
+              {viewer ? null : <th><span className="sr-only">Query actions</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -1076,7 +1134,20 @@ export function AdvancedMeasurementQueriesStep({
                     <td className="text-right">
                       {hasAssignments ? (
                         <div className="flex flex-wrap justify-end gap-1">
-                          {onReplaceAssignments ? (
+                          {!missing && onEditQuery ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="min-h-11"
+                              disabled={isBusy}
+                              onClick={() => onEditQuery(query.id)}
+                              aria-label={`Edit query ${label}`}
+                            >
+                              Edit query
+                            </Button>
+                          ) : null}
+                          {hasAssignments && onReplaceAssignments ? (
                             <Button
                               type="button"
                               size="sm"
@@ -1089,7 +1160,7 @@ export function AdvancedMeasurementQueriesStep({
                               Replace assignments
                             </Button>
                           ) : null}
-                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear query assignments for ${label}`}>Clear assignments</Button>
+                          {hasAssignments ? <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear query assignments for ${label}`}>Clear assignments</Button> : null}
                         </div>
                       ) : null}
                     </td>

@@ -178,6 +178,62 @@ test('clears an individual query assignment with explicit wording', () => {
   expect(props.onRemoveQuery).toHaveBeenCalledWith('q-saved')
 })
 
+test('offers an inline query text editor without replacing assignment controls', () => {
+  const onEditQuery = vi.fn()
+  const onValueChange = vi.fn()
+  const { props } = renderQueries({
+    onEditQuery,
+    queryEditor: {
+      originalValue: 'Harbor House events',
+      value: 'Harbor House events',
+      assignedPropertyLabels: ['Harbor House'],
+      onValueChange,
+      onSave: vi.fn(),
+    },
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Edit query Harbor House events' }))
+  expect(onEditQuery).toHaveBeenCalledWith('q-saved')
+  expect((screen.getByLabelText('Query text') as HTMLInputElement).value).toBe('Harbor House events')
+  expect(screen.getByText('1 Property assigned')).toBeTruthy()
+  expect(screen.getByText('View assigned Properties')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Save to draft' })).toHaveProperty('disabled', true)
+  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Harbor House event space' } })
+  expect(onValueChange).toHaveBeenCalledWith('Harbor House event space')
+  expect(props.onRemoveQuery).not.toHaveBeenCalled()
+})
+
+test('does not expose draft query editing to a viewer', () => {
+  renderQueries({
+    access: 'viewer',
+    queryEditor: {
+      originalValue: 'Harbor House events',
+      value: 'Harbor House events',
+      assignedPropertyLabels: ['Harbor House'],
+      onValueChange: vi.fn(),
+      onSave: vi.fn(),
+    },
+    onEditQuery: vi.fn(),
+  })
+
+  expect(screen.queryByLabelText('Query text')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Edit query Harbor House events' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Save to draft' })).toBeNull()
+})
+
+test('does not offer a draft save for a normalized wording no-op', () => {
+  renderQueries({
+    queryEditor: {
+      originalValue: 'Harbor House events',
+      value: '  HARBOR HOUSE EVENTS  ',
+      assignedPropertyLabels: ['Harbor House'],
+      onValueChange: vi.fn(),
+      onSave: vi.fn(),
+    },
+  })
+  expect(screen.getByRole('button', { name: 'Save to draft' })).toHaveProperty('disabled', true)
+})
+
 test('offers an explicit replacement editor for an already assigned query', () => {
   const onReplaceAssignments = vi.fn()
   renderQueries({ onReplaceAssignments })

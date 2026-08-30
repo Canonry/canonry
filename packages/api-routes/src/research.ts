@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   measurementPlanVersions,
@@ -8,7 +8,6 @@ import {
   queries,
   researchRunQueries,
   researchRuns,
-  runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
@@ -72,7 +71,7 @@ import {
   type ReceiptLookup,
 } from './measurement-draft-repo.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
-import { comparableMeasurementVersionIds } from './measurement-report-adapter.js'
+import { latestMeasurementRun } from './measurement-report-adapter.js'
 import type { ProviderAdapterInfo } from './settings.js'
 
 export interface ResearchRoutesOptions {
@@ -149,15 +148,11 @@ function readPromotionSetup(
   const active = activePlanVersionRow(db, project.id)
   const draft = draftRow(db, project.id)
   const activeSchemaVersion: 1 | 2 | null = active ? (active.schemaVersion === 2 ? 2 : 1) : null
+  // Promotion setup follows the same official-full run policy as the active
+  // measurement read: probe and scoped evidence is inspectable, but does not
+  // satisfy the project-wide first-run readiness gate.
   const completedRun = active
-    ? db.select({ id: runs.id }).from(runs).where(and(
-        eq(runs.projectId, project.id),
-        // Setup uses the same continuity chain as active measurement reads:
-        // a label-only republish must not look unswept here while the
-        // dashboard correctly serves the predecessor's completed run.
-        inArray(runs.measurementPlanVersionId, comparableMeasurementVersionIds(db, project.id, active.id)),
-        eq(runs.status, RunStatuses.completed),
-      )).get()
+    ? latestMeasurementRun(db, project.id, active.id, [RunStatuses.completed])
     : undefined
   const state = activeSchemaVersion === 1
     ? 'republish_required' as const

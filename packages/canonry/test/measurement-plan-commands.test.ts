@@ -20,6 +20,7 @@ const previewMeasurementDraftAssignments = vi.fn()
 const applyMeasurementDraftAssignments = vi.fn()
 const applyPairedMeasurementDraftAssignments = vi.fn()
 const replaceMeasurementDraftAssignments = vi.fn()
+const replaceMeasurementDraftQuery = vi.fn()
 const previewMeasurementDraftGroupMembership = vi.fn()
 const applyMeasurementDraftGroupMembership = vi.fn()
 
@@ -42,6 +43,7 @@ vi.mock('../src/client.js', () => ({
     applyMeasurementDraftAssignments,
     applyPairedMeasurementDraftAssignments,
     replaceMeasurementDraftAssignments,
+    replaceMeasurementDraftQuery,
     previewMeasurementDraftGroupMembership,
     applyMeasurementDraftGroupMembership,
   }),
@@ -306,6 +308,20 @@ describe('measurement-plan CLI commands', () => {
     expect(() => command('measurement-plan advanced').run({
       positionals: ['acme', 'nope'], values: {}, format: 'json', dryRun: false,
     })).toThrow('unsupported Advanced Measurement operation')
+  })
+
+  it('edits query text through the same guarded draft action used by the UI', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const inputPath = path.join(tmpDir, 'replace-query.json')
+    const request = { queryId: 'query-1', queryText: 'Quiet apartments near transit' }
+    fs.writeFileSync(inputPath, JSON.stringify({
+      action: 'replace-query', request, etag: '"mpd_7"', idempotencyKey: 'replace-request-1',
+    }))
+    await command('measurement-plan advanced').run({
+      positionals: ['acme', 'draft-action', inputPath], values: {}, format: 'json', dryRun: false,
+    })
+    expect(replaceMeasurementDraftQuery).toHaveBeenCalledWith('acme', request, 'replace-request-1', '"mpd_7"')
+    expect(publishMeasurementPlan).not.toHaveBeenCalled()
   })
 
   it('reads server-derived per-query statuses through the Advanced Measurement CLI bridge', async () => {

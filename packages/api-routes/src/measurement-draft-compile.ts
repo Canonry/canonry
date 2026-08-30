@@ -15,6 +15,7 @@ import {
   type MeasurementDraftQueryClass,
   type MeasurementPlanV2,
   type MeasurementV2Assignment,
+  type MeasurementV2ExecutionContext,
   type MeasurementV2ExecutionNode,
   type MeasurementV2Group,
   type MeasurementV2QuerySnapshot,
@@ -175,6 +176,12 @@ interface ResolvedContext {
   providers: string[]
   models: Record<string, string>
   locations: Array<LocationContext | null>
+}
+
+interface ResolvedExecutionContext {
+  providers: string[]
+  models: Record<string, string>
+  location: LocationContext | null
 }
 
 function normalizeProviders(values: readonly string[]): string[] {
@@ -369,11 +376,54 @@ export function compileMeasurementDraft(
     return { providers, models, locations: locations.length ? locations : [null] }
   }
 
+  /**
+   * A draft seeded from a v2 revision carries the exact node contexts that
+   * revision froze. Do not run these through the draft defaults: doing so
+   * turns heterogeneous providers/models/locations into a Cartesian product
+   * and changes which provider work the revision represents.
+   */
+  const resolveExactContext = (
+    exact: MeasurementV2ExecutionContext,
+    path: (string | number)[],
+  ): ResolvedExecutionContext | null => {
+    const providers = normalizeProviders(exact.providers)
+    if (providers.length === 0) {
+      sink.fail('execution-context-no-provider', 'An execution context must name at least one provider.', [...path, 'providers'])
+      return null
+    }
+    const models: Record<string, string> = {}
+    for (const [provider, model] of Object.entries(exact.models)) {
+      const normalized = provider.trim().toLowerCase()
+      if (!providers.includes(normalized)) {
+        sink.fail('invalid-provider-model', `Model "${model}" names provider "${provider}", which this execution context does not run.`, [...path, 'models', provider])
+        continue
+      }
+      // An exact context intentionally does not inherit the current default
+      // model. An empty map is a frozen request for the provider default.
+      models[normalized] = model
+    }
+    if (exact.location === null) return { providers, models, location: null }
+    const configured = locationsByLabel.get(exact.location.label)
+    if (!configured) {
+      sink.fail('invalid-location', `Execution context names a location the project does not configure: ${exact.location.label}`, [...path, 'location', 'label'])
+      return null
+    }
+    // A matching label with different location facts is still a changed
+    // provider context. Refuse instead of silently swapping it for the live
+    // config and claiming a no-op republish.
+    if (locationKey(configured) !== locationKey(exact.location)) {
+      sink.fail('execution-context-location-mismatch', `Execution context no longer matches the configured location: ${exact.location.label}`, [...path, 'location'])
+      return null
+    }
+    return { providers, models, location: exact.location }
+  }
+
   const nodesByKey = new Map<string, MeasurementV2ExecutionNode>()
   const assignments: MeasurementV2Assignment[] = []
   const usageEdges = new Map<string, MeasurementV2UsageEdge>()
   const usedQueryIds = new Set<string>()
   const claimedPairs = new Set<string>()
+  const frozenProvenanceByQuery = new Map<string, MeasurementV2QuerySnapshot['provenance']>()
 
   authoring.assignments.forEach((assignment, index) => {
     const path: (string | number)[] = ['assignments', index]
@@ -403,19 +453,45 @@ export function compileMeasurementDraft(
       sink.fail('assignment-unclassified', 'Every assignment must be classified as Branded or Non-brand before publishing.', [...path, 'queryClass'])
       return
     }
+    if (assignment.queryProvenance !== undefined) {
+      const existing = frozenProvenanceByQuery.get(assignment.queryId)
+      if (existing !== undefined && canonicalJson(existing) !== canonicalJson(assignment.queryProvenance)) {
+        sink.fail('assignment-query-provenance-conflict', `Assignments for query "${assignment.queryId}" disagree about its frozen provenance.`, [...path, 'queryProvenance'])
+        return
+      }
+      frozenProvenanceByQuery.set(assignment.queryId, assignment.queryProvenance)
+    }
     usedQueryIds.add(assignment.queryId)
-    const resolved = resolveContext(assignment.contextOverride, [...path, 'contextOverride'])
-    if (resolved.providers.length === 0) return
+    const executionContexts: ResolvedExecutionContext[] = assignment.executionContexts === undefined
+      ? (() => {
+          const resolved = resolveContext(assignment.contextOverride, [...path, 'contextOverride'])
+          return resolved.providers.length === 0
+            ? []
+            : resolved.locations.map(location => ({ providers: resolved.providers, models: resolved.models, location }))
+        })()
+      : assignment.executionContexts.map((exact, exactIndex) => resolveExactContext(exact, [...path, 'executionContexts', exactIndex]))
+        .filter((exact): exact is ResolvedExecutionContext => exact !== null)
+    const seenExactContexts = new Set<string>()
 
-    for (const location of resolved.locations) {
+    for (const execution of executionContexts) {
+      const contextIdentity = canonicalJson({
+        location: locationKey(execution.location),
+        providers: execution.providers,
+        models: execution.models,
+      })
+      if (assignment.executionContexts !== undefined && seenExactContexts.has(contextIdentity)) {
+        sink.fail('duplicate-execution-context', 'An assignment repeats the same exact execution context.', [...path, 'executionContexts'])
+        continue
+      }
+      seenExactContexts.add(contextIdentity)
       // The dedup identity of §11: one provider request per unique question,
       // location and provider/model map. Hashing the canonical form is what
       // keeps two machines agreeing on the key.
       const signature = canonicalJson({
         queryId: assignment.queryId,
-        location: locationKey(location),
-        providers: resolved.providers,
-        models: resolved.models,
+        location: locationKey(execution.location),
+        providers: execution.providers,
+        models: execution.models,
       })
       const stableKey = `execution-${sha256Hex(signature)}`
       if (!nodesByKey.has(stableKey)) {
@@ -423,8 +499,8 @@ export function compileMeasurementDraft(
           stableKey,
           queryId: assignment.queryId,
           queryText,
-          context: { providers: resolved.providers, models: resolved.models, location },
-          expectedSnapshots: resolved.providers.length,
+          context: { providers: execution.providers, models: execution.models, location: execution.location },
+          expectedSnapshots: execution.providers.length,
         })
       }
       assignments.push({
@@ -451,6 +527,7 @@ export function compileMeasurementDraft(
   if (failed()) return { ok: false, checks }
 
   const querySnapshots: MeasurementV2QuerySnapshot[] = [...usedQueryIds].sort(compareText).map(queryId => {
+    const frozenProvenance = frozenProvenanceByQuery.get(queryId)
     const supplied = context.queryProvenanceById?.get(queryId)
     return {
       queryId,
@@ -458,10 +535,12 @@ export function compileMeasurementDraft(
       // Provenance is frozen at publish time so a later reader can explain the
       // basket without the live authoring assets. `capturedAt` is deliberately
       // absent from the checksum input, which excludes timestamps.
-      provenance: {
-        ...(supplied ?? { source: 'manual' as const, sourceId: null }),
-        capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH,
-      },
+      provenance: frozenProvenance !== undefined
+        ? frozenProvenance
+        : {
+            ...(supplied ?? { source: 'manual' as const, sourceId: null }),
+            capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH,
+          },
     }
   })
 

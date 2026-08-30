@@ -78,6 +78,26 @@ function insertV2Version(
   return { id, plan }
 }
 
+function overlappingMixedScopeFixture() {
+  const base = measurementPlanV2Fixture()
+  return measurementPlanV2Fixture({
+    groups: [
+      ...base.groups,
+      {
+        stableKey: 'harbor-only',
+        label: 'Harbor only',
+        targetKeys: ['harbor'],
+        competitors: [],
+      },
+    ],
+    assignments: base.assignments.map(assignment => (
+      assignment.queryId === 'q-nearby' && assignment.targetKey === 'bayside'
+        ? { ...assignment, queryClass: 'branded' as const }
+        : assignment
+    )),
+  })
+}
+
 function activate(versionId: string): void {
   db.insert(measurementPlans).values({
     projectId,
@@ -146,6 +166,10 @@ async function statuses() {
   return { status: response.statusCode, body: response.json() }
 }
 
+function readinessRows(body: { queries: Array<{ queryId: string; status: string }> }) {
+  return body.queries.map(({ queryId, status }) => ({ queryId, status }))
+}
+
 beforeEach(async () => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-measurement-query-statuses-'))
   db = createClient(path.join(directory, 'test.db'))
@@ -167,16 +191,34 @@ describe('measurement query statuses', () => {
     const result = await statuses()
 
     expect(result.status).toBe(200)
-    expect(result.body).toEqual({
+    expect(result.body).toMatchObject({
       setupMode: 'simple',
       activeRevision: null,
       latestOfficialFullRun: null,
-      queries: [
-        { queryId: 'q-nearby', status: 'not_in_plan' },
-        { queryId: 'q-brand', status: 'not_in_plan' },
-        { queryId: 'query-zeta', status: 'not_in_plan' },
-      ],
+      activePlanOrphans: [],
     })
+    expect(readinessRows(result.body)).toEqual([
+      { queryId: 'q-nearby', status: 'not_in_plan' },
+      { queryId: 'q-brand', status: 'not_in_plan' },
+      { queryId: 'query-zeta', status: 'not_in_plan' },
+    ])
+    expect(result.body.queries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        queryId: 'q-nearby',
+        catalogState: 'current',
+        currentQueryText: 'homes near harbor',
+        assignmentScope: {
+          mode: 'simple',
+          activePlanQueryText: null,
+          queryTextMatchesPlan: null,
+          assignedTargetCount: null,
+          classState: 'unavailable',
+          queryClasses: [],
+          classCounts: [],
+          groupCoverage: [],
+        },
+      }),
+    ]))
   })
 
   it('keeps draft-only and v1 setup out of the v2 denominator', async () => {
@@ -195,6 +237,7 @@ describe('measurement query statuses', () => {
     const draftOnly = await statuses()
     expect(draftOnly.body).toMatchObject({ setupMode: 'simple', activeRevision: null, latestOfficialFullRun: null })
     expect(draftOnly.body.queries.every((row: { status: string }) => row.status === 'not_in_plan')).toBe(true)
+    expect(draftOnly.body.queries.every((row: { assignmentScope?: { mode: string } }) => row.assignmentScope?.mode === 'simple')).toBe(true)
 
     const v1 = compileMeasurementPlan({
       schemaVersion: 1,
@@ -231,6 +274,169 @@ describe('measurement query statuses', () => {
     expect(result.body.setupMode).toBe('active-v1')
     expect(result.body.activeRevision).toBe(2)
     expect(result.body.queries.every((row: { status: string }) => row.status === 'not_in_plan')).toBe(true)
+    expect(result.body.queries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        queryId: 'q-nearby',
+        assignmentScope: expect.objectContaining({
+          mode: 'legacy',
+          activePlanQueryText: 'homes near harbor',
+          queryTextMatchesPlan: true,
+          assignedTargetCount: null,
+          classState: 'unavailable',
+        }),
+      }),
+    ]))
+  })
+
+  it('derives v2 target counts, cross-class facts, and overlapping-group coverage on the server', async () => {
+    const active = insertV2Version(1, overlappingMixedScopeFixture())
+    activate(active.id)
+
+    const result = await statuses()
+
+    expect(result.body.activePlanOrphans).toEqual([])
+    expect(result.body.queries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        queryId: 'q-nearby',
+        catalogState: 'current',
+        currentQueryText: 'homes near harbor',
+        assignmentScope: {
+          mode: 'advanced_assigned',
+          activePlanQueryText: 'homes near harbor',
+          queryTextMatchesPlan: true,
+          assignedTargetCount: 2,
+          classState: 'mixed',
+          queryClasses: ['branded', 'non-brand'],
+          classCounts: [
+            { queryClass: 'branded', assignedTargetCount: 1 },
+            { queryClass: 'non-brand', assignedTargetCount: 1 },
+          ],
+          groupCoverage: [
+            {
+              groupKey: 'harbor-only',
+              label: 'Harbor only',
+              memberCount: 1,
+              assignedMemberCount: 1,
+              coverage: 'complete',
+              classCounts: [{ queryClass: 'non-brand', assignedTargetCount: 1 }],
+            },
+            {
+              groupKey: 'regional',
+              label: 'Regional comparison',
+              memberCount: 2,
+              assignedMemberCount: 2,
+              coverage: 'complete',
+              classCounts: [
+                { queryClass: 'branded', assignedTargetCount: 1 },
+                { queryClass: 'non-brand', assignedTargetCount: 1 },
+              ],
+            },
+          ],
+        },
+      }),
+      expect.objectContaining({
+        queryId: 'q-brand',
+        assignmentScope: {
+          mode: 'advanced_assigned',
+          activePlanQueryText: 'northstar reviews',
+          queryTextMatchesPlan: true,
+          assignedTargetCount: 1,
+          classState: 'branded',
+          queryClasses: ['branded'],
+          classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+          groupCoverage: [
+            {
+              groupKey: 'harbor-only',
+              label: 'Harbor only',
+              memberCount: 1,
+              assignedMemberCount: 1,
+              coverage: 'complete',
+              classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+            },
+            {
+              groupKey: 'regional',
+              label: 'Regional comparison',
+              memberCount: 2,
+              assignedMemberCount: 1,
+              coverage: 'partial',
+              classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+            },
+          ],
+        },
+      }),
+      expect.objectContaining({
+        queryId: 'query-zeta',
+        assignmentScope: {
+          mode: 'advanced_unassigned',
+          activePlanQueryText: null,
+          queryTextMatchesPlan: null,
+          assignedTargetCount: 0,
+          classState: 'none',
+          queryClasses: [],
+          classCounts: [],
+          groupCoverage: [],
+        },
+      }),
+    ]))
+  })
+
+  it('reports a pre-existing catalog rename against the frozen v2 plan text without changing readiness', async () => {
+    const active = insertV2Version()
+    activate(active.id)
+
+    // Simulate stored data from before the catalog mutation guard. The public
+    // API now refuses this change, but reads must still explain legacy drift.
+    db.update(queries).set({ query: 'Homes near harbor' }).where(eq(queries.id, 'q-nearby')).run()
+
+    const result = await statuses()
+    const renamed = result.body.queries.find((row: { queryId: string }) => row.queryId === 'q-nearby')
+
+    expect(renamed).toMatchObject({
+      queryId: 'q-nearby',
+      status: 'awaiting_first_sweep',
+      catalogState: 'current',
+      currentQueryText: 'Homes near harbor',
+      assignmentScope: expect.objectContaining({
+        mode: 'advanced_assigned',
+        activePlanQueryText: 'homes near harbor',
+        queryTextMatchesPlan: false,
+      }),
+    })
+  })
+
+  it('surfaces a pre-existing deleted active-v2 catalog query as a frozen-plan orphan', async () => {
+    const active = insertV2Version()
+    activate(active.id)
+
+    // Legacy orphan, not a deletion the guarded API still permits.
+    db.delete(queries).where(eq(queries.id, 'q-brand')).run()
+
+    const result = await statuses()
+
+    expect(result.body.queries.some((row: { queryId: string }) => row.queryId === 'q-brand')).toBe(false)
+    expect(result.body.activePlanOrphans).toEqual([{
+      queryId: 'q-brand',
+      status: 'awaiting_first_sweep',
+      catalogState: 'missing',
+      currentQueryText: null,
+      assignmentScope: {
+        mode: 'advanced_assigned',
+        activePlanQueryText: 'northstar reviews',
+        queryTextMatchesPlan: null,
+        assignedTargetCount: 1,
+        classState: 'branded',
+        queryClasses: ['branded'],
+        classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+        groupCoverage: [{
+          groupKey: 'regional',
+          label: 'Regional comparison',
+          memberCount: 2,
+          assignedMemberCount: 1,
+          coverage: 'partial',
+          classCounts: [{ queryClass: 'branded', assignedTargetCount: 1 }],
+        }],
+      },
+    }])
   })
 
   it('uses only the latest official full terminal run for the active revision', async () => {
@@ -252,7 +458,7 @@ describe('measurement query statuses', () => {
 
     const result = await statuses()
     expect(result.body.latestOfficialFullRun).toBeNull()
-    expect(result.body.queries).toEqual([
+    expect(readinessRows(result.body)).toEqual([
       { queryId: 'q-nearby', status: 'awaiting_first_sweep' },
       { queryId: 'q-brand', status: 'awaiting_first_sweep' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -274,7 +480,7 @@ describe('measurement query statuses', () => {
 
     const result = await statuses()
     expect(result.body.latestOfficialFullRun).toMatchObject({ id: completed, status: 'completed' })
-    expect(result.body.queries).toEqual([
+    expect(readinessRows(result.body)).toEqual([
       { queryId: 'q-nearby', status: 'measured' },
       { queryId: 'q-brand', status: 'measured' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -289,19 +495,19 @@ describe('measurement query statuses', () => {
 
     const first = await statuses()
     expect(first.body.latestOfficialFullRun).toMatchObject({ id: partial, status: 'partial' })
-    expect(first.body.queries.filter((row: { queryId: string }) => row.queryId !== 'query-zeta'))
+    expect(readinessRows(first.body).filter(row => row.queryId !== 'query-zeta'))
       .toEqual([{ queryId: 'q-nearby', status: 'partial' }, { queryId: 'q-brand', status: 'partial' }])
 
     db.update(runs).set({ status: RunStatuses.completed, measurementManifest: null })
       .where(eq(runs.id, partial)).run()
     const missingManifest = await statuses()
-    expect(missingManifest.body.queries.filter((row: { queryId: string }) => row.queryId !== 'query-zeta'))
+    expect(readinessRows(missingManifest.body).filter(row => row.queryId !== 'query-zeta'))
       .toEqual([{ queryId: 'q-nearby', status: 'partial' }, { queryId: 'q-brand', status: 'partial' }])
 
     db.update(runs).set({ measurementManifest: { schemaVersion: 1, expectedSlots: [] } })
       .where(eq(runs.id, partial)).run()
     const corrupt = await statuses()
-    expect(corrupt.body.queries.filter((row: { queryId: string }) => row.queryId !== 'query-zeta'))
+    expect(readinessRows(corrupt.body).filter(row => row.queryId !== 'query-zeta'))
       .toEqual([{ queryId: 'q-nearby', status: 'partial' }, { queryId: 'q-brand', status: 'partial' }])
   })
 
@@ -313,7 +519,7 @@ describe('measurement query statuses', () => {
 
     const partial = await statuses()
     expect(partial.body.latestOfficialFullRun).toMatchObject({ id: runId, status: 'completed' })
-    expect(partial.body.queries).toEqual([
+    expect(readinessRows(partial.body)).toEqual([
       { queryId: 'q-nearby', status: 'measured' },
       { queryId: 'q-brand', status: 'partial' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -321,7 +527,7 @@ describe('measurement query statuses', () => {
 
     fillRun(runId, active.plan, ['exec-brand'])
     const completed = await statuses()
-    expect(completed.body.queries).toEqual([
+    expect(readinessRows(completed.body)).toEqual([
       { queryId: 'q-nearby', status: 'measured' },
       { queryId: 'q-brand', status: 'measured' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -343,7 +549,7 @@ describe('measurement query statuses', () => {
 
     const result = await statuses()
 
-    expect(result.body.queries).toEqual([
+    expect(readinessRows(result.body)).toEqual([
       { queryId: 'q-nearby', status: 'measured' },
       { queryId: 'q-brand', status: 'partial' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -366,7 +572,7 @@ describe('measurement query statuses', () => {
     fillRun(runId, plan, undefined, 'model-a')
 
     const matching = await statuses()
-    expect(matching.body.queries).toEqual([
+    expect(readinessRows(matching.body)).toEqual([
       { queryId: 'q-nearby', status: 'measured' },
       { queryId: 'q-brand', status: 'measured' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -375,7 +581,7 @@ describe('measurement query statuses', () => {
     db.update(querySnapshots).set({ model: 'model-b' })
       .where(eq(querySnapshots.runId, runId)).run()
     const substitutedSnapshots = await statuses()
-    expect(substitutedSnapshots.body.queries).toEqual([
+    expect(readinessRows(substitutedSnapshots.body)).toEqual([
       { queryId: 'q-nearby', status: 'partial' },
       { queryId: 'q-brand', status: 'partial' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -390,7 +596,7 @@ describe('measurement query statuses', () => {
 
     const substitutedManifest = await statuses()
 
-    expect(substitutedManifest.body.queries).toEqual([
+    expect(readinessRows(substitutedManifest.body)).toEqual([
       { queryId: 'q-nearby', status: 'partial' },
       { queryId: 'q-brand', status: 'partial' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
@@ -420,7 +626,7 @@ describe('measurement query statuses', () => {
 
     const result = await statuses()
 
-    expect(result.body.queries).toEqual([
+    expect(readinessRows(result.body)).toEqual([
       { queryId: 'q-nearby', status: 'partial' },
       { queryId: 'q-brand', status: 'partial' },
       { queryId: 'query-zeta', status: 'not_in_plan' },
