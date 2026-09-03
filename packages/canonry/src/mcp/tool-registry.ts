@@ -72,6 +72,7 @@ import {
   canonicalizeGtmResourceSelection,
   type NotificationEvent,
   describeError,
+  runListFilterQuerySchema,
 } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from '../client.js'
@@ -266,6 +267,8 @@ const measurementDraftActionOpenApiOperations = [
 const runsListInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional(),
+  kind: runListFilterQuerySchema.shape.kind.describe('Restrict to a single run kind (e.g. "answer-visibility"). Unknown values are rejected.'),
+  status: runListFilterQuerySchema.shape.status.describe('Restrict to a single run status (e.g. "running" for in-flight work, "failed" to triage). Unknown values are rejected.'),
 })
 
 const runGetInputSchema = z.object({
@@ -1347,13 +1350,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_runs_list',
     title: 'List project runs',
-    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics.",
+    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work).",
     access: 'read',
     tier: 'monitoring',
     inputSchema: runsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
-    handler: (client, input) => client.listRuns(input.project, input.limit),
+    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status),
   }),
   defineTool({
     name: 'canonry_runs_latest',

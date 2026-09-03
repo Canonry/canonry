@@ -3,13 +3,16 @@ import { and, eq, asc, desc, inArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope } from '@ainyc/canonry-contracts'
+import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, RunListFilterQuery } from '@ainyc/canonry-contracts'
 import {
   AppError as AppErrorClass,
   type AppError,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
+  runKindSchema,
+  runListFilterQuerySchema,
+  runStatusSchema,
   runTriggerRequestSchema,
   noProvider,
   noQueries,
@@ -273,7 +276,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/runs — list runs for project
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; kind?: string }
+    Querystring: { limit?: string; kind?: string; status?: string }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -282,11 +285,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Per-URL integration runs (bing-inspect especially) can fill the limit
     // window and push answer-visibility runs out — the same footgun GET /runs
-    // guards against. ?kind= scopes the list to the one kind a caller needs.
-    const kind = parseListKind(request.query.kind)
-    const where = kind
-      ? and(eq(runs.projectId, project.id), eq(runs.kind, kind))
-      : eq(runs.projectId, project.id)
+    // guards against. ?kind= scopes the list to the one kind a caller needs;
+    // ?status= to the one status (e.g. `running` for in-flight work).
+    const { kind, status } = parseListFilters(request.query)
+    const filters = [eq(runs.projectId, project.id)]
+    if (kind) filters.push(eq(runs.kind, kind))
+    if (status) filters.push(eq(runs.status, status))
+    const where = and(...filters)
 
     const rows = limit == null
       ? app.db
@@ -364,17 +369,20 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   //                      can easily fill the 500-row window in <1 hour,
   //                      pushing the answer-visibility runs the dashboard
   //                      actually needs off the response.
+  //   ?status=S        — restrict to a single run status (e.g. 'running' to
+  //                      find in-flight work, 'failed' to triage).
   app.get<{
-    Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string }
+    Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; status?: string }
   }>('/runs', async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
     const since = parseListSince(request.query.since)
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
-    const kind = parseListKind(request.query.kind)
+    const { kind, status } = parseListFilters(request.query)
 
     const filters = [gte(runs.createdAt, since)]
     if (!includeProbe) filters.push(notProbeRun())
     if (kind) filters.push(eq(runs.kind, kind))
+    if (status) filters.push(eq(runs.status, status))
     // A project-scoped key sees ONLY its own project's runs (this global list
     // is not under the /projects/:name auth gate, so filter explicitly).
     const scopedProjectId = request.apiKey?.projectId
@@ -648,18 +656,37 @@ function parseListLimit(raw: string | undefined, defaultValue: number, max: numb
 }
 
 /**
- * Parse the `?kind=` query param for `GET /runs`. Restricts the response to
- * a single run kind. Returns `null` when the param is absent (no filter
- * applied). Validates against the `RunKinds` enum so a typo produces a 400
- * instead of silently returning empty.
+ * Allowed values per list filter. Keyed on the schema's fields so adding a
+ * filter to `runListFilterQuerySchema` without an entry here is a type error.
  */
-function parseListKind(raw: string | undefined): string | null {
-  if (raw === undefined || raw === '') return null
-  const validKinds = Object.values(RunKinds)
-  if (!validKinds.includes(raw as (typeof validKinds)[number])) {
-    throw validationError(`"kind" must be one of: ${validKinds.join(', ')}`)
-  }
-  return raw
+const RUN_LIST_FILTER_OPTIONS: Record<keyof RunListFilterQuery, readonly string[]> = {
+  kind: runKindSchema.options,
+  status: runStatusSchema.options,
+}
+
+function isRunListFilterField(field: PropertyKey | undefined): field is keyof RunListFilterQuery {
+  return typeof field === 'string' && field in RUN_LIST_FILTER_OPTIONS
+}
+
+/**
+ * Parse the `?kind=` / `?status=` filters shared by `GET /runs` and
+ * `GET /projects/:name/runs`. An absent or empty param applies no filter. An
+ * unknown value is a 400 naming the param and its allowed values: a typo that
+ * silently returned `[]` would be indistinguishable from "no runs exist", and
+ * an ignored param is worse still (`?status=running` used to return completed
+ * rows).
+ */
+function parseListFilters(query: { kind?: string; status?: string }): RunListFilterQuery {
+  const parsed = runListFilterQuerySchema.safeParse({
+    kind: query.kind === '' ? undefined : query.kind,
+    status: query.status === '' ? undefined : query.status,
+  })
+  if (parsed.success) return parsed.data
+  const invalid = parsed.error.issues.map(issue => issue.path[0]).filter(isRunListFilterField)
+  const message = invalid.length > 0
+    ? invalid.map(field => `"${field}" must be one of: ${RUN_LIST_FILTER_OPTIONS[field].join(', ')}`).join('; ')
+    : 'Invalid run list filters'
+  throw validationError(message, { invalid: Object.fromEntries(invalid.map(field => [field, query[field]])) })
 }
 
 /**

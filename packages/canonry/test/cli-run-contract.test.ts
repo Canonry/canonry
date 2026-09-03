@@ -187,6 +187,29 @@ describe('run lifecycle CLI contract', () => {
     expect(parsed[0]?.id).not.toBe(olderRunId)
   })
 
+  it('supports runs <project> --status <status> in JSON mode', async () => {
+    await insertRun({ status: 'completed' })
+    const runningRunId = await insertRun({ status: 'running' })
+    await insertRun({ status: 'queued' })
+
+    const result = await invokeCli(['runs', 'test-proj', '--status', 'running', '--format', 'json'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Array<{ id: string; status: string }>
+    expect(parsed.map(run => ({ id: run.id, status: run.status }))).toEqual([{ id: runningRunId, status: 'running' }])
+  })
+
+  it('surfaces the server validation error for runs <project> --status with an unknown value', async () => {
+    const result = await invokeCli(['runs', 'test-proj', '--status', 'bogus', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    const parsed = JSON.parse(result.stderr) as { error: { code: string; message: string } }
+    expect(parsed.error.code).toBe('VALIDATION_ERROR')
+    expect(parsed.error.message).toBe('"status" must be one of: queued, running, completed, partial, failed, cancelled')
+  })
+
   it('forwards repeatable --query flags as a queries[] body field', async () => {
     await client.appendQueries('test-proj', ['alpha', 'beta', 'gamma'])
 

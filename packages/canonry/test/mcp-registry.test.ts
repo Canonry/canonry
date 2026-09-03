@@ -696,6 +696,11 @@ describe('MCP tool registry', () => {
       type: 'integer',
       maximum: 500,
     })
+    expect(schemaProperty(inputSchemaFor('canonry_runs_list'), 'kind')).toMatchObject({ type: 'string' })
+    expect(schemaProperty(inputSchemaFor('canonry_runs_list'), 'status')).toMatchObject({
+      type: 'string',
+      enum: ['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'],
+    })
 
     const visibilityStatsSchema = inputSchemaFor('canonry_visibility_stats')
     expect(schemaProperty(visibilityStatsSchema, 'month')).toMatchObject({ type: 'string' })
