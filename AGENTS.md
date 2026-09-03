@@ -1142,11 +1142,23 @@ All API routes in `packages/api-routes/` are registered via a Fastify plugin wit
 
 ### Health endpoint
 
-The `/health` endpoint exposes `basePath` in its response for auto-discovery:
+`GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:
 ```json
-{ "status": "ok", "service": "canonry", "version": "1.26.1", "basePath": "/canonry" }
+{
+  "status": "ok",
+  "service": "canonry",
+  "version": "4.193.0",
+  "commit": "eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0",
+  "instance": { "name": "gjelina-demo", "role": "client-demo" },
+  "basePath": "/canonry"
+}
 ```
-When `basePath` is not configured, the `basePath` field is omitted.
+Every field after `version` is optional and is omitted rather than nulled, so consumers key on presence. Adding fields here is fine; renaming or removing one is a breaking change (see "API Stability").
+
+- `commit`: the git sha the bundle was built from. `packages/canonry/tsup.config.ts` stamps it at build time from `git rev-parse HEAD` (`packages/canonry/scripts/build-commit.ts`). A build without git omits the stamp and the server falls back to the `CANONRY_COMMIT` env var at runtime; unset as well means the field is omitted.
+- `instance`: read at boot from `CANONRY_INSTANCE` (`name`) and `CANONRY_INSTANCE_ROLE` (`role`). Omitted entirely when `CANONRY_INSTANCE` is unset; `role` is dropped when its var is unset. Role is free text, but use the convention so fleet tooling can group on it: `internal` (our own engines), `client-demo` (a prospect's demo tenant), `client-trial` (a client on trial), `preview` (a branch or PR preview).
+- `basePath`: omitted when not configured.
+- `updateAvailable`: `{ current, latest, url, upgradeCommand }` when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
 
 ### Web UI — use `window.__CANONRY_CONFIG__.basePath`
 

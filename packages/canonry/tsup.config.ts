@@ -1,6 +1,13 @@
 import { defineConfig } from 'tsup'
+import { readGitCommit } from './scripts/build-commit.js'
+
+// Stamp the build's git commit into the bundle; GET /health reports it as
+// `commit`. Omitted, never fatal, when git or the repository is absent: the
+// server then falls back to CANONRY_COMMIT at runtime.
+const buildCommit = readGitCommit()
 
 export default defineConfig({
+  define: buildCommit ? { __CANONRY_BUILD_COMMIT__: JSON.stringify(buildCommit) } : {},
   entry: {
     cli: 'src/cli.ts',
     index: 'src/index.ts',
