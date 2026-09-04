@@ -100,6 +100,7 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Providers:        ${(project.providers ?? []).length > 0 ? project.providers.join(', ') : 'all configured'}`)
   const providerModels = Object.entries(project.providerModels ?? {})
   console.log(`  Model overrides:  ${providerModels.length > 0 ? providerModels.map(([provider, model]) => `${provider}=${model}`).join(', ') : '(none; instance settings inherited)'}`)
+  console.log(`  Research route:   ${project.researchProvider ?? '(not set)'}`)
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -123,6 +124,8 @@ export async function updateProjectSettings(
     providers?: string[]
     providerModels?: Record<string, string>
     clearProviderModels?: string[]
+    /** Undefined preserves the project setting; null explicitly clears it. */
+    researchProvider?: string | null
     format?: string
   },
 ): Promise<void> {
@@ -186,6 +189,7 @@ export async function updateProjectSettings(
     labels: project.labels,
     providers: opts.providers ?? project.providers,
     providerModels,
+    ...(opts.researchProvider !== undefined ? { researchProvider: opts.researchProvider } : {}),
     locations: project.locations,
     defaultLocation: project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,

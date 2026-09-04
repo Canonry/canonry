@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ContentTargetRowDto } from '@ainyc/canonry-contracts'
+import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 
 // Stub `complete` at module-load time so the explainer's `import { complete }`
 // resolves to the mock. Each test seeds `mockState.completeImpl` to control
@@ -59,6 +60,7 @@ function makeRecommendation(overrides: Partial<ContentTargetRowDto> = {}): Conte
 }
 
 beforeEach(() => {
+  resetSharedProviderExecutionGates()
   mockState.completeImpl = null
   mockState.callCount = 0
   mockState.lastCall = null
@@ -298,6 +300,96 @@ describe('createRecommendationExplainer', () => {
     expect(callModel.provider).toBe('openai')
   })
 
+  it('uses a configured text route for an explicit provider override', async () => {
+    const explainer = createRecommendationExplainer({
+      config: {
+        providers: {},
+        engineRoutes: {
+          connections: [{
+            id: 'gateway',
+            label: 'Test gateway',
+            preset: 'custom-openai-compatible',
+            protocol: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:43123/v1',
+            apiKey: 'route-secret',
+            quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+          }],
+          routes: [{
+            id: 'route:gateway-gpt-5',
+            label: 'Gateway GPT-5',
+            connectionId: 'gateway',
+            modelId: 'openai/gpt-5',
+            revision: 1,
+            source: 'configured',
+            capabilities: { kind: 'text-only' },
+          }],
+        },
+      },
+    })
+    mockState.completeImpl = async () => fakeAssistantMessage('- routed reason')
+
+    const result = await explainer({
+      projectId: 'p1',
+      projectName: 'acme',
+      canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation(),
+      providerOverride: 'route:gateway-gpt-5',
+    })
+
+    expect(result.provider).toBe('route:gateway-gpt-5')
+    expect(mockState.lastCall?.model).toMatchObject({
+      api: 'openai-completions',
+      provider: 'route:gateway-gpt-5',
+      id: 'openai/gpt-5',
+      baseUrl: 'http://127.0.0.1:43123/v1',
+    })
+    expect(mockState.lastCall?.opts).toEqual({ apiKey: 'route-secret' })
+  })
+
+  it('shares one connection gate across recommendation routes', async () => {
+    const config = {
+      providers: {},
+      engineRoutes: {
+        connections: [{
+          id: 'recommendation-gateway',
+          label: 'Recommendation gateway',
+          preset: 'custom-openai-compatible',
+          protocol: 'openai-compatible' as const,
+          baseUrl: 'http://127.0.0.1:43123/v1',
+          apiKey: 'route-secret',
+          quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+        }],
+        routes: [
+          { id: 'route:recommendation:first', label: 'First', connectionId: 'recommendation-gateway', modelId: 'first', revision: 1, source: 'configured' as const, capabilities: { kind: 'text-only' as const } },
+          { id: 'route:recommendation:second', label: 'Second', connectionId: 'recommendation-gateway', modelId: 'second', revision: 1, source: 'configured' as const, capabilities: { kind: 'text-only' as const } },
+        ],
+      },
+    }
+    const explainer = createRecommendationExplainer({ config })
+    let active = 0
+    let maxActive = 0
+    mockState.completeImpl = async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      active -= 1
+      return fakeAssistantMessage('- gated route')
+    }
+
+    await Promise.all([
+      explainer({
+        projectId: 'first', projectName: 'acme', canonicalDomain: 'acme.com',
+        recommendation: makeRecommendation(), providerOverride: 'route:recommendation:first',
+      }),
+      explainer({
+        projectId: 'second', projectName: 'acme', canonicalDomain: 'acme.com',
+        recommendation: makeRecommendation(), providerOverride: 'route:recommendation:second',
+      }),
+    ])
+
+    expect(maxActive).toBe(1)
+  })
+
   it('forwards the api key to pi-ai via options.apiKey', async () => {
     const explainer = createRecommendationExplainer({
       config: { providers: { claude: { apiKey: 'sk-from-config' } } },
@@ -530,5 +622,47 @@ describe('createRecommendationBriefSynthesizer', () => {
     const callModel = (mockState.lastCall?.model ?? { id: '' }) as { id: string; provider: string }
     expect(callModel.provider).toBe('google')
     expect(callModel.id).toMatch(/^gemini-2\.5-flash/)
+  })
+
+  it('uses a configured text route for brief synthesis', async () => {
+    const synth = createRecommendationBriefSynthesizer({
+      config: {
+        providers: {},
+        engineRoutes: {
+          connections: [{
+            id: 'gateway',
+            label: 'Test gateway',
+            preset: 'custom-openai-compatible',
+            protocol: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:43123/v1',
+            apiKey: 'route-secret',
+            quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+          }],
+          routes: [{
+            id: 'route:gateway-gpt-5',
+            label: 'Gateway GPT-5',
+            connectionId: 'gateway',
+            modelId: 'openai/gpt-5',
+            revision: 1,
+            source: 'configured',
+            capabilities: { kind: 'text-only' },
+          }],
+        },
+      },
+    })
+    mockState.completeImpl = async () => fakeAssistantMessage(validBriefJson)
+
+    const result = await synth({
+      projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation(),
+      providerOverride: 'route:gateway-gpt-5',
+    })
+
+    expect(result.provider).toBe('route:gateway-gpt-5')
+    expect(mockState.lastCall?.model).toMatchObject({
+      api: 'openai-completions',
+      provider: 'route:gateway-gpt-5',
+      id: 'openai/gpt-5',
+    })
   })
 })

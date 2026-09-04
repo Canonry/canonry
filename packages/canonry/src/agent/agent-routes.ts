@@ -11,6 +11,7 @@ import {
   MemorySources,
   agentMemoryDeleteRequestSchema,
   agentMemoryUpsertRequestSchema,
+  isAeroProviderId,
   notFound,
   validationError,
   type AgentMemoryListResponse,
@@ -18,7 +19,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import type { SessionRegistry } from './session-registry.js'
-import type { SupportedAgentProvider } from './session.js'
+import type { AeroProviderId } from './session.js'
 import {
   AeroToolProfiles,
   AeroToolScopes,
@@ -26,7 +27,7 @@ import {
   type AeroToolProfile,
   type AeroToolScope,
 } from './tools.js'
-import { buildAgentProvidersResponse } from './providers.js'
+import { buildAgentProvidersResponse, configuredTextRoute } from './providers.js'
 import {
   COMPACTION_KEY_PREFIX,
   deleteMemoryEntry,
@@ -36,7 +37,7 @@ import {
 
 type AgentPromptBody = Partial<{
   prompt: string
-  provider?: SupportedAgentProvider
+  provider?: AeroProviderId
   modelId?: string
   scope?: AeroToolScope
   profile?: AeroToolProfile
@@ -141,8 +142,27 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // scope / model mutation, so a second request against a busy Agent
     // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
     // tools or model. Safe to call concurrently from CLI + dashboard.
+    // The HTTP boundary was the only surface that did not validate this: the CLI
+    // rejects a bad id with CLI_USAGE_ERROR via coerceAeroProvider and the web
+    // client narrows with isAeroProviderId. Here the raw body value was cast, so
+    // an unknown `route:*` reached defaultModelForAeroProvider and threw a plain
+    // Error that the global handler serialized as a 500 with an internal message.
+    const requestedProvider = body?.provider
+    if (requestedProvider !== undefined) {
+      if (typeof requestedProvider !== 'string' || !isAeroProviderId(requestedProvider)) {
+        throw validationError(`Unknown agent provider: ${String(requestedProvider)}`)
+      }
+      // A syntactically valid route id is still not an authority to use one.
+      if (requestedProvider.startsWith('route:')
+        && !configuredTextRoute(opts.sessionRegistry.getConfig(), requestedProvider)) {
+        throw validationError(
+          `Configured text route '${requestedProvider}' is not available on this Canonry instance.`,
+        )
+      }
+    }
+
     const agent = await opts.sessionRegistry.acquireForTurn(project.name, {
-      provider: body?.provider,
+      provider: requestedProvider,
       modelId: body?.modelId,
       toolScope: requestedScope,
       toolProfile: requestedProfile,

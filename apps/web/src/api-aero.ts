@@ -1,5 +1,5 @@
 import { ApiError, handleAuthExpired } from './api.js'
-import type { AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
+import type { AeroProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
 
 interface ApiErrorBody {
   error?: { message?: string; code?: ErrorCode }
@@ -13,7 +13,7 @@ async function parseErrorBody(res: Response): Promise<ApiErrorBody> {
   }
 }
 
-export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+export type { AeroProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
 function getApiBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
@@ -133,7 +133,7 @@ export interface PromptAeroArgs {
   project: string
   prompt: string
   /** Override Aero's auto-detected provider for this turn. */
-  provider?: AgentProviderId
+  provider?: AeroProviderId
   /** Override the provider's default model for this turn. */
   modelId?: string
   /**

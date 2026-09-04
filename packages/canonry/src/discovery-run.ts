@@ -257,6 +257,12 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
   }
 
   const adapter = gemini.adapter
+  // Discovery still needs Gemini's grounded probe and embedding paths. A
+  // configured route has no evidence adapter, but its plain-text transport is
+  // suitable for the one post-probe domain-classification call.
+  const classificationProvider = (registry.getAll?.() ?? []).find(provider =>
+    provider.adapter.name.startsWith('route:') && provider.config.measurementReady === false,
+  ) ?? gemini
 
   /** Resolve a seed-capable provider or fail fast with a remediation. */
   function seedProviderFor(name: string): { adapter: typeof adapter; config: typeof cfg } {
@@ -366,7 +372,7 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       // model just types the domains it is handed. The orchestrator catches a
       // throw here and degrades every domain to `unknown`.
       const prompt = buildClassificationPrompt(input)
-      const text = await adapter.generateText(prompt, cfg)
+      const text = await classificationProvider.adapter.generateText(prompt, classificationProvider.config)
       return parseClassificationResponse(text, input.domains)
     },
   }

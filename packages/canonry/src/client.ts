@@ -242,6 +242,12 @@ import type {
   CreateUserRequest,
   UserDto,
   UserListDto,
+  EngineConnectionModelCatalogResponse,
+  EngineConnectionPublicDto,
+  EngineConnectionUpsertInput,
+  EngineRouteConfig,
+  EngineRouteSummaryResponse,
+  EngineRouteUpsertInput,
   ResultsExportFormat,
 } from '@ainyc/canonry-contracts'
 import {
@@ -301,7 +307,11 @@ import {
   getApiV1ProjectsByNameAnalyticsSources,
   // Settings / snapshot / telemetry
   getApiV1Settings,
+  getApiV1SettingsEngineRoutes,
+  getApiV1SettingsEngineConnectionsByIdModels,
   putApiV1SettingsProvidersByName,
+  putApiV1SettingsEngineConnectionsById,
+  putApiV1SettingsEngineRoutesById,
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
@@ -742,6 +752,11 @@ type SdkResult = {
   error?: unknown
   request: Request
   response: Response
+}
+
+/** The generated PUT contract requires the only supported protocol explicitly. */
+export type EngineConnectionUpsertRequest = EngineConnectionUpsertInput & {
+  protocol: 'openai-compatible'
 }
 
 type MeasurementPlanDraftCreateRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsCreate>[0]['body']
@@ -2128,6 +2143,34 @@ export class ApiClient {
 
   async getSettings(): Promise<SettingsDto> {
     return this.invoke<SettingsDto>(() => getApiV1Settings({ client: this.heyClient }))
+  }
+
+  /** Credential-free route metadata safe for route selection and viewers. */
+  async getEngineRouteSummaries(): Promise<EngineRouteSummaryResponse> {
+    return this.invoke<EngineRouteSummaryResponse>(() =>
+      getApiV1SettingsEngineRoutes({ client: this.heyClient }),
+    )
+  }
+
+  /** Non-inference model discovery; an unavailable catalog still permits manual model IDs. */
+  async getEngineConnectionModelCatalog(id: string): Promise<EngineConnectionModelCatalogResponse> {
+    return this.invoke<EngineConnectionModelCatalogResponse>(() =>
+      getApiV1SettingsEngineConnectionsByIdModels({ client: this.heyClient, path: { id } }),
+    )
+  }
+
+  /** Writes a credential only when apiKey is present; the API response is always redacted. */
+  async upsertEngineConnection(id: string, body: EngineConnectionUpsertRequest): Promise<EngineConnectionPublicDto> {
+    return this.invoke<EngineConnectionPublicDto>(() =>
+      putApiV1SettingsEngineConnectionsById({ client: this.heyClient, path: { id }, body }),
+    )
+  }
+
+  /** Creates or updates a server-owned generic text route. */
+  async upsertEngineRoute(id: string, body: EngineRouteUpsertInput): Promise<EngineRouteConfig> {
+    return this.invoke<EngineRouteConfig>(() =>
+      putApiV1SettingsEngineRoutesById({ client: this.heyClient, path: { id }, body }),
+    )
   }
 
   // ── API key management ──────────────────────────────────────────────────

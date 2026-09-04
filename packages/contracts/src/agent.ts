@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isAgentProviderId, type AgentProviderId } from './providers.js'
 
 /**
  * Identifier of one of Aero's supported LLM providers. Canonical IDs live
@@ -16,22 +17,47 @@ export type { AgentProviderId } from './providers.js'
  */
 export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai', 'deepinfra'])
 
+/**
+ * A configured OpenAI-compatible route can drive Aero and other text-only
+ * work. Native provider IDs remain a closed enum; route IDs stay dynamic so
+ * a configured gateway does not require a contracts release for each model.
+ */
+export type AeroProviderId = AgentProviderId | `route:${string}`
+
+const configuredRouteProviderIdSchema = z.string().regex(
+  /^route:\w[\w.:-]*$/,
+  'Must be a configured route ID (route:<id>)',
+)
+
+export const aeroProviderIdSchema = z.union([
+  agentProviderIdSchema,
+  configuredRouteProviderIdSchema,
+])
+
+export function isAeroProviderId(value: string): value is AeroProviderId {
+  return isAgentProviderId(value) || configuredRouteProviderIdSchema.safeParse(value).success
+}
+
 export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
-  id: agentProviderIdSchema,
+  id: aeroProviderIdSchema,
   /** Human-readable label for UI pickers, e.g. "Anthropic (Claude)". */
   label: z.string(),
   /** Default model if the caller doesn't pick one. */
   defaultModel: z.string(),
-  /** Whether a usable API key was found (config.yaml or provider env var). */
+  /** Whether the native credential or configured route connection is usable. */
   configured: z.boolean(),
   /**
-   * Where the key resolved from, if any. `null` when `configured === false`.
-   * Surfaced so the UI can nudge users toward their preferred source of truth.
+   * Where a credential resolved from, if any. `null` also covers an
+   * intentionally credential-free configured connection (for example local
+   * LiteLLM). Surfaced so the UI can nudge native providers toward their
+   * preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
 })
-export type AgentProviderOption = z.infer<typeof agentProviderOptionDtoSchema>
+export type AgentProviderOption = Omit<z.infer<typeof agentProviderOptionDtoSchema>, 'id'> & {
+  id: AeroProviderId
+}
 
 export const agentProvidersResponseDtoSchema = z.object({
   /**
@@ -43,9 +69,12 @@ export const agentProvidersResponseDtoSchema = z.object({
    * Provider Aero auto-picks when no explicit override is passed. Null if
    * nothing is configured (install never exchanged a key).
    */
-  defaultProvider: agentProviderIdSchema.nullable(),
+  defaultProvider: aeroProviderIdSchema.nullable(),
 })
-export type AgentProvidersResponse = z.infer<typeof agentProvidersResponseDtoSchema>
+export type AgentProvidersResponse = Omit<z.infer<typeof agentProvidersResponseDtoSchema>, 'providers' | 'defaultProvider'> & {
+  providers: AgentProviderOption[]
+  defaultProvider: AeroProviderId | null
+}
 
 /**
  * Source tag for a durable Aero note. `aero` = agent-authored via the

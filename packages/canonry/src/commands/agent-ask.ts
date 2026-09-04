@@ -7,7 +7,7 @@ import {
   type CliFormat,
 } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import type { SupportedAgentProvider } from '../agent/session.js'
+import type { AeroProviderId } from '../agent/session.js'
 import type { AeroToolProfile } from '../agent/tools.js'
 
 /**
@@ -28,7 +28,7 @@ export type AgentAskProfile = AeroToolProfile
 export interface AgentAskOptions {
   project: string
   prompt: string
-  provider?: SupportedAgentProvider
+  provider?: AeroProviderId
   modelId?: string
   scope?: AgentAskScope
   profile?: AgentAskProfile

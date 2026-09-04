@@ -758,4 +758,41 @@ describe('SessionRegistry', () => {
     expect(row?.modelProvider).toBe('zai')
     expect(row?.modelId).toBe('glm-5.1')
   })
+
+  it('persists a configured text-route provider ID verbatim', async () => {
+    insertProject(db, 'demo')
+    const config = {
+      ...stubConfig(),
+      providers: {},
+      engineRoutes: {
+        connections: [{
+          id: 'gateway',
+          label: 'Test gateway',
+          preset: 'custom-openai-compatible',
+          protocol: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:43123/v1',
+          apiKey: 'route-secret',
+          quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+        }],
+        routes: [{
+          id: 'route:gateway-gpt-5',
+          label: 'Gateway GPT-5',
+          connectionId: 'gateway',
+          modelId: 'openai/gpt-5',
+          revision: 1,
+          source: 'configured',
+          capabilities: { kind: 'text-only' },
+        }],
+      },
+    } as CanonryConfig
+    const registry = new SessionRegistry({ db, client: stubClient(), config })
+
+    const agent = registry.getOrCreate('demo', { provider: 'route:gateway-gpt-5' })
+    expect(agent.state.model).toMatchObject({ provider: 'route:gateway-gpt-5', id: 'openai/gpt-5' })
+
+    const projectId = db.select({ id: projects.id }).from(projects).where(eq(projects.name, 'demo')).get()!.id
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row?.modelProvider).toBe('route:gateway-gpt-5')
+    expect(row?.modelId).toBe('openai/gpt-5')
+  })
 })

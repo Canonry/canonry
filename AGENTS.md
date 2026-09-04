@@ -116,6 +116,12 @@ canonry serve
 canonry serve --embed --embed-allow-origin https://app.example.com [--embed-allow-origin ...] [--embed-view overview] [--embed-project-tab overview --embed-project-tab technical-aeo]  # opt-in read-only embed mode (#716): chromeless render + Content-Security-Policy: frame-ancestors. Off by default; serve is byte-for-byte unchanged without --embed. Fails CLOSED to frame-ancestors 'none' when no (valid) origins are configured. --embed-project-tab is an allowlist of PROJECT-PAGE tabs (overview/technical-aeo/search-console/activity/backlinks/...) the embedded project dashboard may show; finer than --embed-view (which only gates whole top-level routes). Env equivalents: CANONRY_EMBED=1, CANONRY_EMBED_ORIGINS=a,b (comma/space), CANONRY_EMBED_VIEWS=overview,project, CANONRY_EMBED_PROJECT_TABS=overview,technical-aeo (env overrides config.yaml `embed:`). Cross-origin embeds cannot use the SameSite=Lax session cookie (it is not sent in a cross-site iframe) — v1 supports a same-origin embed (cookie flows) OR a self-hosted build with a read-only VITE_API_KEY (client-visible). Not an /api/v1 op, so no MCP tool (same precedent as --base-path).
 canonry start --embed --embed-allow-origin https://app.example.com   # daemon form; forwards the embed flags to the spawned serve
 canonry project create <name> --domain <domain> --country US --language en
+canonry settings engine-routes [--format json|jsonl]  # safe route summaries only; JSONL stays one compact document
+canonry settings engine-connection <id> --label <label> --preset <openrouter|litellm|vercel-ai-gateway|custom-openai-compatible> --max-concurrent <n> --max-per-minute <n> --max-per-day <n> [--base-url <url>] [--api-key <key>]  # API key is write-only; omission preserves it
+canonry settings engine-models <connection-id> [--format json|jsonl]  # non-inference catalog; unavailable still permits a manual model ID
+canonry settings engine-route <route-id> --label <label> --connection <connection-id> --model <model-id>  # generic route IDs use route:; generic routes are text-only
+canonry project update <project> --research-provider <route-id|native-id>  # default for research only; not a sweep-provider selection
+canonry project update <project> --clear-research-provider
 canonry query add <project> <query>...
 canonry query replace <project> <query>...
 canonry competitor add <project> <domain>...

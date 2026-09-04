@@ -27,8 +27,8 @@ vi.mock('../src/commands/agent-memory.js', () => ({
 }))
 
 vi.mock('../src/agent/session.js', () => ({
-  coerceAgentProvider: (value: string) => (
-    ['claude', 'openai', 'gemini', 'zai'].includes(value)
+  coerceAeroProvider: (value: string) => (
+    ['claude', 'openai', 'gemini', 'zai'].includes(value) || /^route:[a-z0-9][\w.:-]*$/i.test(value)
       ? value
       : undefined
   ),
@@ -129,6 +129,15 @@ describe('agent CLI contract', () => {
     expect(parsed.error.details.command).toBe('agent.ask')
     expect(parsed.error.details.provider).toBe('bogus')
     expect(parsed.error.details.validProviders.length).toBeGreaterThan(0)
+  })
+
+  it('accepts a configured route-shaped provider for server-side resolution', async () => {
+    const result = await invokeAgentCli([
+      'agent', 'ask', 'demo', 'hello', '--provider', 'route:gateway-gpt-5', '--format', 'json',
+    ])
+
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toBe('')
   })
 
   it('prints a JSON usage error for agent attach with no url', async () => {

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
+  createAssistantMessageEventStream,
   fauxAssistantMessage,
   registerFauxProvider,
   type FauxProviderRegistration,
@@ -10,6 +11,7 @@ import {
 import type { HealthSnapshotDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import {
+  buildApiKeyResolver,
   createAeroSession,
   detectAgentProvider,
   loadAeroSystemPrompt,
@@ -169,5 +171,92 @@ describe('createAeroSession — end-to-end with faux provider', () => {
         systemPromptOverride: 'test',
       }),
     ).toThrow(/No agent LLM provider configured/)
+  })
+
+  it('uses a configured text route without rewriting its route identity', () => {
+    const config = stubConfig({
+      providers: {},
+      engineRoutes: {
+        connections: [{
+          id: 'gateway',
+          label: 'Test gateway',
+          preset: 'custom-openai-compatible',
+          protocol: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:43123/v1',
+          apiKey: 'route-secret',
+          quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+        }],
+        routes: [{
+          id: 'route:gateway-gpt-5',
+          label: 'Gateway GPT-5',
+          connectionId: 'gateway',
+          modelId: 'openai/gpt-5',
+          revision: 1,
+          source: 'configured',
+          capabilities: { kind: 'text-only' },
+        }],
+      },
+    })
+
+    const agent = createAeroSession({
+      projectName: 'demo',
+      client: stubClient(),
+      config,
+      provider: 'route:gateway-gpt-5',
+      systemPromptOverride: 'You are a test agent.',
+    })
+
+    expect(agent.state.model).toMatchObject({
+      api: 'openai-completions',
+      provider: 'route:gateway-gpt-5',
+      id: 'openai/gpt-5',
+      baseUrl: 'http://127.0.0.1:43123/v1',
+    })
+    expect(buildApiKeyResolver(config)('route:gateway-gpt-5')).toBe('route-secret')
+  })
+
+  it('shares a connection gate across Aero sessions using different text routes', async () => {
+    const config = stubConfig({
+      providers: {},
+      engineRoutes: {
+        connections: [{
+          id: 'gateway', label: 'Test gateway', preset: 'custom-openai-compatible',
+          protocol: 'openai-compatible', baseUrl: 'http://127.0.0.1:43123/v1', apiKey: 'route-secret',
+          quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+        }],
+        routes: [
+          { id: 'route:gateway:first', label: 'First', connectionId: 'gateway', modelId: 'first', revision: 1, source: 'configured', capabilities: { kind: 'text-only' } },
+          { id: 'route:gateway:second', label: 'Second', connectionId: 'gateway', modelId: 'second', revision: 1, source: 'configured', capabilities: { kind: 'text-only' } },
+        ],
+      },
+    })
+    let active = 0
+    let maxActive = 0
+    const streamFn = () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      const stream = createAssistantMessageEventStream()
+      void (async () => {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        const message = fauxAssistantMessage('Gated response.')
+        stream.push({ type: 'done', reason: 'stop', message })
+        stream.end(message)
+        active -= 1
+      })()
+      return stream
+    }
+    const first = createAeroSession({
+      projectName: 'first', client: stubClient(), config, provider: 'route:gateway:first',
+      systemPromptOverride: 'test', streamFn,
+    })
+    const second = createAeroSession({
+      projectName: 'second', client: stubClient(), config, provider: 'route:gateway:second',
+      systemPromptOverride: 'test', streamFn,
+    })
+
+    await Promise.all([first.prompt('first'), second.prompt('second')])
+    await Promise.all([first.waitForIdle(), second.waitForIdle()])
+
+    expect(maxActive).toBe(1)
   })
 })

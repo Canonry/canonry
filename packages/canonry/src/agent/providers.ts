@@ -8,14 +8,23 @@ import {
 import {
   AGENT_PROVIDER_IDS,
   AgentProviderIds,
+  engineConnectionConfigSchema,
+  engineRouteConfigSchema,
   LLM_CAPABILITIES,
   LlmCapabilities,
+  isAeroProviderId,
   isAgentProviderId,
+  type AeroProviderId,
   type AgentProviderId,
   type AgentProviderOption,
   type AgentProvidersResponse,
+  type EngineConnectionConfig,
+  type EngineRouteConfig,
   type LlmCapability,
 } from '@ainyc/canonry-contracts'
+import { buildOpenAiCompatibleRouteModel } from '../engine-routes.js'
+
+export type { AeroProviderId } from '@ainyc/canonry-contracts'
 
 /**
  * Registry of LLM providers the built-in Aero agent can drive.
@@ -273,6 +282,120 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
  */
 export type SupportedAgentProvider = AgentProviderId
 
+/** A registered generic route plus the connection that supplies its transport. */
+export interface ConfiguredTextRoute {
+  route: EngineRouteConfig
+  connection: EngineConnectionConfig
+}
+
+/**
+ * The small config shape shared by agent session, one-shot explainers, and
+ * provider-picker construction. It deliberately accepts unknown persisted
+ * route values, then validates each candidate before treating it as runnable.
+ */
+export interface AeroProviderConfig {
+  providers?: Record<string, { apiKey?: string } | undefined>
+  engineRoutes?: {
+    connections?: readonly unknown[]
+    routes?: readonly unknown[]
+  }
+}
+
+/**
+ * Return only server-configured generic routes with a matching connection.
+ * A `route:*` string alone is never an authority to use a gateway.
+ */
+export function configuredTextRoutes(config: AeroProviderConfig): ConfiguredTextRoute[] {
+  const connections = new Map<string, EngineConnectionConfig>()
+  for (const candidate of config.engineRoutes?.connections ?? []) {
+    const parsed = engineConnectionConfigSchema.safeParse(candidate)
+    if (parsed.success) connections.set(parsed.data.id, parsed.data)
+  }
+
+  // Mirror ProviderRegistry's last-registration-wins behavior for duplicate
+  // ids while retaining the declared route order for deterministic fallback.
+  const routes = new Map<string, ConfiguredTextRoute>()
+  for (const candidate of config.engineRoutes?.routes ?? []) {
+    const parsed = engineRouteConfigSchema.safeParse(candidate)
+    if (!parsed.success) continue
+    const route = parsed.data
+    if (
+      !route.id.startsWith('route:') ||
+      route.source !== 'configured' ||
+      route.capabilities.kind !== 'text-only'
+    ) continue
+    const connection = connections.get(route.connectionId)
+    if (!connection) continue
+    routes.set(route.id, { route, connection })
+  }
+  return [...routes.values()]
+}
+
+export function configuredTextRoute(
+  config: AeroProviderConfig,
+  provider: string,
+): ConfiguredTextRoute | undefined {
+  return configuredTextRoutes(config).find((entry) => entry.route.id === provider)
+}
+
+/** Accept a native ID or a syntactically valid configured-route ID. */
+export function coerceAeroProvider(value: string | undefined): AeroProviderId | undefined {
+  if (!value || !isAeroProviderId(value)) return undefined
+  return value
+}
+
+/** Native auto-detection stays first; a generic route is its text-only fallback. */
+export function detectAeroProvider(config: AeroProviderConfig): AeroProviderId | undefined {
+  for (const provider of agentProvidersByPriority()) {
+    if (resolveApiKeyFor(provider, config)) return provider
+  }
+  return configuredTextRoutes(config)[0]?.route.id as AeroProviderId | undefined
+}
+
+export function defaultModelForAeroProvider(
+  provider: AeroProviderId,
+  config: AeroProviderConfig,
+): string {
+  if (isAgentProviderId(provider)) return getAgentProvider(provider).defaultModel
+  const entry = configuredTextRoute(config, provider)
+  if (!entry) {
+    throw new Error(`Configured text route '${provider}' is not available on this Canonry instance.`)
+  }
+  return entry.route.modelId
+}
+
+/** Resolve the model without converting a stored `route:*` id into a native id. */
+export function resolveAeroProviderModel(
+  provider: AeroProviderId,
+  config: AeroProviderConfig,
+  modelId?: string,
+): Model<never> {
+  if (isAgentProviderId(provider)) return resolveModelForProvider(provider, modelId)
+  const entry = configuredTextRoute(config, provider)
+  if (!entry) {
+    throw new Error(`Configured text route '${provider}' is not available on this Canonry instance.`)
+  }
+  return buildOpenAiCompatibleRouteModel({
+    connection: entry.connection,
+    route: entry.route,
+    config: {
+      apiKey: entry.connection.apiKey,
+      baseUrl: entry.connection.baseUrl,
+      model: modelId ?? entry.route.modelId,
+    },
+  }) as Model<never>
+}
+
+/** A route can be usable without an API key (for example a local gateway). */
+export function isAeroProviderConfigured(
+  provider: AeroProviderId,
+  config: AeroProviderConfig,
+): boolean {
+  return isAgentProviderId(provider)
+    ? resolveApiKeyFor(provider, config) !== undefined
+    : configuredTextRoute(config, provider) !== undefined
+}
+
 /** Enum constant — use `AgentProviders.claude` instead of the literal `'claude'`. */
 export const AgentProviders = AgentProviderIds
 
@@ -465,7 +588,7 @@ export function validateAgentProviderRegistry(): void {
  */
 export function resolveApiKeyFor(
   providerOrPiAi: AgentProviderId | string,
-  config: { providers?: Record<string, { apiKey?: string } | undefined> },
+  config: AeroProviderConfig,
 ): string | undefined {
   return resolveApiKeySource(providerOrPiAi, config)?.key
 }
@@ -477,8 +600,14 @@ export function resolveApiKeyFor(
  */
 export function resolveApiKeySource(
   providerOrPiAi: AgentProviderId | string,
-  config: { providers?: Record<string, { apiKey?: string } | undefined> },
+  config: AeroProviderConfig,
 ): { key: string; source: 'config' | 'env' } | undefined {
+  if (providerOrPiAi.startsWith('route:')) {
+    const entry = configuredTextRoute(config, providerOrPiAi)
+    return entry?.connection.apiKey
+      ? { key: entry.connection.apiKey, source: 'config' }
+      : undefined
+  }
   const id = resolveAgentId(providerOrPiAi)
   if (!id) return undefined
   const entry = AGENT_PROVIDERS[id]
@@ -526,8 +655,12 @@ function resolveAgentId(providerOrPiAi: string): AgentProviderId | undefined {
  */
 export function buildAgentProvidersResponse(config: {
   providers?: Record<string, { apiKey?: string } | undefined>
+  engineRoutes?: {
+    connections?: readonly unknown[]
+    routes?: readonly unknown[]
+  }
 }): AgentProvidersResponse {
-  const providers: AgentProviderOption[] = listAgentProviders().map((id) => {
+  const nativeProviders: AgentProviderOption[] = listAgentProviders().map((id) => {
     const entry = AGENT_PROVIDERS[id]
     const source = resolveApiKeySource(id, config)
     return {
@@ -538,7 +671,23 @@ export function buildAgentProvidersResponse(config: {
       keySource: source?.source ?? null,
     }
   })
-  const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))
+  const routeProviders: AgentProviderOption[] = configuredTextRoutes(config).map(({ route, connection }) => ({
+    // `configuredTextRoutes` retained only validated `route:*` ids above.
+    id: route.id as AeroProviderId,
+    label: route.label,
+    defaultModel: route.modelId,
+    // `configured` must mean the same thing it means for a native provider one
+    // block up: a credential is present. Reporting every resolved connection as
+    // configured let a keyless gateway render with no 'Needs setup' badge (the
+    // operator only learned at a 401 mid-stream) and, because the doctor check
+    // titled 'Agent provider keys' counts this flag, reported OK on an install
+    // holding zero LLM credentials. `keySource` already carried the truth and
+    // no surface rendered it.
+    configured: Boolean(connection.apiKey),
+    keySource: connection.apiKey ? 'config' : null,
+  }))
+  const providers = [...nativeProviders, ...routeProviders]
+  const firstConfigured = detectAeroProvider(config)
   return {
     providers,
     defaultProvider: firstConfigured ?? null,

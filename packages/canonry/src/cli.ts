@@ -64,7 +64,7 @@ Automation:
   notify                Manage webhook notifications
 
 Admin:
-  settings              Show/update provider and quota settings
+  settings              Show/update providers, gateway connections, and engine routes
   backfill              Backfill answer visibility or insights
   telemetry             Manage anonymous telemetry
   history <project>     Show audit trail

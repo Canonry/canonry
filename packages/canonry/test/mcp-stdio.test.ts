@@ -87,12 +87,13 @@ describe('canonry-mcp stdio', () => {
     clients.push(client)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(12)
+    expect(list.tools).toHaveLength(13)
     const listedNames = list.tools.map(tool => tool.name)
     expect(listedNames).toContain('canonry_projects_list')
     expect(listedNames).toContain('canonry_project_overview')
     expect(listedNames).toContain('canonry_search')
     expect(listedNames).toContain('canonry_doctor')
+    expect(listedNames).toContain('canonry_engine_routes_list')
     expect(listedNames).toContain('canonry_help')
     expect(listedNames).toContain('canonry_load_toolkit')
     expect(listedNames).not.toContain('canonry_insights_list')
@@ -191,8 +192,8 @@ describe('canonry-mcp stdio', () => {
     clients.push(client)
 
     const list = await client.listTools()
-    // 207 API tools + 2 meta-tools (canonry_help, canonry_load_toolkit).
-    expect(list.tools).toHaveLength(209)
+    // 208 API tools + 2 meta-tools (canonry_help, canonry_load_toolkit).
+    expect(list.tools).toHaveLength(210)
     const names = list.tools.map(tool => tool.name)
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
@@ -200,6 +201,7 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_history_global')
     expect(names).toContain('canonry_search')
     expect(names).toContain('canonry_competitor_landscape')
+    expect(names).toContain('canonry_engine_routes_list')
     expect(names).toContain('canonry_backlinks_latest_release')
     expect(names).toContain('canonry_traffic_connect_vercel')
     expect(names).toContain('canonry_ads_operation_resume_activation')

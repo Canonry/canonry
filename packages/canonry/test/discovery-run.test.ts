@@ -686,6 +686,60 @@ describe('buildDefaultDeps probe() computes the mention signal independently of 
   })
 })
 
+describe('buildDefaultDeps classification provider', () => {
+  it('uses a configured text-only route for domain classification while keeping Gemini as the discovery engine', async () => {
+    let geminiTextCalls = 0
+    let routeTextCalls = 0
+    const gemini = {
+      adapter: {
+        name: 'gemini',
+        displayName: 'Gemini',
+        generateText: async () => {
+          geminiTextCalls += 1
+          throw new Error('classification should not spend the Gemini discovery route')
+        },
+      },
+      config: { apiKey: 'gemini-key' },
+    }
+    const route = {
+      adapter: {
+        name: 'route:gateway-classifier',
+        displayName: 'Gateway Classifier',
+        generateText: async () => {
+          routeTextCalls += 1
+          return 'aurora-solar.com => direct-competitor'
+        },
+      },
+      config: {
+        apiKey: 'gateway-key',
+        connectionId: 'gateway',
+        measurementReady: false,
+      },
+    }
+    const registry = {
+      get: (name: string) => name === 'gemini' ? gemini : undefined,
+      getAll: () => [gemini, route],
+    } as unknown as ProviderRegistry
+    const deps = buildDefaultDeps(registry)
+
+    const result = await deps.classifyDomains({
+      project: {
+        id: 'p',
+        name: 'demand-iq',
+        brandNames: ['Demand IQ'],
+        canonicalDomains: ['demand-iq.com'],
+        competitorDomains: [],
+      },
+      icpDescription: 'solar contractors',
+      domains: ['aurora-solar.com'],
+    })
+
+    expect(result).toEqual({ 'aurora-solar.com': 'direct-competitor' })
+    expect(routeTextCalls).toBe(1)
+    expect(geminiTextCalls).toBe(0)
+  })
+})
+
 describe('buildSeedPrompt seed hygiene', () => {
   const project = {
     id: 'p1',

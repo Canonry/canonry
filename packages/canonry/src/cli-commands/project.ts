@@ -22,6 +22,8 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
+const PROJECT_UPDATE_USAGE = 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--research-provider <route-id|native-id> | --clear-research-provider] [--format json]'
+
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
@@ -57,7 +59,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+    usage: PROJECT_UPDATE_USAGE,
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -73,20 +75,30 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'all-providers': { type: 'boolean' },
       'provider-model': multiStringOption(),
       'clear-provider-model': multiStringOption(),
+      'research-provider': stringOption(),
+      'clear-research-provider': { type: 'boolean' },
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+        PROJECT_UPDATE_USAGE,
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
       if (allProviders && providers?.length) throw usageError('Error: --all-providers conflicts with --provider')
       const providerModels = parseProviderModelAssignments(getStringArray(input.values, 'provider-model'))
       const clearProviderModels = getStringArray(input.values, 'clear-provider-model') ?? []
+      const researchProvider = getString(input.values, 'research-provider')
+      const clearResearchProvider = getBoolean(input.values, 'clear-research-provider')
       for (const provider of clearProviderModels) {
         if (provider in providerModels) throw usageError(`Error: --provider-model and --clear-provider-model conflict for ${provider}`)
+      }
+      if (researchProvider && clearResearchProvider) {
+        throw usageError('Error: --research-provider and --clear-research-provider conflict', {
+          message: '--research-provider and --clear-research-provider conflict',
+          details: { command: 'project.update', usage: PROJECT_UPDATE_USAGE },
+        })
       }
       await updateProjectSettings(name, {
         displayName: getString(input.values, 'display-name'),
@@ -102,6 +114,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         providers: allProviders ? [] : providers,
         providerModels,
         clearProviderModels,
+        researchProvider: clearResearchProvider ? null : researchProvider,
         format: input.format,
       })
     },

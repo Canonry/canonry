@@ -8,12 +8,17 @@ import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   buildAgentProvidersResponse,
+  coerceAeroProvider,
   coerceAgentProvider,
+  configuredTextRoute,
+  defaultModelForAeroProvider,
+  detectAeroProvider,
   findByPiAiProvider,
   getAgentProvider,
   listAgentProviders,
   resolveApiKeyFor,
   resolveApiKeySource,
+  resolveAeroProviderModel,
   resolveModelForCapability,
   resolveModelForProvider,
   validateAgentProviderRegistry,
@@ -209,6 +214,55 @@ describe('buildAgentProvidersResponse', () => {
       if (priorEnv === undefined) delete process.env[lowerEnvName]
       else process.env[lowerEnvName] = priorEnv
     }
+  })
+
+  it('lists a configured text route in the Aero picker and makes it the fallback default', () => {
+    const config = {
+      engineRoutes: {
+        connections: [{
+          id: 'gateway',
+          label: 'Test gateway',
+          preset: 'custom-openai-compatible',
+          protocol: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:43123/v1',
+          apiKey: 'route-secret',
+          quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+        }],
+        routes: [{
+          id: 'route:gateway-gpt-5',
+          label: 'Gateway GPT-5',
+          connectionId: 'gateway',
+          modelId: 'openai/gpt-5',
+          revision: 1,
+          source: 'configured',
+          capabilities: { kind: 'text-only' },
+        }],
+      },
+    }
+
+    const result = buildAgentProvidersResponse(config)
+    expect(result.providers).toContainEqual({
+      id: 'route:gateway-gpt-5',
+      label: 'Gateway GPT-5',
+      defaultModel: 'openai/gpt-5',
+      configured: true,
+      keySource: 'config',
+    })
+    expect(result.defaultProvider).toBe('route:gateway-gpt-5')
+    expect(coerceAeroProvider('route:gateway-gpt-5')).toBe('route:gateway-gpt-5')
+
+    const route = configuredTextRoute(config, 'route:gateway-gpt-5')
+    expect(route?.connection.id).toBe('gateway')
+    expect(detectAeroProvider(config)).toBe('route:gateway-gpt-5')
+    expect(defaultModelForAeroProvider('route:gateway-gpt-5', config)).toBe('openai/gpt-5')
+
+    const model = resolveAeroProviderModel('route:gateway-gpt-5', config)
+    expect(model).toMatchObject({
+      api: 'openai-completions',
+      provider: 'route:gateway-gpt-5',
+      id: 'openai/gpt-5',
+      baseUrl: 'http://127.0.0.1:43123/v1',
+    })
   })
 })
 

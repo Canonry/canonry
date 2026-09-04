@@ -30,6 +30,7 @@ type TestProviderOptions = {
   displayName: string
   executeResult?: RawQueryResult
   executeError?: Error
+  executeCalls?: { count: number }
   generatedText?: string[]
 }
 
@@ -85,6 +86,7 @@ function makeAdapter(opts: TestProviderOptions): ProviderAdapter {
     validateConfig: () => healthcheck(opts.name),
     healthcheck: async () => healthcheck(opts.name),
     executeTrackedQuery: async (_input: TrackedQueryInput) => {
+      if (opts.executeCalls) opts.executeCalls.count += 1
       if (opts.executeError) throw opts.executeError
       if (!opts.executeResult) throw new Error(`No execute result configured for ${opts.name}`)
       return opts.executeResult
@@ -206,5 +208,62 @@ describe('SnapshotService', () => {
 
   it('formats audit factor scores with a 100-point denominator and explicit weight', () => {
     expect(formatAuditFactorScore({ score: 2, weight: 8 })).toBe('2/100 (8% weight)')
+  })
+
+  it('uses a text-only route for analysis but never sends it visibility queries', async () => {
+    const registry = new ProviderRegistry()
+    const routeExecuteCalls = { count: 0 }
+    registry.register(makeAdapter({
+      name: 'cdp:chatgpt',
+      displayName: 'ChatGPT',
+      executeResult: makeRawQueryResult('cdp:chatgpt', {
+        answerText: 'Independent reviewers recommend Acme Corp for enterprise widgets.',
+        citedDomains: ['acme.example.com'],
+      }),
+    }), makeConfig('cdp:chatgpt'))
+    registry.register(makeAdapter({
+      name: 'route:analysis-gateway',
+      displayName: 'Analysis Gateway',
+      executeCalls: routeExecuteCalls,
+      executeError: new Error('text-only routes must not execute visibility queries'),
+      generatedText: [
+        JSON.stringify({
+          industry: 'Manufacturing',
+          summary: 'Acme sells enterprise widgets.',
+          services: ['Widget manufacturing'],
+          categoryTerms: ['enterprise widgets'],
+          queries: ['best enterprise widget vendor'],
+        }),
+        JSON.stringify({
+          assessments: [
+            {
+              query: 'best enterprise widget vendor',
+              provider: 'cdp:chatgpt',
+              mentioned: true,
+              describedAccurately: 'yes',
+              accuracyNotes: null,
+              incorrectClaims: [],
+              recommendedCompetitors: [],
+            },
+          ],
+          whatThisMeans: [],
+          recommendedActions: [],
+        }),
+      ],
+    }), {
+      ...makeConfig('route:analysis-gateway'),
+      connectionId: 'gateway',
+      measurementReady: false,
+    })
+
+    const report = await new SnapshotService(registry).createReport({
+      companyName: 'Acme Corp',
+      domain: 'acme.example.com',
+    })
+
+    expect(routeExecuteCalls.count).toBe(0)
+    expect(report.queryResults).toHaveLength(1)
+    expect(report.queryResults[0]?.providerResults.map(result => result.provider)).toEqual(['cdp:chatgpt'])
+    expect(report.profile.industry).toBe('Manufacturing')
   })
 })

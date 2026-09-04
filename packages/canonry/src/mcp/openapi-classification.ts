@@ -129,9 +129,11 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/visibility-compare': 'included',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',
   'GET /api/v1/settings': 'included',
-  // Engine-route MCP adoption is intentionally layered above the core API.
-  // Classify these operations now so the core PR remains independently green.
-  'GET /api/v1/settings/engine-routes': 'deferred',
+  // Safe, credential-free route metadata is useful for an agent choosing a
+  // text route for research. Gateway configuration itself remains sensitive.
+  'GET /api/v1/settings/engine-routes': 'included',
+  // This endpoint makes a live credentialed request to a configured gateway.
+  // It is bounded and non-inference, but not suitable for an agent tool.
   'GET /api/v1/settings/engine-connections/{id}/models': 'deferred',
   'PUT /api/v1/settings/engine-connections/{id}': 'deferred',
   'PUT /api/v1/settings/engine-routes/{id}': 'deferred',

@@ -62,9 +62,12 @@ export class SnapshotService {
     const domain = hostOf(input.domain) ?? input.domain.trim()
     const manualQueries = normalizeStringList(resolveSnapshotRequestQueries(input))
     const manualCompetitors = normalizeStringList(input.competitors ?? [])
-    const providers = this.registry.getAll()
+    // A generic route can help write the profile and response analysis, but it
+    // has no verified retrieval/citation adapter. Keep it out of the evidence
+    // execution set even when it is the only API-capable text model.
+    const providers = this.registry.getMeasurableAll()
     if (providers.length === 0) {
-      throw new Error('No providers configured. Add at least one provider API key before running canonry snapshot.')
+      throw new Error('No answer-visibility providers configured. Add a measurement-ready provider API key before running canonry snapshot.')
     }
 
     const analysisProvider = pickAnalysisProvider(this.registry.getApiProviders())

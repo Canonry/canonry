@@ -7285,8 +7285,16 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
             properties: {
               prompt: { type: 'string', description: "The user's message for Aero." },
               provider: {
-                type: 'string',
-                enum: [...AGENT_PROVIDER_IDS],
+                // Mirrors `aeroProviderIdSchema`: a closed native enum OR a
+                // configured route id. The response DTO was widened to emit
+                // `route:*` but this request stayed native-only, so a generated
+                // SDK could not send the value the picker now selects and a
+                // spec-validating proxy rejected it. The in-app path hid the
+                // drift because promptAero uses raw fetch, not the SDK.
+                oneOf: [
+                  { type: 'string', enum: [...AGENT_PROVIDER_IDS] },
+                  { type: 'string', pattern: '^route:\\w[\\w.:-]*$' },
+                ],
                 description: 'Override the persisted LLM provider for this and subsequent turns.',
               },
               modelId: {

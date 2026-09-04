@@ -56,6 +56,7 @@ const expectedToolNames = [
   'canonry_backlinks_domains',
   'canonry_backlinks_sources',
   'canonry_settings_get',
+  'canonry_engine_routes_list',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
   'canonry_gsc_performance_daily',
@@ -578,8 +579,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(207)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(141)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(208)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(142)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -589,7 +590,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(10)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(11)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
@@ -598,6 +599,7 @@ describe('MCP tool registry', () => {
       'canonry_search',
       'canonry_doctor',
       'canonry_settings_get',
+      'canonry_engine_routes_list',
       'canonry_apply_config',
       'canonry_run_trigger',
       'canonry_run_cancel',
@@ -1078,6 +1080,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_search',
       'canonry_doctor',
       'canonry_settings_get',
+      'canonry_engine_routes_list',
       'canonry_apply_config',
       'canonry_run_trigger',
       'canonry_run_cancel',

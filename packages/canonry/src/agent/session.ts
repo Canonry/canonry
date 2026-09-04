@@ -2,17 +2,21 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Agent } from '@mariozechner/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
-import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
+import { registerBuiltInApiProviders, streamSimple, type Model } from '@mariozechner/pi-ai'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
+import { streamEngineRouteText } from '../engine-route-text-execution.js'
 import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
-  getAgentProvider,
+  configuredTextRoute,
+  defaultModelForAeroProvider,
+  detectAeroProvider,
   resolveApiKeyFor,
-  resolveModelForProvider,
+  resolveAeroProviderModel,
   validateAgentProviderRegistry,
+  type AeroProviderId,
   type SupportedAgentProvider,
 } from './providers.js'
 import { resolveAeroSkillDir } from './skill-paths.js'
@@ -34,7 +38,8 @@ import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
 import { createAeroToolUsageHooks } from './tool-usage.js'
 
 export type { SupportedAgentProvider } from './providers.js'
-export { AgentProviders, listAgentProviders, coerceAgentProvider } from './providers.js'
+export type { AeroProviderId } from './providers.js'
+export { AgentProviders, listAgentProviders, coerceAeroProvider, coerceAgentProvider } from './providers.js'
 
 let builtinsRegistered = false
 function ensureBuiltinsRegistered(): void {
@@ -49,8 +54,8 @@ export interface AeroSessionOptions {
   projectName: string
   client: ApiClient
   config: CanonryConfig
-  /** Explicit pi-ai provider. Default: auto-detect from configured API keys. */
-  provider?: SupportedAgentProvider
+  /** Explicit native or configured `route:*` provider. Default: auto-detect. */
+  provider?: AeroProviderId
   /** Explicit model id within the chosen provider. Default: provider's default. */
   modelId?: string
   /** Override system prompt (skips aero skill file load). Useful for tests. */
@@ -131,7 +136,7 @@ function missingProviderMessage(): string {
   const envHints = agentProvidersByPriority().map(agentProviderApiKeyEnvVar).join(' / ')
   return (
     `No agent LLM provider configured. Add an API key for one of: ${configHints} in ` +
-    `~/.canonry/config.yaml, or export ${envHints}.`
+    `~/.canonry/config.yaml, export ${envHints}, or configure a text route under engineRoutes.`
   )
 }
 
@@ -144,11 +149,12 @@ export function detectAgentProvider(config: CanonryConfig): SupportedAgentProvid
 }
 
 export function resolveAeroModel(
-  provider: SupportedAgentProvider,
+  provider: AeroProviderId,
+  config: CanonryConfig,
   modelId?: string,
 ): Model<never> {
   ensureBuiltinsRegistered()
-  return resolveModelForProvider(provider, modelId)
+  return resolveAeroProviderModel(provider, config, modelId)
 }
 
 /** Resolver used by pi's `getApiKey` callback — `resolveApiKeyFor` handles canonry config and env-var fallback. */
@@ -162,13 +168,50 @@ function buildAeroProviderSessionId(opts: AeroSessionOptions): string {
   return `canonry:aero:${opts.agentSessionId ?? opts.projectId ?? opts.projectName}`
 }
 
+/**
+ * The stream function a provider must run under. A route streams INSIDE its
+ * connection's execution gate and holds the slot until the terminal event; a
+ * native provider must not be wrapped at all.
+ *
+ * Exported because the provider can change AFTER construction (alignModel) and
+ * the gate has to move with it. `Agent.streamFn` is fixed when the Agent is
+ * built, so swapping only the model left a session switched TO a route
+ * streaming completely outside its quota, and one switched to a native provider
+ * still serialized behind the gateway's concurrency limit.
+ */
+export function aeroStreamFnFor(
+  config: CanonryConfig,
+  provider: AeroProviderId,
+  base?: AgentOptions['streamFn'],
+): NonNullable<AgentOptions['streamFn']> {
+  const streamFn = base ?? streamSimple
+  if (!provider.startsWith('route:')) return streamFn
+  const route = configuredTextRoute(config, provider)
+  if (!route) return streamFn
+  return (model, context, options) => streamEngineRouteText(
+    route.connection,
+    () => streamFn(model, context, options),
+  )
+}
+
+/** Route streams hold the shared connection slot until their terminal event. */
+function resolveAeroStreamFn(
+  opts: AeroSessionOptions,
+  provider: AeroProviderId,
+): AgentOptions['streamFn'] | undefined {
+  // Native keeps the caller's override verbatim (undefined lets pi-ai pick its
+  // own default), so construction behaviour is byte-for-byte unchanged.
+  if (!provider.startsWith('route:')) return opts.streamFn
+  return aeroStreamFnFor(opts.config, provider, opts.streamFn)
+}
+
 export function createAeroSession(opts: AeroSessionOptions): Agent {
   const systemPrompt = opts.systemPromptOverride ?? loadAeroSystemPrompt()
 
-  const provider = opts.provider ?? detectAgentProvider(opts.config)
+  const provider = opts.provider ?? detectAeroProvider(opts.config)
   if (!provider) throw new Error(missingProviderMessage())
 
-  const model = resolveAeroModel(provider, opts.modelId)
+  const model = resolveAeroModel(provider, opts.config, opts.modelId)
 
   const toolScope = opts.toolScope ?? AeroToolScopes.all
   const toolProfile = opts.toolProfile ?? AeroToolProfiles.default
@@ -197,7 +240,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
       tools,
       ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
     },
-    streamFn: opts.streamFn,
+    streamFn: resolveAeroStreamFn(opts, provider),
     sessionId: buildAeroProviderSessionId(opts),
     onPayload: splitAeroAnthropicSystemCachePayload,
     ...toolUsageHooks,
@@ -228,10 +271,10 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
 /** Exposed so the registry can persist the chosen provider/model without re-running detection. */
 export function resolveSessionProviderAndModel(
   config: CanonryConfig,
-  opts?: { provider?: SupportedAgentProvider; modelId?: string },
-): { provider: SupportedAgentProvider; modelId: string } {
-  const provider = opts?.provider ?? detectAgentProvider(config)
+  opts?: { provider?: AeroProviderId; modelId?: string },
+): { provider: AeroProviderId; modelId: string } {
+  const provider = opts?.provider ?? detectAeroProvider(config)
   if (!provider) throw new Error(missingProviderMessage())
-  const modelId = opts?.modelId ?? getAgentProvider(provider).defaultModel
+  const modelId = opts?.modelId ?? defaultModelForAeroProvider(provider, config)
   return { provider, modelId }
 }

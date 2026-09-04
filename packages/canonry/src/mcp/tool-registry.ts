@@ -1605,6 +1605,17 @@ export const canonryMcpTools = [
     handler: (client) => client.getSettings(),
   }),
   defineTool({
+    name: 'canonry_engine_routes_list',
+    title: 'List safe engine routes',
+    description: 'List credential-free route id, label, requested model, revision, and readiness. Use this to select a text route for research; it never returns connection endpoints or secrets.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/settings/engine-routes'],
+    handler: (client) => client.getEngineRouteSummaries(),
+  }),
+  defineTool({
     name: 'canonry_google_connections_list',
     title: 'List Google connections',
     description: 'List configured Google connections for a Canonry project.',

@@ -53,3 +53,4 @@ interface ProviderAdapter {
 - [Claude](./claude.md) — web_search_20250305 tool, final-text citation extraction, tool error handling
 - [Perplexity](./perplexity.md) — `search_results` vs `citations`, no returned search-query telemetry
 - [Local](./local.md) — OpenAI-compatible endpoints, no web search grounding
+- [Engine routes](./engine-routes.md) — vendor-neutral gateway connections and generic text routes; not a new measured-provider contract

@@ -23,6 +23,7 @@ import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
 } from '@ainyc/canonry-api-client/react-query'
+import { isAeroProviderId, type AgentProviderId } from '@ainyc/canonry-contracts'
 import { asyncHandler } from '../../lib/async-handler.js'
 import {
   extractAssistantText,
@@ -34,7 +35,7 @@ import {
   type AeroMessage,
   type AeroToolResultMessage,
   type AeroToolScope,
-  type AgentProviderId,
+  type AeroProviderId,
   type AgentProviderOption,
 } from '../../api-aero.js'
 
@@ -139,10 +140,10 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [liveTrail, setLiveTrail] = useState<ToolTrail[]>([])
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [providerOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
+  const [providerOverride, setProviderOverride] = useState<AeroProviderId | null>(() => {
     if (typeof window === 'undefined') return null
     const stored = window.localStorage.getItem(PROVIDER_PREF_KEY(projectName))
-    return (stored as AgentProviderId | null) ?? null
+    return (stored as AeroProviderId | null) ?? null
   })
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
@@ -187,31 +188,40 @@ export function AeroBar({ projectName }: AeroBarProps) {
     staleTime: 60_000,
   })
 
+  // OpenAPI preserves the route-id pattern at runtime but emits `string` for
+  // the dynamic branch. Narrow the generated DTO before it reaches picker
+  // state so malformed server data is ignored instead of asserted.
+  const providerOptions = useMemo<AgentProviderOption[]>(() => (
+    (providersQuery.data?.providers ?? []).flatMap((provider) => (
+      isAeroProviderId(provider.id) ? [{ ...provider, id: provider.id }] : []
+    ))
+  ), [providersQuery.data?.providers])
+
   // Active provider = user override if it's still configured, else the
   // server-detected default. Reset stale overrides when the key goes away.
   const activeProvider: AgentProviderOption | null = useMemo(() => {
-    const list = providersQuery.data?.providers ?? []
     if (providerOverride) {
-      const hit = list.find((p) => p.id === providerOverride && p.configured)
+      const hit = providerOptions.find((p) => p.id === providerOverride && p.configured)
       if (hit) return hit
     }
     const defaultId = providersQuery.data?.defaultProvider
-    return defaultId ? (list.find((p) => p.id === defaultId) ?? null) : null
-  }, [providerOverride, providersQuery.data])
+    if (!defaultId || !isAeroProviderId(defaultId)) return null
+    return providerOptions.find((p) => p.id === defaultId) ?? null
+  }, [providerOptions, providerOverride, providersQuery.data?.defaultProvider])
 
   useEffect(() => {
     if (!providersQuery.data || !providerOverride) return
-    const hit = providersQuery.data.providers.find(
+    const hit = providerOptions.find(
       (p) => p.id === providerOverride && p.configured,
     )
     if (!hit) {
       setProviderOverride(null)
       window.localStorage.removeItem(PROVIDER_PREF_KEY(projectName))
     }
-  }, [providersQuery.data, providerOverride, projectName])
+  }, [providerOptions, providersQuery.data, providerOverride, projectName])
 
   const pickProvider = useCallback(
-    (id: AgentProviderId | null) => {
+    (id: AeroProviderId | null) => {
       setProviderOverride(id)
       if (typeof window === 'undefined') return
       if (id) window.localStorage.setItem(PROVIDER_PREF_KEY(projectName), id)
@@ -399,7 +409,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
               </div>
               <div className="flex items-center gap-1">
                 <ProviderPicker
-                  providers={providersQuery.data?.providers ?? []}
+                  providers={providerOptions}
                   active={activeProvider}
                   override={providerOverride}
                   onPick={pickProvider}
@@ -610,8 +620,8 @@ function ProviderPicker({
 }: {
   providers: AgentProviderOption[]
   active: AgentProviderOption | null
-  override: AgentProviderId | null
-  onPick: (id: AgentProviderId | null) => void
+  override: AeroProviderId | null
+  onPick: (id: AeroProviderId | null) => void
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -633,9 +643,25 @@ function ProviderPicker({
     }
   }, [open])
 
-  if (providers.length === 0) return null
-
   const label = active?.label.replace(/\s+\(.+\)$/, '') ?? 'No provider'
+  // An empty list is not proof that no engine exists: the same state covers a
+  // still-loading read, a failed one, and a server whose ids this bundle does
+  // not recognise. Returning null made the control vanish with no skeleton and
+  // no retry, indistinguishable from 'no providers exist', so render it
+  // disabled and say so instead.
+  if (providers.length === 0) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted disabled:opacity-60"
+        title="No agent engine is available to this dashboard yet."
+      >
+        No engine available
+      </button>
+    )
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -652,14 +678,17 @@ function ProviderPicker({
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
       {open && (
-        <div
-          role="listbox"
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-base bg-bg shadow-xl"
-        >
+        <div className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-base bg-bg shadow-xl">
+          {/* "Answer engine" claimed the one capability a text-only route does
+              not have: it cannot run a sweep and records no grounding sources or
+              cited domains. This picker only chooses the model Aero talks to. */}
           <div className="border-b border-default px-3 py-2 text-sm font-medium text-secondary">
-            Answer engine
+            Model
           </div>
-          <ul className="max-h-72 overflow-y-auto py-1">
+          {/* role=listbox belongs on the element that OWNS the options. It sat on
+              the wrapper, which also held this static heading, so the options
+              were never associated with it. SlashPalette below already does this. */}
+          <ul role="listbox" aria-label="Agent model" className="max-h-72 overflow-y-auto py-1">
             {providers.map((p) => {
               const isActive = active?.id === p.id
               const isOverride = override === p.id
@@ -683,6 +712,14 @@ function ProviderPicker({
                     </span>
                     <span className="min-w-0 flex-1 truncate font-medium text-heading">{p.label.replace(/\s+\(.+\)$/, '')}</span>
                     {isOverride && <span className="rounded-md border border-positive-800/60 bg-positive-950/60 px-2 py-0.5 text-[11px] text-positive">Pinned</span>}
+                    {p.id.startsWith('route:') && (
+                      <span
+                        className="rounded-md border border-base px-2 py-0.5 text-[11px] text-secondary"
+                        title="Text only. This route cannot run an answer-visibility sweep and records no citations."
+                      >
+                        Text only
+                      </span>
+                    )}
                     {!p.configured && <span className="rounded-md border border-base px-2 py-0.5 text-[11px] text-secondary">Needs setup</span>}
                   </button>
                 </li>
@@ -801,19 +838,24 @@ function SlashPalette({
   )
 }
 
-function envVarHint(id: AgentProviderId): string {
-  switch (id) {
-    case 'claude':
-      return 'ANTHROPIC_API_KEY'
-    case 'openai':
-      return 'OPENAI_API_KEY'
-    case 'gemini':
-      return 'GOOGLE_API_KEY'
-    case 'zai':
-      return 'ZAI_API_KEY'
-    case 'deepinfra':
-      return 'DEEPINFRA_TOKEN'
-  }
+/**
+ * A Record over the CLOSED native enum, not a switch. Once AeroProviderId gained
+ * `route:${string}` a `default` branch made the switch trivially total, throwing
+ * away the compile error that used to force a hint for every new native
+ * provider; a sixth one would have silently rendered 'provider credentials'.
+ * A missing key here is a type error again.
+ */
+const NATIVE_ENV_VAR_HINTS: Record<AgentProviderId, string> = {
+  claude: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GOOGLE_API_KEY',
+  zai: 'ZAI_API_KEY',
+  deepinfra: 'DEEPINFRA_TOKEN',
+}
+
+function envVarHint(id: AeroProviderId): string {
+  if (id.startsWith('route:')) return 'the configured engine connection'
+  return NATIVE_ENV_VAR_HINTS[id as AgentProviderId]
 }
 
 function messageKey(message: AeroMessage, fallbackIndex: number): string {
@@ -835,7 +877,7 @@ function messageKey(message: AeroMessage, fallbackIndex: number): string {
 function renderTranscript(
   messages: AeroMessage[],
   projectName: string,
-  providerOverride: AgentProviderId | null,
+  providerOverride: AeroProviderId | null,
   scope: AeroToolScope,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
@@ -913,7 +955,7 @@ function UserMessageRow({
 }: {
   text: string
   projectName: string
-  providerOverride: AgentProviderId | null
+  providerOverride: AeroProviderId | null
   scope: AeroToolScope
 }) {
   const [copied, setCopied] = useState(false)
@@ -976,7 +1018,7 @@ function UserMessageRow({
 function buildAgentAskCommand(
   projectName: string,
   prompt: string,
-  providerOverride: AgentProviderId | null,
+  providerOverride: AeroProviderId | null,
   scope: AeroToolScope,
 ): string {
   const parts = ['canonry', 'agent', 'ask', shellQuote(projectName), shellQuote(prompt)]

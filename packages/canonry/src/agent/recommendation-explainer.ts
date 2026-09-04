@@ -3,6 +3,7 @@ import {
   actionConfidenceLabel,
   contentActionLabel,
   contentBriefDtoSchema,
+  isAgentProviderId,
   providerError,
   winnabilityClassLabel,
   validationError,
@@ -19,13 +20,18 @@ import type {
   SynthesizeContentBriefResult,
 } from '@ainyc/canonry-api-routes'
 import type { CanonryConfig } from '../config.js'
+import { runEngineRouteText } from '../engine-route-text-execution.js'
 import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
-  coerceAgentProvider,
+  coerceAeroProvider,
+  configuredTextRoute,
+  detectAeroProvider,
+  isAeroProviderConfigured,
   resolveApiKeyFor,
+  resolveAeroProviderModel,
   resolveModelForCapability,
-  type SupportedAgentProvider,
+  type AeroProviderId,
 } from './providers.js'
 
 /**
@@ -129,8 +135,8 @@ export function buildRecommendationPrompt(input: {
 
 /**
  * Pick the provider for an explain call. Priority:
- *   1. Caller override (`providerOverride`), if valid + has a configured key.
- *   2. First configured provider in `agentProvidersByPriority()`.
+ *   1. Caller override (`providerOverride`), if valid + configured.
+ *   2. First configured native provider, then a configured text route.
  *   3. Throw — caller (route handler) maps that to a clean 503.
  *
  * Mirrors `detectAgentProvider` from `session.ts` for symmetry with Aero.
@@ -138,31 +144,52 @@ export function buildRecommendationPrompt(input: {
 function pickExplainProvider(
   config: CanonryConfig,
   providerOverride?: string,
-): SupportedAgentProvider {
+): AeroProviderId {
   if (providerOverride) {
-    const id = coerceAgentProvider(providerOverride)
+    const id = coerceAeroProvider(providerOverride)
     if (!id) {
       // User-supplied bad value — 400 VALIDATION_ERROR via the global handler.
       throw validationError(
-        `Unknown provider '${providerOverride}'. Valid: ${agentProvidersByPriority().join(', ')}.`,
+        `Unknown provider '${providerOverride}'. Valid: ${agentProvidersByPriority().join(', ')} or route:<id>.`,
       )
     }
-    if (!resolveApiKeyFor(id, config)) {
+    if (!isAeroProviderConfigured(id, config)) {
       // Caller asked for a specific provider, but its key is missing.
       // 502 PROVIDER_ERROR conveys "the chosen provider can't run."
       throw providerError(
-        `Provider '${id}' has no API key configured in ~/.canonry/config.yaml or env.`,
+        `Provider '${id}' is not configured in ~/.canonry/config.yaml, env, or engineRoutes.`,
       )
     }
     return id
   }
-  for (const provider of agentProvidersByPriority()) {
-    if (resolveApiKeyFor(provider, config)) return provider
-  }
+  const detected = detectAeroProvider(config)
+  if (detected) return detected
   const hints = agentProvidersByPriority().map(agentProviderApiKeyEnvVar).join(' / ')
   throw providerError(
-    `No LLM provider configured. Add an API key in ~/.canonry/config.yaml or set one of: ${hints}.`,
+    `No LLM provider configured. Add an API key in ~/.canonry/config.yaml, set one of: ${hints}, or configure an engine route.`,
   )
+}
+
+function resolveTextWorkModel(
+  provider: AeroProviderId,
+  config: CanonryConfig,
+  modelOverride?: string,
+) {
+  return isAgentProviderId(provider)
+    ? resolveModelForCapability(provider, 'analyze', modelOverride)
+    : resolveAeroProviderModel(provider, config, modelOverride)
+}
+
+/** Native providers keep their established direct path; routes share a connection gate. */
+function runTextWork<T>(
+  provider: AeroProviderId,
+  config: CanonryConfig,
+  task: () => Promise<T>,
+): Promise<T> {
+  if (isAgentProviderId(provider)) return task()
+  const route = configuredTextRoute(config, provider)
+  if (!route) throw new Error(`Configured text route '${provider}' is not available on this Canonry instance.`)
+  return runEngineRouteText(route.connection, task)
 }
 
 /**
@@ -179,7 +206,7 @@ export function createRecommendationExplainer(
 ): ExplainContentRecommendationFn {
   return async (input: ExplainContentRecommendationInput): Promise<ExplainContentRecommendationResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
-    const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
+    const model = resolveTextWorkModel(provider, opts.config, input.modelOverride)
 
     const prompt = buildRecommendationPrompt({
       projectName: input.projectName,
@@ -198,7 +225,7 @@ export function createRecommendationExplainer(
       ],
     }
     const apiKey = resolveApiKeyFor(provider, opts.config)
-    const resp = await complete(model, context, apiKey ? { apiKey } : {})
+    const resp = await runTextWork(provider, opts.config, () => complete(model, context, apiKey ? { apiKey } : {}))
     const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     const text = parts.map((p) => p.text).join('\n').trim()
     if (!text) {
@@ -302,7 +329,7 @@ export function createRecommendationBriefSynthesizer(
 ): SynthesizeContentBriefFn {
   return async (input: SynthesizeContentBriefInput): Promise<SynthesizeContentBriefResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
-    const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
+    const model = resolveTextWorkModel(provider, opts.config, input.modelOverride)
     const apiKey = resolveApiKeyFor(provider, opts.config)
     const prompt = buildBriefPrompt({
       projectName: input.projectName,
@@ -320,7 +347,7 @@ export function createRecommendationBriefSynthesizer(
         systemPrompt: BRIEF_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent, timestamp: Date.now() }],
       }
-      const resp = await complete(model, context, apiKey ? { apiKey } : {})
+      const resp = await runTextWork(provider, opts.config, () => complete(model, context, apiKey ? { apiKey } : {}))
       totalCostDollars += Number.isFinite(resp.usage.cost.total) ? resp.usage.cost.total : 0
       const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
       const text = parts.map((p) => p.text).join('\n').trim()

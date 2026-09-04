@@ -13,14 +13,16 @@ import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
+  aeroStreamFnFor,
   buildApiKeyResolver,
   createAeroSession,
   loadAeroSystemPrompt,
   resolveAeroModel,
   resolveSessionProviderAndModel,
-  type SupportedAgentProvider,
+  type AeroProviderId,
 } from './session.js'
-import { getAgentProvider } from './providers.js'
+import { configuredTextRoute, defaultModelForAeroProvider, detectAeroProvider } from './providers.js'
+import { runEngineRouteText } from '../engine-route-text-execution.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -42,7 +44,7 @@ export interface SessionRegistryOptions {
 }
 
 export interface SessionPreferences {
-  provider?: SupportedAgentProvider
+  provider?: AeroProviderId
   modelId?: string
   /** Pass 'read-only' to build a session that exposes only read tools. Default 'all'. */
   toolScope?: AeroToolScope
@@ -197,9 +199,33 @@ export class SessionRegistry {
       // Explicit caller preferences override the persisted values (and are
       // persisted back). This keeps `--provider` / `--model` flags meaningful
       // after the first session exists instead of silently ignoring them.
-      const effectiveProvider = (preferences?.provider ?? row.modelProvider) as SupportedAgentProvider
-      const effectiveModelId = preferences?.modelId ?? row.modelId
-      if (preferences?.provider || preferences?.modelId) {
+      // Preserve the stored provider string verbatim. A configured `route:*`
+      // must never silently turn into a native provider on session hydration.
+      let effectiveProvider = (preferences?.provider ?? row.modelProvider) as AeroProviderId
+      let effectiveModelId = preferences?.modelId ?? row.modelId
+      // A stored `route:*` can be deleted from config.yaml at any time. A native
+      // id can never leave the enum, so this failure mode is new: rehydrating
+      // the dead id verbatim threw from resolveAeroProviderModel on EVERY later
+      // prompt, 500ing the project forever with no recovery but a hand DB edit.
+      // Fall back to the detected default and persist the correction.
+      let providerFellBack = false
+      if (effectiveProvider.startsWith('route:')
+        && !configuredTextRoute(this.opts.config, effectiveProvider)) {
+        const fallback = detectAeroProvider(this.opts.config)
+        if (fallback) {
+          log.warn('session.route-unavailable', {
+            projectName,
+            storedProvider: effectiveProvider,
+            fallbackProvider: fallback,
+          })
+          effectiveProvider = fallback
+          // The stored model id belonged to the dead route, so it cannot carry
+          // over; take the fallback provider's own default instead.
+          effectiveModelId = defaultModelForAeroProvider(fallback, this.opts.config)
+          providerFellBack = true
+        }
+      }
+      if (preferences?.provider || preferences?.modelId || providerFellBack) {
         this.opts.db
           .update(agentSessions)
           .set({
@@ -405,7 +431,15 @@ export class SessionRegistry {
     const row = this.loadRow(projectId)
     if (!row) return
     try {
-      const result = await compactMessages({
+      // Compaction is a full summarization call against the SAME upstream as the
+      // session's turns. Calling pi-ai directly put it outside the connection's
+      // execution gate, so with maxConcurrency 1 a compaction and a user turn
+      // could hit one gateway simultaneously and exceed the declared quota.
+      const compactionProvider = (row.modelProvider ?? '') as AeroProviderId
+      const compactionRoute = compactionProvider.startsWith('route:')
+        ? configuredTextRoute(this.opts.config, compactionProvider)
+        : undefined
+      const compact = () => compactMessages({
         db: this.opts.db,
         projectId,
         sessionId: row.id,
@@ -413,6 +447,9 @@ export class SessionRegistry {
         model: agent.state.model as Model<Api>,
         getApiKey: buildApiKeyResolver(this.opts.config),
       })
+      const result = compactionRoute
+        ? await runEngineRouteText(compactionRoute.connection, compact)
+        : await compact()
       if (!result) return
       agent.state.messages = result.messages
       // Rehydrate the system prompt so the just-written compaction note
@@ -461,15 +498,22 @@ export class SessionRegistry {
     const projectId = this.tryResolveProjectId(projectName)
     if (!projectId) return
     const row = this.loadRow(projectId)
-    const currentProvider = (row?.modelProvider ?? AgentProviderIds.claude) as SupportedAgentProvider
+    const currentProvider = (row?.modelProvider ?? AgentProviderIds.claude) as AeroProviderId
     const currentModelId = row?.modelId
     const nextProvider = preferences.provider ?? currentProvider
     const nextModelId =
-      preferences.modelId ?? (preferences.provider ? getAgentProvider(nextProvider).defaultModel : currentModelId)
+      preferences.modelId ?? (preferences.provider
+        ? defaultModelForAeroProvider(nextProvider, this.opts.config)
+        : currentModelId)
     if (!nextModelId) return
     if (nextProvider === currentProvider && nextModelId === currentModelId) return
 
-    agent.state.model = resolveAeroModel(nextProvider, nextModelId)
+    agent.state.model = resolveAeroModel(nextProvider, this.opts.config, nextModelId)
+    // The connection gate lives in `streamFn`, which the Agent fixed at
+    // construction. Moving only the model left a switched-to-route session
+    // streaming outside its quota entirely, and a switched-to-native session
+    // still wrapped in the gateway's concurrency limit.
+    agent.streamFn = aeroStreamFnFor(this.opts.config, nextProvider)
     this.opts.db
       .update(agentSessions)
       .set({
@@ -686,7 +730,7 @@ export class SessionRegistry {
     id?: string
     projectId: string
     systemPrompt: string
-    provider?: SupportedAgentProvider
+    provider?: AeroProviderId
     modelId?: string
     modelProvider?: string
     messages: AgentMessage[]

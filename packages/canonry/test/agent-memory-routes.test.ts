@@ -31,6 +31,26 @@ function stubConfig(): CanonryConfig {
     database: ':memory:',
     apiKey: 'cnry_test',
     providers: { claude: { apiKey: 'anthropic-key' } },
+    engineRoutes: {
+      connections: [{
+        id: 'gateway',
+        label: 'Test Gateway',
+        preset: 'custom-openai-compatible',
+        protocol: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:43123/v1',
+        apiKey: 'gateway-key',
+        quota: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 500 },
+      }],
+      routes: [{
+        id: 'route:gateway-gpt-5',
+        label: 'Gateway GPT-5',
+        connectionId: 'gateway',
+        modelId: 'openai/gpt-5',
+        revision: 1,
+        source: 'configured',
+        capabilities: { kind: 'text-only' },
+      }],
+    },
   } as CanonryConfig
 }
 
@@ -84,6 +104,19 @@ describe('agent memory HTTP routes', () => {
     const res = await app.inject({ method: 'GET', url: '/projects/demo/agent/memory' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ entries: [] })
+  })
+
+  it('GET /agent/providers exposes configured text routes to the Aero picker', async () => {
+    const res = await app.inject({ method: 'GET', url: '/projects/demo/agent/providers' })
+
+    expect(res.statusCode).toBe(200)
+    expect((res.json() as { providers: unknown[] }).providers).toContainEqual({
+      id: 'route:gateway-gpt-5',
+      label: 'Gateway GPT-5',
+      defaultModel: 'openai/gpt-5',
+      configured: true,
+      keySource: 'config',
+    })
   })
 
   it('PUT upserts a note with source=user and GET returns it', async () => {
