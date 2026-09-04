@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, queries } from '@ainyc/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 
 /**
  * POST /apply with NO queries field must leave the tracked-query basket alone.
@@ -25,13 +25,13 @@ afterEach(() => {
   for (const fn of cleanups.splice(0)) fn()
 })
 
-function buildApp() {
+function buildApp(callbacks: Pick<ApiRoutesOptions, 'onProjectCreated'> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-absent-queries-'))
   cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, { db, skipAuth: true, allowLoopbackWebhooks: true, ...callbacks })
   return { app, db }
 }
 
@@ -81,6 +81,30 @@ const baseConfig = (name: string, specExtras: Record<string, unknown> = {}) => (
 })
 
 describe('POST /apply and the tracked-query basket', () => {
+  it('fires project-created even when declarative notifications suppress the legacy upsert callback', async () => {
+    const created: Array<{ id: string; name: string }> = []
+    const { app, db } = buildApp({
+      onProjectCreated: (id, name) => created.push({ id, name }),
+    })
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: baseConfig('with-notifications', {
+        notifications: [{
+          channel: 'webhook',
+          url: 'http://127.0.0.1/hook',
+          events: ['run.completed'],
+        }],
+      }),
+    })
+
+    expect(res.statusCode).toBe(200)
+    const project = db.select().from(projects).where(eq(projects.name, 'with-notifications')).get()!
+    expect(created).toEqual([{ id: project.id, name: project.name }])
+  })
+
   it('a spec with NO queries field preserves the existing basket', async () => {
     const { app, db } = buildApp()
     const projectId = seedProject(db, 'keepers')

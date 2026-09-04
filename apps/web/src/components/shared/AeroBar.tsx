@@ -15,7 +15,7 @@ import {
   Wrench,
   Copy,
 } from 'lucide-react'
-import { useLocation } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { heyClient } from '../../api.js'
@@ -24,6 +24,8 @@ import {
   getApiV1ProjectsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { Button } from '../ui/button.js'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -127,7 +129,35 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
 const PROVIDER_PREF_KEY = (project: string) => `canonry:aero:provider:${project}`
 const SCOPE_PREF_KEY = (project: string) => `canonry:aero:scope:${project}`
 
+function readPreference(key: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writePreference(key: string, value: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // The current-session choice still works when storage is unavailable.
+  }
+}
+
+function removePreference(key: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // Best-effort cleanup for private or restricted browser contexts.
+  }
+}
+
 export function AeroBar({ projectName }: AeroBarProps) {
+  const { canWrite } = useAccount()
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
@@ -140,8 +170,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [providerOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
-    if (typeof window === 'undefined') return null
-    const stored = window.localStorage.getItem(PROVIDER_PREF_KEY(projectName))
+    const stored = readPreference(PROVIDER_PREF_KEY(projectName))
     return (stored as AgentProviderId | null) ?? null
   })
   // Per-project tool scope. `read-only` (the server default) is the safe
@@ -149,8 +178,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
   // visit, but key by project so the choice doesn't leak across tenants.
   const [scope, setScope] = useState<AeroToolScope>(() => {
-    if (typeof window === 'undefined') return 'read-only'
-    const stored = window.localStorage.getItem(SCOPE_PREF_KEY(projectName))
+    const stored = readPreference(SCOPE_PREF_KEY(projectName))
     return stored === 'all' ? 'all' : 'read-only'
   })
   const abortRef = useRef<AbortController | null>(null)
@@ -183,7 +211,6 @@ export function AeroBar({ projectName }: AeroBarProps) {
       client: heyClient,
       path: { name: projectName },
     }),
-    enabled: open,
     staleTime: 60_000,
   })
 
@@ -206,16 +233,15 @@ export function AeroBar({ projectName }: AeroBarProps) {
     )
     if (!hit) {
       setProviderOverride(null)
-      window.localStorage.removeItem(PROVIDER_PREF_KEY(projectName))
+      removePreference(PROVIDER_PREF_KEY(projectName))
     }
   }, [providersQuery.data, providerOverride, projectName])
 
   const pickProvider = useCallback(
     (id: AgentProviderId | null) => {
       setProviderOverride(id)
-      if (typeof window === 'undefined') return
-      if (id) window.localStorage.setItem(PROVIDER_PREF_KEY(projectName), id)
-      else window.localStorage.removeItem(PROVIDER_PREF_KEY(projectName))
+      if (id) writePreference(PROVIDER_PREF_KEY(projectName), id)
+      else removePreference(PROVIDER_PREF_KEY(projectName))
     },
     [projectName],
   )
@@ -223,9 +249,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const toggleScope = useCallback(() => {
     setScope((prev) => {
       const next: AeroToolScope = prev === 'all' ? 'read-only' : 'all'
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(SCOPE_PREF_KEY(projectName), next)
-      }
+      writePreference(SCOPE_PREF_KEY(projectName), next)
       return next
     })
   }, [projectName])
@@ -246,7 +270,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
   // page refresh or a user prompt.
   useEffect(() => {
-    if (!open) return
+    if (!open || !activeProvider) return
     let cancelled = false
     setError(null)
 
@@ -268,7 +292,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [open, projectName, streaming])
+  }, [open, projectName, streaming, activeProvider])
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {
@@ -279,7 +303,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
 
   async function send(promptText: string) {
     const trimmed = promptText.trim()
-    if (!trimmed || streaming) return
+    if (!trimmed || streaming || !activeProvider) return
     setError(null)
     setDraft('')
     setStreaming(true)
@@ -361,6 +385,57 @@ export function AeroBar({ projectName }: AeroBarProps) {
   }
 
   const conversationIsEmpty = messages.length === 0
+
+  // Provider readiness is part of Aero's affordance, not a failure the user
+  // should discover after sending a prompt. Resolve it before showing the bar.
+  // A missing provider gets one truthful recovery location; a failed CHECK is
+  // reported as a failed check, since it is not evidence either way.
+  if (providersQuery.isPending) return null
+  if (providersQuery.isError) {
+    // A FAILED readiness check is not a finding that Aero is unavailable.
+    // Returning null here hid the launcher permanently while the layout still
+    // reserved space for it, so say what actually happened and offer a retry
+    // rather than either vanishing or claiming no provider is configured.
+    return (
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
+        <div
+          role="status"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+        >
+          <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
+          <span className="font-medium text-strong">Aero could not check provider availability.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="pointer-events-auto ml-auto"
+            onClick={() => { void providersQuery.refetch() }}
+          >
+            Try again
+          </Button>
+        </div>
+      </div>
+    )
+  }
+  if (!activeProvider) {
+    return (
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
+        <div
+          role="status"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+        >
+          <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
+          <span className="font-medium text-strong">Aero needs an agent provider.</span>
+          {canWrite ? (
+            <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
+              <Link to="/settings">Open Settings</Link>
+            </Button>
+          ) : (
+            <span className="ml-auto text-secondary">Ask an administrator to configure one.</span>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   // Layout classes depend on (open, expanded):
   //   closed    → compact pill at bottom

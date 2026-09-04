@@ -2076,21 +2076,6 @@ export function SiteHealthSection({
         </div>
       )}
 
-      {explicitOnboarding && siteAuditReady && (
-        <section aria-labelledby="ai-visibility-next-heading" className="flex flex-col gap-3 border-b border-default pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 id="ai-visibility-next-heading" className="text-base font-semibold text-heading">Next: Set up AI Visibility</h2>
-            <p className="mt-1 text-sm text-secondary">
-              See whether answer engines mention your brand and cite your pages.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
-            <Button type="button" variant="secondary" onClick={onSkipOnboarding}>Skip for now</Button>
-          </div>
-        </section>
-      )}
-
       {!explicitOnboarding && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default">
         <div role="tablist" aria-label="Site Health views" aria-orientation="horizontal" className="flex min-w-0 gap-5">
           {SITE_HEALTH_VIEWS.map((item, index) => (
@@ -2194,6 +2179,20 @@ export function SiteHealthSection({
             runId={resolvedRunId}
             integrated
             compactCopy={explicitOnboarding}
+            footer={explicitOnboarding && siteAuditReady ? (
+              <section aria-labelledby="ai-visibility-next-heading" className="mt-5 flex flex-col gap-3 border-t border-default pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 id="ai-visibility-next-heading" className="text-base font-semibold text-heading">Next: Set up AI Visibility</h2>
+                  <p className="mt-1 text-sm text-secondary">
+                    See whether answer engines mention your brand and cite your pages.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
+                  <Button type="button" variant="secondary" onClick={onSkipOnboarding}>Skip for now</Button>
+                </div>
+              </section>
+            ) : undefined}
             unavailableFooter={explicitOnboarding && siteAuditReady ? (
               <section aria-label="Page health recovery" className="mt-4">
                 <Button
@@ -2331,7 +2330,7 @@ export function SiteHealthSection({
               )}
             </div>
 
-            {graphQuery.data?.layout.state === 'ready' && (
+            {graphQuery.data?.layout.state === 'ready' && graphEdges.length > 0 && (
               <div className="mb-3 flex flex-col gap-1.5 rounded-lg border border-default bg-surface-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 {/*
                   One line, the numbers only. The rule that produced them and

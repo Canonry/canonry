@@ -175,6 +175,34 @@ describe('openapi contract', () => {
     expect(requestKindRef).toBe(KIND_REF)
   })
 
+  it('documents schedule collection reads as a typed array with no absence error', async () => {
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    const body = res.json() as {
+      paths: Record<string, Record<string, {
+        responses?: Record<string, {
+          content?: Record<string, {
+            schema?: {
+              type?: string
+              items?: { $ref?: string }
+            }
+          }>
+        }>
+      }>>
+    }
+    const operation = body.paths['/api/v1/projects/{name}/schedules']?.get
+    expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScheduleDto' },
+    })
+    expect(operation?.responses?.['404']).toBeUndefined()
+  })
+
   it('every 2xx response declares a body schema (or carries a non-JSON content type)', async () => {
     // Codegen tools rely on response schemas to derive typed return values.
     // 2xx responses must either reference a `components.schemas` entry via

@@ -46,6 +46,20 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 }
 
 function dashboardFallback(urlStr: string) {
+  if (urlStr.includes('/api/v1/keys/self')) {
+    return jsonResponse({
+      id: 'key-root',
+      name: 'Default key',
+      keyPrefix: 'cnry_root',
+      scopes: ['*'],
+      projectId: null,
+      projectName: null,
+      readOnly: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastUsedAt: null,
+      revokedAt: null,
+    })
+  }
   if (/\/api\/v1\/projects(?:\?|$)/.test(urlStr)) return jsonResponse([dashboardProject])
   if (urlStr.includes('/projects/') && urlStr.endsWith('/overview')) return jsonResponse({}, 404)
   if (urlStr.includes('/runs')) return jsonResponse([])

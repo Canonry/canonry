@@ -23,16 +23,20 @@ import { serveCommand } from './commands/serve.js'
 import { isMachineFormat } from './cli-error.js'
 
 const USAGE = `
-cnry — AEO monitoring CLI   ('canonry' also works)
+cnry — Page Health and AI visibility CLI   ('canonry' also works)
 
 Usage:  cnry <command> [options]
 
 Setup:
-  init                  Initialize config and database
-  bootstrap             Bootstrap config/database from env vars
+  bootstrap             Create local config/database (no provider required)
   serve                 Start the local server (foreground)
   start / stop          Start/stop as a background daemon
+  init                  Optional interactive provider/OAuth provisioning
   skills                List or install bundled agent skills (claude/codex)
+
+Page Health:
+  technical-aeo         Crawl, score, and inspect site health evidence
+  doctor                Diagnose runtime and integration health
 
 Projects:
   project               Create, update, list, show, delete projects

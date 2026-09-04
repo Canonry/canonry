@@ -1,21 +1,24 @@
 import { loadConfig } from '../config.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
-import { createServer } from '../server.js'
+import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge } from './skills.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { operatorHttpUrl } from '../operator-url.js'
+import { resolveServePort } from '../serve-endpoint.js'
 
 /**
  * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
- * Exported for tests; `serveCommand` is the only caller.
+ * Re-exported here to preserve the command's public test seam.
  */
-export function resolveServePort(envPort: string | undefined, configPort: number | undefined): number {
-  const trimmed = envPort?.trim()
-  if (trimmed) return parseInt(trimmed, 10)
-  return configPort ?? 4100
+export { resolveServePort } from '../serve-endpoint.js'
+
+/** First-run password setup is loopback-only for every non-loopback bind. */
+export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
+  return !isLoopbackBindHost(host)
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
@@ -77,29 +80,37 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   })
   const app = await createServer({ config, db, host, getAgentPluginState })
 
-  // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
-  // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT
-  // would call app.close() multiple times, causing unhandled rejections.
-  let shuttingDown = false
-  const shutdown = (signal: string): void => {
-    if (shuttingDown) return
-    shuttingDown = true
-    if (format === 'text') {
-      console.log(`\nReceived ${signal}, stopping server...`)
-    }
-    app.close().then(() => {
-      process.exit(0)
-    }).catch((err) => {
-      console.error('Error during shutdown:', err)
-      process.exit(1)
-    })
-  }
-  process.on('SIGTERM', () => shutdown('SIGTERM'))
-  process.on('SIGINT', () => shutdown('SIGINT'))
+  // Set the moment the server is bound and serving. Everything after that point
+  // in this `try` is reporting: console output, the skills nudge, telemetry.
+  // A throw there used to reach the catch below and `app.close()` a HEALTHY,
+  // listening server, turning a cosmetic failure into an outage.
+  let listening = false
 
   try {
     await app.listen({ host, port })
-    const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
+    await waitForServerRuntimeStartup(app)
+    listening = true
+
+    // Install signal handlers only after bind succeeds. A failed listen must
+    // leave neither a live Fastify app nor process-level listeners behind.
+    let shuttingDown = false
+    const shutdown = (signal: string): void => {
+      if (shuttingDown) return
+      shuttingDown = true
+      if (format === 'text') {
+        console.log(`\nReceived ${signal}, stopping server...`)
+      }
+      app.close().then(() => {
+        process.exit(0)
+      }).catch((err) => {
+        console.error('Error during shutdown:', err)
+        process.exit(1)
+      })
+    }
+    process.on('SIGTERM', () => shutdown('SIGTERM'))
+    process.on('SIGINT', () => shutdown('SIGINT'))
+
+    const url = operatorHttpUrl(host, port)
 
     if (isMachineFormat(format)) {
       console.log(JSON.stringify({
@@ -110,8 +121,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       }, null, 2))
     } else {
       console.log(`\nCanonry server running at ${url}`)
-      console.log(`Open ${url}/setup to finish onboarding and run your first visibility check.`)
-      if (host === '0.0.0.0') {
+      console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
+      if (shouldWarnAboutRemoteSetup(host)) {
         console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
       }
       console.log('Press Ctrl+C to stop.\n')
@@ -134,6 +145,17 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     })
   } catch (err) {
     const message = describeError(err)
+    if (listening) {
+      // Bound and serving already. Report the failure without tearing down a
+      // working server; the signal handlers are installed and own its shutdown.
+      process.stderr.write(`warning: server started but post-startup reporting failed: ${message}\n`)
+      return
+    }
+    try {
+      await app.close()
+    } catch (closeErr) {
+      process.stderr.write(`warning: failed to close server after startup error: ${describeError(closeErr)}\n`)
+    }
     throw new CliError({
       code: 'SERVE_START_FAILED',
       message: `Failed to start server: ${message}`,

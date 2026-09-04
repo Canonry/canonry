@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyServerEnv } from '../src/cli-commands/system.js'
-import { resolveServePort } from '../src/commands/serve.js'
+import { resolveServePort, shouldWarnAboutRemoteSetup } from '../src/commands/serve.js'
 
 const KEYS = [
   'CANONRY_PORT',
@@ -108,5 +108,20 @@ describe('resolveServePort', () => {
   it('uses 4100 default when neither env nor config provides a port', () => {
     expect(resolveServePort(undefined, undefined)).toBe(4100)
     expect(resolveServePort('', undefined)).toBe(4100)
+  })
+})
+
+describe('shouldWarnAboutRemoteSetup', () => {
+  it('warns for IPv4, IPv6, and specific non-loopback binds', () => {
+    expect(shouldWarnAboutRemoteSetup('0.0.0.0')).toBe(true)
+    expect(shouldWarnAboutRemoteSetup('::')).toBe(true)
+    expect(shouldWarnAboutRemoteSetup('[::]')).toBe(true)
+    expect(shouldWarnAboutRemoteSetup('192.168.1.10')).toBe(true)
+  })
+
+  it('does not warn for loopback binds', () => {
+    expect(shouldWarnAboutRemoteSetup('127.0.0.1')).toBe(false)
+    expect(shouldWarnAboutRemoteSetup('::1')).toBe(false)
+    expect(shouldWarnAboutRemoteSetup('localhost')).toBe(false)
   })
 })

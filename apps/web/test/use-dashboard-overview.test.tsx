@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, onTestFinished, test } from 'vitest'
+import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 import { waitFor, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
@@ -57,5 +57,29 @@ describe('useDashboardOverview', () => {
       expect(paths.some(path => path.startsWith('/api/v1/runs'))).toBe(true)
     })
     expect(paths.some(path => path.startsWith('/api/v1/settings'))).toBe(false)
+  })
+
+  test('does not poll the empty project list while focused setup owns creation', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    let projectReads = 0
+    const restoreFetch = mockFetch((path) => {
+      if (path.startsWith('/api/v1/projects')) {
+        projectReads += 1
+        return jsonResponse([])
+      }
+      if (path.startsWith('/api/v1/runs')) return jsonResponse([])
+      return jsonResponse({ providers: [] })
+    })
+    onTestFinished(restoreFetch)
+
+    renderHook(
+      () => useDashboardOverview(null, { includeSettings: false, pauseProjectPolling: true }),
+      { wrapper },
+    )
+
+    await vi.waitFor(() => { expect(projectReads).toBe(1) })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(projectReads).toBe(1)
   })
 })

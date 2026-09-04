@@ -940,7 +940,7 @@ describe('operator CLI contract', () => {
       error: { code: string; message: string; details: { command: string } }
     }
     expect(parsed.error.code).toBe('CONFIG_REQUIRED')
-    expect(parsed.error.message).toBe('No config found. Run "canonry init" first.')
+    expect(parsed.error.message).toBe('No config found. Run "canonry bootstrap" first.')
     expect(parsed.error.details.command).toBe('telemetry.enable')
   })
 
@@ -958,12 +958,33 @@ describe('operator CLI contract', () => {
       expect(bootstrapResult.stderr).toBe('')
       const bootstrapParsed = JSON.parse(bootstrapResult.stdout) as {
         bootstrapped: boolean
+        status: string
+        changed: boolean
         providers: string[]
         configPath: string
       }
       expect(bootstrapParsed.bootstrapped).toBe(true)
+      expect(bootstrapParsed.status).toBe('created')
+      expect(bootstrapParsed.changed).toBe(true)
       expect(bootstrapParsed.providers).toContain('gemini')
       expect(bootstrapParsed.configPath).toMatch(/config\.yaml$/)
+
+      const repeatedBootstrap = await invokeCli(['bootstrap', '--format', 'json'])
+      expect(JSON.parse(repeatedBootstrap.stdout)).toMatchObject({
+        bootstrapped: true,
+        status: 'unchanged',
+        changed: false,
+      })
+
+      for (const legacyForceFlag of ['--force', '-f']) {
+        const compatibleBootstrap = await invokeCli(['bootstrap', legacyForceFlag, '--format', 'json'])
+        expect(compatibleBootstrap.exitCode).toBe(undefined)
+        expect(JSON.parse(compatibleBootstrap.stdout)).toMatchObject({
+          bootstrapped: true,
+          status: 'unchanged',
+          changed: false,
+        })
+      }
 
       const stopResult = await invokeCli(['stop', '--format', 'json'])
       expect(stopResult.exitCode).toBe(undefined)
@@ -987,6 +1008,19 @@ describe('operator CLI contract', () => {
       }
       fs.rmSync(isolatedConfigDir, { recursive: true, force: true })
     }
+  })
+
+  it('explains bootstrap state and rerun behavior in contextual help', async () => {
+    const result = await invokeCli(['bootstrap', '--help'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toContain('Usage:  canonry bootstrap [--format json]')
+    expect(result.stdout).toContain('local config, SQLite database, and default API key')
+    expect(result.stdout).toContain('Provider credentials are optional')
+    expect(result.stdout).toContain('Safe to rerun')
+    expect(result.stdout).toContain('created, updated, or unchanged')
+    expect(result.stdout).toContain('legacy --force/-f flag is accepted but has no effect')
   })
 
   it('prints a typed JSON error for init when Google OAuth credentials are incomplete', async () => {

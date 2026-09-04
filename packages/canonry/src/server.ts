@@ -48,6 +48,7 @@ import {
   frameAncestorsHeaderValue,
   CcReleaseSyncStatuses,
   RunKinds,
+  SchedulableRunKinds,
   RunStatuses,
   RunTriggers,
   ResearchRunStatuses,
@@ -221,7 +222,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
-import { Scheduler } from "./scheduler.js";
+import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -249,6 +250,19 @@ import {
 import { assessConversionTrackingIntegrity } from "@ainyc/canonry-intelligence";
 
 const log = createLogger("Server");
+
+const runtimeStartupByServer = new WeakMap<FastifyInstance, Promise<void>>();
+
+/**
+ * Wait for the scheduler and queued-work recovery that begin only after a
+ * successful network bind. Fastify intentionally ignores `onListen` errors,
+ * so production startup must await this explicit result before reporting the
+ * server as ready.
+ */
+export function waitForServerRuntimeStartup(app: FastifyInstance): Promise<void> {
+  const startup = runtimeStartupByServer.get(app);
+  return startup ?? Promise.reject(new Error("Server runtime startup was not registered"));
+}
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -2339,7 +2353,7 @@ export async function createServer(opts: {
         return reply.status(401).send({
           error: {
             code: "AUTH_INVALID",
-            message: "Server API key not found — re-run canonry init",
+            message: "Server API key not found — run canonry bootstrap",
           },
         });
       }
@@ -3081,6 +3095,11 @@ export async function createServer(opts: {
       if (action === "upsert") scheduler.upsert(projectId, kind);
       if (action === "delete") scheduler.remove(projectId, kind);
     },
+    onProjectCreated: (projectId: string) => {
+      if (ensureDefaultHealthSchedule(opts.db, projectId)) {
+        scheduler.upsert(projectId, SchedulableRunKinds.doctor);
+      }
+    },
     onProjectDeleting: prepareGoogleMarketingCredentialDelete,
     onProjectDeleted: (projectId: string) => {
       scheduler.removeAllForProject(projectId);
@@ -3499,16 +3518,42 @@ export async function createServer(opts: {
   // Fire-and-forget — boot does not wait on this.
   checkLatestVersionForServer();
 
-  // Start scheduler after setup
-  scheduler.start();
+  let resolveRuntimeStartup!: () => void;
+  let rejectRuntimeStartup!: (error: unknown) => void;
+  const runtimeStartup = new Promise<void>((resolve, reject) => {
+    resolveRuntimeStartup = resolve;
+    rejectRuntimeStartup = reject;
+  });
+  // Direct programmatic callers may choose not to await the production
+  // readiness contract. Keep their process free of unhandled-rejection noise;
+  // `waitForServerRuntimeStartup` still observes the original rejection.
+  void runtimeStartup.catch(() => {});
+  runtimeStartupByServer.set(app, runtimeStartup);
 
-  // A request can commit its queued row just before a process exits, leaving
-  // no in-memory callback to claim it. Re-dispatch every queued batch at boot;
-  // executeResearchRun's queued -> running compare-and-set keeps this safe when
-  // a concurrent retry also asks for execution.
-  for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
-    dispatchResearchRun(run.id, run.projectId);
-  }
+  // Background work must begin only after the listener is live. Fastify runs
+  // onReady before attempting the bind, so starting there would still mutate
+  // schedules/query baskets when listen() later fails with EADDRINUSE.
+  let runtimeStartupSettled = false;
+  app.addHook("onListen", () => {
+    if (runtimeStartupSettled) return;
+    try {
+      scheduler.start();
+
+      // A request can commit its queued row just before a process exits,
+      // leaving no in-memory callback to claim it. Re-dispatch every queued
+      // batch only after a successful bind; executeResearchRun's queued ->
+      // running compare-and-set keeps this safe when a concurrent retry also
+      // asks for execution.
+      for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
+        dispatchResearchRun(run.id, run.projectId);
+      }
+      runtimeStartupSettled = true;
+      resolveRuntimeStartup();
+    } catch (error) {
+      runtimeStartupSettled = true;
+      rejectRuntimeStartup(error);
+    }
+  });
 
   // Graceful shutdown
   app.addHook("onClose", async () => {

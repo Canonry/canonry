@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { schedulableRunKindSchema, SchedulableRunKinds } from '../src/schedule.js'
+import { schedulableRunKindSchema, scheduleUpsertRequestSchema, SchedulableRunKinds } from '../src/schedule.js'
 
 describe('schedulableRunKindSchema', () => {
   it('accepts answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, and ads-sync', () => {
@@ -23,5 +23,13 @@ describe('schedulableRunKindSchema', () => {
     expect(SchedulableRunKinds['gbp-sync']).toBe('gbp-sync')
     expect(SchedulableRunKinds['backlinks-sync']).toBe('backlinks-sync')
     expect(SchedulableRunKinds['ads-sync']).toBe('ads-sync')
+  })
+})
+
+describe('scheduleUpsertRequestSchema', () => {
+  it('accepts exact and create-only guards and rejects malformed timestamps', () => {
+    expect(scheduleUpsertRequestSchema.safeParse({ preset: 'daily', expectedUpdatedAt: '2026-09-02T12:00:00.000Z' }).success).toBe(true)
+    expect(scheduleUpsertRequestSchema.safeParse({ preset: 'daily', expectedUpdatedAt: null }).success).toBe(true)
+    expect(scheduleUpsertRequestSchema.safeParse({ preset: 'daily', expectedUpdatedAt: 'yesterday' }).success).toBe(false)
   })
 })

@@ -25,10 +25,16 @@ schema feature is **not** on the current roadmap — see root `AGENTS.md`
 ## Local (default)
 
 ```bash
+canonry bootstrap
 canonry serve
 ```
 
-Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No configuration needed.
+Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No provider credential is needed for Page Health.
+
+Local state defaults to `~/.canonry/config.yaml` and `~/.canonry/data.db`.
+Set `CANONRY_CONFIG_DIR=/private/path` consistently for `canonry bootstrap`,
+the server, and all CLI/MCP clients to isolate an install in another directory.
+Provider credentials are optional for bootstrap and Page Health.
 
 > **Use `127.0.0.1`, not `localhost`.** `canonry serve` binds the IPv4 loopback
 > `127.0.0.1` (override with `CANONRY_HOST`). On machines where `localhost`

@@ -5,8 +5,8 @@ The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@
 ## Server Management
 
 ```bash
-cnry init                                      # interactive setup
-cnry bootstrap                                 # non-interactive setup from env vars
+cnry bootstrap                                 # local config/database; providers optional
+cnry init                                      # optional interactive provider/OAuth setup
 cnry start                                     # start daemon
 cnry stop                                      # stop daemon
 cnry serve                                     # foreground mode
@@ -15,10 +15,11 @@ cnry serve --embed --embed-allow-origin https://app.example.com   # read-only em
 cnry --version
 ```
 
-`cnry init` prompts for credentials and prints the new API key once. An agent
-must pause and ask the operator to run it in a private terminal, without
-pasting the output back. Do not run `init` or secret-bearing `bootstrap` inside
-an agent transcript.
+`cnry bootstrap` is the provider-free Page Health path. It stores state under
+`$CANONRY_CONFIG_DIR` when set, otherwise `~/.canonry`, and prints a new API key
+once. `cnry init` is the optional interactive path when provider/OAuth setup is
+wanted at the same time. An agent must ask the operator to run either
+secret-bearing command in a private terminal without pasting the output back.
 
 ### Read-only embed mode (#716)
 

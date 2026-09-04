@@ -1,34 +1,22 @@
-import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
-import { addToast } from '../lib/toast-store.js'
-import { asyncHandler } from '../lib/async-handler.js'
-import { createOnboardingProject } from '../api.js'
+import { useAccount } from '../contexts/account-context.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
-import { Link } from '@tanstack/react-router'
 
 export function ProjectsPage() {
   const { dashboard, isLoading, refetch } = useDashboard()
+  const { canWrite, isAdmin } = useAccount()
 
   // Hooks run before the skeleton return for the reason described in
   // OverviewPage: React counts them by call order, so a return placed between
   // two of them changes the count between renders and throws.
   const navigate = useNavigate()
-
-  const [showForm, setShowForm] = useState(false)
-  const [projectName, setProjectName] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [domain, setDomain] = useState('')
-  const [country, setCountry] = useState('US')
-  const [language, setLanguage] = useState('en')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   if (!dashboard || isLoading) {
     return (
@@ -62,48 +50,6 @@ export function ProjectsPage() {
 
   const projects = dashboard.projects
 
-  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-
-  const handleCreate = async () => {
-    if (!slug || !domain) return
-    setSaving(true)
-    setError(null)
-    try {
-      const project = await createOnboardingProject({
-        name: slug,
-        displayName: displayName || projectName,
-        canonicalDomain: domain,
-        country,
-        language,
-      })
-      addToast({
-        title: 'Project created',
-        detail: `${project.displayName || project.name} is ready to configure.`,
-        tone: 'positive',
-        dedupeKey: `project:create:${project.name}`,
-        dedupeMode: 'drop',
-      })
-      await refetch()
-      setProjectName('')
-      setDisplayName('')
-      setDomain('')
-      setCountry('US')
-      setLanguage('en')
-      setShowForm(false)
-      void navigate({
-        to: '/setup',
-        search: {
-          experience: 'legacy',
-          setupProject: project.name,
-        },
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="page-container">
       <div className="page-header">
@@ -111,99 +57,21 @@ export function ProjectsPage() {
           <h1 className="page-title">Projects</h1>
           <p className="page-subtitle">{projects.length} project{projects.length !== 1 ? 's' : ''} tracked</p>
         </div>
-        <div className="page-header-right">
-          <Button type="button" onClick={() => setShowForm((v) => !v)}>
+        {isAdmin ? <div className="page-header-right">
+          <Button
+            type="button"
+            onClick={() => {
+              void navigate({
+                to: '/setup',
+                search: { experience: 'platform' },
+              })
+            }}
+          >
             <Plus className="size-4 mr-1.5" />
-            Add project
+            {projects.length === 0 ? 'Map a site' : 'Add project'}
           </Button>
-        </div>
+        </div> : null}
       </div>
-
-      {showForm ? (
-        <Card className="surface-card mb-6">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">New project</p>
-              <h2 className="text-sm font-medium text-strong">Create a new monitoring project</h2>
-            </div>
-          </div>
-          <div className="compact-stack mt-4">
-            <div className="setup-field-row">
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="new-project-name">Project name</label>
-                <input
-                  id="new-project-name"
-                  className="setup-input"
-                  type="text"
-                  placeholder="my-project"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                />
-                {slug && slug !== projectName ? (
-                  <p className="supporting-copy">Slug: {slug}</p>
-                ) : null}
-              </div>
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="new-display-name">Display name</label>
-                <input
-                  id="new-display-name"
-                  className="setup-input"
-                  type="text"
-                  placeholder="My Project"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="setup-field">
-              <label className="setup-label" htmlFor="new-domain">Canonical domain</label>
-              <input
-                id="new-domain"
-                className="setup-input"
-                type="text"
-                placeholder="example.com"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-              />
-            </div>
-            <div className="setup-field-row">
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="new-country">Country</label>
-                <input
-                  id="new-country"
-                  className="setup-input"
-                  type="text"
-                  placeholder="US"
-                  maxLength={2}
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value.toUpperCase())}
-                />
-              </div>
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="new-language">Language</label>
-                <input
-                  id="new-language"
-                  className="setup-input"
-                  type="text"
-                  placeholder="en"
-                  maxLength={5}
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value.toLowerCase())}
-                />
-              </div>
-            </div>
-          </div>
-          {error ? <p className="text-negative-400 text-sm mt-3">{error}</p> : null}
-          <div className="flex items-center gap-3 mt-4">
-            <Button type="button" disabled={!slug || !domain || saving} onClick={asyncHandler(handleCreate)}>
-              {saving ? 'Creating...' : 'Create project'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-              Cancel
-            </Button>
-          </div>
-        </Card>
-      ) : null}
 
       {projects.length > 0 ? (
         <div className="data-table-wrapper">
@@ -251,18 +119,32 @@ export function ProjectsPage() {
             </tbody>
           </table>
         </div>
-      ) : !showForm ? (
+      ) : (
         <Card className="surface-card empty-card">
           <h3>No projects yet</h3>
-          <p className="supporting-copy">Create your first monitoring project to start tracking AI visibility.</p>
-          <Button type="button" onClick={() => setShowForm(true)}>
-            <Plus className="size-4 mr-1.5" />
-            Add project
-          </Button>
+          <p className="supporting-copy">Map a public site to capture its Page Health baseline and exact fixes.</p>
+          {isAdmin ? (
+            <Button
+              type="button"
+              onClick={() => {
+                void navigate({
+                  to: '/setup',
+                  search: { experience: 'platform' },
+                })
+              }}
+            >
+              <Plus className="size-4 mr-1.5" />
+              Map a site
+            </Button>
+          ) : null}
         </Card>
-      ) : null}
+      )}
 
-      <YamlApplyPanel onApplied={() => { void refetch() }} />
+      {/* Not gated on having projects: a FRESH install is exactly where pasting
+          an existing canonry.yaml matters, and it is also where the inline
+          create form is gone and "Map a site" is admin-only, so gating this
+          left a non-admin writer with no way to create a project at all. */}
+      {canWrite ? <YamlApplyPanel onApplied={() => { void refetch() }} /> : null}
     </div>
   )
 }

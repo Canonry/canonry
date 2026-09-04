@@ -22,6 +22,8 @@ export type CliCommandInput = {
 export type CliCommandSpec = {
   path: readonly string[]
   usage: string
+  /** Optional prose shown after usage for contextual `--help` requests. */
+  help?: string
   options?: ParseArgsOptionsConfig
   allowPositionals?: boolean
   /**
@@ -36,6 +38,11 @@ export type CliCommandSpec = {
 
 function commandId(spec: CliCommandSpec): string {
   return spec.path.join('.')
+}
+
+function printCommandHelp(spec: CliCommandSpec): void {
+  console.log(`\nUsage:  ${spec.usage}\n`)
+  if (spec.help) console.log(`${spec.help}\n`)
 }
 
 function matchesPath(args: readonly string[], path: readonly string[]): boolean {
@@ -105,7 +112,7 @@ export async function dispatchRegisteredCommand(
 
     if (exactMatch && exactMatch.path.length > 1) {
       // Specific subcommand — show its usage
-      console.log(`\nUsage:  ${exactMatch.usage}\n`)
+      printCommandHelp(exactMatch)
       return true
     }
 
@@ -120,7 +127,7 @@ export async function dispatchRegisteredCommand(
       // Single command — show its usage string
       const single = specs.find(s => s.path.length === 1 && s.path[0] === group)
       if (single) {
-        console.log(`\nUsage:  ${single.usage}\n`)
+        printCommandHelp(single)
         return true
       }
     }

@@ -307,14 +307,21 @@ export function RootLayout() {
   const agentBarVisible = useMemo(shouldShowDashboardAgentBar, [])
   const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
 
+  // Router state is also a data-fetching input: setup owns the project-create
+  // mutation and invalidates the list itself, so the global zero-project poll
+  // would only duplicate that request every two seconds while the form is open.
+  const location = useLocation()
+
   // ── Data fetching via TanStack Query ──
-  const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, { includeSettings: !embed })
+  const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, {
+    includeSettings: !embed,
+    pauseProjectPolling: location.pathname === '/setup',
+  })
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
   // ── Router state ──
-  const location = useLocation()
   const { runId, evidenceId, closeDrawer } = useDrawer()
 
   // ── UI state ──
@@ -425,6 +432,12 @@ export function RootLayout() {
   const isEmptySetup = isSetupRoute
     && safeDashboard !== null
     && safeDashboard.portfolioOverview.projects.length === 0
+  // First-run handoffs keep this marker in the URL. It is authoritative after
+  // project creation and on a cold reload, when the now-nonempty project list
+  // no longer identifies the visit as first-run setup. Ordinary project-scoped
+  // setup has no marker and retains the operator shell.
+  const isExplicitFirstRunSetup = isSetupRoute
+    && (location.search.onboarding === 'site-health' || location.search.onboarding === 'first-run')
   const [firstRunSetupLatched, setFirstRunSetupLatched] = useState(isEmptySetup)
   useEffect(() => {
     if (!isSetupRoute) {
@@ -433,7 +446,12 @@ export function RootLayout() {
       setFirstRunSetupLatched(true)
     }
   }, [isEmptySetup, isSetupRoute])
-  const isFocusedSetup = isSetupRoute && (isEmptySetup || firstRunSetupLatched)
+  // A cold /setup load does not know whether projects exist until the first
+  // project read succeeds. Keep the focused shell through loading and failure
+  // so an unavailable install-state read cannot expose operator navigation.
+  const isSetupReadinessUnknown = isSetupRoute && safeDashboard === null
+  const isFocusedSetup = isSetupRoute
+    && (isExplicitFirstRunSetup || isEmptySetup || firstRunSetupLatched || isSetupReadinessUnknown)
   const shellModifier = isFocusedSetup
     ? 'app-shell-focus'
     : sidebarHidden
@@ -754,23 +772,26 @@ export function RootLayout() {
                 Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
               </span>
             </div>
-            <Button
-              className="nav-toggle"
-              variant="secondary"
-              size="icon"
-              type="button"
-              aria-expanded={mobileNavOpen}
-              aria-controls="mobile-nav"
-              onClick={() => setMobileNavOpen((open) => !open)}
-            >
-              <Menu className="size-4" />
-              <span className="sr-only">Open navigation</span>
-            </Button>
+            {!isFocusedSetup ? (
+              <Button
+                className="nav-toggle"
+                variant="secondary"
+                size="icon"
+                type="button"
+                aria-expanded={mobileNavOpen}
+                aria-controls="mobile-nav"
+                onClick={() => setMobileNavOpen((open) => !open)}
+              >
+                <Menu className="size-4" />
+                <span className="sr-only">Open navigation</span>
+              </Button>
+            ) : null}
           </div>
         </header>
 
         {/* Mobile nav overlay */}
-        <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
+        {!isFocusedSetup ? (
+          <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
           <Button
             className="mobile-nav-close"
             variant="ghost"
@@ -849,10 +870,14 @@ export function RootLayout() {
               </div>
             </div>
           )}
-        </div>
+          </div>
+        ) : null}
 
         {/* Page content */}
-        <main id="content" className="page-shell">
+        <main
+          id="content"
+          className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
+        >
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">
               <div className="page-skeleton-header">

@@ -513,8 +513,8 @@ export function loadConfig(): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(
       `Config not found at ${configPath}.\n` +
-      'Run "canonry init" to set up interactively, or "canonry init --gemini-key <key>" for non-interactive setup.\n' +
-      'For CI/Docker, use "canonry bootstrap" with env vars (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, PERPLEXITY_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET).',
+      'Run "canonry bootstrap" to create the local Page Health runtime; provider credentials are optional.\n' +
+      'Use "canonry init" instead only when you want interactive provider/OAuth provisioning.',
     )
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
@@ -527,7 +527,7 @@ export function loadConfig(): CanonryConfig {
     ].filter(Boolean).join(', ')
     throw new Error(
       `Invalid config at ${configPath} — missing: ${missing}.\n` +
-      'These fields are auto-generated. Run "canonry init" (or "canonry init --gemini-key <key>" for non-interactive setup) to create a valid config.\n' +
+      'These fields are auto-generated. Run "canonry bootstrap" to create a valid local runtime.\n' +
       'Do not write config.yaml by hand; use "canonry init", "canonry settings", or "canonry bootstrap" instead.',
     )
   }

@@ -252,6 +252,7 @@ describe('measurement setup state', () => {
       state: 'republish_required',
       nextAction: 'republish_setup',
       mode: 'active-v1',
+      answerVisibilityProviderReady: true,
       activeRevision: 4,
       activeSchemaVersion: 1,
       draft: { etag: '"mpd_2"', updatedAt: '2026-08-01T00:00:00.000Z' },

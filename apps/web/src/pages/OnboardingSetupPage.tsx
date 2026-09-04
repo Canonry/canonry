@@ -1,8 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown, Copy, ExternalLink, LoaderCircle } from 'lucide-react'
-import { getApiV1ProjectsOptions, getApiV1ProjectsQueryKey, getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
+import {
+  getApiV1ProjectsOptions,
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsByIdOptions,
+  getApiV1TelemetryOptions,
+  getApiV1TelemetryQueryKey,
+  putApiV1TelemetryMutation,
+} from '@ainyc/canonry-api-client/react-query'
 
 import {
   ApiError,
@@ -52,7 +59,7 @@ Use Canonry's official docs:
 Use an existing Canonry installation or connected plugin/MCP if one is already available. Do not create a duplicate. The \`cnry\` and \`canonry\` commands are interchangeable.
 
 1. Ask for my public domain, country, and language. Do not create or scan anything yet.
-2. Check the local setup with \`command -v cnry\`, \`cnry --version\`, \`cnry doctor --format json\`, and \`cnry project list --format json\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If initialization is required, tell me to run \`cnry init\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or \`cnry init\` output.
+2. Check the local setup with \`command -v cnry\`, \`cnry --version\`, \`cnry doctor --format json\`, and \`cnry project list --format json\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If initialization is required, tell me to run \`cnry bootstrap\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or \`cnry bootstrap\` output.
 3. Show the normalized domain, proposed project name, exact \`cnry project create ...\` command, and wait for explicit approval before creating it.
 4. Propose a bounded Site Health scan, including \`--max-pages\` and whether dead-link checking is enabled. Show the exact \`cnry technical-aeo run ... --wait --format json\` command and wait for separate approval before scanning.
 5. After the crawl, summarize the findings and propose AI Visibility setup. Ask before adding queries, connecting providers, starting any provider-backed or quota-consuming run, editing files, or publishing.`
@@ -87,6 +94,36 @@ export interface LaunchpadIdentity {
   displayName: string
 }
 
+export const LAUNCHPAD_COUNTRIES = [
+  { value: 'US', label: 'United States' },
+  { value: 'CA', label: 'Canada' },
+  { value: 'GB', label: 'United Kingdom' },
+  { value: 'AU', label: 'Australia' },
+  { value: 'NZ', label: 'New Zealand' },
+  { value: 'IE', label: 'Ireland' },
+  { value: 'DE', label: 'Germany' },
+  { value: 'FR', label: 'France' },
+  { value: 'ES', label: 'Spain' },
+  { value: 'IT', label: 'Italy' },
+  { value: 'NL', label: 'Netherlands' },
+  { value: 'BR', label: 'Brazil' },
+  { value: 'MX', label: 'Mexico' },
+  { value: 'IN', label: 'India' },
+  { value: 'SG', label: 'Singapore' },
+  { value: 'JP', label: 'Japan' },
+] as const
+
+export const LAUNCHPAD_LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'fr', label: 'French' },
+  { value: 'de', label: 'German' },
+  { value: 'it', label: 'Italian' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'nl', label: 'Dutch' },
+  { value: 'ja', label: 'Japanese' },
+] as const
+
 function launchpadLocaleLabel(country: string, language: string): string {
   try {
     const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
@@ -96,6 +133,19 @@ function launchpadLocaleLabel(country: string, language: string): string {
     return `${region ?? (country || 'Country')} · ${locale ?? (language || 'Language')}`
   } catch {
     return `${country || 'Country'} · ${language || 'Language'}`
+  }
+}
+
+/** Keep project creation on the locale values the launchpad explicitly supports. */
+export function validateLaunchpadLocale(country: string, language: string): {
+  countryValid: boolean
+  languageValid: boolean
+} {
+  const normalizedCountry = country.trim().toUpperCase()
+  const normalizedLanguage = language.trim().toLowerCase()
+  return {
+    countryValid: LAUNCHPAD_COUNTRIES.some(option => option.value === normalizedCountry),
+    languageValid: LAUNCHPAD_LANGUAGES.some(option => option.value === normalizedLanguage),
   }
 }
 
@@ -457,7 +507,7 @@ function SiteHealthOnboardingPageBody({
       method: 'skipped',
     }, 'onboarding.step_completed:run')
     void navigate({
-      to: '/projects/$projectName',
+      to: '/projects/$projectName/technical-aeo',
       params: { projectName: project.name },
       replace: true,
     })
@@ -498,7 +548,11 @@ export function OnboardingSetupPage() {
   const explicitSiteHealthOnboarding = search.onboarding === 'site-health'
     && search.experience !== 'legacy'
   const configuredMode = getOnboardingMode()
-  const mode: OnboardingMode = search.experience === 'legacy' ? 'legacy' : configuredMode
+  const mode: OnboardingMode = search.experience === 'legacy'
+    ? 'legacy'
+    : search.experience === 'platform'
+      ? 'platform'
+      : configuredMode
   const [platformLatched, setPlatformLatched] = useState(false)
   const projectsQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
@@ -543,21 +597,46 @@ export function OnboardingSetupPage() {
   }
   if (surface === 'loading') return <AutoModeLoading />
   if (surface === 'retry') return <AutoModeRetry onRetry={() => { void projectsQuery.refetch() }} />
-  return <PlatformSetupPage onActivationStarted={() => setPlatformLatched(true)} />
+  return (
+    <PlatformSetupPage
+      onActivationStarted={() => setPlatformLatched(true)}
+      skipSiteScan={search.siteScan === 'skip'}
+    />
+  )
 }
 
-function PlatformSetupPage({ onActivationStarted }: { onActivationStarted: () => void }) {
+function PlatformSetupPage({
+  onActivationStarted,
+  skipSiteScan,
+}: {
+  onActivationStarted: () => void
+  skipSiteScan: boolean
+}) {
   return (
     <AdminOnly title="Site Health setup">
-      <PlatformSetupPageBody onActivationStarted={onActivationStarted} />
+      <PlatformSetupPageBody
+        onActivationStarted={onActivationStarted}
+        skipSiteScan={skipSiteScan}
+      />
     </AdminOnly>
   )
 }
 
-function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: () => void }) {
+function PlatformSetupPageBody({
+  onActivationStarted,
+  skipSiteScan,
+}: {
+  onActivationStarted: () => void
+  skipSiteScan: boolean
+}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const siteAuditMutation = useTriggerSiteAudit()
+  const telemetryQuery = useQuery({
+    ...getApiV1TelemetryOptions({ client: heyClient }),
+    retry: false,
+  })
+  const telemetryMutation = useMutation(putApiV1TelemetryMutation())
   const [domain, setDomain] = useState('')
   const [projectName, setProjectName] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -570,6 +649,11 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
   const [createConflict, setCreateConflict] = useState(false)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [agentRequestCopied, setAgentRequestCopied] = useState(false)
+  const telemetryStatus = telemetryMutation.data ?? telemetryQuery.data
+  const telemetryEnabled = typeof telemetryStatus?.enabled === 'boolean'
+    ? telemetryStatus.enabled
+    : null
+  const [telemetryError, setTelemetryError] = useState<string | null>(null)
   const errorRef = useRef<HTMLDivElement>(null)
   const { onboardingSessionId, emit } = useOnboardingTelemetry('platform')
 
@@ -589,6 +673,8 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
   const busy = phase === 'creating' || phase === 'dispatching'
   const visibleError = createError ?? dispatchError
   const localeLabel = launchpadLocaleLabel(country, language)
+  const { countryValid, languageValid } = validateLaunchpadLocale(country, language)
+  const localeValid = countryValid && languageValid
 
   useEffect(() => {
     if (visibleError) errorRef.current?.focus()
@@ -699,7 +785,7 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!identity || !crawlApproved || busy) return
+    if (!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy) return
 
     setPhase('creating')
     setCreateError(null)
@@ -714,7 +800,8 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
         language,
       })
       // `auto` would otherwise switch back to legacy as soon as creation makes
-      // the authoritative project list non-empty, unmounting dispatch recovery.
+      // the authoritative project list non-empty, unmounting the handoff or
+      // dispatch recovery.
       onActivationStarted()
       setCreatedProject(project)
       emit({
@@ -727,6 +814,18 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
       await queryClient.invalidateQueries({
         queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
       })
+      if (skipSiteScan) {
+        await navigate({
+          to: '/setup',
+          search: {
+            experience: 'legacy',
+            onboarding: 'first-run',
+            setupProject: project.name,
+          },
+          replace: true,
+        })
+        return
+      }
       await dispatchSiteHealth(project)
     } catch (error) {
       setPhase('idle')
@@ -776,6 +875,19 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
     }
   }
 
+  const updateTelemetry = async (enabled: boolean) => {
+    setTelemetryError(null)
+    try {
+      const status = await telemetryMutation.mutateAsync({ client: heyClient, body: { enabled } })
+      queryClient.setQueryData(
+        getApiV1TelemetryQueryKey({ client: heyClient }),
+        status,
+      )
+    } catch {
+      setTelemetryError('Could not update telemetry. Try again.')
+    }
+  }
+
   if (createdProject && phase === 'recovery') {
     return (
       <div className="page-container max-w-3xl">
@@ -800,11 +912,15 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
 
   return (
     <div className="page-container max-w-xl py-8 md:py-12">
-      <OnboardingProgress current="site" />
-      <header className="mb-8 mt-8">
-        <h1 id="site-map-setup-title" className="text-2xl font-semibold tracking-[-0.025em] text-heading">Map your site</h1>
+      {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
+      <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
+        <h1 id="site-map-setup-title" className="text-2xl font-semibold tracking-[-0.025em] text-heading">
+          {skipSiteScan ? 'Create a project' : 'Map your site'}
+        </h1>
         <p className="mt-2 max-w-lg text-sm leading-6 text-secondary">
-          Enter your public website to see its pages, structure, and internal links.
+          {skipSiteScan
+            ? 'Add a public domain, then choose the queries you want to track. No site scan will run.'
+            : 'Enter your public website to see its pages, structure, and internal links.'}
         </p>
       </header>
 
@@ -831,14 +947,29 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
             }}
           />
           <p id="launchpad-domain-hint" className="text-sm text-secondary">
-            Only public pages are scanned.{' '}
-            <Link
-              to="/setup"
-              search={{ experience: 'legacy' }}
-              className="font-medium text-link underline-offset-4 hover:underline"
-            >
-              Set up without a site scan
-            </Link>
+            {skipSiteScan ? (
+              <>
+                A public domain is still required.{' '}
+                <Link
+                  to="/setup"
+                  search={{ experience: 'platform' }}
+                  className="font-medium text-link underline-offset-4 hover:underline"
+                >
+                  Map with Site Health instead
+                </Link>
+              </>
+            ) : (
+              <>
+                Only public pages are scanned.{' '}
+                <Link
+                  to="/setup"
+                  search={{ experience: 'platform', onboarding: 'first-run', siteScan: 'skip' }}
+                  className="font-medium text-link underline-offset-4 hover:underline"
+                >
+                  Set up without a site scan
+                </Link>
+              </>
+            )}
           </p>
           {domain && !identity ? <p id="launchpad-domain-error" className="text-sm text-negative" role="alert">Enter a public domain, such as example.com.</p> : null}
         </div>
@@ -885,47 +1016,53 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <label className="text-sm text-secondary" htmlFor="launchpad-country">Country</label>
-                  <input
+                  <select
                     id="launchpad-country"
                     className="setup-input h-10"
-                    type="text"
-                    maxLength={2}
                     value={country}
-                    onChange={(event) => setCountry(event.target.value.toUpperCase())}
-                  />
+                    onChange={(event) => setCountry(event.target.value)}
+                  >
+                    {LAUNCHPAD_COUNTRIES.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm text-secondary" htmlFor="launchpad-language">Language</label>
-                  <input
+                  <select
                     id="launchpad-language"
                     className="setup-input h-10"
-                    type="text"
-                    maxLength={5}
                     value={language}
-                    onChange={(event) => setLanguage(event.target.value.toLowerCase())}
-                  />
+                    onChange={(event) => setLanguage(event.target.value)}
+                  >
+                    {LAUNCHPAD_LANGUAGES.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
           </div>
         </details>
 
-        <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
-          <input
-            className="mt-0.5 size-4 shrink-0 rounded border-strong bg-bg"
-            type="checkbox"
-            checked={crawlApproved}
-            onChange={(event) => setCrawlApproved(event.target.checked)}
-            aria-label="Allow Canonry to scan this public site."
-            aria-describedby="local-crawl-note"
-          />
-          <span className="grid gap-0.5">
-            <span className="text-sm leading-5 text-heading">Allow Canonry to scan this public site.</span>
-            <span id="local-crawl-note" className="text-sm leading-5 text-secondary">
-              The crawl runs on this Canonry instance, follows internal links, and stores its results locally.
+        {!skipSiteScan ? (
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
+            <input
+              className="mt-0.5 size-4 shrink-0 rounded border-strong bg-bg"
+              type="checkbox"
+              checked={crawlApproved}
+              onChange={(event) => setCrawlApproved(event.target.checked)}
+              aria-label="Allow Canonry to scan this public site."
+              aria-describedby="local-crawl-note"
+            />
+            <span className="grid gap-0.5">
+              <span className="text-sm leading-5 text-heading">Allow Canonry to scan this public site.</span>
+              <span id="local-crawl-note" className="text-sm leading-5 text-secondary">
+                The crawl runs on this Canonry instance, follows internal links, and stores its results locally.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        ) : null}
 
         {visibleError ? (
           <div ref={errorRef} className="rounded-md border border-negative bg-negative-soft p-3" role="alert" tabIndex={-1}>
@@ -937,12 +1074,15 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
         ) : null}
 
         <div className="grid gap-2">
-          <Button className="h-11 w-full" type="submit" disabled={!identity || !crawlApproved || busy}>
+          <Button
+            className="h-11 w-full"
+            type="submit"
+            disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
+          >
             {phase === 'creating' || phase === 'dispatching'
-              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Mapping site…</>
-              : 'Map site'}
+              ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
+              : skipSiteScan ? 'Create project' : 'Map site'}
           </Button>
-          <Button className="w-full" type="button" variant="ghost" disabled={busy} onClick={cancel}>Cancel</Button>
           {phase === 'dispatching' ? <span className="text-center text-sm text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
         </div>
       </form>
@@ -968,6 +1108,28 @@ function PlatformSetupPageBody({ onActivationStarted }: { onActivationStarted: (
           </Button>
         </div>
       </section>
+
+      {telemetryEnabled !== null ? (
+        <section className="mt-6 border-t border-default pt-5" aria-labelledby="telemetry-title">
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
+            <input
+              className="mt-0.5 size-4 shrink-0 rounded border-strong bg-bg"
+              type="checkbox"
+              checked={telemetryEnabled}
+              disabled={telemetryMutation.isPending}
+              onChange={(event) => { void updateTelemetry(event.target.checked) }}
+              aria-describedby="telemetry-detail"
+            />
+            <span className="grid gap-0.5">
+              <span id="telemetry-title" className="text-sm leading-5 text-heading">Share anonymous product telemetry</span>
+              <span id="telemetry-detail" className="max-w-[70ch] text-sm leading-5 text-secondary">
+                Helps prioritize improvements. Canonry does not send raw domains, URLs, queries, answer content, or credentials.
+              </span>
+            </span>
+          </label>
+          {telemetryError ? <p className="mt-1 text-sm text-negative" role="alert">{telemetryError}</p> : null}
+        </section>
+      ) : null}
     </div>
   )
 }

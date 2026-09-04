@@ -51,6 +51,8 @@ export const scheduleDtoSchema = z.object({
 
 export type ScheduleDto = z.infer<typeof scheduleDtoSchema>
 
+export const scheduleExpectedUpdatedAtSchema = z.string().datetime()
+
 export const scheduleUpsertRequestSchema = z.object({
   /** Run kind. Defaults to 'answer-visibility' so existing callers don't have to change. */
   kind: schedulableRunKindSchema.optional(),
@@ -61,6 +63,11 @@ export const scheduleUpsertRequestSchema = z.object({
   providers: z.array(providerNameSchema).optional().default([]),
   /** Required when kind === 'traffic-sync'. Forbidden for other kinds. Validated server-side. */
   sourceId: z.string().optional(),
+  /**
+   * Optimistic concurrency guard. A timestamp updates only that exact version;
+   * null creates only while the schedule is absent. Omit for legacy behavior.
+   */
+  expectedUpdatedAt: scheduleExpectedUpdatedAtSchema.nullable().optional(),
 }).refine(
   (data) => (data.preset && !data.cron) || (!data.preset && data.cron),
   { message: 'Exactly one of "preset" or "cron" must be provided' },

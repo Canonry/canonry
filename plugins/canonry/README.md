@@ -13,25 +13,22 @@ specification.
 
 ## Prerequisite
 
-Install Node.js 22.14 or newer and the global Canonry runtime before enabling
-the plugin. The global install is required so `canonry-mcp` remains on `PATH`;
-a one-off `npx` invocation is not sufficient. Initialize it only if it has not
-already been initialized:
+Install Node.js 22.14 or newer and the global Canonry runtime before you enable
+the plugin. The global install keeps `canonry-mcp` on `PATH`. A one-off `npx`
+invocation is not sufficient. Bootstrap the local runtime after installation:
 
 ```bash
 npm install -g @canonry/canonry
-# First initialization only
-cnry init --skip-skills --skip-mcp
+cnry bootstrap
 ```
 
-`cnry init` prompts for credentials and prints the new full-access API key once.
-Run it in a private terminal you control; never paste its output into an agent
-chat or shared log.
+`cnry bootstrap` creates the local configuration, SQLite database, and default
+API key. The command is safe to run again and preserves existing settings.
+Provider credentials are optional, so Page Health works before you add one.
 
-The skip flags avoid installing Canonry's legacy standalone skills and
-project-level Claude MCP entry when the native plugin already provides them.
-Existing standalone installs remain supported; the plugin never deletes or
-rewrites them.
+The command prints a new full-access API key once. Run it in a private terminal.
+Never paste the output into an agent chat or shared log. Existing standalone
+installs remain supported. The plugin never deletes or rewrites them.
 
 After enabling the plugin, ensure Canonry's local daemon is running and verify
 the live advisory plugin check:
@@ -59,9 +56,9 @@ plugin's cached manifest version does not match the running Canonry version.
   available by default with a write-capable key; a read-only key restricts the
   catalog to reads. A project-scoped key keeps its project route boundary, but
   a write-capable scoped key can still mutate shared instance settings.
-- Fresh `cnry init` creates a full-instance `*` key. Until the operator selects
-  a narrower runtime configuration, the plugin therefore gives the client
-  teammate-level access to every project and shared setting on that instance.
+- Fresh `cnry bootstrap` creates a full-instance `*` key. This key gives the
+  client teammate-level access to every project and shared setting. A narrower
+  runtime configuration reduces this access.
 - Canonry remains single-tenant per local or hosted instance. The plugin is a
   client distribution layer, not a new trust boundary.
 

@@ -24,12 +24,12 @@ const providersConfiguredCheck: CheckDefinition = {
     const total = summary.length
     if (configured.length === 0) {
       return {
-        status: CheckStatuses.fail,
+        status: CheckStatuses.warn,
         code: 'providers.none-configured',
-        summary: 'No answer-engine providers have credentials configured.',
+        summary: 'No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled.',
         remediation:
-          'Run `canonry init` to set provider keys interactively, or add them via flags ' +
-          '(`--gemini-key`, `--openai-key`, `--claude-key`, `--perplexity-key`).',
+          'To enable AI Visibility, set a provider environment variable and rerun `canonry bootstrap`, ' +
+          'or run `canonry settings provider <name> --api-key <key>` while the server is running.',
         details: { available: summary.map((entry) => entry.name) },
       }
     }

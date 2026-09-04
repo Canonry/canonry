@@ -29,22 +29,23 @@ and pin the cache by version (`~/.codex/plugins/cache/canonry/canonry/<version>/
 
 ## Prerequisites
 
-Install Node.js 22.14 or newer, then install Canonry globally so the plugin can
-find `canonry-mcp` on `PATH`. A one-off `npx` invocation is not sufficient for
-the native plugin. Initialize the local runtime only if it has not already been
-initialized:
+Install Node.js 22.14 or newer. Then install Canonry globally so the plugin can
+find `canonry-mcp` on `PATH`. A one-off `npx` invocation is not sufficient.
+Bootstrap the local runtime after installation:
 
 ```bash
 npm install -g @canonry/canonry
-# First initialization only
-cnry init --skip-skills --skip-mcp
+cnry bootstrap
 ```
 
-`cnry init` prompts for credentials and prints the new full-access API key once.
-Run it in a private terminal you control; never paste its output into an agent
-chat or shared log.
+`cnry bootstrap` creates the local configuration, SQLite database, and default
+API key. The command is safe to run again and preserves existing settings.
+Provider credentials are optional, so Page Health works before you add one.
 
-The two flags prevent `cnry init` from also writing standalone skills and project-level MCP configuration. Configure provider credentials through `cnry init`, the dashboard, environment variables, or Canonry's local config. Never put secrets in a plugin manifest or commit them to the repository.
+The command prints a new full-access API key once. Run it in a private terminal.
+Never paste the output into an agent chat or shared log. Add provider credentials
+later through the dashboard, environment variables, or Canonry's local configuration.
+Never put secrets in a plugin manifest or commit them to the repository.
 
 ## Install for Codex
 
@@ -127,10 +128,9 @@ restart the app so the updated plugin is loaded.
 
 The plugin declares no hooks, scheduled work, monitoring loop, or automatic provider call. Starting the MCP server does not itself run a visibility sweep or incur provider cost. Existing Canonry schedules and Aero settings continue to behave as configured independently of the plugin. The plugin makes write tools available by default when Canonry is configured with a write-capable key; using them still requires explicit operator approval.
 
-Fresh `cnry init` creates an instance-wide `*` key. Unless the operator replaces
-that key with a narrower runtime configuration, enabling the plugin therefore
-grants the client teammate-level access to every project and shared setting on
-that single-tenant instance.
+Fresh `cnry bootstrap` creates an instance-wide `*` key. This key gives the
+client teammate-level access to every project and shared setting. A narrower
+runtime configuration reduces this access.
 
 ## Existing skills or MCP configuration
 

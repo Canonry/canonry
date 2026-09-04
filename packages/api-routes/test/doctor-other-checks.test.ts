@@ -246,7 +246,7 @@ describe('config.providers', () => {
     expect(result.details).toMatchObject({ configured: ['gemini'] })
   })
 
-  it('fails when no providers are configured', () => {
+  it('warns that AI Visibility is optional when no providers are configured', () => {
     const result = providersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
@@ -255,8 +255,10 @@ describe('config.providers', () => {
         { name: 'openai', configured: false },
       ],
     })
-    expect(result.status).toBe('fail')
+    expect(result.status).toBe('warn')
     expect(result.code).toBe('providers.none-configured')
+    expect(result.summary).toContain('Page Health remains available')
+    expect(result.remediation).toContain('canonry bootstrap')
   })
 
   it('skips when summary is unavailable', () => {

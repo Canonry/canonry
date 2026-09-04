@@ -73,7 +73,7 @@ import {
   applyReviewedGroupMembership,
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
-import { resolveRunProviderSelection } from './run-queue.js'
+import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
 import {
   actorFromRequest,
   activePlanVersionRow,
@@ -508,6 +508,13 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
         : activeSchemaVersion === 2
           ? 'active-v2' as const
           : draft ? 'draft-only' as const : 'simple' as const,
+      // This project-readable response is also the dashboard's readiness
+      // source. The boolean exposes no instance capability inventory and uses
+      // the exact provider-selection decision enforced by run preflight.
+      answerVisibilityProviderReady: resolveRunnableProviderSelection({
+        projectProviders: project.providers,
+        runnableProviders: opts.getRunnableProviderNames?.(),
+      }).runnableProviders.length > 0,
       activeRevision: active?.revision ?? null,
       activeSchemaVersion,
       draft: draft ? { etag: measurementDraftEtag(draft.etagVersion), updatedAt: draft.updatedAt } : null,

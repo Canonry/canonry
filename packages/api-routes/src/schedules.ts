@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules, trafficSources } from '@ainyc/canonry-db'
 import {
@@ -8,7 +8,9 @@ import {
   type SchedulableRunKind,
   SchedulableRunKinds,
   schedulableRunKindSchema,
+  scheduleExpectedUpdatedAtSchema,
   scheduleUpsertRequestSchema,
+  scheduleVersionConflict,
   validationError,
   notFound,
   describeError,
@@ -28,6 +30,20 @@ function parseKindParam(raw: unknown): SchedulableRunKind {
     throw validationError(`Invalid kind "${JSON.stringify(raw)}". Must be one of: ${Object.values(SchedulableRunKinds).join(', ')}`)
   }
   return parsed.data
+}
+
+function parseExpectedUpdatedAtParam(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined
+  const parsed = scheduleExpectedUpdatedAtSchema.safeParse(raw)
+  if (!parsed.success) throw validationError('Invalid expectedUpdatedAt timestamp')
+  return parsed.data
+}
+
+function nextScheduleUpdatedAt(previous: string | undefined): string {
+  const previousMs = previous === undefined ? Number.NaN : Date.parse(previous)
+  return new Date(Number.isFinite(previousMs)
+    ? Math.max(Date.now(), previousMs + 1)
+    : Date.now()).toISOString()
 }
 
 export interface ScheduleRoutesOptions {
@@ -50,7 +66,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   app.put<{
     Params: { name: string }
     Querystring: { kind?: string }
-    Body: { kind?: string; preset?: string; cron?: string; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string }
+    Body: { kind?: string; preset?: string; cron?: string; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; expectedUpdatedAt?: string | null }
   }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -66,7 +82,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // Body kind takes precedence over the query string. Both default to
     // 'answer-visibility' so the legacy URL still works unchanged.
     const kind = parsedBody.data.kind ?? parseKindParam(request.query?.kind)
-    const { preset, cron, timezone, providers, enabled, sourceId } = parsedBody.data
+    const { preset, cron, timezone, providers, enabled, sourceId, expectedUpdatedAt } = parsedBody.data
 
     // Per-kind invariants
     if (kind === SchedulableRunKinds['traffic-sync']) {
@@ -125,16 +141,21 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       }
     }
 
-    const now = new Date().toISOString()
     const enabledBool = enabled !== false
-    const existing = app.db
-      .select()
-      .from(schedules)
-      .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind)))
-      .get()
+    const mutation = app.db.transaction((tx) => {
+      const existing = tx
+        .select()
+        .from(schedules)
+        .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind)))
+        .get()
+      const actualUpdatedAt = existing?.updatedAt ?? null
+      if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== actualUpdatedAt) {
+        throw scheduleVersionConflict(expectedUpdatedAt, actualUpdatedAt)
+      }
 
-    if (existing) {
-      app.db.update(schedules).set({
+      const now = nextScheduleUpdatedAt(existing?.updatedAt)
+      const scheduleId = existing?.id ?? crypto.randomUUID()
+      const values = {
         cronExpr,
         preset: preset ?? null,
         timezone,
@@ -142,42 +163,75 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         sourceId: sourceId ?? null,
         enabled: enabledBool,
         updatedAt: now,
-      }).where(eq(schedules.id, existing.id)).run()
-    } else {
-      app.db.insert(schedules).values({
-        id: crypto.randomUUID(),
+      }
+
+      if (existing) {
+        const changed = tx.update(schedules).set(values).where(
+          expectedUpdatedAt === undefined
+            ? eq(schedules.id, existing.id)
+            : and(eq(schedules.id, existing.id), eq(schedules.updatedAt, expectedUpdatedAt ?? existing.updatedAt)),
+        ).run()
+        if (changed.changes !== 1) {
+          const actual = tx.select().from(schedules).where(eq(schedules.id, existing.id)).get()
+          throw scheduleVersionConflict(expectedUpdatedAt ?? existing.updatedAt, actual?.updatedAt ?? null)
+        }
+      } else {
+        const insert = tx.insert(schedules).values({
+          id: scheduleId,
+          projectId: project.id,
+          kind,
+          ...values,
+          createdAt: now,
+        })
+        const inserted = expectedUpdatedAt === null
+          ? insert.onConflictDoNothing().run()
+          : insert.run()
+        if (expectedUpdatedAt === null && inserted.changes !== 1) {
+          const actual = tx.select().from(schedules)
+            .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind))).get()
+          throw scheduleVersionConflict(null, actual?.updatedAt ?? null)
+        }
+      }
+
+      writeAuditLog(tx, {
         projectId: project.id,
-        kind,
-        cronExpr,
-        preset: preset ?? null,
-        timezone,
-        enabled: enabledBool,
-        providers: (providers ?? []) as ProviderName[],
-        sourceId: sourceId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-    }
+        actor: 'api',
+        action: existing ? 'schedule.updated' : 'schedule.created',
+        entityType: 'schedule',
+        diff: { kind, cronExpr, preset, timezone, providers, sourceId },
+      })
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: existing ? 'schedule.updated' : 'schedule.created',
-      entityType: 'schedule',
-      diff: { kind, cronExpr, preset, timezone, providers, sourceId },
+      return {
+        existed: existing !== undefined,
+      }
     })
 
     opts.onScheduleUpdated?.('upsert', project.id, kind)
-
-    const schedule = app.db
-      .select()
-      .from(schedules)
-      .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind)))
-      .get()!
-    return reply.status(existing ? 200 : 201).send(formatSchedule(schedule))
+    // The live scheduler recomputes nextRunAt and advances updatedAt inside
+    // this callback. Return that authoritative version so a client can use the
+    // response's updatedAt for its next compare-and-swap.
+    const schedule = app.db.select().from(schedules)
+      .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind))).get()!
+    return reply.status(mutation.existed ? 200 : 201).send(formatSchedule(schedule))
   })
 
-  // GET /projects/:name/schedule[?kind=...] — get schedule(s).
+  // GET /projects/:name/schedules — list every configured schedule.
+  // An empty project returns [] rather than a 404 so discovery callers can
+  // distinguish "none configured" without treating expected absence as a
+  // failed resource load. The singular route below keeps its legacy contract.
+  app.get<{ Params: { name: string } }>('/projects/:name/schedules', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const rows = app.db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.projectId, project.id))
+      .orderBy(asc(schedules.kind))
+      .all()
+
+    return reply.send(rows.map(formatSchedule))
+  })
+
+  // GET /projects/:name/schedule[?kind=...] — get one schedule.
   // Returns the single schedule matching the requested kind (default
   // 'answer-visibility'). The legacy callsite that didn't pass a kind keeps
   // working unchanged.
@@ -198,28 +252,40 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   })
 
   // DELETE /projects/:name/schedule[?kind=...] — remove schedule for kind.
-  app.delete<{ Params: { name: string }; Querystring: { kind?: string } }>('/projects/:name/schedule', async (request, reply) => {
+  app.delete<{ Params: { name: string }; Querystring: { kind?: string; expectedUpdatedAt?: string } }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const kind = parseKindParam(request.query?.kind)
+    const expectedUpdatedAt = parseExpectedUpdatedAtParam(request.query?.expectedUpdatedAt)
 
-    const schedule = app.db
-      .select()
-      .from(schedules)
-      .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind)))
-      .get()
-    if (!schedule) {
-      throw notFound('Schedule', `${request.params.name} (kind=${kind})`)
-    }
+    app.db.transaction((tx) => {
+      const schedule = tx.select().from(schedules)
+        .where(and(eq(schedules.projectId, project.id), eq(schedules.kind, kind))).get()
+      if (!schedule) {
+        if (expectedUpdatedAt !== undefined) throw scheduleVersionConflict(expectedUpdatedAt, null)
+        throw notFound('Schedule', `${request.params.name} (kind=${kind})`)
+      }
+      if (expectedUpdatedAt !== undefined && schedule.updatedAt !== expectedUpdatedAt) {
+        throw scheduleVersionConflict(expectedUpdatedAt, schedule.updatedAt)
+      }
 
-    app.db.delete(schedules).where(eq(schedules.id, schedule.id)).run()
+      const deleted = tx.delete(schedules).where(
+        expectedUpdatedAt === undefined
+          ? eq(schedules.id, schedule.id)
+          : and(eq(schedules.id, schedule.id), eq(schedules.updatedAt, expectedUpdatedAt)),
+      ).run()
+      if (deleted.changes !== 1) {
+        const actual = tx.select().from(schedules).where(eq(schedules.id, schedule.id)).get()
+        throw scheduleVersionConflict(expectedUpdatedAt ?? schedule.updatedAt, actual?.updatedAt ?? null)
+      }
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'schedule.deleted',
-      entityType: 'schedule',
-      entityId: schedule.id,
-      diff: { kind },
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'schedule.deleted',
+        entityType: 'schedule',
+        entityId: schedule.id,
+        diff: { kind },
+      })
     })
 
     opts.onScheduleUpdated?.('delete', project.id, kind)

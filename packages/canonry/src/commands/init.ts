@@ -308,7 +308,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   // Save config
   saveConfig({
-    apiUrl: `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
+    apiUrl: `http://127.0.0.1:${process.env.CANONRY_PORT || '4100'}`,
     database: databasePath,
     apiKey: rawApiKey,
     providers,
@@ -367,7 +367,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       initialized: true,
       configPath: getConfigPath(),
       databasePath,
-      apiUrl: `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
+      apiUrl: `http://127.0.0.1:${process.env.CANONRY_PORT || '4100'}`,
       apiKey: rawApiKey,
       providers: providerNames,
       googleConfigured: !!google,
@@ -424,12 +424,12 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     }
   }
 
-  // Show the first-run telemetry notice during init — this is the natural
-  // first command most users run, so the notice must appear here before
-  // we generate the anonymousId and fire any telemetry events.
+  // Show the first-run telemetry notice when an operator chooses interactive
+  // init for provider/OAuth provisioning. It must appear before we generate
+  // the anonymousId and fire any telemetry events.
   if (!isMachineFormat(format)) {
     showFirstRunNotice()
-    console.log('\nNext: canonry serve to open the dashboard, or canonry settings provider gemini --api-key <key> to configure Gemini.')
+    console.log('\nNext: canonry serve to map your site and capture a Page Health baseline.')
     console.log('\nNext steps:')
     for (const line of nextSteps) {
       console.log(`  ${line}`)
@@ -467,15 +467,15 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   // End inside the product, not at a printout. Half of new installs run init
   // and never another command; every printed "Next:" line is a place to lose
-  // more of them, and the dashboard wizard (resumable, with inline provider
-  // setup) is strictly better than terminal instructions that describe it.
+  // more of them, and the resumable Page Health setup is strictly better than
+  // terminal instructions that describe it.
   // Interactive human sessions only: machine formats and piped stdio keep the
   // printed next steps as the contract.
   if (!isMachineFormat(format) && process.stdin.isTTY && process.stdout.isTTY) {
     const answer = await prompt('\nStart the dashboard now? [Y/n]: ')
     if (!/^n/i.test(answer.trim())) {
       pendingServeHandoff = true
-      console.log('Handing off to the dashboard. Finish setup at /setup once it is up.')
+      console.log('Handing off to the dashboard. Map your site at /setup once it is up.')
     }
   }
 
@@ -488,28 +488,28 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
  * large "silent bounce" cohort that runs init and never runs another command,
  * so the goal is to make the next action unambiguous and immediate.
  *
- * The dashboard wizard (`canonry serve` → `http://localhost:4100/setup`) is
- * the recommended primary path: it covers project creation, query basket,
- * competitors, and the first sweep with results inline — 5 guided steps with
- * health checks, no flag-juggling. The CLI sequence is listed as the
- * alternative for operators who prefer scripts or non-interactive automation.
+ * The dashboard setup (`canonry serve` → `http://127.0.0.1:4100/setup`) is the
+ * recommended primary path: it maps a public site and captures a Page Health
+ * baseline without requiring an answer-engine provider. AI Visibility remains
+ * an optional follow-on. The CLI sequence is listed as the alternative for
+ * operators who prefer scripts or non-interactive automation.
  */
 function buildNextSteps(): string[] {
   return [
-    '1. Start the dashboard and open the setup wizard:',
+    '1. Start the dashboard and open Page Health setup:',
     '     canonry serve',
-    '     → http://localhost:4100/setup',
+    '     → http://127.0.0.1:4100/setup',
     '',
-    '   The wizard walks through project → queries → competitors → first sweep',
-    '   in 5 guided steps and shows your first results inline.',
+    '   Map your public site and capture a persisted Page Health baseline.',
+    '   AI Visibility is optional and can be configured after Page Health.',
     '   For remote/exposed hosts, complete dashboard password setup from loopback first.',
     '',
     'Prefer the terminal? The same flow as CLI commands:',
     '',
     '  a. canonry project create my-site --domain example.com --country US --language en',
-    '  b. canonry query add my-site "best <category> for <use case>"',
-    '  c. canonry run my-site --wait',
-    '  d. canonry overview my-site',
+    '  b. canonry technical-aeo run my-site --max-pages 100 --wait --format json',
+    '  c. canonry technical-aeo score my-site --format json',
+    '  d. canonry technical-aeo pages my-site --sort score-asc --limit 10 --format jsonl',
     '',
     'Tip: "canonry doctor" verifies your setup before you start.',
   ]

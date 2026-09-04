@@ -109,7 +109,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Operate Canonry (the `cnry` / `canonry` CLI) for AEO. Load this BEFORE any canonry operator task: creating or configuring a project, connecting GSC, GA4, Bing, Google Business Profile or a Cloudflare traffic source, running or scheduling a sweep, reading mention and citation coverage, running a technical audit, submitting sitemaps, or diagnosing why a number moved. Covers anything touching cnry, canonry doctor, ~/.canonry, @canonry/canonry, the canonry_* MCP tools, mention share, or direct-push / queue-pull traffic. Load it before acting, not after something fails.",
     entryPoint: true,
-    characters: 18860,
+    characters: 19032,
     content: canonrySkillPart0,
   },
   {
@@ -129,7 +129,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 101348,
+    characters: 101513,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {

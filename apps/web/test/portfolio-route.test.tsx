@@ -1,21 +1,23 @@
 import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import {
+  getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
-  getApiV1ProjectsByNameScheduleQueryKey,
+  getApiV1ProjectsByNameSchedulesQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
@@ -26,6 +28,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   cleanup()
+  focusManager.setFocused(undefined)
   delete window.__CANONRY_CONFIG__
 })
 
@@ -47,22 +50,38 @@ async function renderAt(
    * decidable. These render one synchronous pass, so an unseeded query stays
    * pending for the whole render.
    */
-  options: { schedule?: unknown; seedPlan?: boolean } = {},
+  options: {
+    cdpStatus?: { connected: boolean; endpoint: string; browserVersion?: string; targets: [] }
+    schedule?: unknown
+    seedPlan?: boolean
+    apiKey?: { id: string; scopes: string[]; projectId: string | null; readOnly: boolean }
+    queries?: Array<{ id: string; query: string; createdAt: string }>
+    settleReadiness?: boolean
+    readiness?: boolean
+    configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
+  } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
 
   const fixture = createDashboardFixture({})
+  options.configureFixture?.(fixture.dashboard)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  if (options.cdpStatus !== undefined) {
+    queryClient.setQueryData(
+      getApiV1CdpStatusQueryKey({ client: heyClient }),
+      options.cdpStatus,
+    )
+  }
   queryClient.setQueryData(
     getApiV1ProjectsByNameQueriesQueryKey({ client: heyClient, path: { name: projectName } }),
-    [],
+    options.queries ?? [],
   )
   if (options.schedule !== undefined) {
     queryClient.setQueryData(
-      getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName } }),
-      options.schedule,
+      getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
+      [options.schedule],
     )
   }
   if (options.seedPlan !== false) {
@@ -71,10 +90,18 @@ async function renderAt(
       measurement?.plan ?? { active: null },
     )
   }
-  if (measurement?.setup) {
+  const settledSetup = options.settleReadiness
+    ? {
+        ...(measurement?.setup ?? simpleMeasurementSetupResponse()),
+        answerVisibilityProviderReady: options.readiness
+          ?? measurement?.setup?.answerVisibilityProviderReady
+          ?? false,
+      }
+    : measurement?.setup
+  if (settledSetup) {
     queryClient.setQueryData(
       getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
-      measurement.setup,
+      settledSetup,
     )
   }
   if (measurement?.report && measurement.plan.active) {
@@ -111,13 +138,42 @@ async function renderAt(
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
 
-  return renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
-        <RouterProvider router={router} />
-      </DashboardProvider>
-    </QueryClientProvider>,
+  const tree = (
+    <AccountProvider account={null} apiKey={options.apiKey}>
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>
+    </AccountProvider>
   )
+  if (!options.settleReadiness || !settledSetup) return renderToStaticMarkup(tree)
+
+  // Header-readiness assertions need the authoritative refetch to settle. Most
+  // route snapshots intentionally stay synchronous; this opt-in branch mounts
+  // only the tests that make a claim about the post-fetch sweep action.
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    if (decodeURIComponent(url.pathname).endsWith('/measurement-setup')) {
+      return jsonResponse(settledSetup)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  try {
+    const page = render(tree)
+    await waitFor(() => {
+      expect(queryClient.getQueryState(
+        getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
+      )?.fetchStatus).toBe('idle')
+    })
+    const html = page.container.innerHTML
+    page.unmount()
+    return html
+  } finally {
+    globalThis.fetch = realFetch
+  }
 }
 
 function measurementPlanResponse(revision: number, populated = false) {
@@ -247,6 +303,7 @@ function measurementSetupResponse(revision: number | null = null) {
     state: 'setup_in_progress' as const,
     nextAction: 'continue_setup' as const,
     mode: revision === null ? 'draft-only' as const : 'active-v2' as const,
+    answerVisibilityProviderReady: true,
     activeRevision: revision,
     activeSchemaVersion: revision === null ? null : 2 as const,
     draft: { etag: '"mpd_7"', updatedAt: '2026-08-02T12:00:00.000Z' },
@@ -258,6 +315,7 @@ function simpleMeasurementSetupResponse() {
     state: 'simple' as const,
     nextAction: 'start_setup' as const,
     mode: 'simple' as const,
+    answerVisibilityProviderReady: true,
     activeRevision: null,
     activeSchemaVersion: null,
     draft: null,
@@ -269,6 +327,7 @@ function activeMeasurementSetupResponse(revision: number) {
     state: 'operational' as const,
     nextAction: 'view_measurement' as const,
     mode: 'active-v2' as const,
+    answerVisibilityProviderReady: true,
     activeRevision: revision,
     activeSchemaVersion: 2 as const,
     draft: null,
@@ -793,6 +852,35 @@ function schedule(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
+  const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  const emptyMentionBreakdown = {
+    projectMentionSnapshots: 0,
+    competitorMentionSnapshots: 0,
+    perCompetitor: [],
+    snapshotsWithAnswerText: 0,
+    snapshotsTotal: 0,
+    score: null,
+  }
+
+  project.visibilityEvidence = []
+  project.queryCounts = { cited: 0, total: 0 }
+  project.recentRuns = []
+  project.mentionSummary.value = 'No data'
+  project.mentionSummary.delta = 'Run a sweep first'
+  project.visibilitySummary.value = 'No data'
+  project.visibilitySummary.delta = 'Run a sweep first'
+  project.mentionShareSummary.value = 'No data'
+  project.mentionShareSummary.delta = 'Run a sweep first'
+  project.mentionShareSummary.breakdown = { ...emptyMentionBreakdown }
+  project.mentionShareSummary.branded = { ...emptyMentionBreakdown }
+  project.mentionGaps.value = 'No data'
+  project.mentionGaps.delta = 'Run a sweep first'
+  project.gapQueries.value = 'No data'
+  project.gapQueries.delta = 'Run a sweep first'
+  dashboard.runs = []
+}
+
 // On a managed instance the sweep is scheduled, so the header states when the
 // next one fires and the manual trigger beside it is the override. The button
 // is deliberately secondary: as the primary it told every reader that running
@@ -817,6 +905,487 @@ test('a DISABLED schedule promises no next sweep, even though the row still carr
   // The override is still offered — a paused schedule is exactly when someone
   // needs to run one by hand.
   expect(html).toContain('AI sweep')
+})
+
+test('a fresh project offers one AI Visibility setup action instead of an unready sweep', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      forceNoisyFreshVisibility(dashboard)
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['gemini']
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+
+  expect(html).toContain('Set up AI Visibility')
+  expect(html).toContain('No AI Visibility baseline yet')
+  expect(html).toContain('Coverage signals')
+  expect(html).toContain('Your brand or domain appears in the answer text.')
+  expect(html).toContain('Your domain appears in the engine')
+  expect(html).toContain('Complete your first AI Visibility sweep to measure both signals.')
+  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('+ Add competitor')
+  expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
+  expect(html).not.toContain('No completed sweep')
+  expect(html.match(/No data/g) ?? []).toHaveLength(0)
+  expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
+  expect(html).not.toContain('No comparison yet')
+  expect(html).not.toContain('Run another sweep')
+  expect(html).not.toContain('Baseline captured')
+  expect(html).not.toContain('Run AI sweep')
+})
+
+test('a first sweep in flight replaces empty-state instructions with one live status', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      const queuedProjectRun = project.recentRuns.find(run => run.status === 'queued')!
+      const queuedDashboardRun = dashboard.runs.find(run => run.status === 'queued')!
+      forceNoisyFreshVisibility(dashboard)
+      const freshProject = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      freshProject.recentRuns = [queuedProjectRun]
+      dashboard.runs = [queuedDashboardRun]
+    },
+    settleReadiness: true,
+    readiness: true,
+  })
+
+  expect(html).toContain('A fresh sweep is running now')
+  expect(html).toContain('Queued')
+  expect(html).not.toContain('No AI Visibility baseline yet')
+  expect(html.match(/Your first sweep is running\. Results will appear when it completes\./g)).toHaveLength(1)
+  expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility sweep\./g)).toHaveLength(1)
+  expect(html.match(/No data/g) ?? []).toHaveLength(0)
+  expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
+  expect(html).not.toContain('Complete your first AI Visibility sweep')
+  expect(html).not.toContain('No comparison yet')
+})
+
+test('a baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      const failedRun = project.recentRuns.find(run => run.kind === 'answer-visibility')!
+      project.recentRuns = Array.from({ length: 5 }, (_, index) => ({
+        ...failedRun,
+        id: `failed-recent-${index}`,
+        status: 'failed' as const,
+        createdAt: `2026-09-0${index + 1}T12:00:00.000Z`,
+      }))
+    },
+  })
+
+  expect(html).toContain('Coverage now')
+  expect(html).toContain('Mention share')
+  expect(html).toContain('Mention gaps')
+  expect(html).toContain('Citation gaps')
+  expect(html).not.toContain('No AI Visibility baseline yet')
+  expect(html).not.toContain('Complete your first AI Visibility sweep')
+  expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
+})
+
+test('fresh project settings use the empty collection instead of a noisy schedule 404', async () => {
+  const observed: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (path.endsWith('/schedules')) return jsonResponse([])
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({
+        state: 'not_started',
+        nextAction: 'start_setup',
+        mode: 'none',
+        activeRevision: null,
+        activeSchemaVersion: null,
+        draft: null,
+      })
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.visibilityEvidence = []
+  project.queryCounts = { cited: 0, total: 0 }
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  fixture.dashboard.settings.providerStatuses = []
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
+  await router.load()
+  const page = render(
+    <AccountProvider account={{ name: 'viewer', role: 'viewer' }}>
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>
+    </AccountProvider>,
+  )
+
+  expect(await page.findByRole('heading', { name: 'Scheduled runs' })).toBeTruthy()
+  expect(page.getByText('No schedule configured. Set one to automatically trigger visibility sweeps.')).toBeTruthy()
+  await new Promise(resolve => setTimeout(resolve, 50))
+  expect(observed.some(path => path.endsWith('/schedules'))).toBe(true)
+  expect(observed.some(path => path.endsWith('/schedule'))).toBe(false)
+})
+
+test('a query-ready project with a configured provider can run an AI sweep', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      const pendingEvidence = {
+        ...project.visibilityEvidence[0]!,
+        id: 'evidence-query-ready',
+        query: 'emergency dentist brooklyn',
+        provider: '',
+        model: null,
+        location: null,
+        citationState: 'pending' as const,
+        visibilityState: 'pending' as const,
+        visibilityChangeLabel: 'Awaiting first run',
+        changeLabel: 'Awaiting first run',
+        answerSnippet: '',
+        citedDomains: [],
+        evidenceUrls: [],
+        competitorDomains: [],
+        groundingSources: [],
+        relatedTechnicalSignals: [],
+        summary: 'This query has not been measured yet.',
+        runHistory: [],
+      }
+      forceNoisyFreshVisibility(dashboard)
+      project.visibilityEvidence = [pendingEvidence]
+    },
+    queries: [{
+      id: 'query-ready',
+      query: 'emergency dentist brooklyn',
+      createdAt: '2026-09-01T12:00:00.000Z',
+    }],
+    settleReadiness: true,
+    readiness: true,
+  })
+
+  expect(html).toContain('Run AI sweep')
+  expect(html).toContain('No AI Visibility baseline yet')
+  expect(html).not.toContain('Set up AI Visibility to capture a baseline')
+  expect(html).not.toContain('Checking AI readiness')
+})
+
+test('a project-scoped writer reads sweep readiness without instance settings access', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, {
+    plan: measurementPlanResponse(7),
+    setup: simpleMeasurementSetupResponse(),
+  }, {
+    apiKey: {
+      id: 'key-project-writer',
+      scopes: ['*'],
+      projectId: 'project_citypoint',
+      readOnly: false,
+    },
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.recentRuns = []
+      dashboard.runs = []
+      // A project-scoped principal cannot rely on the instance-settings
+      // summary. The project-readable setup response above is authoritative.
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: true,
+  })
+
+  expect(html).toContain('Run AI sweep')
+  expect(html).not.toContain('Checking AI readiness')
+  expect(html).not.toContain('Retry AI readiness')
+})
+
+test('a project-scoped writer can retry when the project readiness read fails', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
+    }
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/schedules')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  fixture.dashboard.settings.providerStatuses = []
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(
+    getApiV1CdpStatusQueryKey({ client: heyClient }),
+    { connected: false, endpoint: '', targets: [] },
+  )
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(
+    <AccountProvider
+      account={null}
+      apiKey={{ id: 'key-project-writer', scopes: ['*'], projectId: project.project.id, readOnly: false }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>
+    </AccountProvider>,
+  )
+
+  expect(await page.findByRole('button', { name: 'Retry AI readiness' })).toBeTruthy()
+  expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+})
+
+test('saving the project provider allowlist refreshes server-owned sweep readiness', async () => {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.project.providers = ['claude']
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  fixture.dashboard.settings.providerStatuses = []
+
+  let providersUpdated = false
+  let setupReads = 0
+  let savedBody: Record<string, unknown> | undefined
+  let updatedProject = { ...project.project }
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const request = input instanceof Request ? input : new Request(String(input))
+    const url = new URL(request.url, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+
+    if (path.endsWith('/measurement-setup')) {
+      setupReads += 1
+      return jsonResponse({
+        ...simpleMeasurementSetupResponse(),
+        answerVisibilityProviderReady: providersUpdated,
+      })
+    }
+    if (path.endsWith('/settings')) {
+      return jsonResponse({
+        providers: [{ name: 'gemini', displayName: 'Gemini', configured: true }],
+        providerCatalog: [{
+          name: 'gemini',
+          displayName: 'Gemini',
+          mode: 'api',
+          modelConfigurable: true,
+          defaultModel: 'gemini-2.5-flash',
+          knownModels: [],
+          modelValidationPattern: { source: '^gemini-', flags: '' },
+          modelValidationHint: 'Use a Gemini model ID.',
+        }],
+        google: { configured: false },
+        bing: { configured: false },
+      })
+    }
+    if (path.endsWith(`/projects/${project.project.name}`)) {
+      if (request.method === 'PUT') {
+        savedBody = await request.clone().json() as Record<string, unknown>
+        providersUpdated = true
+        updatedProject = { ...updatedProject, ...savedBody }
+      }
+      return jsonResponse(updatedProject)
+    }
+    if (path.endsWith('/projects')) return jsonResponse([updatedProject])
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/schedules') || path.endsWith('/notifications')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  fireEvent.click(await page.findByLabelText('All configured engines'))
+  fireEvent.click(page.getByRole('button', { name: 'Save engines' }))
+
+  expect(await page.findByRole('button', { name: 'Run AI sweep' })).toBeTruthy()
+  expect(savedBody?.providers).toEqual([])
+  expect(setupReads).toBeGreaterThanOrEqual(2)
+})
+
+test('window focus refreshes server-owned sweep readiness on a mounted project', async () => {
+  let ready = false
+  let setupReads = 0
+  let releaseFocusRead: (() => void) | undefined
+  const focusRead = new Promise<void>(resolve => { releaseFocusRead = resolve })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+
+    if (path.endsWith('/measurement-setup')) {
+      setupReads += 1
+      if (setupReads === 2) await focusRead
+      return jsonResponse({
+        ...simpleMeasurementSetupResponse(),
+        answerVisibilityProviderReady: ready,
+      })
+    }
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/schedules')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  fixture.dashboard.settings.providerStatuses = []
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(
+    getApiV1CdpStatusQueryKey({ client: heyClient }),
+    { connected: false, endpoint: '', targets: [] },
+  )
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  ready = true
+  await act(async () => {
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+  })
+  expect(await page.findByRole('button', { name: 'Checking AI readiness…' })).toBeTruthy()
+
+  releaseFocusRead?.()
+  expect(await page.findByRole('button', { name: 'Run AI sweep' })).toBeTruthy()
+  expect(setupReads).toBe(2)
+})
+
+test('AI Visibility honors the project provider allowlist instead of any configured provider', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['claude']
+      project.recentRuns = []
+      dashboard.runs = []
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+
+  expect(html).toContain('Set up AI Visibility')
+  expect(html).not.toContain('Run AI sweep')
+})
+
+test('an active measurement plan supplies runnable queries when the live basket is empty', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, {
+    plan: measurementPlanResponse(9, true),
+  }, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.visibilityEvidence = []
+      project.queryCounts = { cited: 0, total: 0 }
+      project.recentRuns = []
+      dashboard.runs = []
+    },
+    settleReadiness: true,
+    readiness: true,
+  })
+
+  expect(html).toContain('Run AI sweep')
+  expect(html).not.toContain('Set up AI Visibility to capture a baseline')
+})
+
+test('a configured CDP provider is runnable even when no API provider is configured or connected', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    cdpStatus: {
+      connected: false,
+      endpoint: 'ws://127.0.0.1:9222',
+      browserVersion: 'Chrome not reachable at ws://127.0.0.1:9222',
+      targets: [],
+    },
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['cdp:chatgpt']
+      project.recentRuns = []
+      dashboard.runs = []
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: true,
+  })
+
+  expect(html).toContain('Run AI sweep')
+  expect(html).not.toContain('Set up AI Visibility to capture a baseline')
+})
+
+test('an unregistered CDP status does not make the project runnable', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    cdpStatus: { connected: false, endpoint: '', targets: [] },
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['cdp:chatgpt']
+      project.recentRuns = []
+      dashboard.runs = []
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+
+  expect(html).toContain('Set up AI Visibility')
+  expect(html).not.toContain('Run AI sweep')
+})
+
+test('an established schedule stays visible when run prerequisites need repair', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    schedule: schedule(),
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['claude']
+      project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+      dashboard.runs = dashboard.runs.filter(run => run.status !== 'queued' && run.status !== 'running')
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+
+  expect(html).toContain('Next AI sweep')
+  expect(html).toContain('Set up AI Visibility')
+  expect(html).not.toContain('Run AI sweep')
 })
 
 // Deleting a project destroys every query, run and snapshot. It used to be an

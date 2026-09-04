@@ -68,14 +68,16 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bootstrap'],
-    usage: 'canonry bootstrap [--force] [--format json]',
+    usage: 'canonry bootstrap [--format json]',
+    help: 'Create or reconcile the local config, SQLite database, and default API key from supported environment variables. Provider credentials are optional. Safe to rerun: existing settings are preserved and the result reports created, updated, or unchanged. The legacy --force/-f flag is accepted but has no effect.',
     options: {
+      // Compatibility for scripts written before bootstrap became idempotent.
+      // Keep this out of usage: the flag is unnecessary and has no behavior.
       force: { type: 'boolean', short: 'f', default: false },
     },
     allowPositionals: false,
     run: async (input) => {
       await bootstrapCommand({
-        force: getBoolean(input.values, 'force'),
         format: input.format,
       })
     },

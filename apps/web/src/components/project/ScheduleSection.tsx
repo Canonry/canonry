@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -6,7 +8,7 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { fetchSchedule, saveSchedule, removeSchedule, isEmbed, type ApiSchedule } from '../../api.js'
+import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, type ApiSchedule } from '../../api.js'
 
 // --- Schedule helpers ---
 const FREQ_OPTIONS = [
@@ -37,7 +39,7 @@ const COMMON_TIMEZONES = [
 
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
-  const [schedule, setSchedule] = useState<ApiSchedule | null | 'loading'>('loading')
+  const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [freq, setFreq] = useState('daily')
   const [hour, setHour] = useState(6)
@@ -48,21 +50,49 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingVersion, setEditingVersion] = useState<string | null | undefined>(undefined)
 
-  useEffect(() => {
-    fetchSchedule(projectName).then(setSchedule).catch(() => setSchedule(null))
-  }, [projectName])
+  const schedulesQueryKey = getApiV1ProjectsByNameSchedulesQueryKey({
+    client: heyClient,
+    path: { name: projectName },
+  })
+  const schedulesQuery = useQuery({
+    ...getApiV1ProjectsByNameSchedulesOptions({
+      client: heyClient,
+      path: { name: projectName },
+    }),
+    // The settings form can overwrite this server state, so an old cache entry
+    // is never authoritative enough to unlock editing on mount or after the
+    // operator returns from another tab or the CLI.
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    retry: false,
+  })
+  const scheduleLoading = schedulesQuery.isPending || schedulesQuery.isFetching
+  const loadFailed = schedulesQuery.isError
+  const schedule = schedulesQuery.data?.find(item => item.kind === 'answer-visibility') ?? null
+  const scheduleChangedElsewhere = editing
+    && editingVersion !== undefined
+    && (schedule?.updatedAt ?? null) !== editingVersion
 
-  const startEditing = () => {
-    if (schedule && schedule !== 'loading') {
-      const parsed = parsePreset(schedule.preset ?? null, schedule.cronExpr)
+  const updateScheduleCache = (nextSchedule: ApiSchedule | null) => {
+    queryClient.setQueryData<ApiSchedule[]>(schedulesQueryKey, currentSchedules => {
+      const otherSchedules = (currentSchedules ?? []).filter(item => item.kind !== 'answer-visibility')
+      return nextSchedule ? [...otherSchedules, nextSchedule] : otherSchedules
+    })
+  }
+
+  const loadScheduleIntoEditor = (nextSchedule: ApiSchedule | null) => {
+    if (nextSchedule) {
+      const parsed = parsePreset(nextSchedule.preset ?? null, nextSchedule.cronExpr)
       setFreq(parsed.freq)
       setHour(parsed.hour)
       setCustomCron(parsed.customCron)
-      const isKnownTz = (COMMON_TIMEZONES as readonly string[]).includes(schedule.timezone)
-      setTimezone(isKnownTz ? schedule.timezone : 'Other')
+      const isKnownTz = (COMMON_TIMEZONES as readonly string[]).includes(nextSchedule.timezone)
+      setTimezone(isKnownTz ? nextSchedule.timezone : 'Other')
       setTzOther(!isKnownTz)
-      setTzOtherValue(isKnownTz ? '' : schedule.timezone)
+      setTzOtherValue(isKnownTz ? '' : nextSchedule.timezone)
     } else {
       setFreq('daily')
       setHour(6)
@@ -71,21 +101,66 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       setTzOther(false)
       setTzOtherValue('')
     }
+    setEditingVersion(nextSchedule?.updatedAt ?? null)
+  }
+
+  const startEditing = () => {
+    loadScheduleIntoEditor(schedule)
     setError(null)
     setEditing(true)
   }
 
+  const loadLatestSchedule = () => {
+    loadScheduleIntoEditor(schedule)
+    setError(null)
+  }
+
+  const recoverFromConflict = async () => {
+    const latest = await schedulesQuery.refetch()
+    if (latest.isError) {
+      setError('The schedule changed, but Canonry could not load the latest version. Retry the schedule check.')
+    } else if (!editing) {
+      setError('This schedule changed elsewhere. The latest version is now shown; review it and try again.')
+    } else {
+      setError(null)
+    }
+  }
+
+  const handleMutationError = async (caught: unknown, fallback: string) => {
+    if (caught instanceof ApiError && caught.code === 'SCHEDULE_VERSION_CONFLICT') {
+      await recoverFromConflict()
+      return
+    }
+    setError(caught instanceof Error ? caught.message : fallback)
+  }
+
   const handleSave = async () => {
+    if (scheduleChangedElsewhere || editingVersion === undefined) return
     setSaving(true)
     setError(null)
     try {
+      // Revalidate immediately before the write as well as on focus. This
+      // catches an external update made after this editor opened; the server
+      // remains authoritative if a still-later write races this request.
+      const latestResult = await schedulesQuery.refetch()
+      if (latestResult.isError || latestResult.data === undefined) {
+        setError('Canonry could not verify the latest schedule. Try again before saving.')
+        return
+      }
+      const latestSchedule = latestResult.data.find(item => item.kind === 'answer-visibility') ?? null
+      if ((latestSchedule?.updatedAt ?? null) !== editingVersion) return
+
       const effectiveTz = tzOther ? tzOtherValue.trim() || 'UTC' : timezone
-      const body: Parameters<typeof saveSchedule>[1] = { timezone: effectiveTz }
+      const body: Parameters<typeof saveSchedule>[1] = {
+        timezone: effectiveTz,
+        expectedUpdatedAt: editingVersion,
+      }
       if (freq === 'custom') body.cron = customCron.trim()
       else body.preset = buildPreset(freq, hour)
       const result = await saveSchedule(projectName, body)
-      setSchedule(result)
       setEditing(false)
+      setEditingVersion(undefined)
+      updateScheduleCache(result)
       addToast({
         title: 'Schedule saved',
         detail: scheduleLabel(result.preset ?? null, result.cronExpr, result.timezone),
@@ -94,25 +169,37 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeMode: 'replace',
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save schedule')
+      await handleMutationError(e, 'Failed to save schedule')
     } finally {
       setSaving(false)
     }
   }
 
   const handleToggleEnabled = async () => {
-    if (!schedule || schedule === 'loading') return
+    if (!schedule) return
+    const editingScheduleVersion = schedule.updatedAt
     setSaving(true)
     setError(null)
     try {
-      const body: Parameters<typeof saveSchedule>[1] = {
-        timezone: schedule.timezone,
-        enabled: !schedule.enabled,
+      const latestResult = await schedulesQuery.refetch()
+      if (latestResult.isError || latestResult.data === undefined) {
+        setError('Canonry could not verify the latest schedule. Try again before updating it.')
+        return
       }
-      if (schedule.preset) body.preset = schedule.preset
-      else body.cron = schedule.cronExpr
+      const latestSchedule = latestResult.data.find(item => item.kind === 'answer-visibility') ?? null
+      if (!latestSchedule || latestSchedule.updatedAt !== editingScheduleVersion) {
+        setError('This schedule changed elsewhere. Review the latest version and try again.')
+        return
+      }
+      const body: Parameters<typeof saveSchedule>[1] = {
+        timezone: latestSchedule.timezone,
+        enabled: !latestSchedule.enabled,
+        expectedUpdatedAt: editingScheduleVersion,
+      }
+      if (latestSchedule.preset) body.preset = latestSchedule.preset
+      else body.cron = latestSchedule.cronExpr
       const nextSchedule = await saveSchedule(projectName, body)
-      setSchedule(nextSchedule)
+      updateScheduleCache(nextSchedule)
       addToast({
         title: nextSchedule.enabled ? 'Schedule resumed' : 'Schedule paused',
         detail: scheduleLabel(nextSchedule.preset ?? null, nextSchedule.cronExpr, nextSchedule.timezone),
@@ -121,19 +208,22 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeMode: 'replace',
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update schedule')
+      await handleMutationError(e, 'Failed to update schedule')
     } finally {
       setSaving(false)
     }
   }
 
   const handleRemove = async () => {
+    if (!schedule) return
+    const removingScheduleVersion = schedule.updatedAt
     setRemoving(true)
     setError(null)
     try {
-      await removeSchedule(projectName)
-      setSchedule(null)
+      await removeSchedule(projectName, removingScheduleVersion)
+      updateScheduleCache(null)
       setEditing(false)
+      setEditingVersion(undefined)
       addToast({
         title: 'Schedule removed',
         detail: `${projectName} will no longer run automatically.`,
@@ -142,7 +232,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         dedupeMode: 'drop',
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove schedule')
+      await handleMutationError(e, 'Failed to remove schedule')
     } finally {
       setRemoving(false)
     }
@@ -155,22 +245,39 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Scheduled runs</h2>
         </div>
-        {!isEmbed() && schedule !== 'loading' && !editing && (
+        {!isEmbed() && !scheduleLoading && !loadFailed && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
             {schedule ? 'Edit schedule' : '+ Set schedule'}
           </Button>
         )}
       </div>
 
-      {schedule === 'loading' && <p className="supporting-copy">Loading...</p>}
+      {scheduleLoading && <p className="supporting-copy">Loading...</p>}
 
-      {schedule !== 'loading' && !editing && schedule === null && (
+      {error && !editing && <p className="mt-2 text-sm text-negative" role="alert">{error}</p>}
+
+      {!scheduleLoading && loadFailed && (
+        <Card className="surface-card compact-card">
+          <p className="supporting-copy">Canonry could not verify this schedule.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => { void schedulesQuery.refetch() }}
+          >
+            Retry
+          </Button>
+        </Card>
+      )}
+
+      {!scheduleLoading && !loadFailed && !editing && schedule === null && (
         <Card className="surface-card compact-card">
           <p className="supporting-copy">No schedule configured. Set one to automatically trigger visibility sweeps.</p>
         </Card>
       )}
 
-      {schedule !== 'loading' && !editing && schedule !== null && (
+      {!scheduleLoading && !loadFailed && !editing && schedule !== null && (
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
@@ -199,12 +306,19 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               )}
             </div>
           </div>
-          {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
         </Card>
       )}
 
       {!isEmbed() && editing && (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
+          {scheduleChangedElsewhere && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
+              <p>This schedule changed elsewhere. Load the latest version before saving.</p>
+              <Button type="button" variant="outline" size="sm" onClick={loadLatestSchedule}>
+                Load latest schedule
+              </Button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-secondary">Frequency</label>
@@ -269,13 +383,13 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               />
             )}
           </div>
-          {error && <p className="text-negative-400 text-sm">{error}</p>}
+          {error && <p className="text-negative-400 text-sm" role="alert">{error}</p>}
           <div className="flex gap-2 justify-end">
-            <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setError(null) }}>Cancel</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setEditingVersion(undefined); setError(null) }}>Cancel</Button>
             <Button
               type="button"
               size="sm"
-              disabled={saving || (freq === 'custom' && !customCron.trim())}
+              disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || (freq === 'custom' && !customCron.trim())}
               onClick={asyncHandler(handleSave)}
             >
               {saving ? 'Saving...' : 'Save schedule'}

@@ -6,7 +6,7 @@ import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules, trafficSources } from '@ainyc/canonry-db'
-import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Harness {
@@ -19,7 +19,7 @@ interface Harness {
   otherTrafficSourceId: string
 }
 
-async function buildHarness(): Promise<Harness> {
+async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void): Promise<Harness> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'schedules-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -101,7 +101,7 @@ async function buildHarness(): Promise<Harness> {
   }).run()
 
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, { db, skipAuth: true, onScheduleUpdated })
   await app.ready()
 
   return { app, db, tmpDir, projectId, trafficSourceId, otherProjectId, otherTrafficSourceId }
@@ -116,6 +116,154 @@ describe('schedule per-kind invariants', () => {
   let harness: Harness
   beforeEach(async () => { harness = await buildHarness() })
   afterEach(async () => { await teardown(harness) })
+
+  it('lists schedules with a successful empty result and keeps projects isolated', async () => {
+    const emptyRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedules',
+    })
+    expect(emptyRes.statusCode).toBe(200)
+    expect(JSON.parse(emptyRes.payload)).toEqual([])
+
+    const answerVisibility = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'answer-visibility', preset: 'daily' },
+    })
+    expect(answerVisibility.statusCode).toBe(201)
+    const dataRefresh = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'data-refresh', preset: 'daily' },
+    })
+    expect(dataRefresh.statusCode).toBe(201)
+    const foreign = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-b/schedule',
+      payload: { kind: 'gbp-sync', preset: 'daily' },
+    })
+    expect(foreign.statusCode).toBe(201)
+
+    const listRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedules',
+    })
+    expect(listRes.statusCode).toBe(200)
+    expect(JSON.parse(listRes.payload).map((schedule: { kind: string }) => schedule.kind)).toEqual([
+      'answer-visibility',
+      'data-refresh',
+    ])
+  })
+
+  it('preserves the singular schedule 404 contract when the collection is empty', async () => {
+    const res = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('returns the final version persisted by the scheduler callback', async () => {
+    await teardown(harness)
+    const callbackDb: { current?: Harness['db'] } = {}
+    const schedulerUpdatedAt = '2099-01-01T00:00:00.000Z'
+    const nextRunAt = '2099-01-02T06:00:00.000Z'
+    harness = await buildHarness((action, projectId, kind) => {
+      if (action !== 'upsert') return
+      callbackDb.current!.update(schedules).set({ updatedAt: schedulerUpdatedAt, nextRunAt })
+        .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, kind))).run()
+    })
+    callbackDb.current = harness.db
+
+    const response = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { preset: 'daily', expectedUpdatedAt: null },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json()).toMatchObject({ updatedAt: schedulerUpdatedAt, nextRunAt })
+  })
+
+  it('atomically rejects interleaved writes and deletes from stale schedule versions', async () => {
+    const createdResponse = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { preset: 'daily', expectedUpdatedAt: null },
+    })
+    expect(createdResponse.statusCode).toBe(201)
+    const created = createdResponse.json() as { updatedAt: string }
+
+    const duplicateCreate = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { preset: 'daily@7', expectedUpdatedAt: null },
+    })
+    expect(duplicateCreate.statusCode).toBe(409)
+    expect(duplicateCreate.json()).toMatchObject({
+      error: {
+        code: 'SCHEDULE_VERSION_CONFLICT',
+        details: { expectedUpdatedAt: null, actualUpdatedAt: created.updatedAt },
+      },
+    })
+
+    const contenders = await Promise.all([
+      harness.app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/site-a/schedule',
+        payload: { preset: 'daily@8', expectedUpdatedAt: created.updatedAt },
+      }),
+      harness.app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/site-a/schedule',
+        payload: { preset: 'daily@9', expectedUpdatedAt: created.updatedAt },
+      }),
+    ])
+    expect(contenders.map(response => response.statusCode).sort()).toEqual([200, 409])
+    const winnerResponse = contenders.find(response => response.statusCode === 200)!
+    const loserResponse = contenders.find(response => response.statusCode === 409)!
+    const winner = winnerResponse.json() as { preset: string; updatedAt: string }
+    expect(winner.updatedAt).not.toBe(created.updatedAt)
+    expect(loserResponse.json()).toMatchObject({
+      error: {
+        code: 'SCHEDULE_VERSION_CONFLICT',
+        details: { expectedUpdatedAt: created.updatedAt, actualUpdatedAt: winner.updatedAt },
+      },
+    })
+
+    const staleDelete = await harness.app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/site-a/schedule?expectedUpdatedAt=${encodeURIComponent(created.updatedAt)}`,
+    })
+    expect(staleDelete.statusCode).toBe(409)
+    expect(staleDelete.json()).toMatchObject({ error: { code: 'SCHEDULE_VERSION_CONFLICT' } })
+
+    const stillPresent = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule',
+    })
+    expect(stillPresent.statusCode).toBe(200)
+    expect(stillPresent.json()).toMatchObject({ preset: winner.preset, updatedAt: winner.updatedAt })
+
+    const currentDelete = await harness.app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/site-a/schedule?expectedUpdatedAt=${encodeURIComponent(winner.updatedAt)}`,
+    })
+    expect(currentDelete.statusCode).toBe(204)
+
+    const staleRecreate = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { preset: 'daily@10', expectedUpdatedAt: winner.updatedAt },
+    })
+    expect(staleRecreate.statusCode).toBe(409)
+    expect(staleRecreate.json()).toMatchObject({
+      error: {
+        code: 'SCHEDULE_VERSION_CONFLICT',
+        details: { expectedUpdatedAt: winner.updatedAt, actualUpdatedAt: null },
+      },
+    })
+  })
 
   it('rejects PUT /schedule with kind=traffic-sync and no sourceId', async () => {
     const res = await harness.app.inject({

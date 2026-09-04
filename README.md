@@ -56,6 +56,10 @@ The dashboard, CLI, and agent tools share the same project API.
 
    Keep the output private. Provider credentials are optional. Bootstrap imports supported variables that are already in your environment.
 
+   Canonry stores `config.yaml` and `data.db` in `~/.canonry` by default. Set
+   `CANONRY_CONFIG_DIR` before `bootstrap`, `serve`, and later CLI commands to
+   keep an install in another private directory; use the same value every time.
+
 3. Start Canonry.
 
    ```bash

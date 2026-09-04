@@ -198,8 +198,11 @@ describe('native Canonry plugin bundle', () => {
   it('documents native initialization and operator approval boundaries', () => {
     const pluginReadme = fs.readFileSync(path.join(pluginRoot, 'README.md'), 'utf8')
     const operatorSkill = fs.readFileSync(path.join(pluginRoot, 'skills', 'canonry', 'SKILL.md'), 'utf8')
-    expect(pluginReadme).toContain('cnry init --skip-skills --skip-mcp')
-    expect(operatorSkill).toContain('cnry init --skip-skills --skip-mcp')
+    expect(pluginReadme).toContain('cnry bootstrap')
+    expect(pluginReadme).toContain('Provider credentials are optional')
+    expect(pluginReadme).not.toContain('cnry init --skip-skills --skip-mcp')
+    expect(operatorSkill).toContain('cnry bootstrap')
+    expect(operatorSkill).toContain('Use `cnry init` only as an optional interactive first-time')
     expect(operatorSkill).toMatch(/explicit approval before every mutation or quota-consuming sweep/i)
   })
 

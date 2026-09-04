@@ -18,8 +18,36 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('Scheduler')
 
-/** Default cadence for the health schedule seeded on first start. */
-const DEFAULT_HEALTH_CRON = '0 */6 * * *'
+/** Default cadence for the health schedule seeded for each project. */
+export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
+
+/**
+ * Ensure one default doctor schedule exists for a project.
+ *
+ * This is deliberately callable from the project-created lifecycle hook so a
+ * new project receives its schedule when it is created, not as a side effect
+ * of constructing a server that may never bind. The unique project/kind index
+ * makes concurrent create/startup reconciliation idempotent.
+ */
+export function ensureDefaultHealthSchedule(
+  db: DatabaseClient,
+  projectId: string,
+  now = new Date().toISOString(),
+): boolean {
+  const result = db.insert(schedules).values({
+    id: crypto.randomUUID(),
+    projectId,
+    kind: SchedulableRunKinds.doctor,
+    cronExpr: DEFAULT_HEALTH_CRON,
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    nextRunAt: nextRunFromCron(DEFAULT_HEALTH_CRON, 'UTC'),
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoNothing().run()
+  return result.changes === 1
+}
 
 export interface SchedulerCallbacks {
   /** Fired when an answer-visibility schedule triggers. Existing canonry callsites wire this to the JobRunner. */
@@ -139,21 +167,13 @@ export class Scheduler {
       .all()
     if (projectsWithoutHealth.length === 0) return
     const now = new Date().toISOString()
+    let seeded = 0
     for (const project of projectsWithoutHealth) {
-      this.db.insert(schedules).values({
-        id: crypto.randomUUID(),
-        projectId: project.id,
-        kind: SchedulableRunKinds.doctor,
-        cronExpr: DEFAULT_HEALTH_CRON,
-        timezone: 'UTC',
-        enabled: true,
-        providers: [],
-        nextRunAt: nextRunFromCron(DEFAULT_HEALTH_CRON, 'UTC'),
-        createdAt: now,
-        updatedAt: now,
-      }).run()
+      if (ensureDefaultHealthSchedule(this.db, project.id, now)) seeded += 1
     }
-    log.info('health-schedule.seeded', { projectCount: projectsWithoutHealth.length, cron: DEFAULT_HEALTH_CRON })
+    if (seeded > 0) {
+      log.info('health-schedule.seeded', { projectCount: seeded, cron: DEFAULT_HEALTH_CRON })
+    }
   }
 
   /**

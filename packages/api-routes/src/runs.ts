@@ -24,7 +24,7 @@ import {
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
+import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -604,32 +604,19 @@ export function answerVisibilityPreflightError(input: {
     return noQueries(input.projectName)
   }
 
-  const availableProviders = normalizeProviderNames(input.runnableProviderNames)
-  const requestedProviders = normalizeProviderNames(input.requestedProviders ?? [])
-  const projectProviders = normalizeProviderNames(input.projectProviders)
-  const selectedProviders = requestedProviders.length > 0
-    ? requestedProviders
-    : projectProviders.length > 0
-      ? projectProviders
-      : availableProviders
-  const available = new Set(availableProviders)
-  const runnableProviders = selectedProviders.filter(provider => available.has(provider))
+  const selection = resolveRunnableProviderSelection({
+    requestedProviders: input.requestedProviders,
+    projectProviders: input.projectProviders,
+    runnableProviders: input.runnableProviderNames,
+  })
 
-  if (runnableProviders.length > 0) return null
+  if (selection.runnableProviders.length > 0) return null
 
   return noProvider(input.projectName, {
-    availableProviders,
-    selectedProviders,
-    selectionSource: requestedProviders.length > 0
-      ? 'request'
-      : projectProviders.length > 0
-        ? 'project'
-        : 'instance',
+    availableProviders: selection.availableProviders,
+    selectedProviders: selection.selectedProviders,
+    selectionSource: selection.selectionSource,
   })
-}
-
-function normalizeProviderNames(providerNames: readonly string[]): string[] {
-  return [...new Set(providerNames.map(name => name.trim().toLowerCase()).filter(Boolean))]
 }
 
 function parseRunTriggerRequest(value: unknown) {

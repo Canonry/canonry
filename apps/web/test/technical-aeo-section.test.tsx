@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
   getApiV1ProjectsByNameRunsQueryKey,
+  getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey,
   getApiV1ProjectsByNameTechnicalAeoPagesQueryKey,
   getApiV1ProjectsByNameTechnicalAeoQueryKey,
   getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
@@ -390,10 +391,13 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(screen.getByLabelText('Site score 52 out of 100')).not.toBeNull()
   expect(screen.getByText('2 pages checked')).not.toBeNull()
   expect(screen.getByText('2 checks need attention')).not.toBeNull()
-  expect(screen.getByRole('heading', { name: 'Technical findings' })).not.toBeNull()
+  const findingsHeading = screen.getByRole('heading', { name: 'Technical findings' })
+  expect(findingsHeading).not.toBeNull()
   expect(screen.getByText('Select a check to see affected pages and recommended fixes.')).not.toBeNull()
   expect(screen.getByText('Pages affected')).not.toBeNull()
-  expect(screen.getByText('Continue onboarding after reviewing fixes')).not.toBeNull()
+  const onboardingFooter = screen.getByText('Continue onboarding after reviewing fixes')
+  expect(onboardingFooter).not.toBeNull()
+  expect(Boolean(findingsHeading.compareDocumentPosition(onboardingFooter) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(screen.queryByText('Recover unavailable Page health')).toBeNull()
 
   const failingFactor = screen.getByRole('button', { name: 'AI Crawler Access' })
@@ -436,8 +440,104 @@ test('uses compact findings copy only when the onboarding parent requests it', (
   )
 
   expect(screen.getByRole('heading', { name: 'Checks' })).not.toBeNull()
-  expect(screen.getByText('Open a check to see affected pages and fixes.')).not.toBeNull()
+  expect(screen.getByText('Open a check to see affected pages and recommended fixes.')).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'Technical findings' })).toBeNull()
+})
+
+test('shows one exact page finding in onboarding when aggregate recommendations are unavailable', async () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, {
+    ...scoreWithFinding(),
+    crossCuttingIssues: [{
+      ...scoreWithFinding().crossCuttingIssues[0],
+      topRecommendations: [],
+    }],
+  })
+  queryClient.setQueryData(pagesKey, {
+    project: projectName,
+    runId: 'audit_old',
+    auditedAt: '2026-07-14T18:16:33.000Z',
+    total: 1,
+    pages: [{
+      url: 'https://citypoint.example/services',
+      status: 'success',
+      overallScore: 42,
+      factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, score: 30 }],
+    }],
+  })
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey({
+    client: heyClient,
+    path: { name: projectName },
+    query: { url: 'https://citypoint.example/services' },
+  }), {
+    state: 'ready',
+    project: projectName,
+    runId: 'audit_old',
+    complete: true,
+    termination: null,
+    nodeKey: 'page_services',
+    url: 'https://citypoint.example/services',
+    auditState: 'complete',
+    auditScore: 42,
+    evidenceState: 'complete',
+    factors: [{
+      id: 'content-depth',
+      name: 'Content depth',
+      weight: 12,
+      score: 20,
+      status: 'fail',
+      applicable: true,
+      findings: [{ type: 'missing', code: 'content-depth.word-count.low', message: 'Only 120 words were found.' }],
+      recommendations: ['Answer the key questions visitors ask on this page.'],
+    }],
+    criticalDefects: [],
+  })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated compactCopy />
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByText('Page-level evidence for the first page to fix appears below.', { exact: false })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'First page to fix' })).not.toBeNull()
+  expect(screen.getAllByRole('link', { name: 'https://citypoint.example/services' })).toHaveLength(2)
+  expect(screen.getByRole('heading', { name: 'Findings and fixes' })).not.toBeNull()
+  expect(await screen.findByText('Content depth')).not.toBeNull()
+  expect(screen.getByText('42/100')).not.toBeNull()
+})
+
+test('does not call a healthy fallback page the first page to fix', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, {
+    ...scoreWithFinding(),
+    crossCuttingIssues: [{
+      ...scoreWithFinding().crossCuttingIssues[0],
+      topRecommendations: [],
+    }],
+  })
+  queryClient.setQueryData(pagesKey, {
+    project: projectName,
+    runId: 'audit_old',
+    auditedAt: '2026-07-14T18:16:33.000Z',
+    total: 1,
+    pages: [{
+      url: 'https://citypoint.example/',
+      status: 'success',
+      overallScore: 92,
+      factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, score: 100 }],
+    }],
+  })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated compactCopy />
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByRole('heading', { name: 'Example audited page' })).not.toBeNull()
+  expect(screen.getByText('Page-level evidence for one audited page appears below.', { exact: false })).not.toBeNull()
+  expect(screen.queryByRole('heading', { name: 'First page to fix' })).toBeNull()
 })
 
 test('shows a focused retry when integrated affected pages fail to load', async () => {

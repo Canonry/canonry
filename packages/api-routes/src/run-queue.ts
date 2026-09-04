@@ -92,11 +92,43 @@ export function resolveRunProviderSelection(input: {
   projectProviders?: readonly string[] | null
   runnableProviders?: readonly string[] | null
 }): string[] {
+  return resolveRunnableProviderSelection(input).selectedProviders
+}
+
+/**
+ * Resolve both the requested roster and the subset this host can execute.
+ * Run preflight and project-readable readiness surfaces share this exact decision so
+ * the dashboard never claims a launch state the run route would reject.
+ */
+export function resolveRunnableProviderSelection(input: {
+  requestedProviders?: readonly string[] | null
+  projectProviders?: readonly string[] | null
+  runnableProviders?: readonly string[] | null
+}): {
+  availableProviders: string[]
+  selectedProviders: string[]
+  runnableProviders: string[]
+  selectionSource: 'request' | 'project' | 'instance'
+} {
+  const availableProviders = normalizeProviders(input.runnableProviders ?? [])
   const requested = normalizeProviders(input.requestedProviders ?? [])
-  if (requested.length) return requested
   const project = normalizeProviders(input.projectProviders ?? [])
-  if (project.length) return project
-  return normalizeProviders(input.runnableProviders ?? [])
+  const selectedProviders = requested.length > 0
+    ? requested
+    : project.length > 0
+      ? project
+      : availableProviders
+  const available = new Set(availableProviders)
+  return {
+    availableProviders,
+    selectedProviders,
+    runnableProviders: selectedProviders.filter(provider => available.has(provider)),
+    selectionSource: requested.length > 0
+      ? 'request'
+      : project.length > 0
+        ? 'project'
+        : 'instance',
+  }
 }
 
 function providerRoster(tx: DatabaseClient, params: QueueRunParams): string[] {

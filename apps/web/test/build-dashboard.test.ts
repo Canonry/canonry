@@ -262,6 +262,21 @@ test('buildDashboard surfaces both the model override and the adapter default mo
   expect(openai?.defaultModel).toBe('gpt-5.4')
 })
 
+test('buildDashboard names the missing local-provider requirement truthfully', () => {
+  const apiSettings: ApiSettings = {
+    providers: [
+      { name: 'local', displayName: 'Local', configured: false },
+      { name: 'openai', displayName: 'OpenAI', configured: false },
+    ],
+    google: { configured: false },
+  }
+
+  const statuses = buildDashboard([], apiSettings).settings.providerStatuses
+
+  expect(statuses.find((provider) => provider.name === 'local')?.detail).toBe('Base URL is missing.')
+  expect(statuses.find((provider) => provider.name === 'openai')?.detail).toBe('API key is missing.')
+})
+
 test('buildDashboard marks Google settings as needing config when OAuth is not configured', () => {
   const apiSettings: ApiSettings = {
     providers: [],

@@ -36,6 +36,35 @@ describe('buildServeForwardArgs', () => {
   })
 })
 
+describe('resolveDaemonEndpoint', () => {
+  it('uses CLI values ahead of environment and config', async () => {
+    const { resolveDaemonEndpoint } = await import('../src/commands/daemon.js')
+
+    expect(resolveDaemonEndpoint(
+      { host: '192.168.1.8', port: '4300' },
+      { CANONRY_HOST: '::', CANONRY_PORT: '4200' },
+      4101,
+    )).toEqual({ host: '192.168.1.8', port: 4300 })
+  })
+
+  it('uses inherited environment ahead of config', async () => {
+    const { resolveDaemonEndpoint } = await import('../src/commands/daemon.js')
+
+    expect(resolveDaemonEndpoint(
+      {},
+      { CANONRY_HOST: '::', CANONRY_PORT: '4200' },
+      4101,
+    )).toEqual({ host: '::', port: 4200 })
+  })
+
+  it('falls back to config port and loopback defaults', async () => {
+    const { resolveDaemonEndpoint } = await import('../src/commands/daemon.js')
+
+    expect(resolveDaemonEndpoint({}, {}, 4101)).toEqual({ host: '127.0.0.1', port: 4101 })
+    expect(resolveDaemonEndpoint({}, {}, undefined)).toEqual({ host: '127.0.0.1', port: 4100 })
+  })
+})
+
 describe('daemon cliPath resolution', () => {
   it('resolves cliPath to the same file as import.meta.url (not a parent directory)', async () => {
     // This mirrors the logic in startDaemon — the bug was using '../cli.js'

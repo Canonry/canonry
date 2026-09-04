@@ -23,6 +23,8 @@ let tmpDir: string
 let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
 let callbackCalls: Array<{ id: string; name: string }>
+let createdCallbackCalls: Array<{ id: string; name: string }>
+let createdCallbackError: Error | undefined
 let existingProjectId: string
 
 function seedKey(name: string, token: string, scopes: string[], projectId?: string): void {
@@ -109,10 +111,16 @@ beforeEach(async () => {
   seedKey('scoped-project-writer', SCOPED_WRITER_KEY, ['*'], existingProjectId)
 
   callbackCalls = []
+  createdCallbackCalls = []
+  createdCallbackError = undefined
   app = Fastify()
   app.register(apiRoutes, {
     db,
     onProjectUpserted: (id, name) => callbackCalls.push({ id, name }),
+    onProjectCreated: (id, name) => {
+      if (createdCallbackError) throw createdCallbackError
+      createdCallbackCalls.push({ id, name })
+    },
   })
   await app.ready()
 })
@@ -146,11 +154,21 @@ describe('POST /projects', () => {
 
     const created = db.select().from(projects).where(eq(projects.name, 'acme-co')).get()!
     expect(callbackCalls).toEqual([{ id: created.id, name: 'acme-co' }])
+    expect(createdCallbackCalls).toEqual([{ id: created.id, name: 'acme-co' }])
     const createdAudit = db.select().from(auditLog).where(and(
       eq(auditLog.projectId, created.id),
       eq(auditLog.action, 'project.created'),
     )).all()
     expect(createdAudit).toHaveLength(1)
+  })
+
+  it('keeps the committed create successful when its post-commit callback fails', async () => {
+    createdCallbackError = new Error('schedule seed failed')
+
+    const response = await createProject(ROOT_KEY, 'callback-failure')
+
+    expect(response.statusCode).toBe(201)
+    expect(db.select().from(projects).where(eq(projects.name, 'callback-failure')).get()).toBeTruthy()
   })
 
   it('returns a typed 409 for a normalized-name collision without mutating the existing project', async () => {

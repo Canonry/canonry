@@ -33,27 +33,30 @@ Then prepare the runtime in this order:
 1. With approval, install the global runtime if `command -v cnry` failed.
 2. Check only whether `$CANONRY_CONFIG_DIR/config.yaml` (when that variable is
    set) or `~/.canonry/config.yaml` exists; do not print the file. If it does
-   not exist, pause and ask the operator to run `cnry init --skip-skills --skip-mcp`
-   in their own private terminal, then confirm completion without
-   pasting the output. Never execute `init` inside the agent session: it prompts
-   for provider credentials and prints the new full-access API key once. The
-   plugin already supplies the skills and MCP registration.
-3. After a fresh initialization, get approval and run `cnry start --format
+   not exist, pause and ask the operator to run `cnry bootstrap` in their own
+   private terminal, then confirm completion without pasting the output.
+   Bootstrap needs no provider credential, but it prints the new full-access
+   API key once. Use `cnry init` only as an optional interactive first-time
+   path when the operator also wants provider/OAuth provisioning. The plugin
+   already supplies the skills and MCP registration.
+3. After a fresh bootstrap, get approval and run `cnry start --format
    json`; `start` waits for the health endpoint before returning. On an
    existing installation, try the doctor command first and start only when the
    transport is unavailable. Never stop or restart a healthy daemon just to
    install the plugin.
 4. Run `cnry doctor --format json` after the daemon is ready. A successful JSON
    response proves the health-check path works; individual checks may still
-   report actionable `warn` or `fail` statuses. Plugin installation state is
+   report actionable `warn` or `fail` statuses. No provider is a warning, not a
+   failure: Page Health works without one and AI Visibility stays disabled.
+   Plugin installation state is
    read live, so installing the plugin alone does not require a daemon restart.
 
 Never ask the operator to paste credentials into the chat, print the raw API
 key, or inspect `~/.canonry/config.yaml` for secrets. The plugin does not expand
 the configured key's server-enforced scope, but it gives the client tools that
-can exercise that scope. Fresh `cnry init` creates a full-instance `*` key, so
-the default plugin has teammate-level access to every project and shared
-instance settings. A write-capable key exposes write tools by default; a
+can exercise that scope. Fresh `cnry bootstrap` creates a full-instance `*` key.
+The default plugin has teammate-level access to every project and shared
+instance setting. A write-capable key exposes write tools by default; a
 read-only key restricts the catalog to reads, while a project-scoped key keeps
 its project route boundary but is not tenant isolation: a write-capable scoped
 key can still mutate shared instance settings. Do not work around a missing

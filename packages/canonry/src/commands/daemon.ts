@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getConfigDir } from '../config.js'
+import { getConfigDir, loadConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { operatorHttpUrl } from '../operator-url.js'
+import { resolveServePort } from '../serve-endpoint.js'
 
 function getPidPath(): string {
   return path.join(getConfigDir(), 'canonry.pid')
@@ -22,7 +24,7 @@ function isProcessAlive(pid: number): boolean {
 }
 
 async function waitForReady(host: string, port: string, maxMs = 10000): Promise<boolean> {
-  const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/health`
+  const url = `${operatorHttpUrl(host, port)}/health`
   const deadline = Date.now() + maxMs
   while (Date.now() < deadline) {
     try {
@@ -45,6 +47,28 @@ export interface ServeForwardOpts {
   embedAllowOrigins?: string[]
   embedViews?: string[]
   embedProjectTabs?: string[]
+}
+
+export interface DaemonEndpoint {
+  host: string
+  port: number
+}
+
+/**
+ * Resolve the endpoint once in the parent process so the spawned server,
+ * readiness probe, and reported URL cannot disagree. CLI flags take
+ * precedence over inherited environment, then config, then defaults.
+ */
+export function resolveDaemonEndpoint(
+  opts: Pick<ServeForwardOpts, 'host' | 'port'>,
+  env: NodeJS.ProcessEnv,
+  configPort: number | undefined,
+): DaemonEndpoint {
+  const portInput = opts.port || env.CANONRY_PORT
+  return {
+    host: opts.host || env.CANONRY_HOST || '127.0.0.1',
+    port: resolveServePort(portInput, configPort),
+  }
 }
 
 /**
@@ -89,11 +113,16 @@ export async function startDaemon(opts: ServeForwardOpts & { format?: CliFormat 
     fs.unlinkSync(pidPath)
   }
 
+  const config = loadConfig()
+  const endpoint = resolveDaemonEndpoint(opts, process.env, config.port)
+  const host = endpoint.host
+  const port = String(endpoint.port)
+
   const cliPath = path.resolve(new URL(import.meta.url).pathname)
   // Don't use --import tsx in production (compiled) installs — tsx is a dev dependency
   const inSourceMode = new URL(import.meta.url).pathname.endsWith('.ts')
   const args = inSourceMode ? ['--import', 'tsx', cliPath, 'serve'] : [cliPath, 'serve']
-  args.push(...buildServeForwardArgs(opts))
+  args.push(...buildServeForwardArgs({ ...opts, host, port }))
 
   const child = spawn(process.execPath, args, {
     detached: true,
@@ -118,14 +147,14 @@ export async function startDaemon(opts: ServeForwardOpts & { format?: CliFormat 
 
   fs.writeFileSync(pidPath, String(child.pid), 'utf-8')
 
-  const port = opts.port ?? '4100'
-  const host = opts.host ?? '127.0.0.1'
   if (!isMachineFormat(format)) {
     process.stderr.write('Waiting for server to start...')
   }
   const ready = await waitForReady(host, port)
   if (!ready) {
-    // Server didn't come up — clean up the PID file to avoid leaving a stale one
+    // Server didn't come up. Stop the child and remove its PID file so a
+    // mismatched or failed startup cannot leave an untracked daemon behind.
+    try { child.kill('SIGTERM') } catch { /* ignore */ }
     try { fs.unlinkSync(pidPath) } catch { /* ignore */ }
     throw new CliError({
       code: 'DAEMON_START_TIMEOUT',
@@ -142,7 +171,7 @@ export async function startDaemon(opts: ServeForwardOpts & { format?: CliFormat 
     process.stderr.write('\n')
   }
 
-  const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
+  const url = operatorHttpUrl(host, port)
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       started: true,

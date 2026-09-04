@@ -6,17 +6,19 @@ import { applyProjectConfig, isEmbed } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { useAccount } from '../../contexts/account-context.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
+  const { canWrite } = useAccount()
   const [yamlText, setYamlText] = useState('')
   const [applying, setApplying] = useState(false)
   const [results, setResults] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
 
-  // The whole panel is a write surface (paste config → apply). Nothing read-only
-  // here, so it renders nothing in the read-only embed. Hook order is preserved
-  // (the early return is after all hooks) - Rules of Hooks hold on both paths.
-  if (isEmbed()) return null
+  // The whole panel is a write surface (paste config -> apply). Project-scoped
+  // write keys may apply their own project; the server still rejects broader
+  // documents. Hook order remains stable on every path.
+  if (isEmbed() || !canWrite) return null
 
   const handleApply = async () => {
     if (!yamlText.trim()) return

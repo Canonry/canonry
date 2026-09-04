@@ -12,6 +12,7 @@
  * somebody's time.
  */
 import { createContext, useContext, type ReactNode } from 'react'
+import { WILDCARD_SCOPE, type ApiKeyDto } from '@ainyc/canonry-contracts'
 
 export interface SignedInAccount {
   name: string
@@ -28,13 +29,46 @@ export interface AccountState {
 }
 
 const NO_ACCOUNTS: AccountState = { account: null, canWrite: true, isAdmin: true }
+const RESTRICTED_API_KEY: AccountState = { account: null, canWrite: false, isAdmin: false }
+
+export type ApiKeyAccess = Pick<ApiKeyDto, 'id' | 'scopes' | 'projectId' | 'readOnly'>
+
+/**
+ * Map a key's coarse authority onto the dashboard's two existing affordance
+ * gates. Named scopes stay restricted: this context cannot honestly turn a
+ * domain-specific grant such as `ads.write` into permission for every write
+ * control in the application.
+ */
+export function accountStateForApiKey(apiKey: ApiKeyAccess): AccountState {
+  const hasGeneralWrite = apiKey.scopes.includes(WILDCARD_SCOPE)
+  return {
+    account: null,
+    canWrite: !apiKey.readOnly && hasGeneralWrite,
+    isAdmin: apiKey.projectId === null && apiKey.scopes.includes(WILDCARD_SCOPE),
+  }
+}
 
 const AccountContext = createContext<AccountState>(NO_ACCOUNTS)
 
-export function AccountProvider({ account, children }: { account: SignedInAccount | null; children: ReactNode }) {
-  const value: AccountState = account
-    ? { account, canWrite: account.role === 'admin', isAdmin: account.role === 'admin' }
-    : NO_ACCOUNTS
+export function AccountProvider({
+  account,
+  apiKey,
+  apiKeyPending = false,
+  children,
+}: {
+  account: SignedInAccount | null
+  apiKey?: ApiKeyAccess | null
+  /** Explicit browser keys render fail-closed until `/keys/self` resolves. */
+  apiKeyPending?: boolean
+  children: ReactNode
+}) {
+  const value: AccountState = apiKeyPending
+    ? RESTRICTED_API_KEY
+    : apiKey
+      ? accountStateForApiKey(apiKey)
+      : account
+        ? { account, canWrite: account.role === 'admin', isAdmin: account.role === 'admin' }
+        : NO_ACCOUNTS
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>
 }

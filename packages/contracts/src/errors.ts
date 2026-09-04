@@ -20,6 +20,7 @@ export type ErrorCode =
   | 'AGENT_BUSY'
   | 'MISSING_DEPENDENCY'
   | 'RUNTIME_STATE_MISSING'
+  | 'SCHEDULE_VERSION_CONFLICT'
   | 'MEASUREMENT_PLAN_REVISION_CONFLICT'
   | 'MEASUREMENT_COMPILED_CHECKSUM_CONFLICT'
   | 'MEASUREMENT_RUN_REVISION_MISMATCH'
@@ -130,6 +131,18 @@ export function operationInProgress(
   details?: Record<string, unknown>,
 ): AppError {
   return new AppError('OPERATION_IN_PROGRESS', message, 409, details)
+}
+
+export function scheduleVersionConflict(
+  expectedUpdatedAt: string | null,
+  actualUpdatedAt: string | null,
+): AppError {
+  return new AppError(
+    'SCHEDULE_VERSION_CONFLICT',
+    'The schedule changed since it was loaded. Reload it before saving.',
+    409,
+    { expectedUpdatedAt, actualUpdatedAt },
+  )
 }
 
 export function measurementPlanRevisionConflict(

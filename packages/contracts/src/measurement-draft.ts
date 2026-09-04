@@ -549,6 +549,8 @@ export const measurementSetupResponseSchema = z.object({
   state: measurementSetupStateSchema,
   nextAction: measurementSetupNextActionSchema,
   mode: measurementSetupModeSchema,
+  /** Whether this project's selected provider roster contains an engine the host can execute now. */
+  answerVisibilityProviderReady: z.boolean(),
   activeRevision: measurementDraftRevisionSchema.nullable(),
   activeSchemaVersion: z.union([z.literal(1), z.literal(2)]).nullable(),
   draft: z.object({

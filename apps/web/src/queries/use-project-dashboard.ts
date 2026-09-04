@@ -7,9 +7,11 @@ import {
   fetchTimeline,
   fetchRunDetail,
   fetchBingCoverage,
+  fetchConnectedBingCoverage,
   fetchInsights,
   fetchProjectOverview,
   heyClient,
+  isEmbed,
 } from '../api.js'
 import {
   getApiV1ProjectsByNameOptions,
@@ -149,7 +151,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
               .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
           : Promise.resolve([]),
         fetchGscCoverage(projectName).catch(() => null),
-        fetchBingCoverage(projectName).catch(() => null),
+        (isEmbed() ? fetchBingCoverage(projectName) : fetchConnectedBingCoverage(projectName)).catch(() => null),
         fetchInsights(projectName).catch(() => null),
         fetchProjectOverview(projectName).catch(() => null),
       ])

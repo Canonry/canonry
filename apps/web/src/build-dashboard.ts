@@ -813,7 +813,11 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         model: p.model,
         defaultModel: p.defaultModel,
         state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
-        detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
+        detail: p.configured
+          ? 'Provider is configured.'
+          : p.name.toLowerCase() === 'local'
+            ? 'Base URL is missing.'
+            : 'API key is missing.',
         quota: p.quota,
       })),
       google: {

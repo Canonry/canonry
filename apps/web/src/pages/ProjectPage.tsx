@@ -80,6 +80,7 @@ import {
 } from '../api.js'
 import { filterEmbedProjectTabs, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
 import {
+  getApiV1CdpStatusOptions,
   getApiV1ProjectsByNameBingCoverageOptions,
   getApiV1ProjectsByNameBingInspectionsOptions,
   getApiV1ProjectsByNameBingPerformanceOptions,
@@ -88,9 +89,10 @@ import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
-  getApiV1ProjectsByNameScheduleOptions,
+  getApiV1ProjectsByNameSchedulesOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
+  getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesOptions,
   getApiV1ProjectsQueryKey,
   getApiV1ProjectsByNameQueryKey,
@@ -104,6 +106,11 @@ import { useProjectDashboard } from '../queries/use-project-dashboard.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { useAccount } from '../contexts/account-context.js'
+import {
+  CDP_PROVIDER_NAME,
+  normalizeProviderName,
+  resolveAiVisibilityProviderReadiness,
+} from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
@@ -1095,14 +1102,19 @@ function OverviewMetricRow({
 function OverviewBrief({
   model,
   sweepRunning,
+  hasVisibilityBaseline,
 }: {
   model: ProjectCommandCenterVm
   sweepRunning: boolean
+  hasVisibilityBaseline: boolean
 }) {
   const citationMovement = model.citationMovement
   const mentionMovement = model.mentionMovement
   const comparison = model.movementComparison
-  const latestSweep = model.recentRuns.find(run => run.kind === RunKinds['answer-visibility'])
+  const latestBaselineSweep = model.recentRuns.find(run =>
+    run.kind === RunKinds['answer-visibility']
+    && (run.status === RunStatuses.completed || run.status === RunStatuses.partial),
+  )
 
   const movementDirection = (movement: ProjectCommandCenterVm['mentionMovement']) => {
     if (movement.tone === 'positive') return 'improved'
@@ -1115,6 +1127,7 @@ function OverviewBrief({
 
   const headline = (() => {
     if (sweepRunning) return 'A fresh sweep is running now'
+    if (!hasVisibilityBaseline) return 'No AI Visibility baseline yet'
     if (!comparison.hasPreviousRun) return 'Baseline captured. The next sweep will show change.'
     if (comparison.querySetChanged) return 'Tracking scope changed since the previous sweep'
     if (mentionDirection === citationDirection) {
@@ -1151,65 +1164,88 @@ function OverviewBrief({
           </p>
           <h2 id="overview-brief-title" className="overview-brief-title">{headline}</h2>
         </div>
-        <p className="overview-brief-updated">
-          {latestSweep ? `Updated ${latestSweep.startedAt}` : 'No completed sweep'}
-        </p>
+        {latestBaselineSweep ? (
+          <p className="overview-brief-updated">Updated {latestBaselineSweep.startedAt}</p>
+        ) : null}
       </div>
 
-      <div className="overview-brief-grid">
-        <div className="overview-brief-panel overview-brief-coverage">
-          <p className="overview-brief-label">Coverage now</p>
-          <div className="aeo-hero-rows">
-            <OverviewMetricRow label="Mentioned" summary={model.mentionSummary} />
-            <OverviewMetricRow label="Cited" summary={model.visibilitySummary} />
-          </div>
-          {model.mentionSummary.providerCoverage && (
-            <p className="overview-brief-note">Partial sweep: {model.mentionSummary.providerCoverage}</p>
-          )}
-        </div>
-
-        <div className="overview-brief-panel">
-          <p className="overview-brief-label">Since last sweep</p>
-          {!comparison.hasPreviousRun ? (
-            <>
-              <p className="overview-brief-panel-title">No comparison yet</p>
-              <p className="overview-brief-panel-copy">Run another sweep to measure mention and citation movement.</p>
-            </>
-          ) : (
-            <>
-              <div className="overview-signal-change-list">
-                <div className="overview-signal-change-row">
-                  <span className="overview-signal-change-label">Mentioned</span>
-                  {mentionMovement.gained === 0 && mentionMovement.lost === 0 ? (
-                    <span className="text-secondary">No change</span>
-                  ) : (
-                    <span className="flex gap-3 tabular-nums">
-                      {mentionMovement.gained > 0 && <span className="text-positive-400">+{mentionMovement.gained}</span>}
-                      {mentionMovement.lost > 0 && <span className="text-negative-400">-{mentionMovement.lost}</span>}
-                    </span>
-                  )}
-                </div>
-                <div className="overview-signal-change-row">
-                  <span className="overview-signal-change-label">Cited</span>
-                  {citationMovement.gained === 0 && citationMovement.lost === 0 ? (
-                    <span className="text-secondary">No change</span>
-                  ) : (
-                    <span className="flex gap-3 tabular-nums">
-                      {citationMovement.gained > 0 && <span className="text-positive-400">+{citationMovement.gained}</span>}
-                      {citationMovement.lost > 0 && <span className="text-negative-400">-{citationMovement.lost}</span>}
-                    </span>
-                  )}
-                </div>
+      {!hasVisibilityBaseline ? (
+        <div className="overview-brief-grid">
+          <div className="overview-brief-panel">
+            <p className="overview-brief-label">Coverage signals</p>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-sm font-medium text-heading">Mentioned</dt>
+                <dd className="mt-1 text-sm text-secondary">Your brand or domain appears in the answer text.</dd>
               </div>
-              <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-caution-400/80' : ''}`}>
-                {comparison.querySetChanged
-                  ? `${scopeChange || 'Query set changed'} · ${comparableScope}.`
-                  : `${comparableScope}.`}
-              </p>
-            </>
-          )}
+              <div>
+                <dt className="text-sm font-medium text-heading">Cited</dt>
+                <dd className="mt-1 text-sm text-secondary">Your domain appears in the engine's source list.</dd>
+              </div>
+            </dl>
+            <p className="mt-4 border-t border-subtle pt-4 text-sm font-medium text-strong">
+              {sweepRunning
+                ? 'Your first sweep is running. Results will appear when it completes.'
+                : 'Complete your first AI Visibility sweep to measure both signals.'}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="overview-brief-grid">
+          <div className="overview-brief-panel overview-brief-coverage">
+            <p className="overview-brief-label">Coverage now</p>
+            <div className="aeo-hero-rows">
+              <OverviewMetricRow label="Mentioned" summary={model.mentionSummary} />
+              <OverviewMetricRow label="Cited" summary={model.visibilitySummary} />
+            </div>
+            {model.mentionSummary.providerCoverage && (
+              <p className="overview-brief-note">Partial sweep: {model.mentionSummary.providerCoverage}</p>
+            )}
+          </div>
+
+          <div className="overview-brief-panel">
+            <p className="overview-brief-label">Since last sweep</p>
+            {!comparison.hasPreviousRun ? (
+              <>
+                <p className="overview-brief-panel-title">No comparison yet</p>
+                <p className="overview-brief-panel-copy">Run another sweep to measure mention and citation movement.</p>
+              </>
+            ) : (
+              <>
+                <div className="overview-signal-change-list">
+                  <div className="overview-signal-change-row">
+                    <span className="overview-signal-change-label">Mentioned</span>
+                    {mentionMovement.gained === 0 && mentionMovement.lost === 0 ? (
+                      <span className="text-secondary">No change</span>
+                    ) : (
+                      <span className="flex gap-3 tabular-nums">
+                        {mentionMovement.gained > 0 && <span className="text-positive-400">+{mentionMovement.gained}</span>}
+                        {mentionMovement.lost > 0 && <span className="text-negative-400">-{mentionMovement.lost}</span>}
+                      </span>
+                    )}
+                  </div>
+                  <div className="overview-signal-change-row">
+                    <span className="overview-signal-change-label">Cited</span>
+                    {citationMovement.gained === 0 && citationMovement.lost === 0 ? (
+                      <span className="text-secondary">No change</span>
+                    ) : (
+                      <span className="flex gap-3 tabular-nums">
+                        {citationMovement.gained > 0 && <span className="text-positive-400">+{citationMovement.gained}</span>}
+                        {citationMovement.lost > 0 && <span className="text-negative-400">-{citationMovement.lost}</span>}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-caution-400/80' : ''}`}>
+                  {comparison.querySetChanged
+                    ? `${scopeChange || 'Query set changed'} · ${comparableScope}.`
+                    : `${comparableScope}.`}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -1548,6 +1584,58 @@ function ProjectPageContent({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canWrite } = useAccount()
+  const initialDashboard = useInitialDashboard()
+  const projectName = model.project.name
+  const measurementSetupQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
+    // Readiness drives the page-header sweep control on every project tab.
+    // Viewers still need setup state on the three result/configuration tabs
+    // that render Advanced Measurement.
+    enabled: !isEmbed()
+      && Boolean(projectName)
+      && (canWrite || requestedTab === 'portfolio' || requestedTab === 'overview' || requestedTab === 'settings'),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+  })
+  const initialConfiguredApiProviders = initialDashboard
+    ? initialDashboard.dashboard.settings.providerStatuses
+      .filter(provider => provider.state === 'ready')
+      .map(provider => normalizeProviderName(provider.name))
+    : undefined
+  const serverProviderReady = measurementSetupQuery.data?.answerVisibilityProviderReady
+  const configuredApiProviders = initialConfiguredApiProviders
+  const projectProviders = model.project.providers.map(normalizeProviderName)
+  const selectedApiProviderReady = configuredApiProviders?.some(provider => (
+    projectProviders.length === 0 || projectProviders.includes(provider)
+  )) === true
+  const selectionCanUseCdp = projectProviders.length === 0 || projectProviders.includes(CDP_PROVIDER_NAME)
+  const cdpStatusQuery = useQuery({
+    ...getApiV1CdpStatusOptions({ client: heyClient }),
+    // The setup response owns live readiness. The direct CDP read remains only
+    // as a first-paint fallback while a fixture or cold request has no setup
+    // response yet.
+    enabled: !isEmbed()
+      && canWrite
+      && serverProviderReady === undefined
+      && selectionCanUseCdp
+      && !selectedApiProviderReady,
+    staleTime: 60_000,
+    retry: false,
+  })
+  // The server returns `browserVersion` from the registered adapter's health
+  // check even when Chrome is currently disconnected. The unregistered branch
+  // omits it. `connected` is therefore live browser health, not run preflight.
+  const cdpConfigured = !selectionCanUseCdp
+    ? false
+    : cdpStatusQuery.isSuccess
+      ? typeof cdpStatusQuery.data.browserVersion === 'string'
+      : cdpStatusQuery.isError ? false : undefined
+  const providerReady = serverProviderReady ?? resolveAiVisibilityProviderReadiness({
+    projectProviders,
+    configuredApiProviders,
+    cdpConfigured,
+  })
   // Read-only embed mode (#716): an optional project-tab allowlist hides operator
   // surfaces (Search Engines, Activity, Backlinks, ...) from the embedded client
   // dashboard. Unset (or non-embed) = all tabs. The subnav below is filtered to
@@ -1622,7 +1710,6 @@ function ProjectPageContent({
   const [hasExpandedAdvancedProperty, setHasExpandedAdvancedProperty] = useState(false)
 
   const visibilityEvidence = model?.visibilityEvidence ?? []
-  const projectName = model?.project.name ?? ''
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
   const portfolioQueriesQuery = useQuery({
@@ -1631,37 +1718,14 @@ function ProjectPageContent({
     staleTime: 0,
     refetchOnMount: 'always',
   })
-  // The header states when the next AI sweep fires. On a managed instance the
-  // sweep is scheduled, so "it runs itself" is the honest headline and the
-  // manual trigger beside it is the override. `nextRunAt` is computed from the
-  // cron server-side (`schedules.ts`) — the browser never parses a cron.
-  // 404 means no schedule for this project, which the query surfaces as an
-  // error and the header renders as nothing.
-  const sweepScheduleQuery = useQuery({
-    ...getApiV1ProjectsByNameScheduleOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && Boolean(projectName),
-    retry: false,
-  })
   const activeMeasurementPlanQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && (tab === 'portfolio' || tab === 'overview' || tab === 'settings') && Boolean(projectName),
+    enabled: !isEmbed()
+      && Boolean(projectName)
+      && (canWrite || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
     staleTime: 0,
     refetchOnMount: 'always',
   })
-  const measurementSetupQuery = useQuery({
-    ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && (tab === 'portfolio' || tab === 'overview' || tab === 'settings') && Boolean(projectName),
-    staleTime: 0,
-    refetchOnMount: 'always',
-  })
-  // Only claim a next sweep when one is genuinely coming: a schedule that
-  // exists, is enabled, and carries a next-run time. A disabled schedule still
-  // returns a row with a stale `nextRunAt`, and announcing that would promise a
-  // sweep that never fires.
-  const sweepSchedule = sweepScheduleQuery.data
-  const nextSweepLabel = sweepSchedule?.enabled && sweepSchedule.nextRunAt
-    ? `Next AI sweep ${new Date(sweepSchedule.nextRunAt).toLocaleString()}`
-    : null
   const activeMeasurementPlan = activeMeasurementPlanQuery.data?.active ?? null
 
   // A bookmark outlives the group it names. Once the plan has actually loaded
@@ -1863,6 +1927,11 @@ function ProjectPageContent({
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
+  // `queryCounts` is derived from the authoritative latest completed/partial
+  // visibility-run snapshot group. `recentRuns` is only a five-row
+  // presentation slice and can contain five newer failures while a valid
+  // baseline still exists.
+  const hasVisibilityBaseline = model.queryCounts.total > 0
 
   // Show every configured location as a filter chip, regardless of whether the
   // current evidence aggregate has rows for it. Multi-location sweeps can land
@@ -1884,6 +1953,43 @@ function ProjectPageContent({
     () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
     [visibilityEvidence],
   )
+  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0
+  const hasMeasurementPlanQueries = activeMeasurementPlan !== null
+  const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
+  const visibilityInputsPending = canWrite
+    && !hasTrackedQueries
+    && activeMeasurementPlanQuery.data === undefined
+    && activeMeasurementPlanQuery.isPending
+  const providerReadinessFailed = canWrite
+    && measurementSetupQuery.isError
+    && !measurementSetupQuery.isFetching
+  const sweepReadinessPending = canWrite
+    && !providerReadinessFailed
+    && (visibilityInputsPending
+      || providerReady === undefined
+      || measurementSetupQuery.isFetching)
+  const sweepPrerequisitesReady = !sweepReadinessPending
+    && hasVisibilityInputs
+    && providerReady === true
+  const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
+  // The collection read returns [] when no schedule exists. This keeps fresh
+  // projects quiet while still discovering a scheduled-but-never-run project
+  // after queries or providers are removed.
+  const sweepSchedulesQuery = useQuery({
+    ...getApiV1ProjectsByNameSchedulesOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: !isEmbed() && Boolean(projectName),
+    retry: false,
+  })
+  // Only claim a next sweep when one is genuinely coming: a schedule that
+  // exists, is enabled, and carries a next-run time. A disabled schedule still
+  // returns a row with a stale `nextRunAt`, and announcing that would promise a
+  // sweep that never fires.
+  const sweepSchedule = sweepSchedulesQuery.data?.find(
+    schedule => schedule.kind === RunKinds['answer-visibility'],
+  )
+  const nextSweepLabel = sweepSchedule?.enabled && sweepSchedule.nextRunAt
+    ? `Next AI sweep ${new Date(sweepSchedule.nextRunAt).toLocaleString()}`
+    : null
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -1975,6 +2081,16 @@ function ProjectPageContent({
     } catch {
       // Mutation hook surfaces the toast and error state.
     }
+  }
+
+  function openAiVisibilitySetup() {
+    void navigate({
+      to: '/setup',
+      search: {
+        experience: 'legacy',
+        setupProject: projectName,
+      },
+    })
   }
 
   async function handleDeleteProject() {
@@ -2095,6 +2211,18 @@ function ProjectPageContent({
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
     patchProjectDashboardCache(queryClient, updated)
+    if (updates.providers !== undefined) {
+      // Provider readiness is computed by the server from the project's exact
+      // allowlist. Refresh that authority before the save completes so the
+      // page-header sweep action cannot keep the previous allowlist's state.
+      await queryClient.invalidateQueries({
+        queryKey: getApiV1ProjectsByNameMeasurementSetupQueryKey({
+          client: heyClient,
+          path: { name: pName },
+        }),
+        exact: true,
+      })
+    }
     return updated
   }
 
@@ -2178,14 +2306,24 @@ function ProjectPageContent({
               <WriteButton
                 type="button"
                 variant="outline"
-                disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
-                onClick={asyncHandler(handleTriggerRun)}
+                disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
+                onClick={providerReadinessFailed
+                  ? () => { void measurementSetupQuery.refetch() }
+                  : sweepSetupRequired
+                    ? openAiVisibilitySetup
+                    : asyncHandler(handleTriggerRun)}
               >
                 {triggerRunMutation.isPending
                   ? 'Starting…'
                   : hasActiveVisibilitySweep
                     ? 'AI sweep running…'
-                    : 'Run AI sweep'}
+                    : sweepReadinessPending
+                      ? 'Checking AI readiness…'
+                      : providerReadinessFailed
+                        ? 'Retry AI readiness'
+                      : sweepSetupRequired
+                        ? 'Set up AI Visibility'
+                        : 'Run AI sweep'}
               </WriteButton>
             </div>
           )}
@@ -2296,6 +2434,7 @@ function ProjectPageContent({
           <OverviewBrief
             model={model}
             sweepRunning={hasActiveVisibilitySweep}
+            hasVisibilityBaseline={hasVisibilityBaseline}
           />
 
           <OverviewSignals
@@ -2320,31 +2459,37 @@ function ProjectPageContent({
               </div>
             </div>
 
-            <div className="aeo-hero competitive-summary">
-              <MentionShare
-                key={model.project.name}
-                summary={model.mentionShareSummary}
-                projectLabel={model.project.displayName || model.project.name}
-                competitorDomains={competitorDomains}
-              />
+            {hasVisibilityBaseline ? (
+              <div className="aeo-hero competitive-summary">
+                <MentionShare
+                  key={model.project.name}
+                  summary={model.mentionShareSummary}
+                  projectLabel={model.project.displayName || model.project.name}
+                  competitorDomains={competitorDomains}
+                />
 
-              <div className="competitive-gaps">
-                <div className="aeo-hero-rows">
-                  <OverviewMetricRow
-                    label="Mention gaps"
-                    summary={model.mentionGaps}
-                    displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                    tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
-                  />
-                  <OverviewMetricRow
-                    label="Citation gaps"
-                    summary={model.gapQueries}
-                    displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                    tooltip="Queries where a competitor was cited as a source but you were not."
-                  />
+                <div className="competitive-gaps">
+                  <div className="aeo-hero-rows">
+                    <OverviewMetricRow
+                      label="Mention gaps"
+                      summary={model.mentionGaps}
+                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
+                      tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
+                    />
+                    <OverviewMetricRow
+                      label="Citation gaps"
+                      summary={model.gapQueries}
+                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
+                      tooltip="Queries where a competitor was cited as a source but you were not."
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <p className="text-sm text-secondary">
+                Competitive mention and citation gaps appear after the first AI Visibility sweep.
+              </p>
+            )}
 
             {addingCompetitor && (
               <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-base bg-bg-elevated/40 p-3">

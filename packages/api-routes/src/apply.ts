@@ -14,6 +14,8 @@ import { resolveWebhookTarget } from './webhooks.js'
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
+  /** Post-commit lifecycle hook; failures must not turn a committed create into an HTTP 500. */
+  onProjectCreated?: (projectId: string, projectName: string) => void
   /** See `ProjectRoutesOptions.onAliasesChanged`. */
   onAliasesChanged?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
@@ -25,6 +27,13 @@ export interface ApplyRoutesOptions {
 
 export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
   const allowLoopback = opts?.allowLoopbackWebhooks === true
+  const notifyProjectCreated = (projectId: string, projectName: string): void => {
+    try {
+      opts?.onProjectCreated?.(projectId, projectName)
+    } catch (error) {
+      app.log.error({ error, projectId, projectName }, 'Project-created callback failed after commit')
+    }
+  }
   // POST /apply — accept a canonry.yaml body (JSON-parsed version)
   app.post('/apply', async (request, reply) => {
     const parsed = projectConfigSchema.safeParse(request.body)
@@ -134,6 +143,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string
+    const lifecycle = { projectCreated: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
 
@@ -179,6 +189,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       } else {
         projectId = crypto.randomUUID()
+        lifecycle.projectCreated = true
         tx.insert(projects).values({
           id: projectId,
           name,
@@ -332,6 +343,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     })
 
     // Fire callbacks after transaction commits.
+    if (lifecycle.projectCreated) {
+      notifyProjectCreated(projectId!, config.metadata.name)
+    }
     if (scheduleAction) {
       opts?.onScheduleUpdated?.(scheduleAction, projectId!, SchedulableRunKinds['answer-visibility'])
     }

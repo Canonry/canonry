@@ -47,12 +47,15 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
  */
 interface DashboardOverviewOptions {
   includeSettings?: boolean
+  /** Setup owns project creation and invalidates this query explicitly. */
+  pauseProjectPolling?: boolean
 }
 
 export function useDashboardOverview(initialDashboard?: DashboardVm | null, options: DashboardOverviewOptions = {}) {
   const contextDashboard = useInitialDashboard()
   const effectiveInitial = initialDashboard ?? contextDashboard?.dashboard ?? null
   const includeSettings = options.includeSettings ?? true
+  const pauseProjectPolling = options.pauseProjectPolling ?? false
   const { isAdmin } = useAccount()
 
   // Scope to answer-visibility so integration syncs don't fill the 500-row
@@ -71,7 +74,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const projectsQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: !effectiveInitial,
-    refetchInterval: (query) => {
+    refetchInterval: pauseProjectPolling ? false : (query) => {
       const data = query.state.data as unknown[] | undefined
       // Fast poll only when setup needs it (zero projects) or a sweep is active;
       // otherwise idle at 30s — cuts 30 req/min → ~2 req/min per tab.

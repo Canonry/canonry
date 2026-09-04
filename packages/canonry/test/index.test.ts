@@ -4,6 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { eq } from 'drizzle-orm'
 import {
   adsActivationGrants,
   apiKeys,
@@ -167,13 +168,13 @@ describe('canonry', () => {
 
       vi.stubEnv('CANONRY_PORT', undefined as unknown as string)
       const config = loadConfig()
-      expect(config.apiUrl).toBe('http://localhost:5555')
+      expect(config.apiUrl).toBe('http://127.0.0.1:5555')
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
-  it('bootstrapCommand creates config and replaces the default API key on force', async () => {
+  it('bootstrapCommand creates config and reconciles the default API key', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-${crypto.randomUUID()}`)
     vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
     vi.stubEnv('GEMINI_API_KEY', 'test-gemini-key')
@@ -182,10 +183,11 @@ describe('canonry', () => {
     vi.stubEnv('GOOGLE_CLIENT_SECRET', 'google-client-secret')
 
     try {
-      await bootstrapCommand({ force: true })
+      await bootstrapCommand()
 
       let config = loadConfig()
       expect(config.database).toBe(path.join(tmpDir, 'data.db'))
+      expect(config.apiUrl).toBe('http://127.0.0.1:4100')
       expect(config.apiKey).toBe('cnry_bootstrap_key')
       expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
       expect(config.google?.clientId).toBe('google-client-id')
@@ -197,7 +199,7 @@ describe('canonry', () => {
       expect(keys[0]?.keyPrefix).toBe('cnry_boot')
 
       vi.stubEnv('CANONRY_API_KEY', 'cnry_force_key')
-      await bootstrapCommand({ force: true })
+      await bootstrapCommand()
 
       config = loadConfig()
       expect(config.apiKey).toBe('cnry_force_key')
@@ -228,7 +230,7 @@ describe('canonry', () => {
     vi.stubEnv('CANONRY_API_KEY', 'cnry_original_key')
 
     try {
-      await bootstrapCommand({ force: true })
+      await bootstrapCommand()
 
       const config = loadConfig()
       const db = createClient(config.database)
@@ -288,7 +290,7 @@ describe('canonry', () => {
       }).run()
 
       vi.stubEnv('CANONRY_API_KEY', 'cnry_rotated_key')
-      await bootstrapCommand({ force: true })
+      await bootstrapCommand()
 
       const defaultKeys = db.select().from(apiKeys).all().filter(key => key.name === 'default')
       expect(defaultKeys).toHaveLength(2)
@@ -303,6 +305,59 @@ describe('canonry', () => {
       })
       expect(db.select().from(adsActivationGrants).all()[0]?.executorApiKeyId).toBe(defaultKey.id)
     } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reruns provider-free without changing custom paths or default-key usage state', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-idempotent-${crypto.randomUUID()}`)
+    const configDir = path.join(tmpDir, 'config')
+    const databasePath = path.join(tmpDir, 'custom.db')
+    vi.stubEnv('CANONRY_CONFIG_DIR', configDir)
+    vi.stubEnv('CANONRY_DATABASE_PATH', databasePath)
+    vi.stubEnv('CANONRY_API_URL', 'http://127.0.0.1:4999')
+    vi.stubEnv('CANONRY_API_KEY', 'cnry_provider_free')
+    for (const name of [
+      'GEMINI_API_KEY',
+      'GEMINI_VERTEX_PROJECT',
+      'OPENAI_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'PERPLEXITY_API_KEY',
+      'LOCAL_BASE_URL',
+    ]) {
+      vi.stubEnv(name, undefined as unknown as string)
+    }
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((value: unknown) => output.push(String(value)))
+
+    try {
+      await bootstrapCommand({ format: 'json' })
+      const db = createClient(databasePath)
+      const defaultKey = db.select().from(apiKeys).where(eq(apiKeys.name, 'default')).get()!
+      const lastUsedAt = '2026-09-01T12:00:00.000Z'
+      db.update(apiKeys).set({ lastUsedAt }).where(eq(apiKeys.id, defaultKey.id)).run()
+
+      vi.stubEnv('CANONRY_DATABASE_PATH', undefined as unknown as string)
+      vi.stubEnv('CANONRY_API_URL', undefined as unknown as string)
+      output.length = 0
+      await bootstrapCommand({ format: 'json' })
+
+      expect(JSON.parse(output.at(-1)!)).toMatchObject({
+        bootstrapped: true,
+        status: 'unchanged',
+        changed: false,
+        databasePath,
+        apiUrl: 'http://127.0.0.1:4999',
+        providers: [],
+      })
+      expect(loadConfig()).toMatchObject({
+        database: databasePath,
+        apiUrl: 'http://127.0.0.1:4999',
+        providers: {},
+      })
+      expect(db.select().from(apiKeys).where(eq(apiKeys.id, defaultKey.id)).get()?.lastUsedAt).toBe(lastUsedAt)
+    } finally {
+      log.mockRestore()
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -855,14 +910,14 @@ describe('canonry', () => {
       })
 
       const output = logs.join('\n')
-      // The user must see how to create a project, add a query, and run a sweep.
-      // These are the three steps that determine whether init translates into
-      // a successful first sweep — too many users today bounce after init
-      // because the next move isn't obvious.
+      // Init is optional provider provisioning; its handoff must still lead
+      // with the provider-free Page Health activation path.
       expect(output).toMatch(/Next: canonry serve/)
       expect(output).toMatch(/canonry project create/)
-      expect(output).toMatch(/canonry query add/)
-      expect(output).toMatch(/canonry run /)
+      expect(output).toMatch(/canonry technical-aeo run/)
+      expect(output).toMatch(/canonry technical-aeo score/)
+      expect(output).toMatch(/AI Visibility is optional/)
+      expect(output).not.toMatch(/5 guided steps/)
       expect(output).toMatch(/canonry doctor/)
     } finally {
       console.log = originalLog
@@ -895,7 +950,8 @@ describe('canonry', () => {
       expect(payload.primaryNextStep).toBe('canonry serve')
       expect(Array.isArray(payload.nextSteps)).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
-      expect(payload.nextSteps!.some(s => s.includes('canonry run'))).toBe(true)
+      expect(payload.nextSteps!.some(s => s.includes('canonry technical-aeo run'))).toBe(true)
+      expect(payload.nextSteps!.some(s => s.includes('AI Visibility is optional'))).toBe(true)
     } finally {
       console.log = originalLog
       fs.rmSync(tmpDir, { recursive: true, force: true })

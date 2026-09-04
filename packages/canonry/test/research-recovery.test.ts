@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createClient, migrate, projects, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
 import { ResearchQueryStatuses, ResearchRunStatuses } from '@ainyc/canonry-contracts'
-import { createServer } from '../src/server.js'
+import { createServer, waitForServerRuntimeStartup } from '../src/server.js'
 
 const cleanup: string[] = []
 afterEach(async () => {
@@ -12,7 +12,7 @@ afterEach(async () => {
 })
 
 describe('research run recovery', () => {
-  it('re-dispatches queued research runs at server boot', async () => {
+  it('re-dispatches queued research runs after the server listens', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-research-recovery-'))
     cleanup.push(dir)
     const dbPath = path.join(dir, 'data.db')
@@ -29,9 +29,13 @@ describe('research run recovery', () => {
       logger: false,
     })
     try {
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      await waitForServerRuntimeStartup(app)
       // An unavailable provider fails synchronously after the queued -> running claim.
-      expect(db.select().from(researchRuns).get()?.status).toBe(ResearchRunStatuses.failed)
-      expect(db.select().from(researchRunQueries).get()?.status).toBe(ResearchQueryStatuses.failed)
+      await vi.waitFor(() => {
+        expect(db.select().from(researchRuns).get()?.status).toBe(ResearchRunStatuses.failed)
+        expect(db.select().from(researchRunQueries).get()?.status).toBe(ResearchQueryStatuses.failed)
+      })
     } finally {
       await app.close()
     }

@@ -157,6 +157,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/users': 'deferred',
   'DELETE /api/v1/users/{name}': 'deferred',
   'PUT /api/v1/projects/{name}/schedule': 'included',
+  // Dashboard discovery read. Agents already address a schedule by kind via
+  // the singular included operation, so a second list tool is unnecessary.
+  'GET /api/v1/projects/{name}/schedules': 'deferred',
   'GET /api/v1/projects/{name}/schedule': 'included',
   'DELETE /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/notifications/events': 'deferred',

@@ -1610,7 +1610,7 @@ test('keeps measurement-plan setup out of Site Health', () => {
   expect(screen.queryByRole('region', { name: 'Define what to measure' })).toBeNull()
 })
 
-test('moves explicit onboarding directly into Page health with a compact AI Visibility handoff above it', () => {
+test('moves explicit onboarding into Page health before the optional AI Visibility handoff', () => {
   const onContinueOnboarding = vi.fn()
   const onSkipOnboarding = vi.fn()
   renderSection(makeClient(), {
@@ -1636,8 +1636,8 @@ test('moves explicit onboarding directly into Page health with a compact AI Visi
   const handoffHeading = screen.getByRole('heading', { name: 'Next: Set up AI Visibility' })
   const handoff = handoffHeading.closest('section')
   expect(handoff).not.toBeNull()
-  expect(Boolean(handoff!.compareDocumentPosition(pageHealthHeading) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(Boolean(handoff!.compareDocumentPosition(pageHealth) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(Boolean(pageHealthHeading.compareDocumentPosition(handoff!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(Boolean(pageHealth.compareDocumentPosition(handoff!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(screen.getByText('See whether answer engines mention your brand and cite your pages.')).not.toBeNull()
   expect(screen.queryByText(/Page health shows the onsite fixes/i)).toBeNull()
 
@@ -1690,11 +1690,10 @@ test('keeps a partial crawl recoverable when it publishes no Page health score',
   })
 
   expect(screen.getByRole('region', { name: 'Page health recovery' })).not.toBeNull()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Set up AI Visibility' }))
-  expect(onContinueOnboarding).toHaveBeenCalledOnce()
-  fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }))
-  expect(onSkipOnboarding).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull()
+  expect(onContinueOnboarding).not.toHaveBeenCalled()
+  expect(onSkipOnboarding).not.toHaveBeenCalled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Run site audit again' }))
   expect(mutationMock.mutate).toHaveBeenCalledWith({
@@ -2636,6 +2635,36 @@ test('the map opens on page-text links only and says what it is hiding', () => {
   // checkbox, which is what used to kill the map.
   expect(screen.getByTestId('site-map-edge-keys').textContent).toBe('home-services,nav-contact')
   expect(screen.getByTestId('site-map-show-template').textContent).toBe('false')
+})
+
+test('omits link-filter explanations and controls when the map has no links', () => {
+  const queryClient = makeClient()
+  seedRun(queryClient, 'run_1', {
+    ...summary('run_1', 1),
+    counts: {
+      pagesDiscovered: 1,
+      pagesFetched: 1,
+      pagesEligible: 1,
+      edges: 0,
+      findings: 0,
+    },
+  }, {
+    totalNodes: 1,
+    totalEdges: 0,
+    totalTemplateEdges: 0,
+    totalContentEdges: 0,
+    nodes: [{ ...homePage, x: 0, y: 0 }],
+    edges: [],
+  })
+
+  renderSection(queryClient)
+
+  expect(screen.getByRole('heading', { name: 'Site map' })).not.toBeNull()
+  expect(screen.queryByTestId('site-map-link-counts')).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Show menu and footer links' })).toBeNull()
+  expect(screen.queryByRole('button', {
+    name: siteMapLinkRuleHelp('applied', { staleLayout: false }),
+  })).toBeNull()
 })
 
 test('switching menu and footer links on draws them without moving a page', () => {

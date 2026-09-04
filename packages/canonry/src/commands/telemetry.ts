@@ -51,7 +51,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
           console.log(JSON.stringify(payload, null, 2))
           return
         }
-        console.log('Telemetry: enabled (no config yet — run "canonry init" first)')
+        console.log('Telemetry: enabled (no config yet — run "canonry bootstrap" first)')
         return
       }
       const config = loadConfig()
@@ -78,8 +78,8 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (!configExists()) {
         throw new CliError({
           code: 'CONFIG_REQUIRED',
-          message: 'No config found. Run "canonry init" first.',
-          displayMessage: 'No config found. Run "canonry init" first.',
+          message: 'No config found. Run "canonry bootstrap" first.',
+          displayMessage: 'No config found. Run "canonry bootstrap" first.',
           details: {
             command: 'telemetry.enable',
           },
@@ -105,8 +105,8 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (!configExists()) {
         throw new CliError({
           code: 'CONFIG_REQUIRED',
-          message: 'No config found. Run "canonry init" first.',
-          displayMessage: 'No config found. Run "canonry init" first.',
+          message: 'No config found. Run "canonry bootstrap" first.',
+          displayMessage: 'No config found. Run "canonry bootstrap" first.',
           details: {
             command: 'telemetry.disable',
           },

@@ -32,7 +32,8 @@ describe('canonry skill metadata', () => {
       }),
     ]))
     expect(body).not.toContain('"command": "npx @canonry/canonry@latest init"')
-    expect(body).toContain('cnry init --skip-skills --skip-mcp')
+    expect(body).toContain('cnry bootstrap')
+    expect(body).toContain('Use `cnry init` only as an optional interactive first-time')
     expect(agent.install).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ package: 'canonry' }),
     ]))
