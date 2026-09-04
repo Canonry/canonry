@@ -450,7 +450,9 @@ export default tseslint.config(
       // - sitemap-parser.ts fetches the user's own sitemap.xml URL
       // - telemetry.ts POSTs to the public telemetry collector
       // - update-check.ts polls npm dist-tags
+      // - engine-routes.ts reads a configured OpenAI-compatible `/models` catalog
       'packages/canonry/src/commands/daemon.ts',
+      'packages/canonry/src/engine-routes.ts',
       'packages/canonry/src/sitemap-parser.ts',
       'packages/canonry/src/telemetry.ts',
       'packages/canonry/src/update-check.ts',

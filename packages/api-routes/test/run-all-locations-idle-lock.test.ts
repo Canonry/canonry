@@ -13,7 +13,19 @@ function buildApp() {
   const db = createClient(dbPath)
   migrate(db)
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, {
+    db,
+    skipAuth: true,
+    getRunnableProviderNames: () => ['openai'],
+    getEffectiveProviderModels: () => ({ openai: 'gpt-5.4' }),
+    getProviderRouteDescriptors: () => ({
+      openai: {
+        routeId: 'native:openai',
+        routeRevision: 1,
+        policyFingerprint: 'a'.repeat(64),
+      },
+    }),
+  })
   return { app, db, tmpDir }
 }
 
@@ -32,6 +44,11 @@ async function seedProjectWithLocations(app: ReturnType<typeof Fastify>) {
         { label: 'south', city: 'Austin', region: 'TX', country: 'US' },
       ],
     },
+  })
+  await app.inject({
+    method: 'POST',
+    url: '/api/v1/projects/multi-loc/queries',
+    payload: { queries: ['best local widget'] },
   })
 }
 
@@ -154,6 +171,17 @@ describe('POST /api/v1/projects/:name/runs with allLocations respects the idle l
       )
       .all()
     expect(queued).toHaveLength(3)
+    expect(queued.map(run => run.measurementExecutionIdentity)).toEqual([
+      expect.objectContaining({ schemaVersion: 2, routes: {
+        openai: expect.objectContaining({ routeId: 'native:openai', requestedModel: 'gpt-5.4' }),
+      } }),
+      expect.objectContaining({ schemaVersion: 2, routes: {
+        openai: expect.objectContaining({ routeId: 'native:openai', requestedModel: 'gpt-5.4' }),
+      } }),
+      expect.objectContaining({ schemaVersion: 2, routes: {
+        openai: expect.objectContaining({ routeId: 'native:openai', requestedModel: 'gpt-5.4' }),
+      } }),
+    ])
   })
 
   it('a second allLocations call while the first is in-flight is rejected (no double-fan-out)', async () => {

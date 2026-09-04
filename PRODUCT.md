@@ -37,6 +37,10 @@ Users usually arrive to answer four questions, in this order:
   a disclosure; adding a pin reinterprets stored evidence without starting work.
 - Scope Advanced Measurement competitor landscapes to the selected market.
   Aggregate all markets from raw evidence, never by averaging market rates.
+- Treat answer-engine connections and routes as separate objects. A generic
+  text route can power research and analysis, but it is not sweep-ready until
+  a server-owned adapter proves retrieval, citation, location, and served-model
+  evidence.
 - Use truthful readiness, empty, loading, success, and failure states.
 - Prefer familiar product controls over invented interactions.
 

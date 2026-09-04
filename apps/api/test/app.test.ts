@@ -9,7 +9,7 @@ import { getPlatformEnv } from '@ainyc/canonry-config'
 import { PROVIDER_NAMES } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, queries, runs } from '@ainyc/canonry-db'
 
-import { buildApp } from '../src/app.js'
+import { buildApp, cloudEngineRouteCapabilities } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -98,6 +98,14 @@ test('buildApp refuses to start when CANONRY_TRUST_PROXY is not set', () => {
   delete process.env.CANONRY_TRUST_PROXY
   const env = getPlatformEnv({})
   expect(() => buildApp(env)).toThrow(/CANONRY_TRUST_PROXY/)
+})
+
+test('cloud route policy treats compatibility providers as text-only unless the server owns verified evidence', () => {
+  expect(cloudEngineRouteCapabilities('openai')).toMatchObject({
+    kind: 'verified-measurement', retrieval: true, citations: true, location: true, servedModel: true,
+  })
+  expect(cloudEngineRouteCapabilities('local')).toEqual({ kind: 'text-only' })
+  expect(cloudEngineRouteCapabilities('future-gateway')).toEqual({ kind: 'text-only' })
 })
 
 test('buildApp registers health and API routes', async () => {
@@ -359,4 +367,16 @@ test('a plan-pinned run queued on Cloud freezes the inherited provider model int
   // The inherited default, not an empty object — this is the assertion that
   // fails when apps/api omits `getEffectiveProviderModels`.
   expect(run.measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-2.5-flash' })
+  expect(run.measurementExecutionIdentity).toMatchObject({
+    schemaVersion: 2,
+    routes: {
+      gemini: {
+        routeId: 'native:gemini',
+        routeRevision: 1,
+        requestedProvider: 'gemini',
+        requestedModel: 'gemini-2.5-flash',
+        policyFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+    },
+  })
 })

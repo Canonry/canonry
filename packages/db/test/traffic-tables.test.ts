@@ -44,6 +44,22 @@ function seedProject(db: ReturnType<typeof createTempDb>['db']) {
   }).run()
 }
 
+/**
+ * Seeds only the physical project columns available before v150. Historical
+ * migration tests must not let Drizzle's current `projects` model write a
+ * column introduced by the migration chain they deliberately have not run.
+ */
+function seedPreV150Project(db: ReturnType<typeof createTempDb>['db']) {
+  const now = new Date().toISOString()
+  db.run(sql`
+    INSERT INTO projects (
+      id, name, display_name, canonical_domain, country, language, created_at, updated_at
+    ) VALUES (
+      ${'proj_1'}, ${'test-project'}, ${'Test Project'}, ${'example.com'}, ${'US'}, ${'en'}, ${now}, ${now}
+    )
+  `)
+}
+
 test('traffic_sources round-trips a connected cloud-run source', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
@@ -254,7 +270,7 @@ test('raw sample retention migration adds a global expiry index without rewritin
   const db = createClient(path.join(tmpDir, 'test.db'))
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 144))
-  seedProject(db)
+  seedPreV150Project(db)
   const now = '2026-08-17T12:00:00.000Z'
   db.run(sql`
     INSERT INTO traffic_sources (
@@ -460,7 +476,7 @@ test('migration 139 leaves legacy rollups unattributed and preserves old-writer 
   const db = createClient(path.join(tmpDir, 'test.db'))
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 139))
-  seedProject(db)
+  seedPreV150Project(db)
   const now = '2026-08-13T12:00:00.000Z'
   db.run(sql`
     INSERT INTO traffic_sources (
@@ -834,7 +850,7 @@ test('traffic sync lease migration adds nullable per-source lease fields without
   const db = createClient(path.join(tmpDir, 'test.db'))
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 135))
-  seedProject(db)
+  seedPreV150Project(db)
   const now = '2026-08-11T12:00:00.000Z'
   // This is deliberately a pre-v135 insert. Drizzle's current table model
   // names the new lease columns even when values are omitted, so use SQL that
@@ -865,7 +881,7 @@ test('traffic queue backlog migration adds nullable observations without changin
   const db = createClient(path.join(tmpDir, 'test.db'))
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 136))
-  seedProject(db)
+  seedPreV150Project(db)
   const now = '2026-08-11T12:00:00.000Z'
   db.run(sql`
     INSERT INTO traffic_sources (
@@ -901,7 +917,7 @@ test('WordPress pending-window migration leaves old cursors explicitly unmarked'
   const db = createClient(path.join(tmpDir, 'test.db'))
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 145))
-  seedProject(db)
+  seedPreV150Project(db)
   const now = '2026-08-20T17:00:00.000Z'
   // Pre-v145 WordPress cursors have no recorded upper bound. The new code
   // must distinguish that ambiguous legacy state from a bounded continuation.

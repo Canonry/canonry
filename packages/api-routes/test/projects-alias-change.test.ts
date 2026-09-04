@@ -131,3 +131,34 @@ describe('PUT /projects/:name — onAliasesChanged trigger', () => {
     }
   })
 })
+
+describe('project researchProvider persistence', () => {
+  it('preserves a stale saved route on an unrelated update, but validates an explicit reselection', async () => {
+    let routeAvailable = true
+    const adapter = {
+      name: 'route:gateway-one:gpt', displayName: 'Gateway GPT', mode: 'api' as const,
+      modelConfigurable: true, defaultModel: 'openai/gpt-5.4', knownModels: [],
+      modelValidationPattern: /[\s\S]+/, modelValidationHint: 'any non-empty model id',
+    }
+    const { app, tmpDir } = buildApp({
+      getResearchProviderAdapters: () => routeAvailable ? [adapter] : [],
+      getResearchConfiguredProviderNames: () => routeAvailable ? [adapter.name] : [],
+    })
+    try {
+      await app.ready()
+      const created = await putProject(app, 'stale-route', { researchProvider: adapter.name })
+      expect(created.statusCode).toBe(201)
+      routeAvailable = false
+
+      const untouched = await putProject(app, 'stale-route', { displayName: 'Renamed without route change' })
+      expect(untouched.statusCode).toBe(200)
+      expect(untouched.json().researchProvider).toBe(adapter.name)
+
+      const explicit = await putProject(app, 'stale-route', { researchProvider: adapter.name })
+      expect(explicit.statusCode).toBe(400)
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})

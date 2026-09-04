@@ -230,6 +230,22 @@ const providerNameParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
 }
 
+const engineConnectionIdParameter: OpenApiParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'Instance-global gateway connection ID. The request body cannot replace it.',
+  schema: stringSchema,
+}
+
+const engineRouteIdParameter: OpenApiParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'Stable generic route ID. Must use the server-reserved route: prefix.',
+  schema: { type: 'string', pattern: '^route:[a-zA-Z0-9]' },
+}
+
 const locationLabelParameter: OpenApiParameter = {
   name: 'label',
   in: 'path',
@@ -2408,6 +2424,30 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/settings/engine-routes',
+    summary: 'List safe engine route summaries',
+    description: 'Credential-free route metadata for route selection and viewer summaries. Connection IDs, endpoints, quota, and secrets are intentionally omitted.',
+    tags: ['settings', 'engine-routes'],
+    responses: {
+      200: jsonResponse('Safe engine route summaries returned.', 'EngineRouteSummaryResponse'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/settings/engine-connections/{id}/models',
+    summary: 'Read a configured gateway model catalog',
+    description: 'Administrator-only non-inference GET /models discovery through a configured connection. A typed unavailable state preserves the manual model-id fallback and upstream errors are never returned.',
+    tags: ['settings', 'engine-routes'],
+    parameters: [engineConnectionIdParameter],
+    responses: {
+      200: jsonResponse('Bounded credential-redacted model catalog returned.', 'EngineConnectionModelCatalogResponse'),
+      400: errorResponse('Unknown connection.'),
+      403: errorResponse('Administrator session or settings.write scope required.'),
+      501: errorResponse('Model catalog reads are not supported in this deployment.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Update provider settings',
@@ -2434,6 +2474,48 @@ const routeCatalog: OpenApiOperation[] = [
       200: rawJsonResponse('Provider updated.', looseObjectSchema),
       400: errorResponse('Invalid provider settings.'),
       501: errorResponse('Provider updates are not supported.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/settings/engine-connections/{id}',
+    summary: 'Create or update a generic gateway connection',
+    description: 'Stores an instance-global OpenAI-compatible connection. The credential may be supplied on write, is never returned, and an omitted apiKey preserves the stored credential.',
+    tags: ['settings', 'engine-routes'],
+    parameters: [engineConnectionIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/EngineConnectionUpsertInput' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Credential-redacted connection metadata returned.', 'EngineConnectionPublicDto'),
+      400: errorResponse('Invalid connection configuration.'),
+      501: errorResponse('Engine connection updates are not supported.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/settings/engine-routes/{id}',
+    summary: 'Create or update a generic text route',
+    description: 'The host owns route id, revision, source, and evidence capabilities. Configured generic routes remain text-only until a server-owned evidence adapter is implemented.',
+    tags: ['settings', 'engine-routes'],
+    parameters: [engineRouteIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/EngineRouteUpsertInput' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Server-owned route configuration returned.', 'EngineRouteConfig'),
+      400: errorResponse('Invalid route configuration or unknown connection.'),
+      501: errorResponse('Engine route updates are not supported.'),
     },
   },
   {

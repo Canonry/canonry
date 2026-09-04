@@ -46,7 +46,12 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
       throw new Error('Configured API provider is unavailable.')
     }
     const period = getCurrentUsageDay()
-    const scope = `${projectId}:${run.provider}`
+    const connectionScope = provider.config.connectionId ?? run.provider
+    // Keep native research's historical project budget, but gateway routes
+    // share the one configured credential across every project and route.
+    const scope = provider.config.connectionId
+      ? `connection:${provider.config.connectionId}`
+      : `${projectId}:${run.provider}`
     const quota = reserveDailyQueryQuota(db, {
       scope, period, count: run.totalQueries, limit: provider.config.quotaPolicy.maxRequestsPerDay,
     })
@@ -65,7 +70,7 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
     // with an answer-visibility sweep or another research batch against the
     // same provider; a gate built fresh here would give this batch its own
     // independent budget against the same upstream key.
-    const gate = getSharedProviderExecutionGate(run.provider, provider.config.quotaPolicy.maxConcurrency, provider.config.quotaPolicy.maxRequestsPerMinute)
+    const gate = getSharedProviderExecutionGate(connectionScope, provider.config.quotaPolicy.maxConcurrency, provider.config.quotaPolicy.maxRequestsPerMinute)
 
     // The worker absorbs every per-query error. That prevents mapWithConcurrency
     // from fail-fast escaping before the parent can be finalized.
@@ -74,6 +79,51 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
         const startedAt = new Date().toISOString()
         db.update(researchRunQueries).set({ status: ResearchQueryStatuses.running, startedAt })
           .where(and(eq(researchRunQueries.id, row.id), eq(researchRunQueries.status, ResearchQueryStatuses.queued))).run()
+        if (provider.config.measurementReady === false) {
+          // A generic route is explicitly text-only. Research may store its
+          // answer, but must not fabricate a tracking-shaped normalization
+          // with sources/citations it cannot prove.
+          // Its adapter owns the connection gate so Snapshot, discovery, and
+          // direct adapter callers cannot bypass the same budget. Do not wrap
+          // it again here: a maxConcurrency=1 connection would self-deadlock.
+          const generateText = async () => {
+            dispatched++
+            return provider.adapter.generateText(row.queryText, config)
+          }
+          const answerText = provider.adapter.name.startsWith('route:')
+            ? await generateText()
+            : await gate.run(generateText)
+          const namedCompetitors = extractRecommendedCompetitors(
+            answerText,
+            domains,
+            [],
+            competitorDomains,
+            brands,
+          )
+          const completed = db.update(researchRunQueries).set({
+            status: ResearchQueryStatuses.completed,
+            servedModel: null,
+            answerText,
+            groundingSources: [],
+            citedDomains: [],
+            searchQueries: [],
+            namedCompetitors,
+            citedCompetitorDomains: [],
+            answerMentioned: determineAnswerMentioned(answerText, brands, domains),
+            // A text-only route has no citation transport at all. `not-cited`
+            // would falsely claim a negative evidence observation.
+            citationState: null,
+            rawResponse: {
+              kind: 'text-only-route',
+              requestedProvider: run.provider,
+              requestedModel: run.resolvedModel,
+              evidence: 'unavailable',
+            },
+            finishedAt: new Date().toISOString(),
+          }).where(and(eq(researchRunQueries.id, row.id), eq(researchRunQueries.status, ResearchQueryStatuses.running))).run()
+          if (completed.changes === 1) incrementResearchProgress(db, runId, 'completedQueries')
+          return
+        }
         const raw = await gate.run(async () => {
           dispatched++
           return provider.adapter.executeTrackedQuery({ query: row.queryText, canonicalDomains: domains, competitorDomains, ...(run.location ? { location: run.location } : {}) }, config)

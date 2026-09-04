@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, asc, desc, inArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
+import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
 import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope } from '@ainyc/canonry-contracts'
 import {
@@ -24,7 +24,12 @@ import {
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
+import {
+  assertMeasurementRunStampable,
+  buildPlanlessMeasurementExecutionIdentity,
+  hasActiveMeasurementPlan,
+  queueRunIfProjectIdle,
+} from './run-queue.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -39,6 +44,8 @@ export interface RunRoutesOptions {
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this instance has it pointed at, for freezing model identity. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /** Immutable route policy descriptors used to stamp queued execution identity v2. */
+  getProviderRouteDescriptors?: () => Readonly<Record<string, import('@ainyc/canonry-contracts').MeasurementExecutionRouteDescriptor>>
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
@@ -194,6 +201,17 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           return { conflict: true as const }
         }
 
+        // Plan projects reject this branch above. Planless all-location runs
+        // still need the exact same durable execution identity as a normal
+        // queued run, even though they atomically insert several rows here.
+        const measurementExecutionIdentity = buildPlanlessMeasurementExecutionIdentity(tx as unknown as DatabaseClient, {
+          projectId: project.id,
+          providers,
+          runnableProviders: opts.getRunnableProviderNames?.(),
+          providerModels: opts.getEffectiveProviderModels?.(),
+          providerRouteDescriptors: opts.getProviderRouteDescriptors?.(),
+        })
+
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
         for (const loc of projectLocations) {
           const runId = crypto.randomUUID()
@@ -205,6 +223,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             trigger,
             location: loc.label,
             queries: queriesColumn,
+            measurementExecutionIdentity,
             createdAt: now,
           }).run()
           inserted.push({ runId, loc })
@@ -245,6 +264,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       providers,
       runnableProviders: opts.getRunnableProviderNames?.(),
       providerModels: opts.getEffectiveProviderModels?.(),
+      providerRouteDescriptors: opts.getProviderRouteDescriptors?.(),
       measurementScope: body.measurementScope ?? null,
     })
 
@@ -490,6 +510,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           providers,
           runnableProviders: runnableProviderNames,
           providerModels: opts.getEffectiveProviderModels?.(),
+          providerRouteDescriptors: opts.getProviderRouteDescriptors?.(),
         })
         dispatchable.push(entry)
       } catch (error) {
@@ -516,6 +537,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         providers,
         runnableProviders: runnableProviderNames,
         providerModels: opts.getEffectiveProviderModels?.(),
+        providerRouteDescriptors: opts.getProviderRouteDescriptors?.(),
       })
 
       if (queueResult.conflict) {
@@ -714,9 +736,11 @@ export function formatRun(row: {
     ? row.measurementManifest as Record<string, unknown>
     : null
   // These fields were added after the original run DTO. Keep legacy responses
-  // byte-for-byte compatible until a run actually carries measurement-plan
+  // byte-for-byte compatible until a run actually carries execution
   // provenance; clients that never opt into plans must not see new null keys.
-  const hasMeasurementProvenance = row.measurementPlanVersionId != null || measurementManifest !== null
+  const hasMeasurementProvenance = row.measurementPlanVersionId != null
+    || measurementManifest !== null
+    || row.measurementExecutionIdentity != null
   return {
     id: row.id,
     projectId: row.projectId,
@@ -781,6 +805,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       servedModel: querySnapshots.servedModel,
+      servedProvider: querySnapshots.servedProvider,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
       answerText: querySnapshots.answerText,
@@ -858,6 +883,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
         // record the same requested value; a served id has no such equivalent —
         // an unrecoverable one stays null rather than echoing configuration.
         servedModel: s.servedModel,
+        servedProvider: s.servedProvider,
         location: s.location,
         requestedContext: s.requestedContext,
         supportedContext: s.supportedContext,

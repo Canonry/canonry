@@ -4,7 +4,7 @@ import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { queueRunIfProjectIdle, nextRunFromCron, ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import type { ProviderName, LocationContext, MeasurementExecutionRouteDescriptor, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import {
   SchedulableRunKinds,
   RunKinds,
@@ -33,6 +33,8 @@ export interface SchedulerCallbacks {
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this host has it pointed at, frozen onto plan runs. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /** Host-owned route policy descriptors for immutable queued-run provenance. */
+  getProviderRouteDescriptors?: () => Readonly<Record<string, MeasurementExecutionRouteDescriptor>>
   /**
    * Fired when a traffic-sync schedule triggers. Receives the project's name
    * and the configured source UUID — the host wires this to the existing
@@ -546,6 +548,7 @@ export class Scheduler {
         providers,
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
+        providerRouteDescriptors: this.callbacks.getProviderRouteDescriptors?.(),
       })
 
       if (queueResult.conflict) {

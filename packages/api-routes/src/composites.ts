@@ -1055,6 +1055,7 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    researchProvider: row.researchProvider,
     measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,

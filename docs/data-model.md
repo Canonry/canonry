@@ -83,14 +83,14 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity — domain, location config, sweep provider list, per-project `provider_models` overrides, optional `research_provider` (kept separate so a text-only route cannot become a sweep engine), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
-| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
-| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. | FK: runId → runs, queryId → queries |
+| **runs** | Existing sweep executions. A run queued for a project freezes the requested provider/model set in `measurement_execution_identity`; v2 also pins route ID, route revision, and a non-secret policy fingerprint. A run with an active plan also pins `measurement_plan_version_id`, its execution graph, and any group/target scope in `measurement_manifest`; planless runs keep the plan fields null. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
+| **query_snapshots** | Per-query per-provider results. `provider` and `model` are requested identities; nullable `served_provider` and `served_model` contain only identities the upstream response disclosed. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three measurement fields null. | FK: runId → runs, queryId → queries |
 | **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
@@ -206,13 +206,21 @@ for future sweeps. `{}` inherits the instance-level provider settings. It is
 not historical attribution — for that, see the two model columns on
 `query_snapshots` below.
 
-#### `query_snapshots.model` vs `served_model`
+`projects.research_provider` is a separate nullable preference for free-form
+research and other text-only work. It can name a configured engine route. It
+never joins `projects.providers`, so saving a generic gateway route does not
+make it eligible for citation measurement.
 
-Every snapshot records two model strings, and they answer different questions:
+#### Requested vs served snapshot identity
+
+Every snapshot preserves requested identity separately from any identity the
+upstream response disclosed:
 
 | Column | Meaning |
 |--------|---------|
+| `provider` | The Canonry adapter or route requested for the snapshot. |
 | `model` | What we **requested** — the configured model ID resolved at sweep time. |
+| `served_provider` | The upstream provider identity reported by the response. Nullable. |
 | `served_model` | What the provider **reported serving**, read back off its own response. Nullable. |
 
 `model` is **not** the source of truth for model continuity or trend
@@ -240,6 +248,10 @@ Known gaps — `served_model` is nullable because absence is common and honest:
 
 Never fall back to `model` when `served_model` is NULL — that would launder a
 configuration value into an observation. Treat NULL as unknown.
+
+The same rule applies to provider identity: never copy `provider` into
+`served_provider`. A router may not disclose which upstream provider served the
+request, and unknown evidence must remain null.
 
 ### Integrations — Google
 

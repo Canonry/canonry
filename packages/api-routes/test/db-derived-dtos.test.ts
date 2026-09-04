@@ -70,6 +70,7 @@ describe('drizzle-zod derived row schemas', () => {
       labels: { team: 'growth', tier: 'enterprise' },
       providers: ['gemini', 'openai'],
       providerModels: {},
+      researchProvider: null,
       measurement: {
         marketingHosts: ['offers.acme.com'],
         brandTerms: ['Acme Pro'],
@@ -102,6 +103,7 @@ describe('drizzle-zod derived row schemas', () => {
       labels: {},
       providers: [],
       providerModels: {},
+      researchProvider: null,
       measurement: {
         marketingHosts: [],
         brandTerms: [],

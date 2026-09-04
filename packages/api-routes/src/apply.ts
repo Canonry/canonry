@@ -19,6 +19,9 @@ export interface ApplyRoutesOptions {
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Full descriptors from registered adapters — used to reject unknown providers and invalid model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
+  /** Live research-capable adapters, including text-only configured routes. */
+  getResearchProviderAdapters?: () => readonly ProviderAdapterInfo[]
+  getResearchConfiguredProviderNames?: () => readonly string[]
   /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */
   allowLoopbackWebhooks?: boolean
 }
@@ -58,6 +61,19 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters),
       specProviders,
     )
+    if (config.spec.researchProvider) {
+      const researchAdapters = opts?.getResearchProviderAdapters?.() ?? opts?.providerAdapters ?? []
+      const configuredResearch = new Set(opts?.getResearchConfiguredProviderNames?.() ?? researchAdapters.map(adapter => adapter.name))
+      const adapter = researchAdapters.find(candidate => candidate.name === config.spec.researchProvider)
+      if (!adapter || adapter.mode !== 'api' || !configuredResearch.has(config.spec.researchProvider)) {
+        throw validationError('researchProvider must name a configured API provider or text route.', {
+          researchProvider: config.spec.researchProvider,
+          validResearchProviders: researchAdapters
+            .filter(candidate => candidate.mode === 'api' && configuredResearch.has(candidate.name))
+            .map(candidate => candidate.name),
+        })
+      }
+    }
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
@@ -161,6 +177,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
           providerModels,
+          researchProvider: config.spec.researchProvider ?? null,
           measurement: config.spec.measurement,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
@@ -192,6 +209,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
           providerModels,
+          researchProvider: config.spec.researchProvider ?? null,
           measurement: config.spec.measurement,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
@@ -359,6 +377,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       labels: project.labels,
       providers: project.providers,
       providerModels: project.providerModels,
+      researchProvider: project.researchProvider,
       measurement: project.measurement,
       locations: project.locations,
       defaultLocation: project.defaultLocation,

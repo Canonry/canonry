@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type { EmbedConfigEntry, EngineConnectionConfig, EngineRouteConfig, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
@@ -18,6 +18,12 @@ export interface ProviderConfigEntry {
   vertexRegion?: string
   /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
   vertexCredentials?: string
+}
+
+/** Instance-global gateway credentials and the routes that use them. */
+export interface EngineRoutesConfigEntry {
+  connections?: EngineConnectionConfig[]
+  routes?: EngineRouteConfig[]
 }
 
 export interface CdpConfigEntry {
@@ -382,6 +388,8 @@ export interface CanonryConfig {
   geminiQuota?: ProviderQuotaPolicy
   // Multi-provider config (API providers) — keyed by adapter name
   providers?: Record<string, ProviderConfigEntry>
+  /** Vendor-neutral OpenAI-compatible gateway connections and text routes. */
+  engineRoutes?: EngineRoutesConfigEntry
   // CDP browser provider config (separate from API providers)
   cdp?: CdpConfigEntry
   google?: GoogleConfigEntry

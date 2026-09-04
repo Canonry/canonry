@@ -4038,6 +4038,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE measurement_plan_versions ADD COLUMN comparable_to_version_id TEXT`,
     ],
   },
+  {
+    version: 150,
+    name: 'engine-route-research-and-served-provider-provenance',
+    // Both columns are nullable/additive. Historic rows stay null rather than
+    // pretending an older route choice or an upstream provider identity was
+    // known. New text-route preference remains distinct from sweep providers.
+    statements: [
+      `ALTER TABLE projects ADD COLUMN research_provider TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN served_provider TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

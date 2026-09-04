@@ -254,7 +254,7 @@ Token migration guardrails:
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
   checkboxes, or shared rectangular buttons for interactive choices.
 
-### Competitor landscapes
+### Competitor landscapes and engine routes
 
 - `CompetitorLandscape` reads the windowed stored-evidence endpoint. Never send
   a historical row into the latest-only `EvidenceTable`; use its returned
@@ -263,6 +263,11 @@ Token migration guardrails:
   reads must pass the selected `groupKey`, or explicit `scope=all-markets`.
 - Stored landscape GETs are embed-safe. Every competitor mutation requires
   `canWrite && !isEmbed()`; market pins create/update a draft and never publish.
+- Credential settings use the admin-only settings DTO. Viewers use the separate
+  redacted route-summary endpoint, and embeds render no route editor.
+- Configured generic routes are text-only unless their server-owned capability
+  says otherwise. Never enable one for a sweep from client-side inference.
+
 ## Common Mistakes
 
 - **Importing `recharts` directly** — use `ChartPrimitives.tsx` exports.

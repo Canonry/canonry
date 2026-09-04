@@ -75,6 +75,16 @@ export function resolveProviderInput(input: string): string[] {
 
 export interface ProviderConfig {
   provider: string
+  /**
+   * Shared credential/rate-limit identity. Native providers omit this and use
+   * their provider name; multiple gateway routes set the same connection id.
+   */
+  connectionId?: string
+  /**
+   * False only for a text-only route. Undefined preserves every pre-route
+   * native provider as runnable for answer-visibility sweeps.
+   */
+  measurementReady?: boolean
   apiKey?: string
   baseUrl?: string
   model?: string
@@ -205,6 +215,13 @@ export interface RawQueryResult {
    * what we got, and the whole point of the field is that the two can disagree.
    */
   servedModel?: string
+  /**
+   * The upstream/provider identity the response itself disclosed, if any.
+   * This is intentionally separate from `provider`, which is Canonry's
+   * requested adapter or route. Never infer it from a configured gateway,
+   * route label, or model id; absence is honest and stays undefined.
+   */
+  servedProvider?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
   /**

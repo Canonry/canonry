@@ -1327,6 +1327,22 @@ export type BrandMetricsDto = {
                 [key: string]: string;
             };
             checksum: string;
+        } | {
+            schemaVersion: 2;
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            routes: {
+                [key: string]: {
+                    routeId: string;
+                    routeRevision: number;
+                    policyFingerprint: string;
+                    requestedProvider: string;
+                    requestedModel: string;
+                };
+            };
+            checksum: string;
         };
     }>;
     referenceBasketRevision: number | null;
@@ -1899,6 +1915,84 @@ export type DomainClassificationsResponseDto = {
         hits: number;
         updatedAt: string;
     }>;
+};
+
+export type EngineConnectionPublicDto = {
+    id: string;
+    label: string;
+    preset: 'openrouter' | 'litellm' | 'vercel-ai-gateway' | 'custom-openai-compatible';
+    protocol: 'openai-compatible';
+    baseUrl: string;
+    quota: {
+        maxConcurrency: number;
+        maxRequestsPerMinute: number;
+        maxRequestsPerDay: number;
+    };
+    secretConfigured: boolean;
+};
+
+export type EngineConnectionModelCatalogResponse = {
+    connectionId: string;
+    state: 'available' | 'unavailable';
+    manualModelIdAllowed: true;
+    fetchedAt: string;
+    models: Array<{
+        id: string;
+        displayName?: string;
+        provider?: string;
+    }>;
+};
+
+export type EngineConnectionUpsertInput = {
+    label: string;
+    preset: 'openrouter' | 'litellm' | 'vercel-ai-gateway' | 'custom-openai-compatible';
+    protocol: 'openai-compatible';
+    apiKey?: string;
+    quota: {
+        maxConcurrency: number;
+        maxRequestsPerMinute: number;
+        maxRequestsPerDay: number;
+    };
+    baseUrl?: string;
+};
+
+export type EngineRouteConfig = {
+    id: string;
+    label: string;
+    connectionId: string;
+    modelId: string;
+    revision: number;
+    source: 'configured' | 'implicit-native' | 'verified-adapter';
+    capabilities: {
+        kind: 'text-only';
+    } | {
+        kind: 'verified-measurement';
+        retrieval: true;
+        citations: true;
+        location: true;
+        servedModel: true;
+        fallback: 'disabled';
+    };
+};
+
+export type EngineRouteSummaryResponse = {
+    routes: Array<{
+        id: string;
+        label: string;
+        modelId: string;
+        revision: number;
+        source: 'configured' | 'implicit-native' | 'verified-adapter';
+        readiness: {
+            state: 'unavailable' | 'text-ready' | 'measurement-ready';
+            measurementReady: boolean;
+        };
+    }>;
+};
+
+export type EngineRouteUpsertInput = {
+    label: string;
+    connectionId: string;
+    modelId: string;
 };
 
 export type RecommendationBriefDto = {
@@ -4244,6 +4338,22 @@ export type LatestProjectRunDto = {
                 [key: string]: string;
             };
             checksum: string;
+        } | {
+            schemaVersion: 2;
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            routes: {
+                [key: string]: {
+                    routeId: string;
+                    routeRevision: number;
+                    policyFingerprint: string;
+                    requestedProvider: string;
+                    requestedModel: string;
+                };
+            };
+            checksum: string;
         } | null;
         location?: string | null;
         queries?: Array<string> | null;
@@ -4292,6 +4402,7 @@ export type LatestProjectRunDto = {
             searchQueries: Array<string>;
             model?: string | null;
             servedModel?: string | null;
+            servedProvider?: string | null;
             location?: string | null;
             requestedContext?: {
                 label: string;
@@ -7533,6 +7644,7 @@ export type ProjectCreateRequest = {
     providerModels?: {
         [key: string]: string;
     };
+    researchProvider?: string | null;
     locations?: Array<{
         label: string;
         city: string;
@@ -7568,6 +7680,7 @@ export type ProjectDto = {
     providerModels: {
         [key: string]: string;
     };
+    researchProvider: string | null;
     locations: Array<{
         label: string;
         city: string;
@@ -7603,6 +7716,7 @@ export type ProjectUpsertRequest = {
     providerModels?: {
         [key: string]: string;
     };
+    researchProvider?: string | null;
     locations?: Array<{
         label: string;
         city: string;
@@ -7643,6 +7757,7 @@ export type ProjectConfig = {
         providerModels: {
             [key: string]: string;
         };
+        researchProvider?: string;
         locations: Array<{
             label: string;
             city: string;
@@ -7699,6 +7814,7 @@ export type ProjectOverviewDto = {
         providerModels: {
             [key: string]: string;
         };
+        researchProvider: string | null;
         locations: Array<{
             label: string;
             city: string;
@@ -7741,6 +7857,22 @@ export type ProjectOverviewDto = {
                 providers: Array<string>;
                 models: {
                     [key: string]: string;
+                };
+                checksum: string;
+            } | {
+                schemaVersion: 2;
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                routes: {
+                    [key: string]: {
+                        routeId: string;
+                        routeRevision: number;
+                        policyFingerprint: string;
+                        requestedProvider: string;
+                        requestedModel: string;
+                    };
                 };
                 checksum: string;
             } | null;
@@ -7791,6 +7923,7 @@ export type ProjectOverviewDto = {
                 searchQueries: Array<string>;
                 model?: string | null;
                 servedModel?: string | null;
+                servedProvider?: string | null;
                 location?: string | null;
                 requestedContext?: {
                     label: string;
@@ -8720,6 +8853,22 @@ export type RunDetailDto = {
             [key: string]: string;
         };
         checksum: string;
+    } | {
+        schemaVersion: 2;
+        providers: Array<string>;
+        models: {
+            [key: string]: string;
+        };
+        routes: {
+            [key: string]: {
+                routeId: string;
+                routeRevision: number;
+                policyFingerprint: string;
+                requestedProvider: string;
+                requestedModel: string;
+            };
+        };
+        checksum: string;
     } | null;
     location?: string | null;
     queries?: Array<string> | null;
@@ -8768,6 +8917,7 @@ export type RunDetailDto = {
         searchQueries: Array<string>;
         model?: string | null;
         servedModel?: string | null;
+        servedProvider?: string | null;
         location?: string | null;
         requestedContext?: {
             label: string;
@@ -8811,6 +8961,22 @@ export type RunDto = {
         providers: Array<string>;
         models: {
             [key: string]: string;
+        };
+        checksum: string;
+    } | {
+        schemaVersion: 2;
+        providers: Array<string>;
+        models: {
+            [key: string]: string;
+        };
+        routes: {
+            [key: string]: {
+                routeId: string;
+                routeRevision: number;
+                policyFingerprint: string;
+                requestedProvider: string;
+                requestedModel: string;
+            };
         };
         checksum: string;
     } | null;
@@ -8881,6 +9047,37 @@ export type SettingsDto = {
             flags: string;
         };
         modelValidationHint: string;
+    }>;
+    engineConnections: Array<{
+        id: string;
+        label: string;
+        preset: 'openrouter' | 'litellm' | 'vercel-ai-gateway' | 'custom-openai-compatible';
+        protocol: 'openai-compatible';
+        baseUrl: string;
+        quota: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        secretConfigured: boolean;
+    }>;
+    engineRoutes: Array<{
+        id: string;
+        label: string;
+        connectionId: string;
+        modelId: string;
+        revision: number;
+        source: 'configured' | 'implicit-native' | 'verified-adapter';
+        capabilities: {
+            kind: 'text-only';
+        } | {
+            kind: 'verified-measurement';
+            retrieval: true;
+            citations: true;
+            location: true;
+            servedModel: true;
+            fallback: 'disabled';
+        };
     }>;
     google: {
         configured: boolean;
@@ -9713,6 +9910,7 @@ export type SnapshotListResponse = {
         searchQueries: Array<string>;
         model?: string | null;
         servedModel?: string | null;
+        servedProvider?: string | null;
         location?: string | null;
         requestedContext?: {
             label: string;
@@ -15316,6 +15514,60 @@ export type GetApiV1SettingsResponses = {
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
 
+export type GetApiV1SettingsEngineRoutesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/engine-routes';
+};
+
+export type GetApiV1SettingsEngineRoutesResponses = {
+    /**
+     * Safe engine route summaries returned.
+     */
+    200: EngineRouteSummaryResponse;
+};
+
+export type GetApiV1SettingsEngineRoutesResponse = GetApiV1SettingsEngineRoutesResponses[keyof GetApiV1SettingsEngineRoutesResponses];
+
+export type GetApiV1SettingsEngineConnectionsByIdModelsData = {
+    body?: never;
+    path: {
+        /**
+         * Instance-global gateway connection ID. The request body cannot replace it.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/engine-connections/{id}/models';
+};
+
+export type GetApiV1SettingsEngineConnectionsByIdModelsErrors = {
+    /**
+     * Unknown connection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Administrator session or settings.write scope required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Model catalog reads are not supported in this deployment.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsEngineConnectionsByIdModelsError = GetApiV1SettingsEngineConnectionsByIdModelsErrors[keyof GetApiV1SettingsEngineConnectionsByIdModelsErrors];
+
+export type GetApiV1SettingsEngineConnectionsByIdModelsResponses = {
+    /**
+     * Bounded credential-redacted model catalog returned.
+     */
+    200: EngineConnectionModelCatalogResponse;
+};
+
+export type GetApiV1SettingsEngineConnectionsByIdModelsResponse = GetApiV1SettingsEngineConnectionsByIdModelsResponses[keyof GetApiV1SettingsEngineConnectionsByIdModelsResponses];
+
 export type PutApiV1SettingsProvidersByNameData = {
     body: {
         apiKey?: string;
@@ -15358,6 +15610,74 @@ export type PutApiV1SettingsProvidersByNameResponses = {
 };
 
 export type PutApiV1SettingsProvidersByNameResponse = PutApiV1SettingsProvidersByNameResponses[keyof PutApiV1SettingsProvidersByNameResponses];
+
+export type PutApiV1SettingsEngineConnectionsByIdData = {
+    body: EngineConnectionUpsertInput;
+    path: {
+        /**
+         * Instance-global gateway connection ID. The request body cannot replace it.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/engine-connections/{id}';
+};
+
+export type PutApiV1SettingsEngineConnectionsByIdErrors = {
+    /**
+     * Invalid connection configuration.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Engine connection updates are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PutApiV1SettingsEngineConnectionsByIdError = PutApiV1SettingsEngineConnectionsByIdErrors[keyof PutApiV1SettingsEngineConnectionsByIdErrors];
+
+export type PutApiV1SettingsEngineConnectionsByIdResponses = {
+    /**
+     * Credential-redacted connection metadata returned.
+     */
+    200: EngineConnectionPublicDto;
+};
+
+export type PutApiV1SettingsEngineConnectionsByIdResponse = PutApiV1SettingsEngineConnectionsByIdResponses[keyof PutApiV1SettingsEngineConnectionsByIdResponses];
+
+export type PutApiV1SettingsEngineRoutesByIdData = {
+    body: EngineRouteUpsertInput;
+    path: {
+        /**
+         * Stable generic route ID. Must use the server-reserved route: prefix.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/engine-routes/{id}';
+};
+
+export type PutApiV1SettingsEngineRoutesByIdErrors = {
+    /**
+     * Invalid route configuration or unknown connection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Engine route updates are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PutApiV1SettingsEngineRoutesByIdError = PutApiV1SettingsEngineRoutesByIdErrors[keyof PutApiV1SettingsEngineRoutesByIdErrors];
+
+export type PutApiV1SettingsEngineRoutesByIdResponses = {
+    /**
+     * Server-owned route configuration returned.
+     */
+    200: EngineRouteConfig;
+};
+
+export type PutApiV1SettingsEngineRoutesByIdResponse = PutApiV1SettingsEngineRoutesByIdResponses[keyof PutApiV1SettingsEngineRoutesByIdResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {

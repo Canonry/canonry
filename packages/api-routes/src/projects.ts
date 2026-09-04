@@ -43,6 +43,29 @@ export interface ProjectRoutesOptions {
   onAliasesChanged?: (projectId: string, projectName: string) => void
   /** Full descriptors from registered adapters — validate names and model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
+  /** Live research-capable adapter metadata; may include configured text-only routes. */
+  getResearchProviderAdapters?: () => readonly ProviderAdapterInfo[]
+  /** Live configured research providers. Unconfigured routes are never persisted as a preference. */
+  getResearchConfiguredProviderNames?: () => readonly string[]
+}
+
+function validateResearchProvider(
+  value: string | null,
+  opts: ProjectRoutesOptions,
+): string | null {
+  if (value === null) return null
+  const adapters = opts.getResearchProviderAdapters?.() ?? opts.providerAdapters ?? []
+  const configured = new Set(opts.getResearchConfiguredProviderNames?.() ?? adapters.map(adapter => adapter.name))
+  const adapter = adapters.find(candidate => candidate.name === value)
+  if (!adapter || adapter.mode !== 'api' || !configured.has(value)) {
+    throw validationError('researchProvider must name a configured API provider or text route.', {
+      researchProvider: value,
+      validResearchProviders: adapters
+        .filter(candidate => candidate.mode === 'api' && configured.has(candidate.name))
+        .map(candidate => candidate.name),
+    })
+  }
+  return value
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
@@ -86,6 +109,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }
     }
     const nextProviders = body.providers ?? []
+    const nextResearchProvider = validateResearchProvider(body.researchProvider ?? null, opts)
     const providerModels = pruneProviderModelsForProviders(
       validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
       nextProviders,
@@ -131,6 +155,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: nextProviders,
         providerModels,
+        researchProvider: nextResearchProvider,
         measurement: body.measurement ?? DEFAULT_MEASUREMENT_CONFIG,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -176,6 +201,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       configSource?: string
       providerModels?: Record<string, string>
+      researchProvider?: string | null
       measurement?: MeasurementConfig
     }
   }>('/projects/:name', async (request, reply) => {
@@ -210,6 +236,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    // A configured route may be removed later. An unrelated metadata update
+    // must not strand that project by trying to revalidate historical state;
+    // only an explicit selection change is checked against today's registry.
+    const nextResearchProvider = body.researchProvider === undefined
+      ? existing?.researchProvider ?? null
+      : validateResearchProvider(body.researchProvider, opts)
     assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
@@ -253,6 +285,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           labels: body.labels ?? {},
           providers: body.providers ?? [],
           providerModels,
+          researchProvider: nextResearchProvider,
           measurement: nextMeasurement,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
@@ -293,6 +326,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: body.providers ?? [],
         providerModels,
+        researchProvider: nextResearchProvider,
         measurement: nextMeasurement,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -555,6 +589,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         competitors: comps.map(c => c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
+        ...(project.researchProvider ? { researchProvider: project.researchProvider } : {}),
         measurement: project.measurement,
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
@@ -642,6 +677,7 @@ export function formatProject(row: InferSelectModel<typeof projects>) {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    researchProvider: row.researchProvider,
     measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,

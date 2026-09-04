@@ -4,7 +4,14 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
-import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
+import {
+  ADS_ACTIVATE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_WRITE_SCOPE,
+  buildEngineRoutePublicDto,
+  engineConnectionModelCatalogResponseSchema,
+  normalizeEngineConnection,
+} from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { shouldSkipAuth } from '../src/auth.js'
@@ -168,6 +175,59 @@ test('settings routes refuse keys that lack the settings.write scope', async () 
       payload: { clientId: 'g', clientSecret: 's' },
     })
     expect(scoped.statusCode).toBe(200)
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('a settings-only key cannot invoke a live engine model catalog', async () => {
+  const connection = normalizeEngineConnection({
+    id: 'gateway', label: 'Gateway', preset: 'openrouter', apiKey: 'catalog-secret',
+    quota: { maxConcurrency: 1, maxRequestsPerMinute: 10, maxRequestsPerDay: 100 },
+  })
+  let catalogCalls = 0
+  const { app, db, tmpDir } = buildApp({
+    engineConnections: [buildEngineRoutePublicDto(connection)],
+    getEngineConnectionModelCatalog: async connectionId => {
+      catalogCalls++
+      return engineConnectionModelCatalogResponseSchema.parse({
+        connectionId,
+        state: 'available',
+        manualModelIdAllowed: true,
+        fetchedAt: '2026-09-01T00:00:00.000Z',
+        models: [],
+      })
+    },
+  })
+  const settingsOnly = `cnry_${crypto.randomBytes(16).toString('hex')}`
+  db.insert(apiKeys).values({
+    id: crypto.randomUUID(),
+    name: 'settings-only',
+    keyHash: crypto.createHash('sha256').update(settingsOnly).digest('hex'),
+    keyPrefix: settingsOnly.slice(0, 9),
+    scopes: ['settings.write'],
+    createdAt: new Date().toISOString(),
+  }).run()
+  const wildcard = insertApiKey(db)
+  await app.ready()
+
+  try {
+    const blocked = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings/engine-connections/gateway/models',
+      headers: { authorization: `Bearer ${settingsOnly}` },
+    })
+    expect(blocked.statusCode).toBe(403)
+    expect(catalogCalls).toBe(0)
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings/engine-connections/gateway/models',
+      headers: { authorization: `Bearer ${wildcard}` },
+    })
+    expect(allowed.statusCode).toBe(200)
+    expect(catalogCalls).toBe(1)
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

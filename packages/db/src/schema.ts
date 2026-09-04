@@ -15,6 +15,9 @@ export const projects = sqliteTable('projects', {
   labels: text('labels', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
   providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
   providerModels: text('provider_models', { mode: 'json' }).$type<ProviderModels>().notNull().default({}),
+  // Text/research route selection is separate from answer-visibility engines:
+  // configured generic routes cannot silently become measurement providers.
+  researchProvider: text('research_provider'),
   measurement: text('measurement_config', { mode: 'json' }).$type<MeasurementConfig>().notNull().default({
     marketingHosts: [],
     brandTerms: [],
@@ -271,12 +274,7 @@ export const runs = sqliteTable('runs', {
    * starts a new series rather than being refused, and charts break at the
    * boundary the same way they break at a revision boundary.
    */
-  measurementExecutionIdentity: text('measurement_execution_identity', { mode: 'json' }).$type<{
-    schemaVersion: 1
-    providers: string[]
-    models: Record<string, string>
-    checksum: string
-  }>(),
+  measurementExecutionIdentity: text('measurement_execution_identity', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').MeasurementExecutionIdentity>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),
@@ -328,6 +326,9 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   // rows and providers that disclose no model identity (CDP scrapes the web
   // UI) legitimately have none.
   servedModel: text('served_model'),
+  // Authoritative upstream provider identity when disclosed. `provider` is
+  // the requested Canonry adapter/route and is never overwritten by this.
+  servedProvider: text('served_provider'),
   citationState: text('citation_state').notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   answerText: text('answer_text'),

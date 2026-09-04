@@ -55,9 +55,19 @@ import {
   adsGeoSearchResponseSchema,
   adsConversionPixelListResponseSchema,
   adsConversionEventSettingListResponseSchema,
+  buildEngineRoutePublicDto,
+  buildImplicitNativeEngineRoute,
+  canonicalEngineRoutePolicyJson,
+  engineConnectionConfigSchema,
+  engineRouteConfigSchema,
   GoogleMarketingProviders,
+  upsertEngineConnection,
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
+  type EngineConnectionConfig,
+  type EngineRouteCapabilities,
+  type EngineRouteConfig,
+  type MeasurementExecutionRouteDescriptor,
   type ProviderAdapter,
   type AgentPluginState,
   describeError,
@@ -221,6 +231,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
+import { createOpenAiCompatibleTextRouteAdapter, fetchOpenAiCompatibleModelCatalog } from "./engine-routes.js";
 import { Scheduler } from "./scheduler.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -256,6 +267,28 @@ const DEFAULT_QUOTA = {
   maxRequestsPerDay: 1000,
 };
 
+const VERIFIED_NATIVE_MEASUREMENT_CAPABILITIES: EngineRouteCapabilities = {
+  kind: "verified-measurement",
+  retrieval: true,
+  citations: true,
+  location: true,
+  servedModel: true,
+  fallback: "disabled",
+};
+
+/**
+ * Only the built-in adapters named here have a server-owned evidence path.
+ * This is intentionally not inferred from settings, a gateway response, or
+ * an adapter's location flag. Local/chat-browser compatibility providers keep
+ * their legacy execution path but are not advertised as verified routes.
+ */
+const NATIVE_ENGINE_ROUTE_CAPABILITIES: Readonly<Record<string, EngineRouteCapabilities>> = {
+  gemini: VERIFIED_NATIVE_MEASUREMENT_CAPABILITIES,
+  openai: VERIFIED_NATIVE_MEASUREMENT_CAPABILITIES,
+  claude: VERIFIED_NATIVE_MEASUREMENT_CAPABILITIES,
+  perplexity: VERIFIED_NATIVE_MEASUREMENT_CAPABILITIES,
+};
+
 const SESSION_COOKIE_NAME = "canonry_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -272,7 +305,7 @@ interface SessionRecord {
  */
 function effectiveProviderModels(registry: ProviderRegistry): Record<string, string> {
   const models: Record<string, string> = {};
-  for (const provider of registry.getAll()) {
+  for (const provider of registry.getMeasurableAll()) {
     const model = provider.config.model ?? provider.adapter.modelRegistry.defaultModel;
     if (model) models[provider.adapter.name] = model;
   }
@@ -875,6 +908,146 @@ export async function createServer(opts: {
       quotaPolicy: cdpConfig.quota ?? CDP_DEFAULT_QUOTA,
     });
   }
+
+  /**
+   * Configured gateway routes are deliberately registered as text-only
+   * adapters. They are useful to internal callers that opt into a route, but
+   * `measurementReady: false` keeps them out of all sweep selection paths.
+   */
+  const configuredEngineConnections = (): EngineConnectionConfig[] => {
+    const connections: EngineConnectionConfig[] = [];
+    for (const candidate of opts.config.engineRoutes?.connections ?? []) {
+      const parsed = engineConnectionConfigSchema.safeParse(candidate);
+      if (!parsed.success) {
+        log.warn("engine-route.connection.invalid", { id: candidate?.id });
+        continue;
+      }
+      connections.push(parsed.data);
+    }
+    return connections;
+  };
+
+  const configuredEngineRoutes = (): EngineRouteConfig[] => {
+    const routes: EngineRouteConfig[] = [];
+    for (const candidate of opts.config.engineRoutes?.routes ?? []) {
+      const parsed = engineRouteConfigSchema.safeParse(candidate);
+      if (!parsed.success) {
+        log.warn("engine-route.invalid", { id: candidate?.id });
+        continue;
+      }
+      if (!parsed.data.id.startsWith("route:") || parsed.data.source !== "configured" || parsed.data.capabilities.kind !== "text-only") {
+        log.warn("engine-route.unsupported-config", {
+          id: parsed.data.id,
+          source: parsed.data.source,
+          capability: parsed.data.capabilities.kind,
+        });
+        continue;
+      }
+      routes.push(parsed.data);
+    }
+    return routes;
+  };
+
+  const registerConfiguredEngineRoutes = (connectionId?: string): void => {
+    const connectionsById = new Map(configuredEngineConnections().map((connection) => [connection.id, connection]));
+    for (const route of configuredEngineRoutes()) {
+      if (connectionId && route.connectionId !== connectionId) continue;
+      // The `route:` namespace is server-reserved. Besides avoiding accidental
+      // adapter replacement, this makes dynamic route identity unambiguous in
+      // stored runs and shared connection quota accounting.
+      if (!route.id.startsWith("route:") || route.source !== "configured" || route.capabilities.kind !== "text-only") {
+        log.warn("engine-route.unsupported-config", { id: route.id, source: route.source, capability: route.capabilities.kind });
+        continue;
+      }
+      const connection = connectionsById.get(route.connectionId);
+      if (!connection) {
+        log.warn("engine-route.connection-missing", { id: route.id, connectionId: route.connectionId });
+        continue;
+      }
+      registry.register(createOpenAiCompatibleTextRouteAdapter({ connection, route }), {
+        provider: route.id,
+        connectionId: connection.id,
+        measurementReady: false,
+        apiKey: connection.apiKey,
+        baseUrl: connection.baseUrl,
+        model: route.modelId,
+        quotaPolicy: connection.quota,
+      });
+    }
+  };
+
+  const implicitNativeEngineRoutes = (): EngineRouteConfig[] => registry.getAll()
+    .filter((provider) => provider.config.connectionId === undefined)
+    .map((provider) => buildImplicitNativeEngineRoute({
+      provider: provider.adapter.name,
+      displayName: provider.adapter.displayName ?? provider.adapter.name,
+      defaultModel: provider.config.model ?? provider.adapter.modelRegistry.defaultModel,
+      capabilities: NATIVE_ENGINE_ROUTE_CAPABILITIES[provider.adapter.name],
+    }));
+
+  const engineRouteSettings = (): EngineRouteConfig[] => [
+    ...configuredEngineRoutes(),
+    ...implicitNativeEngineRoutes(),
+  ];
+
+  /**
+   * Only registered measurement adapters receive an execution descriptor.
+   * Configured `route:*` gateways are intentionally absent because their
+   * `measurementReady: false` registration must fail closed before any sweep.
+   */
+  const providerRouteDescriptors = (): Record<string, MeasurementExecutionRouteDescriptor> => {
+    const configuredConnections = new Map(configuredEngineConnections().map(connection => [connection.id, connection]))
+    const routesById = new Map(engineRouteSettings().map(route => [route.id, route]))
+    const descriptors: Record<string, MeasurementExecutionRouteDescriptor> = {}
+    for (const provider of registry.getMeasurableAll()) {
+      const route = routesById.get(`native:${provider.adapter.name}`)
+      if (!route) continue
+      const connection = configuredConnections.get(route.connectionId)
+      descriptors[provider.adapter.name] = {
+        routeId: route.id,
+        routeRevision: route.revision,
+        policyFingerprint: crypto.createHash('sha256')
+          // Native virtual routes have no persisted EngineConnection row, but
+          // a provider-level baseUrl (or CDP endpoint) still changes the
+          // process that answers a sweep. The contracts helper strips URL
+          // credentials/query/fragment before hashing, so key rotation and
+          // cosmetic metadata cannot create a false series boundary.
+          .update(canonicalEngineRoutePolicyJson(
+            route,
+            connection,
+            provider.config.baseUrl ?? provider.config.cdpEndpoint,
+          ))
+          .digest('hex'),
+      }
+    }
+    return descriptors
+  };
+
+  /** Dynamic route registrations happen after boot, so research validation is live. */
+  const researchProviderAdapters = () => registry.getAll()
+    .filter(provider => provider.adapter.mode === 'api')
+    .map(provider => ({
+      name: provider.adapter.name,
+      displayName: provider.adapter.displayName,
+      mode: provider.adapter.mode,
+      modelConfigurable: true,
+      defaultModel: provider.config.model ?? provider.adapter.modelRegistry.defaultModel,
+      knownModels: provider.adapter.modelRegistry.knownModels,
+      modelValidationPattern: provider.adapter.modelRegistry.validationPattern,
+      modelValidationHint: provider.adapter.modelRegistry.validationHint,
+    }));
+
+  const configuredResearchProviderNames = () => {
+    const configuredNative = providerSummary
+      .filter(provider => provider.configured)
+      .map(provider => provider.name);
+    const configuredRoutes = registry.getAll()
+      .filter(provider => provider.adapter.mode === 'api' && provider.config.connectionId !== undefined)
+      .map(provider => provider.adapter.name);
+    return [...new Set([...configuredNative, ...configuredRoutes])];
+  };
+
+  registerConfiguredEngineRoutes();
 
   const port = opts.config.port ?? 4100;
   const serverUrl = `http://localhost:${port}`;
@@ -1598,8 +1771,9 @@ export async function createServer(opts: {
     // Same source of truth the HTTP routes use, so a scheduled sweep resolves
     // "all configured providers" exactly as a hand-triggered one does.
     getRunnableProviderNames: () =>
-      registry.getAll().map((provider) => provider.adapter.name),
+      registry.getMeasurableAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
+    getProviderRouteDescriptors: providerRouteDescriptors,
     onTrafficSyncRequested: (projectName, sourceId) => {
       // Reuse the same in-process API client Aero uses. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
@@ -2851,6 +3025,13 @@ export async function createServer(opts: {
       modelValidationPattern: a.modelRegistry.validationPattern,
       modelValidationHint: a.modelRegistry.validationHint,
     })),
+    engineConnections: () => configuredEngineConnections().map(buildEngineRoutePublicDto),
+    engineRoutes: engineRouteSettings,
+    getEngineConnectionModelCatalog: async (connectionId) => {
+      const connection = configuredEngineConnections().find(candidate => candidate.id === connectionId);
+      if (!connection) throw new Error(`Engine connection ${connectionId} is no longer configured`);
+      return fetchOpenAiCompatibleModelCatalog(connection);
+    },
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
@@ -2939,8 +3120,78 @@ export async function createServer(opts: {
       }
     },
     getRunnableProviderNames: () =>
-      registry.getAll().map((provider) => provider.adapter.name),
+      registry.getMeasurableAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
+    getProviderRouteDescriptors: providerRouteDescriptors,
+    getResearchProviderAdapters: researchProviderAdapters,
+    getResearchConfiguredProviderNames: configuredResearchProviderNames,
+    onEngineConnectionUpsert: (input) => {
+      const config = opts.config.engineRoutes ?? (opts.config.engineRoutes = {});
+      const connections = config.connections ?? (config.connections = []);
+      const existingIndex = connections.findIndex((connection) => connection.id === input.id);
+      const existing = existingIndex >= 0 ? connections[existingIndex] : undefined;
+      const next = upsertEngineConnection(existing, input);
+      const routes = config.routes ?? (config.routes = []);
+      const priorRoutes = [...routes];
+      const endpointChanged = existing !== undefined
+        && (existing.baseUrl !== next.baseUrl || existing.protocol !== next.protocol);
+
+      if (existingIndex >= 0) connections[existingIndex] = next;
+      else connections.push(next);
+      if (endpointChanged) {
+        // A route's own JSON is unchanged when its shared connection moves,
+        // but its execution policy is not. Bump every dependent revision so a
+        // queued run can later prove which endpoint policy it asked for.
+        routes.splice(0, routes.length, ...routes.map((route) => (
+          route.connectionId === next.id
+            ? { ...route, revision: route.revision + 1 }
+            : route
+        )));
+      }
+
+      try {
+        // Persist only this instance-global gateway map. In particular, a
+        // redacted settings PUT never serializes an accidental empty apiKey.
+        saveConfigPatch({ engineRoutes: config });
+      } catch (err) {
+        if (existingIndex >= 0 && existing) connections[existingIndex] = existing;
+        else connections.pop();
+        routes.splice(0, routes.length, ...priorRoutes);
+        app.log.error({ err }, "Failed to save engine connection config");
+        return null;
+      }
+
+      // A connection change affects every route that shares its credential.
+      // `register` replaces an existing route adapter in-place.
+      registerConfiguredEngineRoutes(next.id);
+      return buildEngineRoutePublicDto(next);
+    },
+    onEngineRouteUpsert: (route) => {
+      // The HTTP layer derived id/revision/source/capabilities. Validate the
+      // complete object again at the host boundary before persisting it.
+      const parsed = engineRouteConfigSchema.safeParse(route);
+      if (!parsed.success || !parsed.data.id.startsWith("route:") || parsed.data.source !== "configured" || parsed.data.capabilities.kind !== "text-only") {
+        return null;
+      }
+      const config = opts.config.engineRoutes ?? (opts.config.engineRoutes = {});
+      const routes = config.routes ?? (config.routes = []);
+      const existingIndex = routes.findIndex((candidate) => candidate.id === parsed.data.id);
+      const existing = existingIndex >= 0 ? routes[existingIndex] : undefined;
+      if (existingIndex >= 0) routes[existingIndex] = parsed.data;
+      else routes.push(parsed.data);
+
+      try {
+        saveConfigPatch({ engineRoutes: config });
+      } catch (err) {
+        if (existingIndex >= 0 && existing) routes[existingIndex] = existing;
+        else routes.pop();
+        app.log.error({ err }, "Failed to save engine route config");
+        return null;
+      }
+
+      registerConfiguredEngineRoutes(parsed.data.connectionId);
+      return parsed.data;
+    },
     onProviderUpdate: (
       providerName: string,
       apiKey: string,

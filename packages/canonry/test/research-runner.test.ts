@@ -17,6 +17,7 @@ function setup(opts: {
   competitorDomains?: string[]
   failQueries?: boolean
   blockBad?: Promise<void>
+  textOnly?: boolean
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-research-runner-'))
   cleanup.push(dir)
@@ -37,9 +38,13 @@ function setup(opts: {
   }
   const registry = new ProviderRegistry()
   const models: string[] = []
+  const trackedCalls: string[] = []
+  const textCalls: string[] = []
   registry.register({
     name: 'test',
     executeTrackedQuery: async (_input: { query: string }, config: { model?: string }) => {
+      trackedCalls.push(_input.query)
+      if (opts.textOnly) throw new Error('text-only route must not execute a tracked query')
       models.push(config.model ?? '')
       if (_input.query === 'bad') await opts.blockBad
       if (opts.failQueries === true || (opts.failQueries === undefined && _input.query === 'bad')) {
@@ -51,12 +56,18 @@ function setup(opts: {
       provider: 'test', answerText: opts.answer ?? 'Alpha is cited',
       citedDomains: opts.citedDomains ?? ['alpha.com'], groundingSources: [], searchQueries: [],
     }),
+    generateText: async (prompt: string, config: { model?: string }) => {
+      textCalls.push(prompt)
+      models.push(config.model ?? '')
+      return opts.answer ?? 'Alpha is a text-only answer'
+    },
     healthcheck: async () => ({ ok: true, provider: 'test', message: 'ok' }),
   } as never, {
     provider: 'test', model: 'wrong',
+    ...(opts.textOnly ? { measurementReady: false, connectionId: 'gateway-one' } : {}),
     quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 100, maxRequestsPerDay: 10 },
   })
-  return { db, registry, models }
+  return { db, registry, models, trackedCalls, textCalls }
 }
 describe('executeResearchRun', () => {
   it('records partial results, preserves a null served model, and charges dispatched calls only', async () => {
@@ -89,6 +100,38 @@ describe('executeResearchRun', () => {
     expect(run.status).toBe('completed')
     expect(completed.every(row => row.status === 'completed')).toBe(true)
     expect(completed.every(row => row.answerMentioned === true && row.citationState === 'not-cited')).toBe(true)
+  })
+
+  it('uses generateText for a text-only engine route and persists truthful empty evidence', async () => {
+    const { db, registry, models, trackedCalls, textCalls } = setup({ textOnly: true, answer: 'Alpha is a text-only answer' })
+
+    await executeResearchRun(db, registry, 'r', 'p')
+
+    const run = db.select().from(researchRuns).get()!
+    const rows = db.select().from(researchRunQueries).orderBy(researchRunQueries.position).all()
+    expect(run.status).toBe('completed')
+    expect(models).toEqual(['exact-model', 'exact-model'])
+    expect(trackedCalls).toEqual([])
+    expect(textCalls).toEqual(['good', 'bad'])
+    expect(rows.map(row => ({
+      answerText: row.answerText,
+      groundingSources: row.groundingSources,
+      citedDomains: row.citedDomains,
+      searchQueries: row.searchQueries,
+      namedCompetitors: row.namedCompetitors,
+      citedCompetitorDomains: row.citedCompetitorDomains,
+      citationState: row.citationState,
+      servedModel: row.servedModel,
+    }))).toEqual([
+      {
+        answerText: 'Alpha is a text-only answer', groundingSources: [], citedDomains: [], searchQueries: [],
+        namedCompetitors: [], citedCompetitorDomains: [], citationState: null, servedModel: null,
+      },
+      {
+        answerText: 'Alpha is a text-only answer', groundingSources: [], citedDomains: [], searchQueries: [],
+        namedCompetitors: [], citedCompetitorDomains: [], citationState: null, servedModel: null,
+      },
+    ])
   })
 
   it('does not treat a short canonical-domain label as an approved answer mention', async () => {

@@ -129,6 +129,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/visibility-compare': 'included',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',
   'GET /api/v1/settings': 'included',
+  // Engine-route MCP adoption is intentionally layered above the core API.
+  // Classify these operations now so the core PR remains independently green.
+  'GET /api/v1/settings/engine-routes': 'deferred',
+  'GET /api/v1/settings/engine-connections/{id}/models': 'deferred',
+  'PUT /api/v1/settings/engine-connections/{id}': 'deferred',
+  'PUT /api/v1/settings/engine-routes/{id}': 'deferred',
   'PUT /api/v1/settings/providers/{name}': 'deferred',
   'PUT /api/v1/settings/google': 'deferred',
   'POST /api/v1/snapshot': 'deferred',

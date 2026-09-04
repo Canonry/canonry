@@ -59,6 +59,7 @@ export const configSpecSchema = z.object({
   competitors: z.array(z.string().min(1)).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   providerModels: providerModelsSchema.optional().default({}),
+  researchProvider: providerNameSchema.optional(),
   locations: z.array(locationContextSchema).optional().default([]),
   defaultLocation: z.string().optional(),
   measurement: measurementConfigSchema.optional().default(defaultMeasurementConfig),

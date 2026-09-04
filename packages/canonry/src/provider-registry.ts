@@ -21,6 +21,11 @@ export class ProviderRegistry {
     return [...this.providers.values()]
   }
 
+  /** Text-only routes are registered for internal LLM work but never sweeps. */
+  getMeasurableAll(): RegisteredProvider[] {
+    return this.getAll().filter(provider => provider.config.measurementReady !== false)
+  }
+
   getForProject(projectProviders: ProviderName[]): RegisteredProvider[] {
     // Empty array means "use all configured providers"
     if (projectProviders.length === 0) {
@@ -37,6 +42,18 @@ export class ProviderRegistry {
       }
     }
     return result
+  }
+
+  getMeasurableForProject(projectProviders: ProviderName[]): RegisteredProvider[] {
+    return this.getForProject(projectProviders).filter(provider => provider.config.measurementReady !== false)
+  }
+
+  isMeasurementReady(name: ProviderName): boolean {
+    // Unknown is never permission to measure. Native registrations omit the
+    // flag for backward compatibility, but a missing registration has no
+    // server-owned evidence adapter to prove a sweep.
+    const provider = this.providers.get(name)
+    return provider !== undefined && provider.config.measurementReady !== false
   }
 
   /** Get only browser-based (CDP) providers */

@@ -1,11 +1,29 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderModelRegistry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type {
+  EngineConnectionInput,
+  EngineConnectionModelCatalogResponse,
+  EngineConnectionPublicDto,
+  EngineConnectionUpsertInput,
+  EngineRouteConfig,
+  EngineRouteUpsertInput,
+  ProviderModelRegistry,
+  ProviderQuotaPolicy,
+} from '@ainyc/canonry-contracts'
 import {
+  buildEngineRouteSummaryDto,
+  engineConnectionEndpointChanged,
+  engineConnectionInputSchema,
+  engineConnectionModelCatalogResponseSchema,
+  engineConnectionUpsertInputSchema,
+  engineRouteConfigSchema,
+  engineRouteSummaryResponseSchema,
+  engineRouteUpsertInputSchema,
+  nextEngineRouteRevision,
   validationError,
   notImplemented,
   internalError,
 } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+import { requireAdminSession, requirePaidReadScope, requireScope } from './auth.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -63,9 +81,45 @@ export interface SettingsRoutesOptions {
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
   onBingUpdate?: (apiKey: string) => BingSettingsSummary | null
+  /** Credential-redacted generic gateway connections. May be a live resolver. */
+  engineConnections?: readonly EngineConnectionPublicDto[] | (() => readonly EngineConnectionPublicDto[])
+  /** Stable route records. May be a live resolver. */
+  engineRoutes?: readonly EngineRouteConfig[] | (() => readonly EngineRouteConfig[])
+  onEngineConnectionUpsert?: (input: EngineConnectionInput, body: EngineConnectionUpsertInput) => EngineConnectionPublicDto | null
+  onEngineRouteUpsert?: (route: EngineRouteConfig, input: EngineRouteUpsertInput) => EngineRouteConfig | null
+  /**
+   * Host-owned, non-inference GET /models reader. It receives only the stable
+   * id so the route layer never sees a credential; unavailable is a typed
+   * manual-entry fallback rather than a leaked upstream error body.
+   */
+  getEngineConnectionModelCatalog?: (connectionId: string) => Promise<EngineConnectionModelCatalogResponse> | EngineConnectionModelCatalogResponse
+}
+
+function resolveSettingList<T>(value: readonly T[] | (() => readonly T[]) | undefined): readonly T[] {
+  return typeof value === 'function' ? value() : value ?? []
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
+  // A small safe route catalog is deliberately separate from GET /settings:
+  // viewers and project-scoped keys may choose/describe routes without seeing
+  // connection ids, endpoint URLs, credential state, or provider settings.
+  app.get('/settings/engine-routes', async () => {
+    const connectionIds = new Set(resolveSettingList(opts.engineConnections).map(connection => connection.id))
+    return engineRouteSummaryResponseSchema.parse({
+      routes: resolveSettingList(opts.engineRoutes)
+        // Configured gateway routes depend on a configured connection. Native
+        // and server-owned verified routes use a host-owned adapter instead,
+        // so treating their virtual `native:*` connection id as missing would
+        // incorrectly hide a healthy built-in provider.
+        .map(route => buildEngineRouteSummaryDto(route, {
+          connectionAvailable: route.source === 'configured'
+            ? connectionIds.has(route.connectionId)
+            : undefined,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id)),
+    })
+  })
+
   // Settings describe which credentials this install holds and where its
   // providers point. That is administrator territory even to read, so a
   // view-only account is refused here at the server rather than merely being
@@ -89,7 +143,95 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       })),
       google: opts.google ?? { configured: false },
       bing: opts.bing ?? { configured: false },
+      engineConnections: resolveSettingList(opts.engineConnections),
+      engineRoutes: resolveSettingList(opts.engineRoutes),
     }
+  })
+
+  app.put<{
+    Params: { id: string }
+    Body: unknown
+  }>('/settings/engine-connections/:id', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+      throw validationError('Invalid engine connection configuration')
+    }
+    const parsed = engineConnectionUpsertInputSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid engine connection configuration', { issues: parsed.error.issues })
+    if (!opts.onEngineConnectionUpsert) {
+      throw notImplemented('Engine connection configuration updates are not supported in this deployment')
+    }
+    const input = engineConnectionInputSchema.parse({ ...parsed.data, id: request.params.id })
+    const existing = resolveSettingList(opts.engineConnections).find(connection => connection.id === input.id)
+    if (existing?.secretConfigured && input.apiKey === undefined && engineConnectionEndpointChanged(existing, input)) {
+      throw validationError(
+        'Changing an engine connection endpoint requires an explicit apiKey; the existing credential is not forwarded to a different endpoint.',
+      )
+    }
+    const result = opts.onEngineConnectionUpsert(input, parsed.data)
+    if (!result) throw internalError('Failed to update engine connection configuration')
+    return result
+  })
+
+  app.put<{
+    Params: { id: string }
+    Body: unknown
+  }>('/settings/engine-routes/:id', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+      throw validationError('Invalid engine route configuration')
+    }
+    const parsed = engineRouteUpsertInputSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid engine route configuration', { issues: parsed.error.issues })
+    const input = parsed.data
+    // Generic routes live in their own namespace. This prevents a settings
+    // caller from replacing a native adapter by choosing e.g. `openai` or
+    // `native:openai` as the path id.
+    if (!/^route:[a-zA-Z0-9]/.test(request.params.id)) {
+      throw validationError('Generic engine route ids must use the server-reserved "route:" prefix.')
+    }
+    const knownConnection = resolveSettingList(opts.engineConnections).some(connection => connection.id === input.connectionId)
+    if (!knownConnection) throw validationError(`Unknown engine connection: ${input.connectionId}`)
+    const existing = resolveSettingList(opts.engineRoutes).find(route => route.id === request.params.id)
+    if (existing && existing.source !== 'configured') {
+      throw validationError('Implicit and verified engine routes are server-owned and cannot be edited through settings.')
+    }
+    const draft = engineRouteConfigSchema.parse({
+      id: request.params.id,
+      label: input.label,
+      connectionId: input.connectionId,
+      modelId: input.modelId,
+      revision: existing?.revision ?? 1,
+      source: 'configured',
+      capabilities: { kind: 'text-only' },
+    })
+    const route = existing
+      ? { ...draft, revision: nextEngineRouteRevision(existing, draft) }
+      : draft
+    if (!opts.onEngineRouteUpsert) {
+      throw notImplemented('Engine route configuration updates are not supported in this deployment')
+    }
+    const result = opts.onEngineRouteUpsert(route, input)
+    if (!result) throw internalError('Failed to update engine route configuration')
+    return result
+  })
+
+  app.get<{
+    Params: { id: string }
+  }>('/settings/engine-connections/:id/models', async (request) => {
+    // The model catalog is a live request authenticated with an
+    // instance-global credential. It never starts inference, but it must not
+    // become a read-only/viewer side channel or an unscoped key's gateway probe.
+    requireAdminSession(request)
+    requirePaidReadScope(request)
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    const known = resolveSettingList(opts.engineConnections).some(connection => connection.id === request.params.id)
+    if (!known) throw validationError(`Unknown engine connection: ${request.params.id}`)
+    if (!opts.getEngineConnectionModelCatalog) {
+      throw notImplemented('Engine connection model catalog reads are not supported in this deployment')
+    }
+    const result = await opts.getEngineConnectionModelCatalog(request.params.id)
+    return engineConnectionModelCatalogResponseSchema.parse(result)
   })
 
   app.put<{

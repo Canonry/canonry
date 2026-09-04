@@ -318,6 +318,12 @@ export const querySnapshotDtoSchema = z.object({
    * back to `model` — that would launder configuration into an observation.
    */
   servedModel: z.string().nullable().optional(),
+  /**
+   * Upstream provider identity disclosed by the response. `provider` remains
+   * the requested Canonry adapter/route, so a routed response can be audited
+   * without pretending the two names are interchangeable.
+   */
+  servedProvider: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
   /**
    * The `LocationContext` a plan-aware run asked this slot to be measured

@@ -125,7 +125,7 @@ import {
   postApiV1ProjectsByNameBacklinksExtract,
   postApiV1TelemetryOnboarding,
 } from '@ainyc/canonry-api-client'
-import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
+import type { EngineConnectionPublicDto, EngineRouteConfig, RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
@@ -846,6 +846,7 @@ export async function updateProject(projectName: string, updates: {
   defaultLocation?: string | null
   providers?: string[]
   providerModels?: Record<string, string>
+  researchProvider?: string | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -859,6 +860,7 @@ export async function updateProject(projectName: string, updates: {
     labels: project.labels,
     providers: updates.providers ?? project.providers,
     providerModels: updates.providerModels ?? project.providerModels ?? {},
+    ...(updates.researchProvider !== undefined ? { researchProvider: updates.researchProvider } : {}),
     locations: updates.locations ?? project.locations,
     defaultLocation: updates.defaultLocation !== undefined ? updates.defaultLocation : project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
@@ -930,6 +932,9 @@ export interface ApiSettings {
     modelValidationPattern: { source: string; flags: string }
     modelValidationHint: string
   }>
+  /** Generic and native route records are optional here for legacy dashboards. */
+  engineConnections?: EngineConnectionPublicDto[]
+  engineRoutes?: EngineRouteConfig[]
   google: {
     configured: boolean
   }

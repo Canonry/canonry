@@ -1007,7 +1007,7 @@ describe('telemetry', () => {
         canonicalDomain: 'example.com',
         country: 'US',
         language: 'en',
-        providers: '[]',
+        providers: [],
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -1090,7 +1090,7 @@ describe('telemetry', () => {
         canonicalDomain: 'example.com',
         country: 'US',
         language: 'en',
-        providers: '[]',
+        providers: [],
         createdAt: now,
         updatedAt: now,
       }).run()

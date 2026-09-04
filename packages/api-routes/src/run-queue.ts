@@ -17,6 +17,7 @@ import {
   type LocationContext,
   type MeasurementExecutionIdentity,
   type MeasurementExecutionNode,
+  type MeasurementExecutionRouteDescriptor,
   type MeasurementExpectedSlotV1,
   type MeasurementPlan,
   type MeasurementPlanV2,
@@ -26,7 +27,7 @@ import {
   type MeasurementV2ExecutionNode,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { measurementPlans, measurementPlanVersions, projects, runs } from '@ainyc/canonry-db'
+import { measurementPlans, measurementPlanVersions, parseJsonColumn, projects, runs } from '@ainyc/canonry-db'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'
 
@@ -53,6 +54,12 @@ export interface QueueRunParams {
    * under a series with nothing recording the change.
    */
   providerModels?: Readonly<Record<string, string>> | null
+  /**
+   * Host-owned immutable route policy for each provider. Supplying a complete
+   * map upgrades the stored identity to v2; partial/unknown maps stay v1 so
+   * legacy hosts never claim provenance they cannot prove.
+   */
+  providerRouteDescriptors?: Readonly<Record<string, MeasurementExecutionRouteDescriptor>> | null
   /** Groups/targets to spot-check, resolved against the plan revision pinned here. */
   measurementScope?: MeasurementRunScopeRequest | null
 }
@@ -71,14 +78,56 @@ export function hasActiveMeasurementPlan(db: DatabaseClient, projectId: string):
 }
 
 /** The checksum layer contracts deliberately leaves to whoever owns hashing. */
-function executionIdentityChecksum(input: { providers: readonly string[]; models: Record<string, string> }): string {
+function executionIdentityChecksum(input: Parameters<typeof canonicalMeasurementExecutionIdentityJson>[0]): string {
   return crypto.createHash('sha256')
     .update(canonicalMeasurementExecutionIdentityJson(input))
     .digest('hex')
 }
 
+function executionIdentityFor(
+  providers: readonly string[],
+  models: Record<string, string>,
+  routeDescriptors: QueueRunParams['providerRouteDescriptors'],
+): MeasurementExecutionIdentity | null {
+  if (providers.length === 0) return null
+  const input = {
+    providers,
+    models,
+    ...(routeDescriptors ? { routes: routeDescriptors } : {}),
+  }
+  return buildMeasurementExecutionIdentity(input, executionIdentityChecksum(input))
+}
+
+/**
+ * Freeze a planless run's effective provider/model/route selection. The
+ * all-locations fan-out owns its own transaction, so it cannot use the normal
+ * one-run queue helper; keeping this calculation exported prevents that path
+ * from quietly dropping execution provenance.
+ */
+export function buildPlanlessMeasurementExecutionIdentity(
+  db: DatabaseClient,
+  params: QueueRunParams,
+): MeasurementExecutionIdentity | null {
+  const providers = providerRoster(db, params)
+  const models = effectiveModels(db, params, providers)
+  return executionIdentityFor(providers, models, params.providerRouteDescriptors)
+}
+
 function normalizeProviders(values: readonly string[]): string[] {
   return [...new Set(values.map(value => value.trim().toLocaleLowerCase('en')).filter(Boolean))].sort()
+}
+
+/**
+ * Older SQLite callers (and direct SQL fixtures) return JSON text here even
+ * though Drizzle's TypeScript type is `string[]`. Planless run provenance now
+ * reads the roster too, so retain that long-standing storage-call shape rather
+ * than treating a valid persisted JSON array as an iterable provider list.
+ */
+function storedProviderRoster(value: unknown): string[] {
+  const parsed = typeof value === 'string' ? parseJsonColumn<unknown>(value, []) : value
+  return Array.isArray(parsed)
+    ? parsed.filter((provider): provider is string => typeof provider === 'string')
+    : []
 }
 
 /**
@@ -100,10 +149,11 @@ export function resolveRunProviderSelection(input: {
 }
 
 function providerRoster(tx: DatabaseClient, params: QueueRunParams): string[] {
+  const project = tx.select({ providers: projects.providers }).from(projects)
+    .where(eq(projects.id, params.projectId)).get()
   return resolveRunProviderSelection({
     requestedProviders: params.providers,
-    projectProviders: tx.select({ providers: projects.providers }).from(projects)
-      .where(eq(projects.id, params.projectId)).get()?.providers ?? [],
+    projectProviders: storedProviderRoster(project?.providers),
     runnableProviders: params.runnableProviders,
   })
 }
@@ -389,10 +439,7 @@ function measurementStampV2(plan: MeasurementPlanV2, versionId: string, params: 
     scope: resolution?.scope ?? null,
     // Recorded, never refused: a v2 revision pins the models, so this repeats
     // the revision back rather than describing a choice the run made.
-    identity: buildMeasurementExecutionIdentity(
-      { providers: materialized.providers, models: materialized.models },
-      executionIdentityChecksum({ providers: materialized.providers, models: materialized.models }),
-    ),
+    identity: executionIdentityFor(materialized.providers, materialized.models, params.providerRouteDescriptors)!,
   }
 }
 
@@ -433,7 +480,7 @@ function measurementStamp(tx: DatabaseClient, params: QueueRunParams): Measureme
   }
   // Engine and model identity is recorded, never refused. A different roster or
   // a re-pointed model is a new comparable series under the same revision.
-  const identity = buildMeasurementExecutionIdentity({ providers, models }, executionIdentityChecksum({ providers, models }))
+  const identity = executionIdentityFor(providers, models, params.providerRouteDescriptors)!
 
   // A slice, however it was chosen. Naming questions is the same kind of
   // subset as naming groups or targets, and gets the same treatment: probe,
@@ -554,6 +601,9 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
     }
 
     const stamp = measurementStamp(tx as unknown as DatabaseClient, params)
+    const planlessIdentity = stamp
+      ? null
+      : buildPlanlessMeasurementExecutionIdentity(tx as unknown as DatabaseClient, params)
 
     // Stamp the query set this run is about to measure, so analytics can compare
     // like-for-like later without inferring membership from row timestamps.
@@ -589,7 +639,7 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       measurementPlanVersionId: stamp?.versionId ?? null,
       measurementManifest: stamp?.manifest ?? null,
       measurementScope: stamp?.scope ?? null,
-      measurementExecutionIdentity: stamp?.identity ?? null,
+      measurementExecutionIdentity: stamp?.identity ?? planlessIdentity,
       createdAt,
     }).run()
 

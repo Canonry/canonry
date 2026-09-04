@@ -7,9 +7,14 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 import type { ProviderAdapterInfo } from './settings.js'
 
 export interface ResearchRoutesOptions {
-  providerAdapters?: ProviderAdapterInfo[]
-  configuredProviderNames?: readonly string[]
+  /** May be live: configured generic routes can be added after server boot. */
+  providerAdapters?: readonly ProviderAdapterInfo[] | (() => readonly ProviderAdapterInfo[])
+  configuredProviderNames?: readonly string[] | (() => readonly string[])
   onResearchRunRequested?: (runId: string, projectId: string) => void
+}
+
+function resolveList<T>(value: readonly T[] | (() => readonly T[]) | undefined): readonly T[] {
+  return typeof value === 'function' ? value() : value ?? []
 }
 
 const sameLocation = (a: LocationContext, b: LocationContext) =>
@@ -22,9 +27,12 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const parsed = researchRunCreateSchema.safeParse(request.body ?? {})
     if (!parsed.success) throw validationError('Invalid research run request', { issues: parsed.error.issues })
     const input = parsed.data
-    const adapters = opts.providerAdapters ?? []
-    const configured = new Set(opts.configuredProviderNames ?? [])
-    const providerName = input.provider ?? project.providers.find(name => configured.has(name) && adapters.some(adapter => adapter.name === name && adapter.mode === 'api')) ?? adapters.find(adapter => adapter.mode === 'api' && configured.has(adapter.name))?.name
+    const adapters = resolveList(opts.providerAdapters)
+    const configured = new Set(resolveList(opts.configuredProviderNames))
+    const providerName = input.provider
+      ?? project.researchProvider
+      ?? project.providers.find(name => configured.has(name) && adapters.some(adapter => adapter.name === name && adapter.mode === 'api'))
+      ?? adapters.find(adapter => adapter.mode === 'api' && configured.has(adapter.name))?.name
     const adapter = adapters.find(candidate => candidate.name === providerName)
     if (!providerName || !adapter || adapter.mode !== 'api' || isBrowserProvider(providerName) || !configured.has(providerName)) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: adapters.filter(a => a.mode === 'api' && configured.has(a.name)).map(a => a.name) })
     if (input.model) { adapter.modelValidationPattern.lastIndex = 0; if (!adapter.modelConfigurable || !adapter.modelValidationPattern.test(input.model)) throw validationError(`Invalid model "${input.model}" for provider "${providerName}".`, { provider: providerName, model: input.model, hint: adapter.modelValidationHint }) }

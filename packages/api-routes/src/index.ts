@@ -159,6 +159,8 @@ export interface ApiRoutesOptions {
    * moves shows up as a new measurement series instead of silent drift.
    */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /** Immutable route policy for queued execution provenance. */
+  getProviderRouteDescriptors?: RunRoutesOptions['getProviderRouteDescriptors']
   /** Optional deterministic sitemap-fetch seam for Target discovery tests/hosts. */
   fetchMeasurementSitemap?: MeasurementServiceRoutesOptions['fetchSitemap']
   /** Bounded read-through cache for a server instance's measurement overview aggregates. */
@@ -171,8 +173,18 @@ export interface ApiRoutesOptions {
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
+  /** Live research-capable API adapters, including configured text-only routes. */
+  getResearchProviderAdapters?: () => readonly ProviderAdapterInfo[]
+  /** Live configured API provider names eligible for research. */
+  getResearchConfiguredProviderNames?: () => readonly string[]
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  /** Generic gateway connection/route settings (secrets never enter read DTOs). */
+  engineConnections?: SettingsRoutesOptions['engineConnections']
+  engineRoutes?: SettingsRoutesOptions['engineRoutes']
+  onEngineConnectionUpsert?: SettingsRoutesOptions['onEngineConnectionUpsert']
+  onEngineRouteUpsert?: SettingsRoutesOptions['onEngineRouteUpsert']
+  getEngineConnectionModelCatalog?: SettingsRoutesOptions['getEngineConnectionModelCatalog']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -497,6 +509,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onAliasesChanged: opts.onAliasesChanged,
       providerAdapters: opts.providerAdapters,
+      getResearchProviderAdapters: opts.getResearchProviderAdapters,
+      getResearchConfiguredProviderNames: opts.getResearchConfiguredProviderNames,
     } satisfies ProjectRoutesOptions)
     await api.register(queryRoutes, {
       onGenerateQueries: opts.onGenerateQueries,
@@ -510,6 +524,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       validProviderNames: opts.providerAdapters?.map(a => a.name),
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      getProviderRouteDescriptors: opts.getProviderRouteDescriptors,
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
@@ -532,6 +547,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onAliasesChanged: opts.onAliasesChanged,
       providerAdapters: opts.providerAdapters,
+      getResearchProviderAdapters: opts.getResearchProviderAdapters,
+      getResearchConfiguredProviderNames: opts.getResearchConfiguredProviderNames,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {
@@ -558,6 +575,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      engineConnections: opts.engineConnections,
+      engineRoutes: opts.engineRoutes,
+      onEngineConnectionUpsert: opts.onEngineConnectionUpsert,
+      onEngineRouteUpsert: opts.onEngineRouteUpsert,
+      getEngineConnectionModelCatalog: opts.getEngineConnectionModelCatalog,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,
@@ -682,8 +704,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
-      providerAdapters: opts.providerAdapters,
-      configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
+      providerAdapters: opts.getResearchProviderAdapters ?? opts.providerAdapters,
+      configuredProviderNames: opts.getResearchConfiguredProviderNames
+        ?? opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
       onResearchRunRequested: opts.onResearchRunRequested,
     } satisfies ResearchRoutesOptions)
     await api.register(technicalAeoRoutes, {

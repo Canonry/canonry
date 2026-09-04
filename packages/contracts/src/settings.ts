@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { providerQuotaPolicySchema } from './provider.js'
+import { engineConnectionPublicDtoSchema, engineRouteConfigSchema } from './engine-routes.js'
 
 /**
  * Per-provider summary entry surfaced by `GET /settings`. Mirrors the
@@ -62,6 +63,10 @@ export type IntegrationSettingsSummaryDto = z.infer<typeof integrationSettingsSu
 export const settingsDtoSchema = z.object({
   providers: z.array(providerSummaryEntryDtoSchema).default([]),
   providerCatalog: z.array(providerCatalogEntryDtoSchema).default([]),
+  /** Instance-global, credential-redacted generic gateway connections. */
+  engineConnections: z.array(engineConnectionPublicDtoSchema).default([]),
+  /** Stable text/measurement route definitions; no secret values live here. */
+  engineRoutes: z.array(engineRouteConfigSchema).default([]),
   google: integrationSettingsSummaryDtoSchema,
   bing: integrationSettingsSummaryDtoSchema,
 })

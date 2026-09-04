@@ -262,6 +262,22 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
 
+Engine connections and routes are separate. A connection owns the endpoint,
+credential, and shared quota; a route owns a stable ID, model, revision, and
+non-secret capability policy. OpenAI-compatible configured routes use the
+generic pi-ai text adapter and are text-only. They can power research, Aero,
+recommendation explanation, and other internal text tasks, but must fail closed
+if selected for an answer-visibility sweep. Only a server-owned native or
+verified adapter can declare measurement readiness.
+
+Freeze route ID, revision, policy fingerprint, requested provider, and
+requested model in the run execution identity. Keep requested snapshot identity
+separate from nullable upstream-disclosed `servedProvider` / `servedModel`.
+Never infer served identity from configuration.
+
+Rate limits key by `connection:<id>`, not route ID, because routes on one
+connection spend the same upstream credential and budget.
+
 ## Common Mistakes
 
 - **Instantiating `ApiClient` directly** — use `createApiClient()` which handles basePath and config.

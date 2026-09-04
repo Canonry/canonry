@@ -93,7 +93,13 @@ function filterFingerprint(query: MeasurementPropertyEvidenceQuery): string {
 function evidenceFingerprintOf(snapshots: readonly typeof querySnapshots.$inferSelect[]): string {
   const canonical = [...snapshots]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map(snapshot => JSON.stringify(snapshot))
+    // `servedProvider` is audit provenance for a routed response; the Property
+    // evidence projection never reads it. Excluding it preserves cursors minted
+    // before migration v150 added the nullable column, while evidence-changing
+    // snapshot fields still invalidate a walk.
+    .map(snapshot => JSON.stringify(Object.fromEntries(
+      Object.entries(snapshot).filter(([key]) => key !== 'servedProvider'),
+    )))
     .join('\n')
   return createHash('sha256').update(canonical).digest('base64url')
 }

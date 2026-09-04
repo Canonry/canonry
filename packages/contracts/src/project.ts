@@ -98,6 +98,8 @@ export const projectUpsertRequestSchema = z.object({
   labels: z.record(z.string(), z.string()).optional(),
   providers: z.array(providerNameSchema).optional(),
   providerModels: providerModelsSchema.optional(),
+  /** Optional text/research provider; intentionally separate from sweep providers. */
+  researchProvider: providerNameSchema.nullable().optional(),
   locations: z.array(locationContextSchema).optional(),
   defaultLocation: z.string().nullable().optional(),
   measurement: measurementConfigSchema.optional(),
@@ -155,6 +157,8 @@ export const projectDtoSchema = z.object({
   providers: z.array(z.string()).default([]),
   /** Per-project model overrides; an empty map inherits instance settings. */
   providerModels: providerModelsSchema.default({}),
+  /** Optional text/research provider; configured text-only routes never enter sweep providers. */
+  researchProvider: z.string().nullable().default(null),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
   measurement: measurementConfigSchema.default(defaultMeasurementConfig),

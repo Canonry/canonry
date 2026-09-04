@@ -262,10 +262,50 @@ describe('a published v2 revision at queue time', () => {
       assignments: [{ targetKey: 'north-branch', nodeKey: 'exec-north' }],
     }), 1)
 
-    const row = queuedRun(db, queue(db, projectId, { providerModels: { openai: 'gpt-instance' } }))
+    const row = queuedRun(db, queue(db, projectId, {
+      providerModels: { openai: 'gpt-instance' },
+      providerRouteDescriptors: {
+        openai: { routeId: 'native:openai', routeRevision: 1, policyFingerprint: 'a'.repeat(64) },
+      },
+    }))
 
     expect(parseMeasurementRunManifestV1(row.measurementManifest).expectedSlots[0]!.requestedModel).toBe('gpt-instance')
-    expect(parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity).models).toEqual({ openai: 'gpt-instance' })
+    const identity = parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity)
+    expect(identity.models).toEqual({ openai: 'gpt-instance' })
+    expect(identity).toMatchObject({
+      schemaVersion: 2,
+      routes: {
+        openai: {
+          routeId: 'native:openai', routeRevision: 1, policyFingerprint: 'a'.repeat(64),
+          requestedProvider: 'openai', requestedModel: 'gpt-instance',
+        },
+      },
+    })
+  })
+
+  it('keeps already queued route revision and policy immutable when the host route changes', () => {
+    const { db, projectId } = seed()
+    publishV2(db, projectId, v2Plan({
+      targets: ['north-branch'],
+      nodes: [{ key: 'exec-north', queryId: 'q-1', queryText: 'widget question 0', providers: ['openai'], models: { openai: 'gpt-planned' }, location: NORTH }],
+      assignments: [{ targetKey: 'north-branch', nodeKey: 'exec-north' }],
+    }), 1)
+    const firstId = queue(db, projectId, {
+      providerRouteDescriptors: {
+        openai: { routeId: 'native:openai', routeRevision: 1, policyFingerprint: '1'.repeat(64) },
+      },
+    })
+    db.update(runs).set({ status: 'completed' }).where(eq(runs.id, firstId)).run()
+    const secondId = queue(db, projectId, {
+      providerRouteDescriptors: {
+        openai: { routeId: 'native:openai', routeRevision: 2, policyFingerprint: '2'.repeat(64) },
+      },
+    })
+
+    const first = parseStoredMeasurementExecutionIdentity(queuedRun(db, firstId).measurementExecutionIdentity)
+    const second = parseStoredMeasurementExecutionIdentity(queuedRun(db, secondId).measurementExecutionIdentity)
+    expect(first).toMatchObject({ schemaVersion: 2, routes: { openai: { routeRevision: 1, policyFingerprint: '1'.repeat(64) } } })
+    expect(second).toMatchObject({ schemaVersion: 2, routes: { openai: { routeRevision: 2, policyFingerprint: '2'.repeat(64) } } })
   })
 
   it('refuses a run that asks for engines the revision was not published with', () => {

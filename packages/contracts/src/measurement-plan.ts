@@ -521,7 +521,7 @@ const measurementPlanCreatedAtSchema = z.string().datetime()
  * break and annotate at that boundary exactly as they do at a revision
  * boundary. Nothing is refused and nothing drifts silently.
  */
-export const measurementExecutionIdentitySchema = z.object({
+const measurementExecutionIdentityV1Schema = z.object({
   schemaVersion: z.literal(1),
   /** Sorted, lower-cased provider names. */
   providers: z.array(z.string().min(1)).min(1),
@@ -529,11 +529,66 @@ export const measurementExecutionIdentitySchema = z.object({
   models: z.record(z.string().min(1), z.string().min(1)),
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict()
+
+/**
+ * The exact route policy a v2 run requested. These are configuration facts,
+ * frozen at queue time. They deliberately do not claim what an upstream
+ * gateway eventually served; that is per-snapshot observation evidence.
+ */
+/** Immutable, non-secret policy facts supplied by the execution host. */
+export const measurementExecutionRouteDescriptorSchema = z.object({
+  routeId: z.string().min(1),
+  routeRevision: z.number().int().positive(),
+  policyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict()
+export type MeasurementExecutionRouteDescriptor = z.output<typeof measurementExecutionRouteDescriptorSchema>
+
+export const measurementExecutionRouteIdentitySchema = measurementExecutionRouteDescriptorSchema.extend({
+  requestedProvider: z.string().min(1),
+  requestedModel: z.string().min(1),
+}).strict()
+export type MeasurementExecutionRouteIdentity = z.output<typeof measurementExecutionRouteIdentitySchema>
+
+const measurementExecutionIdentityV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  /** Retained for v1 readers and summary surfaces. These are requested IDs. */
+  providers: z.array(z.string().min(1)).min(1),
+  /** Retained for v1 readers and summary surfaces. These are requested IDs. */
+  models: z.record(z.string().min(1), z.string().min(1)),
+  /** Requested route revision and policy for each requested provider key. */
+  routes: z.record(z.string().min(1), measurementExecutionRouteIdentitySchema),
+  checksum: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict().superRefine((value, ctx) => {
+  for (const provider of value.providers) {
+    const route = value.routes[provider]
+    if (!route) {
+      ctx.addIssue({ code: 'custom', path: ['routes', provider], message: 'Every provider must have frozen route identity' })
+      continue
+    }
+    if (route.requestedProvider !== provider) {
+      ctx.addIssue({ code: 'custom', path: ['routes', provider, 'requestedProvider'], message: 'Route requestedProvider must match its provider key' })
+    }
+    if (value.models[provider] !== route.requestedModel) {
+      ctx.addIssue({ code: 'custom', path: ['routes', provider, 'requestedModel'], message: 'Route requestedModel must match models[provider]' })
+    }
+  }
+})
+
+/** v1 stays parseable verbatim; v2 adds immutable route-policy provenance. */
+export const measurementExecutionIdentitySchema = z.discriminatedUnion('schemaVersion', [
+  measurementExecutionIdentityV1Schema,
+  measurementExecutionIdentityV2Schema,
+])
 export type MeasurementExecutionIdentity = z.output<typeof measurementExecutionIdentitySchema>
 
 export interface MeasurementExecutionIdentityInput {
   providers: readonly string[]
   models: Readonly<Record<string, string>>
+  /**
+   * Supply every selected provider to stamp v2. Omit it (or omit a provider)
+   * only for legacy callers that cannot yet identify their route safely.
+   */
+  routes?: Readonly<Record<string, MeasurementExecutionRouteDescriptor | MeasurementExecutionRouteIdentity>>
 }
 
 function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): MeasurementExecutionIdentityInput {
@@ -543,7 +598,34 @@ function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): M
     const model = input.models[provider]
     if (model && model.trim()) models[provider] = model.trim()
   }
-  return { providers, models }
+  const rawRoutes = new Map<string, MeasurementExecutionRouteDescriptor>()
+  for (const [provider, route] of Object.entries(input.routes ?? {})) {
+    const normalizedProvider = provider.trim().toLocaleLowerCase('en')
+    if (!normalizedProvider) continue
+    // Callers may pass a prior full identity when rebuilding/checking one.
+    // Strip request facts before strict descriptor validation; they are always
+    // rebuilt from this run's selected provider/model below.
+    rawRoutes.set(normalizedProvider, measurementExecutionRouteDescriptorSchema.parse({
+      routeId: route.routeId,
+      routeRevision: route.routeRevision,
+      policyFingerprint: route.policyFingerprint,
+    }))
+  }
+  const routes: Record<string, MeasurementExecutionRouteIdentity> = {}
+  for (const provider of providers) {
+    const route = rawRoutes.get(provider)
+    const model = models[provider]
+    if (!route || !model) continue
+    routes[provider] = measurementExecutionRouteIdentitySchema.parse({
+      ...route,
+      requestedProvider: provider,
+      requestedModel: model,
+    })
+  }
+  // A partial provenance map is worse than explicit v1 compatibility: never
+  // create a v2 row that appears fully auditable while omitting one engine.
+  const completeRoutes = providers.length > 0 && providers.every(provider => routes[provider] !== undefined)
+  return completeRoutes ? { providers, models, routes } : { providers, models }
 }
 
 /**
@@ -553,9 +635,10 @@ function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): M
 export function canonicalMeasurementExecutionIdentityJson(input: MeasurementExecutionIdentityInput): string {
   const normalized = normalizeExecutionIdentity(input)
   return JSON.stringify(canonicalJsonValue({
-    schemaVersion: 1,
+    schemaVersion: normalized.routes ? 2 : 1,
     providers: normalized.providers,
     models: normalized.models,
+    ...(normalized.routes ? { routes: normalized.routes } : {}),
   }))
 }
 
@@ -565,9 +648,10 @@ export function buildMeasurementExecutionIdentity(
 ): MeasurementExecutionIdentity {
   const normalized = normalizeExecutionIdentity(input)
   return measurementExecutionIdentitySchema.parse({
-    schemaVersion: 1,
+    schemaVersion: normalized.routes ? 2 : 1,
     providers: normalized.providers,
     models: normalized.models,
+    ...(normalized.routes ? { routes: normalized.routes } : {}),
     checksum,
   })
 }

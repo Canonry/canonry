@@ -347,12 +347,26 @@ export class JobRunner {
       if (planExecution) {
         const plan = planExecution
         const manifestProviders = [...plan.unitsByProvider.keys()] as ProviderName[]
+        const unsupportedRoutes = manifestProviders.filter(name => this.registry.get(name)?.config.measurementReady === false)
+        if (unsupportedRoutes.length > 0) {
+          throw new Error(
+            `Engine route${unsupportedRoutes.length === 1 ? '' : 's'} ${unsupportedRoutes.join(', ')} ` +
+            'cannot run an answer-visibility sweep because it does not prove retrieval, citation, location, and served-model evidence.',
+          )
+        }
         activeProviders = manifestProviders
           .map(name => this.registry.get(name))
           .filter((entry): entry is RegisteredProvider => entry !== undefined)
       } else {
         const projectProviders = providerOverride ?? (project.providers as ProviderName[])
-        activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
+        const unsupportedRoutes = projectProviders.filter(name => this.registry.get(name)?.config.measurementReady === false)
+        if (unsupportedRoutes.length > 0) {
+          throw new Error(
+            `Engine route${unsupportedRoutes.length === 1 ? '' : 's'} ${unsupportedRoutes.join(', ')} ` +
+            'cannot run an answer-visibility sweep because it does not prove retrieval, citation, location, and served-model evidence.',
+          )
+        }
+        activeProviders = this.registry.getMeasurableForProject(projectProviders).map((entry) => {
           const model = project.providerModels[entry.adapter.name]
           // Clone the registration instead of mutating the shared registry: two
           // projects can run different models through the same provider process.
@@ -393,14 +407,20 @@ export class JobRunner {
         ...(canonicalDomain ? { canonicalDomain } : {}),
       }
 
-      // Enforce daily quota per provider — each provider receives one request per query.
-      // Track and check usage per (projectId, providerName) so that a provider that has
-      // never been used isn't blocked by another provider's past usage.
+      // Enforce one request per query. Native providers retain their historical
+      // project/provider buckets; a configured gateway uses the one shared
+      // connection bucket across every project and model route.
       const queriesPerProvider = planExecution?.maxUnitsPerProvider ?? projectQueries.length
       const todayPeriod = getCurrentUsageDay()
 
       for (const p of activeProviders) {
-        const providerScope = `${projectId}:${p.adapter.name}`
+        // Generic routes can share one gateway credential. Their daily limit
+        // is an instance-global connection budget, never multiplied by the
+        // number of projects or model routes. Legacy native providers retain
+        // their historical per-project accounting key.
+        const providerScope = p.config.connectionId
+          ? `connection:${p.config.connectionId}`
+          : `${projectId}:${p.adapter.name}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
         if (!quota.reserved) {
@@ -424,7 +444,7 @@ export class JobRunner {
         executionGates.set(
           provider.adapter.name,
           getSharedProviderExecutionGate(
-            provider.adapter.name,
+            provider.config.connectionId ?? provider.adapter.name,
             provider.config.quotaPolicy.maxConcurrency,
             provider.config.quotaPolicy.maxRequestsPerMinute,
           ),
@@ -527,6 +547,7 @@ export class JobRunner {
                 provider: providerName,
                 model: raw.model,
                 servedModel: raw.servedModel ?? null,
+                servedProvider: raw.servedProvider ?? null,
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
@@ -548,6 +569,7 @@ export class JobRunner {
                 rawResponse: JSON.stringify({
                   model: raw.model,
                   servedModel: raw.servedModel ?? null,
+                  servedProvider: raw.servedProvider ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,
@@ -563,6 +585,7 @@ export class JobRunner {
                 provider: providerName,
                 model: raw.model,
                 servedModel: raw.servedModel ?? null,
+                servedProvider: raw.servedProvider ?? null,
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
@@ -583,6 +606,7 @@ export class JobRunner {
                 rawResponse: JSON.stringify({
                   model: raw.model,
                   servedModel: raw.servedModel ?? null,
+                  servedProvider: raw.servedProvider ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,
@@ -721,6 +745,7 @@ export class JobRunner {
               // the revision recorded, and nothing would show that it moved.
               model: unit.requestedModel ?? raw.model,
               servedModel: raw.servedModel ?? null,
+              servedProvider: raw.servedProvider ?? null,
               citationState,
               answerMentioned,
               answerText: normalized.answerText,
@@ -747,6 +772,7 @@ export class JobRunner {
               rawResponse: JSON.stringify({
                 model: raw.model,
                 servedModel: raw.servedModel ?? null,
+                servedProvider: raw.servedProvider ?? null,
                 groundingSources: normalized.groundingSources,
                 searchQueries: normalized.searchQueries,
                 apiResponse: raw.rawResponse,

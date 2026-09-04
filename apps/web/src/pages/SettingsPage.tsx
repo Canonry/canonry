@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
-import { AdminOnly } from '../components/shared/AccessControls.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
+import { EngineRoutesReadOnlySummary, EngineRoutesSettings } from '../components/settings/EngineRoutesSettings.js'
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
@@ -15,6 +15,7 @@ import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
+import { useAccount } from '../contexts/account-context.js'
 import type { HealthSnapshot } from '../view-models.js'
 
 const defaultHealthSnapshot: HealthSnapshot = {
@@ -23,22 +24,32 @@ const defaultHealthSnapshot: HealthSnapshot = {
 }
 
 /**
- * Settings holds provider credentials, the Google/Bing connections and the API
- * keys. The server refuses this whole surface to a view-only account; the
- * wrapper below is so a viewer gets an explanation rather than an empty page.
+ * Credential settings stay administrator-only. Viewers get the intentionally
+ * separate credential-free route summary, which never calls GET /settings.
  */
 export function SettingsPage() {
+  const { isAdmin } = useAccount()
+  return isAdmin ? <SettingsPageBody /> : <SettingsReadOnlyPage />
+}
+
+function SettingsReadOnlyPage() {
   return (
-    <AdminOnly title="Settings">
-      <SettingsPageBody />
-    </AdminOnly>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Settings</h1>
+          <p className="page-subtitle">Available answer-engine routes.</p>
+        </div>
+      </div>
+      <EngineRoutesReadOnlySummary />
+    </div>
   )
 }
 
 function SettingsPageBody() {
   const contextDashboard = useInitialDashboard()
   const { dashboard } = useDashboard()
-  const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
+  const settings = dashboard?.settings ?? contextDashboard?.dashboard.settings
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
@@ -136,6 +147,8 @@ function SettingsPageBody() {
             ))}
           </div>
         </section>
+
+        <EngineRoutesSettings />
 
         <section>
           <div className="section-head">

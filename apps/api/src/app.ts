@@ -1,11 +1,47 @@
 import Fastify from 'fastify'
+import crypto from 'node:crypto'
 
 import type { PlatformEnv } from '@ainyc/canonry-config'
 import { createClient } from '@ainyc/canonry-db'
 import { apiRoutes, resolveTrustProxy } from '@ainyc/canonry-api-routes'
+import {
+  buildImplicitNativeEngineRoute,
+  canonicalEngineRoutePolicyJson,
+  type EngineRouteCapabilities,
+  type MeasurementExecutionRouteDescriptor,
+} from '@ainyc/canonry-contracts'
 
 import { registerHealthRoutes } from './routes/health.js'
 import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
+
+// Keep this explicit instead of inferring from the provider catalog. The cloud
+// catalog includes compatibility providers for settings validation, but only
+// these server-owned adapters have the evidence contract required to describe
+// a route as measurement-ready.
+const CLOUD_VERIFIED_MEASUREMENT_PROVIDER_NAMES = new Set([
+  'gemini',
+  'openai',
+  'claude',
+  'perplexity',
+])
+
+const cloudVerifiedNativeCapabilities: EngineRouteCapabilities = {
+  kind: 'verified-measurement',
+  retrieval: true,
+  citations: true,
+  location: true,
+  servedModel: true,
+  fallback: 'disabled',
+}
+
+const cloudTextOnlyCapabilities: EngineRouteCapabilities = { kind: 'text-only' }
+
+/** Never infer measurement proof from a configured/cloud-known provider name. */
+export function cloudEngineRouteCapabilities(providerName: string): EngineRouteCapabilities {
+  return CLOUD_VERIFIED_MEASUREMENT_PROVIDER_NAMES.has(providerName)
+    ? cloudVerifiedNativeCapabilities
+    : cloudTextOnlyCapabilities
+}
 
 export function buildApp(env: PlatformEnv) {
   // A cloud deployment is always behind at least one load balancer, so the
@@ -153,6 +189,29 @@ export function buildApp(env: PlatformEnv) {
     return models
   }
 
+  const providerRouteDescriptors = (): Record<string, MeasurementExecutionRouteDescriptor> => {
+    const descriptors: Record<string, MeasurementExecutionRouteDescriptor> = {}
+    for (const provider of providerSummary) {
+      if (!provider.configured) continue
+      const adapter = providerAdapters.find(candidate => candidate.name === provider.name)
+      if (!adapter) continue
+      const route = buildImplicitNativeEngineRoute({
+        provider: provider.name,
+        displayName: adapter.displayName,
+        defaultModel: effectiveProviderModels()[provider.name] ?? adapter.defaultModel,
+        capabilities: cloudEngineRouteCapabilities(provider.name),
+      })
+      descriptors[provider.name] = {
+        routeId: route.id,
+        routeRevision: route.revision,
+        policyFingerprint: crypto.createHash('sha256')
+          .update(canonicalEngineRoutePolicyJson(route))
+          .digest('hex'),
+      }
+    }
+    return descriptors
+  }
+
   app.register(apiRoutes, {
     db,
     skipAuth: false,
@@ -166,6 +225,7 @@ export function buildApp(env: PlatformEnv) {
     getRunnableProviderNames: () =>
       providerSummary.filter(provider => provider.configured).map(provider => provider.name),
     getEffectiveProviderModels: effectiveProviderModels,
+    getProviderRouteDescriptors: providerRouteDescriptors,
     googleStateSecret: env.googleStateSecret,
     trustProxyConfigured: trustProxy !== false,
   })
