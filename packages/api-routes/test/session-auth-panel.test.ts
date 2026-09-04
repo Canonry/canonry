@@ -501,6 +501,28 @@ test('a caller-supplied embed-tabs header still narrows within the configured al
   }
 })
 
+test('the overview embed tab permits stored competitor history but no competitor write', async () => {
+  const embedded = await bootEmbedApp(['overview'])
+  try {
+    const read = await embedded.inject({
+      method: 'GET',
+      url: '/api/v1/projects/sample/analytics/competitors?window=30d',
+      headers: withKey(ROOT_KEY),
+    })
+    expect(read.statusCode).toBe(200)
+
+    const write = await embedded.inject({
+      method: 'POST',
+      url: '/api/v1/projects/sample/measurement-plan/draft/actions/pin-competitor',
+      headers: { ...withKey(ROOT_KEY), 'idempotency-key': 'embed-mutation-is-forbidden' },
+      payload: { expectedActiveRevision: 1, groupKey: 'north', domain: 'rival.example' },
+    })
+    expect(write.statusCode).toBe(403)
+  } finally {
+    await embedded.close()
+  }
+})
+
 // ─── P2.5 sessions that never end ──────────────────────────────────────────
 
 test('the technical-aeo embed tab permits its Site Health graph and semantic reads', async () => {

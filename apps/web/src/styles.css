@@ -2206,6 +2206,18 @@
     @apply px-4 py-3 text-neutral;
   }
 
+  .competitor-landscape {
+    @apply space-y-4;
+  }
+
+  .competitor-landscape-group th {
+    @apply border-y border-default bg-bg-elevated/35 px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary;
+  }
+
+  .competitor-landscape-manage {
+    @apply mt-1;
+  }
+
   /* ── Project row (overview) ── */
 
   .project-row {

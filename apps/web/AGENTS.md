@@ -254,6 +254,15 @@ Token migration guardrails:
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
   checkboxes, or shared rectangular buttons for interactive choices.
 
+### Competitor landscapes
+
+- `CompetitorLandscape` reads the windowed stored-evidence endpoint. Never send
+  a historical row into the latest-only `EvidenceTable`; use its returned
+  `sampleUrls` when showing source evidence.
+- Show project/user pins before observed competitors. Advanced Measurement
+  reads must pass the selected `groupKey`, or explicit `scope=all-markets`.
+- Stored landscape GETs are embed-safe. Every competitor mutation requires
+  `canWrite && !isEmbed()`; market pins create/update a draft and never publish.
 ## Common Mistakes
 
 - **Importing `recharts` directly** — use `ChartPrimitives.tsx` exports.

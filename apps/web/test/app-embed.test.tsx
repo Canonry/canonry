@@ -176,7 +176,7 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   // A read-only view still renders in the embed (the project name + a section
   // heading + a metric label), proving we hid controls, not content.
   expect(embed).toContain('Citypoint Dental NYC')
-  expect(embed).toContain('Where competitors are winning')
+  expect(embed).toContain('Competitor landscape')
   expect(embed).toContain('Mention share')
 })
 
@@ -186,12 +186,12 @@ test('embed hides the overview competitor and query managers', async () => {
 
   // Operator sees the overview write affordances. Identity editing now lives
   // in project Settings instead of the overview header.
-  expect(operator).toContain('+ Add competitor')
+  expect(operator).toContain('Manage competitors')
   expect(operator).toContain('Manage queries')
   expect(operator).not.toContain('+ add domain')
   expect(operator).not.toContain('Also known as')
   // The write affordances do not render in the embed.
-  expect(embed).not.toContain('+ Add competitor')
+  expect(embed).not.toContain('Manage competitors')
   expect(embed).not.toContain('Manage queries')
 
   // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the

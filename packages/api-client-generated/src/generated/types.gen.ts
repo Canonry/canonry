@@ -1562,6 +1562,95 @@ export type CompetitorDto = {
     createdAt: string;
 };
 
+export type CompetitorLandscapeResponse = {
+    window: '7d' | '30d' | '90d' | 'all';
+    scope: {
+        kind: 'project';
+    } | {
+        kind: 'group';
+        groupKey: string;
+    } | {
+        kind: 'all-markets';
+    };
+    project: {
+        domain: string;
+        label: string;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        pinned: boolean;
+        mentionCount: number;
+        shareOfVoice: number | null;
+        citationCount: number;
+        answeredResults: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        sampleUrls: Array<string>;
+    };
+    pinned: Array<{
+        domain: string;
+        label: string;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        pinned: boolean;
+        mentionCount: number;
+        shareOfVoice: number | null;
+        citationCount: number;
+        answeredResults: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        sampleUrls: Array<string>;
+    }>;
+    observed: Array<{
+        domain: string;
+        label: string;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        pinned: boolean;
+        mentionCount: number;
+        shareOfVoice: number | null;
+        citationCount: number;
+        answeredResults: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        sampleUrls: Array<string>;
+    }>;
+    otherSources: Array<{
+        domain: string;
+        label: string;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        pinned: boolean;
+        mentionCount: number;
+        shareOfVoice: number | null;
+        citationCount: number;
+        answeredResults: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        sampleUrls: Array<string>;
+    }>;
+    evidence: {
+        answeredResults: number;
+        sourceResults: number;
+        missingAnswerTextResults: number;
+        mentionCredits: number;
+        incompleteSourceResults: number;
+        excludedProbeResults: number;
+        excludedNonCompletedResults: number;
+    };
+    marketState: {
+        activeRevision: number;
+        draft: {
+            etag: string;
+            pendingCompetitorDomains: Array<string>;
+        } | null;
+    } | null;
+    filters: {
+        scope: 'project' | 'all-markets';
+        groupKey: string | null;
+        provider: string | null;
+        queryClass: 'all' | 'branded' | 'non-brand';
+        location: string | null;
+        runId: string | null;
+    };
+    truncated: boolean;
+};
+
 export type ContentGapsResponseDto = {
     gaps: Array<{
         query: string;
@@ -4714,6 +4803,44 @@ export type MeasurementDraftMutationResponse = {
         unclassifiedAssignments: number;
         groups: number;
         competitors: number;
+    };
+};
+
+export type MeasurementDraftPinCompetitorRequest = {
+    expectedActiveRevision: number;
+    groupKey: string;
+    domain: string;
+    label?: string;
+    aliases?: Array<string>;
+};
+
+export type MeasurementDraftPinCompetitorResponse = {
+    etag: string;
+    changed: boolean;
+    warnings: Array<{
+        code: string;
+        message: string;
+        path: Array<string | number>;
+    }>;
+    counts: {
+        targets: number;
+        includedTargets: number;
+        assignments: number;
+        unclassifiedAssignments: number;
+        groups: number;
+        competitors: number;
+    };
+    groupKey: string;
+    competitor: {
+        stableKey: string;
+        label: string;
+        domain: string;
+        aliases: Array<string>;
+    };
+    draftCreated: boolean;
+    published: {
+        revision: number;
+        competitorsChanged: false;
     };
 };
 
@@ -12408,6 +12535,54 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitorRe
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitorResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitorResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitorResponses];
 
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorData = {
+    body: MeasurementDraftPinCompetitorRequest;
+    headers: {
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/pin-competitor';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The idempotency key was already used with a different request body.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorResponses = {
+    /**
+     * Pending draft competitor pinned; the active published revision is unchanged.
+     */
+    200: MeasurementDraftPinCompetitorResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorResponses];
+
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveCompetitorData = {
     body: MeasurementDraftRemoveCompetitorRequest;
     headers: {
@@ -14389,6 +14564,69 @@ export type DeleteApiV1ProjectsByNameCompetitorsByIdResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameCompetitorsByIdResponse = DeleteApiV1ProjectsByNameCompetitorsByIdResponses[keyof DeleteApiV1ProjectsByNameCompetitorsByIdResponses];
+
+export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Advanced Measurement market (v2 group stable key). Omit for the project-wide landscape.
+         */
+        groupKey?: string;
+        /**
+         * Set to "all-markets" to aggregate raw stored evidence across every Advanced Measurement market. It cannot be combined with groupKey.
+         */
+        scope?: 'all-markets';
+        /**
+         * Restrict evidence to one answer provider.
+         */
+        provider?: string;
+        /**
+         * Restrict evidence to a question class. Advanced groups use their frozen assignment classes; simple projects classify stored query text.
+         */
+        queryClass?: 'all' | 'branded' | 'non-brand';
+        /**
+         * Restrict evidence to one stored location label.
+         */
+        location?: string;
+        /**
+         * Restrict evidence to one stored answer-visibility run.
+         */
+        runId?: string;
+    };
+    url: '/api/v1/projects/{name}/analytics/competitors';
+};
+
+export type GetApiV1ProjectsByNameAnalyticsCompetitorsErrors = {
+    /**
+     * The landscape filters or Advanced Measurement group are invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAnalyticsCompetitorsError = GetApiV1ProjectsByNameAnalyticsCompetitorsErrors[keyof GetApiV1ProjectsByNameAnalyticsCompetitorsErrors];
+
+export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponses = {
+    /**
+     * Stored competitor landscape returned.
+     */
+    200: CompetitorLandscapeResponse;
+};
+
+export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponse = GetApiV1ProjectsByNameAnalyticsCompetitorsResponses[keyof GetApiV1ProjectsByNameAnalyticsCompetitorsResponses];
 
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;

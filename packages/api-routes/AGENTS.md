@@ -169,6 +169,19 @@ incrementally.
 
 Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it.
 
+### Historical competitor landscapes
+
+- `GET /projects/:name/analytics/competitors` is a stored-evidence read. It
+  must never start discovery, classify a domain live, call a provider, or write.
+- Include only completed/partial answer-visibility snapshots; count excluded
+  probes and non-terminal results in the response.
+- A Simple pin reinterprets stored history at read time. An Advanced market
+  reads the frozen plan revision for each contributing run and unions project
+  pins with that market's active and pending-draft competitors.
+- `scope=all-markets` recomputes from raw scoped evidence. Never average market
+  percentages, and compare draft pins with active pins per group.
+- Advanced pinning is a revision-guarded draft mutation. It never publishes.
+
 ### Derived row schemas (drizzle-zod)
 
 `src/db-derived-dtos.ts` exports `*RowSchema` Zod validators generated from the Drizzle table definitions via `drizzle-zod`'s `createSelectSchema()`. Per-column refinements narrow:

@@ -24,6 +24,7 @@ const expectedToolNames = [
   'canonry_organic_evidence',
   'canonry_analytics_metrics',
   'canonry_analytics_sources',
+  'canonry_competitor_landscape',
   'canonry_search',
   'canonry_doctor',
   'canonry_project_export',
@@ -577,8 +578,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(206)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(140)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(207)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(141)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -614,7 +615,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(45)
+    expect(counts.get('monitoring')).toBe(46)
     expect(counts.get('setup')).toBe(51)
     expect(counts.get('gsc')).toBe(10)
     expect(counts.get('ga')).toBe(11)
@@ -1180,6 +1181,12 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_project_get', input: projectInput, methods: ['getProject'] },
   { tool: 'canonry_project_overview', input: projectInput, methods: ['getProjectOverview'] },
   { tool: 'canonry_analytics_metrics', input: { project: 'acme', window: '30d' }, methods: ['getAnalyticsMetrics'] },
+  {
+    tool: 'canonry_competitor_landscape',
+    input: { project: 'acme', window: '30d', scope: 'all-markets', provider: 'openai', queryClass: 'non-brand' },
+    methods: ['getCompetitorLandscape'],
+    expectedArgs: [['acme', { window: '30d', scope: 'all-markets', provider: 'openai', queryClass: 'non-brand' }]],
+  },
   { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
   { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },
   {

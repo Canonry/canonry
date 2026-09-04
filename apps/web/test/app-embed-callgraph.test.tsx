@@ -80,6 +80,46 @@ const emptyCitationVisibility = {
   reason: 'no-runs-yet',
 }
 
+const emptyCompetitorLandscape = {
+  window: '30d',
+  scope: { kind: 'project' },
+  project: {
+    domain: 'citypoint.example',
+    label: 'Citypoint Dental NYC',
+    surfaceClass: 'own',
+    pinned: false,
+    mentionCount: 0,
+    shareOfVoice: null,
+    citationCount: 0,
+    answeredResults: 0,
+    firstSeenAt: null,
+    lastSeenAt: null,
+    sampleUrls: [],
+  },
+  pinned: [],
+  observed: [],
+  otherSources: [],
+  evidence: {
+    answeredResults: 0,
+    sourceResults: 0,
+    missingAnswerTextResults: 0,
+    mentionCredits: 0,
+    incompleteSourceResults: 0,
+    excludedProbeResults: 0,
+    excludedNonCompletedResults: 0,
+  },
+  marketState: null,
+  filters: {
+    scope: 'project',
+    groupKey: null,
+    provider: null,
+    queryClass: 'all',
+    location: null,
+    runId: null,
+  },
+  truncated: false,
+}
+
 test('embed project overview only issues reads covered by the overview server allowlist', async () => {
   window.__CANONRY_CONFIG__ = {
     embed: {
@@ -90,12 +130,17 @@ test('embed project overview only issues reads covered by the overview server al
   }
 
   const observed = new Set<string>()
+  const observedMethods: Array<{ path: string; method: string }> = []
   const disallowed: string[] = []
   const restoreFetch = (() => {
     const realFetch = globalThis.fetch
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = canonicalPath(input)
       observed.add(path)
+      observedMethods.push({
+        path,
+        method: input instanceof Request ? input.method : init?.method ?? 'GET',
+      })
 
       if (path === '/health') return jsonResponse({ version: 'test', databaseUrlConfigured: true })
       if (path === '/api/v1/projects') return jsonResponse([project])
@@ -110,6 +155,7 @@ test('embed project overview only issues reads covered by the overview server al
       if (path === '/api/v1/projects/citypoint/insights') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/overview') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/analytics/metrics') return jsonResponse(emptyMetrics)
+      if (path === '/api/v1/projects/citypoint/analytics/competitors?window=30d') return jsonResponse(emptyCompetitorLandscape)
       if (path === '/api/v1/projects/citypoint/citations/visibility') return jsonResponse(emptyCitationVisibility)
 
       if (path.startsWith('/api/v1/')) {
@@ -139,8 +185,12 @@ test('embed project overview only issues reads covered by the overview server al
   await waitFor(() => {
     expect(observed.has('/api/v1/projects/citypoint/citations/visibility')).toBe(true)
     expect(observed.has('/api/v1/projects/citypoint/analytics/metrics')).toBe(true)
+    expect(observed.has('/api/v1/projects/citypoint/analytics/competitors?window=30d')).toBe(true)
   })
 
   expect(disallowed).toEqual([])
+  expect(observedMethods.filter(request => request.path.includes('/analytics/competitors'))).toEqual([
+    { path: '/api/v1/projects/citypoint/analytics/competitors?window=30d', method: 'GET' },
+  ])
   expect(Array.from(observed).some(path => path.startsWith('/api/v1/settings'))).toBe(false)
 })

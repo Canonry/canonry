@@ -16,6 +16,7 @@ import {
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
+  getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
@@ -40,6 +41,12 @@ async function renderAt(
     report?: ReturnType<typeof measurementReportResponse>
     overview?: ReturnType<typeof measurementOverviewResponse>
     overviewKey?: { scope?: 'all' | 'group'; groupKey?: string; queryClass?: 'all' | 'non-brand' | 'branded' }
+    competitorLandscape?: ReturnType<typeof competitorLandscapeResponse>
+    competitorLandscapeKey?: {
+      window?: '7d' | '30d' | '90d' | 'all'
+      groupKey?: string
+      scope?: 'all-markets'
+    }
   },
   /**
    * `seedPlan: false` leaves the measurement-plan query unseeded, which is the
@@ -106,6 +113,21 @@ async function renderAt(
         query: q,
       }),
       { pages: [measurement.overview], pageParams: [{ path: { name: projectName }, query: q }] },
+    )
+  }
+  if (measurement?.competitorLandscape) {
+    const q = {
+      window: measurement.competitorLandscapeKey?.window ?? '30d',
+      ...(measurement.competitorLandscapeKey?.groupKey ? { groupKey: measurement.competitorLandscapeKey.groupKey } : {}),
+      ...(measurement.competitorLandscapeKey?.scope ? { scope: measurement.competitorLandscapeKey.scope } : {}),
+    }
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
+        client: heyClient,
+        path: { name: projectName },
+        query: q,
+      }),
+      measurement.competitorLandscape,
     )
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
@@ -342,6 +364,56 @@ function measurementReportResponse(revision: number) {
   }
 }
 
+function competitorLandscapeResponse({
+  scope = { kind: 'project' as const },
+  pinnedLabel = 'Pinned operator',
+  observedLabel = 'Observed rival',
+}: {
+  scope?: { kind: 'project' } | { kind: 'group'; groupKey: string } | { kind: 'all-markets' }
+  pinnedLabel?: string
+  observedLabel?: string
+} = {}) {
+  const row = (domain: string, label: string, pinned: boolean, shareOfVoice: number) => ({
+    domain,
+    label,
+    surfaceClass: pinned || domain === 'citypoint.example' ? (domain === 'citypoint.example' ? 'own' as const : 'direct-competitor' as const) : 'direct-competitor' as const,
+    pinned,
+    mentionCount: shareOfVoice,
+    shareOfVoice,
+    citationCount: 2,
+    answeredResults: 8,
+    firstSeenAt: '2026-08-01T00:00:00.000Z',
+    lastSeenAt: '2026-08-07T00:00:00.000Z',
+    sampleUrls: [`https://${domain}/`],
+  })
+  return {
+    window: '30d' as const,
+    scope,
+    project: row('citypoint.example', 'Citypoint', false, 50),
+    pinned: [row('pinned.example', pinnedLabel, true, 0)],
+    observed: [row('observed.example', observedLabel, false, 25)],
+    otherSources: [],
+    evidence: {
+      answeredResults: 8,
+      sourceResults: 8,
+      missingAnswerTextResults: 0,
+      mentionCredits: 4,
+      incompleteSourceResults: 0,
+      excludedProbeResults: 0,
+      excludedNonCompletedResults: 0,
+    },
+    filters: {
+      scope: scope.kind === 'all-markets' ? 'all-markets' as const : 'project' as const,
+      groupKey: scope.kind === 'group' ? scope.groupKey : null,
+      provider: null,
+      queryClass: 'non-brand' as const,
+      location: null,
+      runId: null,
+    },
+    truncated: false,
+  }
+}
+
 test('the Portfolio route is an explicit non-embed project workspace', async () => {
   const html = await renderAt('/projects/project_citypoint/portfolio')
 
@@ -356,11 +428,23 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
 test('a Simple project keeps the existing Overview without advertising advanced measurement', async () => {
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Competitor landscape')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
   expect(html).not.toContain('Latest measurement')
+})
+
+test('a Simple project loads pinned and historical competitors from the stored-evidence read', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, {
+    plan: { active: null },
+    competitorLandscape: competitorLandscapeResponse(),
+  })
+
+  expect(html).toContain('Competitor landscape')
+  expect(html).toContain('Pinned operator')
+  expect(html).toContain('Observed rival')
+  expect(html.indexOf('Pinned operator')).toBeLessThan(html.indexOf('Observed rival'))
 })
 
 test('project navigation ignores stale Site Health onboarding markers', async () => {
@@ -399,7 +483,7 @@ test('a stale Site Health onboarding marker cannot redirect the project overview
     </QueryClientProvider>,
   )
 
-  expect(await page.findByText('Where competitors are winning')).toBeTruthy()
+  expect(await page.findByText('Competitor landscape')).toBeTruthy()
   expect(router.state.location.pathname).toBe('/projects/project_citypoint')
 })
 
@@ -419,7 +503,9 @@ test('an active setup replaces the Simple Overview with the advanced measurement
   expect(html).toContain('advanced-measurement-properties-title')
   expect(html).toContain('Harbor House')
   expect(html).toContain('AI sweep running')
-  expect(html).not.toContain('Where competitors are winning')
+  // Competitor history remains available on the legacy Advanced Measurement
+  // surface; group-only scope does not exist until a v2 plan is active.
+  expect(html).toContain('Competitor landscape')
 })
 
 test('a version-two setup never renders version-one class metrics as if they were current', async () => {
@@ -549,6 +635,92 @@ test('a version-two Overview uses server scope, search and pagination and defers
   fireEvent.click(page.getByRole('button', { name: 'Retry report' }))
   expect(await page.findByText('Recovered Search Result')).toBeTruthy()
   expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('retry')
+})
+
+test('pinning a market competitor writes only a draft action and refetches that market landscape', async () => {
+  const calls: Array<{ path: string; method: string; body: string; idempotencyKey: string | null }> = []
+  let mutationSettled = false
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    const body = await request.clone().text()
+    calls.push({ path, method: request.method, body, idempotencyKey: request.headers.get('idempotency-key') })
+
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/queries')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({
+        state: 'operational',
+        nextAction: 'view_measurement',
+        mode: 'active-v2',
+        activeRevision: 4,
+        activeSchemaVersion: 2,
+        draft: mutationSettled ? { etag: '"mpd_1"', updatedAt: '2026-08-03T12:00:00.000Z' } : null,
+      })
+    }
+    if (url.pathname.endsWith('/measurement-overview')) {
+      return jsonResponse(measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North' }))
+    }
+    if (url.pathname.endsWith('/analytics/competitors')) {
+      const response = competitorLandscapeResponse({
+        scope: { kind: 'group', groupKey: 'north' },
+        pinnedLabel: mutationSettled ? 'Draft rival' : 'North pin',
+        observedLabel: 'Observed rival',
+      })
+      return jsonResponse({
+        ...response,
+        marketState: {
+          activeRevision: 4,
+          draft: mutationSettled ? { etag: '"mpd_1"', pendingCompetitorDomains: ['observed.example'] } : null,
+        },
+      })
+    }
+    if (url.pathname.endsWith('/measurement-plan/draft/actions/pin-competitor') && request.method === 'POST') {
+      mutationSettled = true
+      return jsonResponse({
+        etag: '"mpd_1"',
+        changed: true,
+        warnings: [],
+        counts: { targets: 1, includedTargets: 1, assignments: 1, unclassifiedAssignments: 0, groups: 1, competitors: 1 },
+        groupKey: 'north',
+        competitor: { stableKey: 'competitor-observed.example', label: 'Observed rival', domain: 'observed.example', aliases: ['Observed rival'] },
+        draftCreated: true,
+        published: { revision: 4, competitorsChanged: false },
+      })
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint?scope=group:north'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByRole('button', { name: 'Pin observed.example' })).toBeTruthy()
+  fireEvent.click(page.getByRole('button', { name: 'Pin observed.example' }))
+
+  await waitFor(() => expect(calls.some(call => call.path.endsWith('/measurement-plan/draft/actions/pin-competitor') && call.method === 'POST')).toBe(true))
+  const mutation = calls.find(call => call.path.endsWith('/measurement-plan/draft/actions/pin-competitor'))!
+  expect(JSON.parse(mutation.body)).toEqual({ expectedActiveRevision: 4, groupKey: 'north', domain: 'observed.example' })
+  expect(mutation.idempotencyKey).toBeTruthy()
+
+  const mutationIndex = calls.indexOf(mutation)
+  await waitFor(() => expect(calls.slice(mutationIndex + 1).some(call => (
+    call.method === 'GET' && call.path.includes('/analytics/competitors?') && call.path.includes('groupKey=north')
+  ))).toBe(true))
+  expect(await page.findByText('Draft rival')).toBeTruthy()
+  expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
 })
 
 test('a direct Portfolio URL falls back safely in embed mode', async () => {
@@ -713,7 +885,7 @@ test('a failed setup read keeps project results and the global run action visibl
   )
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
-  expect(page.getByText('Where competitors are winning')).toBeTruthy()
+  expect(page.getByText('Competitor landscape')).toBeTruthy()
   expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
@@ -766,6 +938,61 @@ test('cached setup and queries remain usable when their background refresh fails
   fireEvent.click(screen.getByRole('button', { name: 'Continue without groups' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Queries' })).toBeTruthy())
   expect(screen.getByText('old service query')).toBeTruthy()
+})
+
+test('cached competitor history remains visible when its background refresh fails', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/queries')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (url.pathname.endsWith('/analytics/competitors')) {
+      return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
+    { active: null },
+  )
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
+      client: heyClient,
+      path: { name: projectName },
+      query: { window: '30d' },
+    }),
+    competitorLandscapeResponse({ pinnedLabel: 'Cached pin', observedLabel: 'Cached observed rival' }),
+  )
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(queryClient.getQueryState(
+    getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
+      client: heyClient,
+      path: { name: projectName },
+      query: { window: '30d' },
+    }),
+  )?.status).toBe('error'))
+  expect(page.getByRole('rowheader', { name: 'Cached pin' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'Cached observed rival' })).toBeTruthy()
+  expect(page.getByRole('alert').textContent).toContain('Could not refresh competitor history. Showing the last available data.')
 })
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -890,7 +1117,7 @@ test('an unresolved measurement plan shows a skeleton instead of flashing the Si
 
   expect(html).toContain('Loading project overview')
   // The legacy overview's own copy must not appear while the answer is unknown.
-  expect(html).not.toContain('Where competitors are winning')
+  expect(html).not.toContain('Competitor landscape')
 })
 
 test('a settled plan read still renders the Simple Overview, so the guard is not a permanent skeleton', async () => {
@@ -899,7 +1126,7 @@ test('a settled plan read still renders the Simple Overview, so the guard is not
   // from settled would strand this on the skeleton forever.
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Competitor landscape')
   expect(html).not.toContain('Loading project overview')
 })
 
@@ -926,6 +1153,73 @@ test('a scope in the URL selects that group on first paint, with no interaction'
   const group = doc.querySelector('[aria-labelledby="advanced-measurement-group-label"]')
   const checked = group?.querySelector('[role="radio"][aria-checked="true"], option[selected]')
   expect(checked?.textContent).toBe('North')
+})
+
+test('a market scope reads that group\'s stored competitor landscape', async () => {
+  const html = await renderAt(
+    '/projects/project_citypoint?scope=group:north',
+    undefined,
+    {
+      plan: measurementPlanV2Response(2),
+      overview: measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North' }),
+      overviewKey: { scope: 'group', groupKey: 'north' },
+      competitorLandscape: competitorLandscapeResponse({
+        scope: { kind: 'group', groupKey: 'north' },
+        pinnedLabel: 'North pin',
+        observedLabel: 'North rival',
+      }),
+      competitorLandscapeKey: { groupKey: 'north' },
+    },
+  )
+
+  expect(html).toContain('North pin')
+  expect(html).toContain('North rival')
+  expect(html).not.toContain('Pinned operator')
+})
+
+test('a market fallback keeps project pins alongside frozen market pins', async () => {
+  const plan = measurementPlanV2Response(2)
+  plan.active.plan.groups[0]!.competitors = [{
+    stableKey: 'north-rival',
+    label: 'North rival',
+    domain: 'north-rival.example',
+    aliases: [],
+  }]
+
+  const html = await renderAt(
+    '/projects/project_citypoint?scope=group:north',
+    undefined,
+    {
+      plan,
+      overview: measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North' }),
+      overviewKey: { scope: 'group', groupKey: 'north' },
+    },
+  )
+
+  expect(html).toContain('North rival')
+  expect(html).toContain('downtownsmiles.com')
+})
+
+test('an all-properties v2 view requests and renders the explicit all-markets landscape', async () => {
+  const html = await renderAt(
+    '/projects/project_citypoint',
+    undefined,
+    {
+      plan: measurementPlanV2Response(2),
+      overview: measurementOverviewResponse(),
+      overviewKey: { scope: 'all' },
+      competitorLandscape: competitorLandscapeResponse({
+        scope: { kind: 'all-markets' },
+        pinnedLabel: 'All market pin',
+        observedLabel: 'All market rival',
+      }),
+      competitorLandscapeKey: { scope: 'all-markets' },
+    },
+  )
+
+  expect(html).toContain('All market pin')
+  expect(html).toContain('All market rival')
+  expect(html).toContain('All markets')
 })
 
 test('a query class in the URL selects that class on first paint', async () => {

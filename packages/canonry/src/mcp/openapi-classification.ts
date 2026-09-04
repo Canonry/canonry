@@ -35,6 +35,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/keywords': 'included',
   'POST /api/v1/projects/{name}/keywords/generate': 'included',
   'GET /api/v1/projects/{name}/competitors': 'included',
+  'GET /api/v1/projects/{name}/analytics/competitors': 'included',
   'PUT /api/v1/projects/{name}/competitors': 'deferred',
   'POST /api/v1/projects/{name}/competitors': 'included',
   'DELETE /api/v1/projects/{name}/competitors': 'included',
@@ -79,6 +80,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-group-membership': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-competitor': 'included',
+  // The dashboard uses the dedicated additive pin action; agents can inspect
+  // the landscape and use the existing explicit draft action workflow.
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/pin-competitor': 'deferred',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-competitor': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/compile-preview': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview': 'included',

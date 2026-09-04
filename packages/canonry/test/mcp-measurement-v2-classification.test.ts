@@ -28,6 +28,7 @@ const advancedMeasurementV2Operations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-group-membership',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-competitor',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-competitor',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/pin-competitor',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/publish',
@@ -51,6 +52,12 @@ const advancedMeasurementV2Operations = [
   'POST /api/v1/projects/{name}/measurement-query-templates/{templateId}/apply',
 ] as const
 
+const deferredAdvancedMeasurementV2Operations = new Set<string>([
+  // Agents already pin through the generic draft-action tool. Keep the
+  // convenience HTTP mutation out of the MCP catalog to avoid two write paths.
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/pin-competitor',
+])
+
 function isAdvancedMeasurementV2Operation(operation: string): boolean {
   return operation.includes('/measurement-setup')
     || operation.includes('/measurement-plan/draft')
@@ -69,7 +76,7 @@ function isAdvancedMeasurementV2Operation(operation: string): boolean {
 
 describe('Advanced Measurement v2 MCP OpenAPI classification', () => {
   it('lists every exposed operation', () => {
-    expect(advancedMeasurementV2Operations).toHaveLength(47)
+    expect(advancedMeasurementV2Operations).toHaveLength(48)
 
     const classifiedOperations = Object.keys(MCP_OPENAPI_OPERATION_CLASSIFICATIONS)
       .filter(isAdvancedMeasurementV2Operation)
@@ -78,7 +85,11 @@ describe('Advanced Measurement v2 MCP OpenAPI classification', () => {
     expect(classifiedOperations).toEqual([...advancedMeasurementV2Operations].sort())
   })
 
-  it.each(advancedMeasurementV2Operations)('%s is included', operation => {
+  it.each(advancedMeasurementV2Operations.filter(operation => !deferredAdvancedMeasurementV2Operations.has(operation)))('%s is included', operation => {
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('included')
+  })
+
+  it.each([...deferredAdvancedMeasurementV2Operations])('%s is deferred', operation => {
+    expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('deferred')
   })
 })

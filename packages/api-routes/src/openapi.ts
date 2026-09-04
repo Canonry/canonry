@@ -378,6 +378,48 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
+  name: 'groupKey',
+  in: 'query',
+  description: 'Advanced Measurement market (v2 group stable key). Omit for the project-wide landscape.',
+  schema: stringSchema,
+}
+
+const competitorLandscapeScopeParameter: OpenApiParameter = {
+  name: 'scope',
+  in: 'query',
+  description: 'Set to "all-markets" to aggregate raw stored evidence across every Advanced Measurement market. It cannot be combined with groupKey.',
+  schema: { type: 'string', enum: ['all-markets'] },
+}
+
+const competitorLandscapeProviderParameter: OpenApiParameter = {
+  name: 'provider',
+  in: 'query',
+  description: 'Restrict evidence to one answer provider.',
+  schema: stringSchema,
+}
+
+const competitorLandscapeQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  description: 'Restrict evidence to a question class. Advanced groups use their frozen assignment classes; simple projects classify stored query text.',
+  schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
+}
+
+const competitorLandscapeLocationParameter: OpenApiParameter = {
+  name: 'location',
+  in: 'query',
+  description: 'Restrict evidence to one stored location label.',
+  schema: stringSchema,
+}
+
+const competitorLandscapeRunIdParameter: OpenApiParameter = {
+  name: 'runId',
+  in: 'query',
+  description: 'Restrict evidence to one stored answer-visibility run.',
+  schema: stringSchema,
+}
+
 const analyticsStartDateParameter: OpenApiParameter = {
   name: 'startDate',
   in: 'query',
@@ -1102,6 +1144,15 @@ const routeCatalog: OpenApiOperation[] = [
     action: 'upsert-competitor',
     summary: 'Add or update a group competitor',
     request: 'MeasurementDraftUpsertCompetitorRequest',
+  }),
+  measurementDraftAction({
+    action: 'pin-competitor',
+    summary: 'Pin an observed Advanced Measurement competitor',
+    description: 'Atomically upserts one competitor into a pending market draft and returns the recomputed draft state. It is guarded by the active published revision, leaves that frozen revision unchanged, and is safe to retry with the same idempotency key.',
+    request: 'MeasurementDraftPinCompetitorRequest',
+    response: 'MeasurementDraftPinCompetitorResponse',
+    responseDescription: 'Pending draft competitor pinned; the active published revision is unchanged.',
+    requiresDraftEtag: false,
   }),
   measurementDraftAction({
     action: 'remove-competitor',
@@ -2010,6 +2061,28 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       204: { description: 'Competitor deleted.' },
       404: errorResponse('Project or competitor not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/analytics/competitors',
+    summary: 'Get the stored competitor landscape',
+    description: 'Returns project pins first, then stored-discovery direct competitors and non-competitive cited sources. Mention share uses answer text only; citations remain a separate source-list signal. This is a stored-evidence read: it never calls a provider or classifier. Probe and non-terminal observations are excluded and counted explicitly. A groupKey scopes an Advanced Measurement market to its frozen v2 execution nodes and usage edges.',
+    tags: ['analytics', 'competitors'],
+    parameters: [
+      nameParameter,
+      analyticsWindowParameter,
+      competitorLandscapeGroupKeyParameter,
+      competitorLandscapeScopeParameter,
+      competitorLandscapeProviderParameter,
+      competitorLandscapeQueryClassParameter,
+      competitorLandscapeLocationParameter,
+      competitorLandscapeRunIdParameter,
+    ],
+    responses: {
+      200: jsonResponse('Stored competitor landscape returned.', 'CompetitorLandscapeResponse'),
+      400: errorResponse('The landscape filters or Advanced Measurement group are invalid.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {

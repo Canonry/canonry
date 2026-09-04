@@ -463,6 +463,121 @@ export const sourceBreakdownDtoSchema = z.object({
 export type SourceBreakdownDto = z.infer<typeof sourceBreakdownDtoSchema>
 
 /**
+ * Historical competitor landscape, calculated only from persisted answer and
+ * source evidence. `shareOfVoice` is percentage points (0..100), never a
+ * fractional ratio: `37.5` means 37.5% of the named competitive credits.
+ */
+export const competitorLandscapeSurfaceClassSchema = z.enum([
+  'own',
+  'direct-competitor',
+  'ota-aggregator',
+  'editorial-media',
+  'other',
+  'unknown',
+])
+export type CompetitorLandscapeSurfaceClass = z.infer<typeof competitorLandscapeSurfaceClassSchema>
+
+export const competitorLandscapeScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('project') }).strict(),
+  z.object({ kind: z.literal('group'), groupKey: z.string().trim().min(1) }).strict(),
+  z.object({ kind: z.literal('all-markets') }).strict(),
+])
+export type CompetitorLandscapeScope = z.infer<typeof competitorLandscapeScopeSchema>
+
+export const competitorLandscapeQueryClassSchema = z.enum(['all', 'branded', 'non-brand'])
+export type CompetitorLandscapeQueryClass = z.infer<typeof competitorLandscapeQueryClassSchema>
+
+/** Explicitly selects the Advanced Measurement aggregate; it is never an implicit project fallback. */
+export const competitorLandscapeModeSchema = z.enum(['project', 'all-markets'])
+export type CompetitorLandscapeMode = z.infer<typeof competitorLandscapeModeSchema>
+
+/** Route query filters. `groupKey` scopes an Advanced Measurement market. */
+export const competitorLandscapeQuerySchema = z.object({
+  window: metricsWindowSchema.optional(),
+  groupKey: z.string().trim().min(1).optional(),
+  scope: competitorLandscapeModeSchema.optional(),
+  provider: z.string().trim().min(1).optional(),
+  queryClass: competitorLandscapeQueryClassSchema.optional(),
+  location: z.string().trim().min(1).optional(),
+  runId: z.string().trim().min(1).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.scope === 'all-markets' && value.groupKey !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['groupKey'],
+      message: 'groupKey cannot be combined with scope=all-markets',
+    })
+  }
+})
+export type CompetitorLandscapeQuery = z.infer<typeof competitorLandscapeQuerySchema>
+
+/** One project, pinned, observed, or non-competitive source identity. */
+export const competitorLandscapeRowSchema = z.object({
+  domain: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+  surfaceClass: competitorLandscapeSurfaceClassSchema,
+  pinned: z.boolean(),
+  /** One answer-text match at most per result. */
+  mentionCount: z.number().int().nonnegative(),
+  /** Percentage points (0..100), null outside the competitive denominator. */
+  shareOfVoice: z.number().min(0).max(100).nullable(),
+  /** One source-list credit at most per result. Independent of mentions. */
+  citationCount: z.number().int().nonnegative(),
+  /** Answer-text result count behind the mention field. */
+  answeredResults: z.number().int().nonnegative(),
+  firstSeenAt: z.string().datetime().nullable(),
+  lastSeenAt: z.string().datetime().nullable(),
+  sampleUrls: z.array(z.string().url()).max(3),
+}).strict()
+export type CompetitorLandscapeRow = z.infer<typeof competitorLandscapeRowSchema>
+
+export const competitorLandscapeResponseSchema = z.object({
+  window: metricsWindowSchema,
+  scope: competitorLandscapeScopeSchema,
+  project: competitorLandscapeRowSchema,
+  /** Explicit/custom competitors, preserved even with zero observations. */
+  pinned: z.array(competitorLandscapeRowSchema),
+  /** Stored-discovery direct competitors, ordered by historical mention SOV. */
+  observed: z.array(competitorLandscapeRowSchema),
+  /** Aggregators, editorial, unknown, and other cited sources; never SOV competitors. */
+  otherSources: z.array(competitorLandscapeRowSchema),
+  evidence: z.object({
+    answeredResults: z.number().int().nonnegative(),
+    sourceResults: z.number().int().nonnegative(),
+    missingAnswerTextResults: z.number().int().nonnegative(),
+    /** Project plus direct-competitor named credits behind SOV. */
+    mentionCredits: z.number().int().nonnegative(),
+    /** Citation captures that cannot prove a complete source list; never inferred as misses. */
+    incompleteSourceResults: z.number().int().nonnegative(),
+    /** Stored probe snapshots intentionally omitted from every landscape metric. */
+    excludedProbeResults: z.number().int().nonnegative(),
+    /** Stored snapshots from queued/running/failed/cancelled runs omitted from every metric. */
+    excludedNonCompletedResults: z.number().int().nonnegative(),
+  }).strict(),
+  /** Present only for Advanced market reads; active metrics stay frozen while draft pins remain pending publish. */
+  marketState: z.object({
+    activeRevision: z.number().int().positive(),
+    draft: z.object({
+      etag: z.string().trim().min(1),
+      /** Draft-only market identities included in `pinned` for this response. */
+      pendingCompetitorDomains: z.array(z.string().trim().min(1)),
+    }).strict().nullable(),
+  }).strict().nullable(),
+  /** Echoes all applied filters so a client never mistakes a scoped reading for a project-wide one. */
+  filters: z.object({
+    scope: competitorLandscapeModeSchema,
+    groupKey: z.string().nullable(),
+    provider: z.string().nullable(),
+    queryClass: competitorLandscapeQueryClassSchema,
+    location: z.string().nullable(),
+    runId: z.string().nullable(),
+  }).strict(),
+  /** True when ranked observed/source lists exceed the server cap; pinned rows are never dropped. */
+  truncated: z.boolean(),
+}).strict()
+export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
+
+/**
  * Resolve a caller-supplied window label. An absent (or empty) value means the
  * caller asked for no window at all and gets the full history.
  *

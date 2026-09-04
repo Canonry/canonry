@@ -15,6 +15,7 @@ import {
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
   competitorBatchRequestSchema,
+  competitorLandscapeQuerySchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
   discoveryBucketSchema,
@@ -706,6 +707,9 @@ const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
 })
+const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.extend({
+  project: projectNameSchema,
+}).strict()
 
 const projectUpsertInputSchema = z.object({
   project: projectNameSchema,
@@ -1190,6 +1194,20 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/analytics/sources'],
     handler: (client, input) => client.getAnalyticsSources(input.project, { window: input.window, limit: input.limit }),
+  }),
+  defineTool({
+    name: 'canonry_competitor_landscape',
+    title: 'Get historical competitor landscape',
+    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. Advanced reads support one market group or explicit `scope: all-markets`; no provider, discovery, or classifier work runs. When `truncated` is true, ranked observed and other-source lists are capped while pins remain complete.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: competitorLandscapeInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/competitors'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.getCompetitorLandscape(project, query)
+    },
   }),
   defineTool({
     name: 'canonry_search',

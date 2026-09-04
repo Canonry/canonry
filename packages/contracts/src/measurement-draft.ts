@@ -9,6 +9,7 @@ import {
 } from './measurement-plan-v2.js'
 import { measurementDiscoveryRuleSchema } from './measurement-service.js'
 import { providerNameSchema } from './provider.js'
+import { hostOf } from './url-normalize.js'
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const measurementDraftQueryIdSchema = z.string().trim().min(1).max(256)
@@ -75,6 +76,7 @@ export const measurementDraftAssignmentSchema = z.object({
 export type MeasurementDraftAssignment = z.output<typeof measurementDraftAssignmentSchema>
 
 export const measurementDraftCompetitorSchema = measurementV2CompetitorSchema
+export type MeasurementDraftCompetitor = z.output<typeof measurementDraftCompetitorSchema>
 
 /** Reporting membership and competitors only. Strictness is what rejects a query or execution field here. */
 export const measurementDraftGroupSchema = z.object({
@@ -408,6 +410,33 @@ export const measurementDraftUpsertCompetitorRequestSchema = z.object({
   groupKey: measurementV2StableKeySchema,
   competitor: measurementDraftCompetitorSchema,
 }).strict()
+
+/**
+ * Add an observed market competitor without requiring callers to first create
+ * a draft or obtain its ETag. The action is additive and revision-guarded: it
+ * never changes the active frozen plan and is safe to retry with an idempotency
+ * key.
+ */
+export const measurementDraftPinCompetitorRequestSchema = z.object({
+  expectedActiveRevision: measurementDraftRevisionSchema,
+  groupKey: measurementV2StableKeySchema,
+  domain: z.string().trim().min(1).refine(value => hostOf(value) !== null, 'A competitor domain must be a valid hostname'),
+  label: z.string().trim().min(1).optional(),
+  aliases: z.array(z.string().trim().min(1)).optional(),
+}).strict()
+export type MeasurementDraftPinCompetitorRequest = z.output<typeof measurementDraftPinCompetitorRequestSchema>
+
+/** The action always leaves the published revision untouched; publish is separate and explicit. */
+export const measurementDraftPinCompetitorResponseSchema = measurementDraftMutationResponseSchema.extend({
+  groupKey: measurementV2StableKeySchema,
+  competitor: measurementDraftCompetitorSchema,
+  draftCreated: z.boolean(),
+  published: z.object({
+    revision: measurementDraftRevisionSchema,
+    competitorsChanged: z.literal(false),
+  }).strict(),
+}).strict()
+export type MeasurementDraftPinCompetitorResponse = z.output<typeof measurementDraftPinCompetitorResponseSchema>
 
 export const measurementDraftRemoveCompetitorRequestSchema = z.object({
   groupKey: measurementV2StableKeySchema,

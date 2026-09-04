@@ -72,6 +72,16 @@ ADR index, or canonical roadmap. For file-level navigation use `docs/CODEMAP.md`
 
 **Recipes:** `add API route` → `packages/contracts/src/*.ts` Zod → `packages/api-routes/src/<domain>.ts` → `openapi.ts` → `pnpm gen` → `apps/web/src/queries/*.ts`; `add CLI command` → `packages/canonry/src/cli-commands/<cmd>.ts` → `src/mcp/tool-registry.ts` tier + `openapi-classification.ts` → test; `add web section` → `PRODUCT.md` + `apps/web/src/pages/ProjectPage.tsx` tab → `apps/web/src/components/project/*` → update per-package `AGENTS.md`.
 
+## Portfolio Feature Parity (Critical)
+
+Here, a **simple portfolio** means the standard project flow. A **custom portfolio** means an Advanced Measurement portfolio.
+
+- Every feature for a simple portfolio must also work in a custom portfolio.
+- Include both portfolio paths in the same implementation scope.
+- Cover the API, CLI, MCP, web UI, permissions, states, and tests for both paths.
+- If the paths need different aggregation rules, implement and document both rules.
+- Do not omit a custom-portfolio dimension. Preserve its Property, Target, market, provider, and query-class scope.
+
 ## Response sections and feedback
 
 Use these sections only for review handoffs. Keep simple answers and routine status updates short.
@@ -110,6 +120,7 @@ canonry query add <project> <query>...
 canonry query replace <project> <query>...
 canonry competitor add <project> <domain>...
 canonry competitor remove <project> <domain>...
+canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--provider <provider>] [--query-class all|branded|non-brand] [--location <label>] [--run-id <id>] [--format json|jsonl]  # stored evidence only; pins first, then observed direct competitors; all-markets recomputes raw evidence
 canonry measurement-plan discover <project> --sitemap-url <url> --rule <yaml|json|-> [--max-urls <n>]
 canonry measurement-plan show <project> [--revision <n>]
 canonry measurement-plan versions <project>

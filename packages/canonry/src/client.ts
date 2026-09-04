@@ -73,6 +73,8 @@ import type {
   NotificationDto,
   SnapshotReportDto,
   BrandMetricsDto,
+  CompetitorLandscapeQuery,
+  CompetitorLandscapeResponse,
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
@@ -294,6 +296,7 @@ import {
   getApiV1ProjectsByNameSnapshotsDiff,
   // Analytics
   getApiV1ProjectsByNameAnalyticsMetrics,
+  getApiV1ProjectsByNameAnalyticsCompetitors,
   getApiV1ProjectsByNameAnalyticsGaps,
   getApiV1ProjectsByNameAnalyticsSources,
   // Settings / snapshot / telemetry
@@ -2080,6 +2083,20 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: { window } as never,
+      }),
+    )
+  }
+
+  /** Historical competitor SOV from stored evidence only; never runs a provider or discovery job. */
+  async getCompetitorLandscape(
+    project: string,
+    opts: CompetitorLandscapeQuery = {},
+  ): Promise<CompetitorLandscapeResponse> {
+    return this.invoke<CompetitorLandscapeResponse>(() =>
+      getApiV1ProjectsByNameAnalyticsCompetitors({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts as never,
       }),
     )
   }

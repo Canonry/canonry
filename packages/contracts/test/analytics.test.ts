@@ -14,6 +14,8 @@ import {
   surfaceClassCountSchema,
   rankedSourceListSchema,
   sourceBreakdownDtoSchema,
+  competitorLandscapeQuerySchema,
+  competitorLandscapeResponseSchema,
   parseWindow,
   resolveDateRange,
 } from '../src/analytics.js'
@@ -498,5 +500,73 @@ describe('resolveDateRange', () => {
 
   it('rejects an unrecognised window even when dates are also supplied', () => {
     expect(() => resolveDateRange({ startDate: '2026-05-01', window: '60d' })).toThrow(AppError)
+  })
+})
+
+describe('competitor landscape DTO schemas', () => {
+  const row = {
+    domain: 'rival.example',
+    label: 'Rival',
+    surfaceClass: 'direct-competitor' as const,
+    pinned: false,
+    mentionCount: 3,
+    shareOfVoice: 37.5,
+    citationCount: 4,
+    answeredResults: 8,
+    firstSeenAt: '2026-08-01T00:00:00.000Z',
+    lastSeenAt: '2026-08-10T00:00:00.000Z',
+    sampleUrls: ['https://rival.example/review'],
+  }
+
+  it('round-trips a stored-evidence landscape with an explicit percentage denominator', () => {
+    const parsed = competitorLandscapeResponseSchema.parse({
+      window: '30d',
+      scope: { kind: 'project' },
+      project: { ...row, domain: 'acme.example', label: 'Acme', surfaceClass: 'own', pinned: false },
+      pinned: [{ ...row, pinned: true }],
+      observed: [row],
+      otherSources: [{ ...row, domain: 'news.example', surfaceClass: 'editorial-media', mentionCount: 0, shareOfVoice: null }],
+      evidence: {
+        answeredResults: 8,
+        sourceResults: 9,
+        missingAnswerTextResults: 1,
+        mentionCredits: 8,
+        incompleteSourceResults: 2,
+        excludedProbeResults: 0,
+        excludedNonCompletedResults: 0,
+      },
+      marketState: null,
+      filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'all', location: null, runId: null },
+      truncated: false,
+    })
+    expect(parsed.observed[0]!.shareOfVoice).toBe(37.5)
+    expect(parsed.evidence.mentionCredits).toBe(8)
+  })
+
+  it('accepts a market/group filter and rejects an ambiguous share scale', () => {
+    expect(competitorLandscapeQuerySchema.parse({ window: '7d', groupKey: 'new-york' })).toEqual({
+      window: '7d',
+      groupKey: 'new-york',
+    })
+    expect(() => competitorLandscapeResponseSchema.parse({
+      window: 'all',
+      scope: { kind: 'project' },
+      project: { ...row, domain: 'acme.example', label: 'Acme', surfaceClass: 'own', shareOfVoice: 101 },
+      pinned: [],
+      observed: [],
+      otherSources: [],
+      evidence: {
+        answeredResults: 0,
+        sourceResults: 0,
+        missingAnswerTextResults: 0,
+        mentionCredits: 0,
+        incompleteSourceResults: 0,
+        excludedProbeResults: 0,
+        excludedNonCompletedResults: 0,
+      },
+      marketState: null,
+      filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'all', location: null, runId: null },
+      truncated: false,
+    })).toThrow()
   })
 })
