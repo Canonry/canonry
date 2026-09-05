@@ -10,8 +10,21 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+import { runAdvancedMeasurementOperation } from '../commands/measurement-plan.js'
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  ...(['workspace', 'preview', 'commit'] as const).map(action => ({
+    path: ['query', action],
+    usage: `canonry query ${action} <project>${action === 'workspace' ? '' : ' <json|->'} [--format json]`,
+    run: async (input) => {
+      const usage = `canonry query ${action} <project>${action === 'workspace' ? '' : ' <json|->'} [--format json]`
+      const project = requireProject(input, `query.${action}`, usage)
+      const source = action === 'workspace' ? undefined : requirePositional(input, 1, {
+        command: `query.${action}`, usage, message: 'A preview or commit JSON file is required',
+      })
+      await runAdvancedMeasurementOperation(project, `query-${action}`, source, input.format)
+    },
+  } satisfies CliCommandSpec)),
   {
     path: ['query', 'add'],
     usage: 'canonry query add <project> <query...> [--format json]',
@@ -138,12 +151,12 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['query'],
-    usage: 'canonry query <add|replace|remove|delete|list|import|generate> <project> [args]',
+    usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'query',
-        usage: 'canonry query <add|replace|remove|delete|list|import|generate> <project> [args]',
-        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate'],
+        usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
+        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate', 'workspace', 'preview', 'commit'],
       })
     },
   },

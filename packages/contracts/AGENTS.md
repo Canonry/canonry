@@ -14,6 +14,8 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/run.ts` | Run and grounding source types |
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
+| `src/query-tracking.ts` | Shared workspace, assignment preview, and commit DTOs. Tokens bind the exact mutation and workspace. Workload counts belong to the API. |
+| `src/visibility-report.ts` | Frozen result selection, independent query-class populations, rates, trends, paginated answers, and competitor provenance. Plain request schema supports MCP JSON Schema. |
 | `src/config-schema.ts` | Config file Zod validation |
 | `src/models.ts` | Shared model types |
 | `src/model-pointers.ts` | Hand-maintained record of dates on which a provider changed the model behind a moving id (`chat-latest` and friends), plus `evaluateModelPointerExposure` (did a change land while the project was running that id?) and `buildModelChangeNotice` (the plain-language caveat both the dashboard and the CLI render — the ONLY wording of it; the DTO carries facts, never prose). Add a new dated entry to `MODEL_POINTER_EVENTS` whenever the provider's changelog announces one, AND move `MODEL_POINTER_REGISTRY_CHECKED_THROUGH` to the day you re-read the sources — every disclosure states that date, so a stale one reads as knowledge we do not have. |

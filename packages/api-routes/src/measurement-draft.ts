@@ -258,7 +258,7 @@ function seedAuthoring(
         targetKey: assignment.targetKey,
         queryId: assignment.queryId,
         queryClass: assignment.queryClass,
-        classificationSource: 'operator',
+        classificationSource: assignment.classificationSource === 'server' ? 'rule' : 'operator',
         // Explicit fields prevent current project defaults from rewriting a frozen assignment.
         contextOverride: { providers, models, locations },
       })
@@ -281,6 +281,12 @@ function seedAuthoring(
         targetKeys: [...group.targetKeys],
         competitors: group.competitors.map(competitor => ({ ...competitor })),
       })),
+      ...(active.reportingScopes === undefined ? {} : {
+        reportingScopes: active.reportingScopes.map(scope => ({
+          ...scope,
+          usageEdges: scope.usageEdges.map(edge => ({ ...edge })),
+        })),
+      }),
     }
   }
 

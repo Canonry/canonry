@@ -5,6 +5,7 @@ import {
   matcherMatchesText,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
+  measurementV2UsageEdgeKey,
   normalizeMeasurementExactUrl,
   normalizeMeasurementHost,
   normalizeMeasurementPathPrefix,
@@ -18,6 +19,7 @@ import {
   type MeasurementV2ExecutionNode,
   type MeasurementV2Group,
   type MeasurementV2QuerySnapshot,
+  type MeasurementV2ReportingScope,
   type MeasurementV2Target,
   type MeasurementV2UrlMatcher,
   type MeasurementV2UsageEdge,
@@ -149,6 +151,66 @@ function locationKey(location: LocationContext | null): string {
 interface CheckSink {
   fail(ruleId: string, message: string, path: (string | number)[]): void
   warn(ruleId: string, message: string, path: (string | number)[]): void
+}
+
+/**
+ * A market persists exact frozen edge membership. Draft authoring can remove a
+ * question or change its context, so retain an exact surviving edge, remap a
+ * one-to-one target/query successor, or explicitly prune an ambiguous/deleted
+ * member with a visible warning. A group is never used as a fallback here.
+ */
+function rebuildReportingScopes(
+  requested: readonly MeasurementV2ReportingScope[] | undefined,
+  candidateEdges: readonly MeasurementV2UsageEdge[],
+  sink: CheckSink,
+): MeasurementV2ReportingScope[] | undefined {
+  if (requested === undefined) return undefined
+  const exact = new Map(candidateEdges.map(edge => [measurementV2UsageEdgeKey(edge), edge]))
+  const byTargetQuery = new Map<string, MeasurementV2UsageEdge[]>()
+  for (const edge of candidateEdges) {
+    const key = `${edge.targetKey}\u0000${edge.queryId}`
+    const rows = byTargetQuery.get(key)
+    if (rows) rows.push(edge)
+    else byTargetQuery.set(key, [edge])
+  }
+  const scopeKeys = new Set<string>()
+  return requested.map((scope, scopeIndex) => {
+    if (scopeKeys.has(scope.stableKey)) {
+      sink.fail('reporting-scope-duplicate-key', `Duplicate reporting scope key: ${scope.stableKey}`, ['reportingScopes', scopeIndex, 'stableKey'])
+    }
+    scopeKeys.add(scope.stableKey)
+    const memberKeys = new Set<string>()
+    const usageEdges: MeasurementV2UsageEdge[] = []
+    scope.usageEdges.forEach((member, memberIndex) => {
+      const key = measurementV2UsageEdgeKey(member)
+      if (memberKeys.has(key)) {
+        sink.fail('reporting-scope-duplicate-edge', `Reporting scope "${scope.stableKey}" repeats an edge.`, ['reportingScopes', scopeIndex, 'usageEdges', memberIndex])
+        return
+      }
+      memberKeys.add(key)
+      const present = exact.get(key)
+      if (present) {
+        usageEdges.push(present)
+        return
+      }
+      const successors = byTargetQuery.get(`${member.targetKey}\u0000${member.queryId}`) ?? []
+      if (successors.length === 1) {
+        usageEdges.push(successors[0]!)
+        sink.warn(
+          'reporting-scope-edge-rebuilt',
+          `Reporting scope "${scope.stableKey}" now follows the one surviving context for ${member.targetKey}/${member.queryId}.`,
+          ['reportingScopes', scopeIndex, 'usageEdges', memberIndex],
+        )
+        return
+      }
+      sink.warn(
+        'reporting-scope-edge-pruned',
+        `Reporting scope "${scope.stableKey}" no longer includes ${member.targetKey}/${member.queryId}; its exact context was removed or became ambiguous.`,
+        ['reportingScopes', scopeIndex, 'usageEdges', memberIndex],
+      )
+    })
+    return { ...scope, usageEdges }
+  })
 }
 
 function createChecks(): { checks: MeasurementDraftCompileCheck[]; sink: CheckSink; failed: () => boolean } {
@@ -429,6 +491,7 @@ export function compileMeasurementDraft(
         targetKey: assignment.targetKey,
         queryId: assignment.queryId,
         queryClass: assignment.queryClass,
+        classificationSource: assignment.classificationSource === 'rule' ? 'server' : 'operator',
         executionNodeKey: stableKey,
       })
       const edge: MeasurementV2UsageEdge = { executionNodeKey: stableKey, targetKey: assignment.targetKey, queryId: assignment.queryId }
@@ -457,6 +520,10 @@ export function compileMeasurementDraft(
     provenance: { source: 'manual' as const, sourceId: null, capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH },
   }))
 
+  const compiledUsageEdges = [...usageEdges.values()]
+  const reportingScopes = rebuildReportingScopes(authoring.reportingScopes, compiledUsageEdges, sink)
+  if (failed()) return { ok: false, checks }
+
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,
     identities: {
@@ -471,7 +538,8 @@ export function compileMeasurementDraft(
     querySnapshots,
     assignments,
     executionNodes: [...nodesByKey.values()],
-    usageEdges: [...usageEdges.values()],
+    usageEdges: compiledUsageEdges,
+    ...(reportingScopes === undefined ? {} : { reportingScopes }),
     compiledChecksum: CHECKSUM_PLACEHOLDER,
   }
   const compiledChecksum = sha256Hex(measurementPlanV2ChecksumJson(draft))

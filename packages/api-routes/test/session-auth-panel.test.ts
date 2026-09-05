@@ -641,3 +641,136 @@ test('another origin cannot end somebody else sessions for them', async () => {
   })
   expect(stillWorks.statusCode).toBe(200)
 })
+
+test('the overview embed reads measured visibility but cannot read or change the query workspace', async () => {
+  const embedded = await bootEmbedApp(['overview'])
+  try {
+    const report = await embedded.inject({ method: 'GET', url: '/api/v1/projects/sample/visibility-report', headers: withKey(ROOT_KEY) })
+    expect(report.statusCode).toBe(200)
+    for (const [method, suffix] of [['GET', ''], ['POST', '/preview'], ['POST', '/commit']] as const) {
+      const denied = await embedded.inject({ method, url: `/api/v1/projects/sample/query-tracking${suffix}`, headers: withKey(ROOT_KEY) })
+      expect(denied.statusCode).toBe(403)
+    }
+  } finally {
+    await embedded.close()
+  }
+})
+
+// ─── P2.5 sessions that never end ──────────────────────────────────────────
+
+test('the technical-aeo embed tab permits its Site Health graph and semantic reads', async () => {
+  const embedded = await bootEmbedApp(['technical-aeo'])
+  try {
+    for (const url of [
+      '/api/v1/projects/sample/technical-aeo/graph',
+      '/api/v1/projects/sample/technical-aeo/crawl/pages/audit?nodeKey=home',
+      '/api/v1/projects/sample/technical-aeo/subgraph',
+      '/api/v1/projects/sample/technical-aeo/path?toUrl=https%3A%2F%2Fsample.example%2Ftarget',
+      '/api/v1/projects/sample/technical-aeo/changes',
+    ]) {
+      const response = await embedded.inject({ method: 'GET', url, headers: withKey(ROOT_KEY) })
+      expect(response.statusCode, `${url} must be available to the embedded Site Health tab`).toBe(200)
+    }
+  } finally {
+    await embedded.close()
+  }
+})
+
+test('a session cannot be renewed past its absolute lifetime', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const session = await signIn('owner', ADMIN_PASSWORD)
+  const tokenHash = crypto.createHash('sha256').update(session).digest('hex')
+
+  // Sliding renewal on its own extends forever, so a stolen cookie that keeps
+  // being used never expires. Age it past the ceiling and it must stop, even
+  // though its sliding window is still wide open.
+  const longAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+  db.update(userSessions).set({ createdAt: longAgo }).where(eq(userSessions.tokenHash, tokenHash)).run()
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${session}` },
+  })
+  expect(res.statusCode).toBe(401)
+  expect(db.select().from(userSessions).where(eq(userSessions.tokenHash, tokenHash)).get()).toBeUndefined()
+})
+
+test('somebody can end every session they have without needing a root key', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const laptop = await signIn('owner', ADMIN_PASSWORD)
+  const phone = await signIn('owner', ADMIN_PASSWORD)
+
+  const listed = await app.inject({
+    method: 'GET',
+    url: '/api/v1/auth/sessions',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${laptop}` },
+  })
+  expect(listed.statusCode).toBe(200)
+  const body = JSON.parse(listed.body) as { sessions: Array<{ current: boolean }> }
+  expect(body.sessions).toHaveLength(2)
+  expect(body.sessions.filter(s => s.current)).toHaveLength(1)
+
+  const revoked = await app.inject({
+    method: 'DELETE',
+    url: '/api/v1/auth/sessions',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${laptop}`, origin: ORIGIN, host: HOST },
+  })
+  expect(revoked.statusCode).toBe(204)
+
+  // Both are gone, including the one that asked.
+  for (const token of [laptop, phone]) {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+      headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${token}` },
+    })
+    expect(res.statusCode).toBe(401)
+  }
+})
+
+test('one account cannot end another account sessions', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  await createAccount('watcher', VIEWER_PASSWORD, 'viewer')
+  const admin = await signIn('owner', ADMIN_PASSWORD)
+  const viewer = await signIn('watcher', VIEWER_PASSWORD)
+
+  await app.inject({
+    method: 'DELETE',
+    url: '/api/v1/auth/sessions',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${viewer}`, origin: ORIGIN, host: HOST },
+  })
+
+  const stillWorks = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${admin}` },
+  })
+  expect(stillWorks.statusCode).toBe(200)
+})
+
+test('another origin cannot end somebody else sessions for them', async () => {
+  // The revoke route is on the auth skip-list so it works from a session the
+  // rest of the API is refusing — which means it has to run the same-origin
+  // check itself, or it becomes a cross-origin logout button.
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const session = await signIn('owner', ADMIN_PASSWORD)
+
+  const foreign = await app.inject({
+    method: 'DELETE',
+    url: '/api/v1/auth/sessions',
+    headers: {
+      cookie: `${USER_SESSION_COOKIE_NAME}=${session}`,
+      origin: 'http://evil.localhost:4100',
+      host: HOST,
+    },
+  })
+  expect(foreign.statusCode).toBe(403)
+
+  const stillWorks = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${session}` },
+  })
+  expect(stillWorks.statusCode).toBe(200)
+})

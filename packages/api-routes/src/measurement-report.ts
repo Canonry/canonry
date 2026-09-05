@@ -305,12 +305,18 @@ export interface MeasurementOverview {
   flags: number
 }
 
+/** Optional deterministic preparation diagnostics for large frozen reports. */
+export interface MeasurementPreparationBuildOptions {
+  /** Number of distinct source strings attributed during this one report build. */
+  onSourceAttributionComputed?: (uniqueSources: number) => void
+}
+
 /**
  * Optional deterministic work hook for callers that need to profile a large
  * overview without using a wall-clock threshold. The callback reports the one
  * pass that builds reusable attribution indexes.
  */
-export interface MeasurementOverviewBuildOptions {
+export interface MeasurementOverviewBuildOptions extends MeasurementPreparationBuildOptions {
   onEvidenceIndexed?: (rows: number) => void
 }
 
@@ -318,6 +324,21 @@ interface ParsedSourceUrl {
   normalizedUrl: string
   host: string
   path: string
+}
+
+/**
+ * URL-to-target winners are independent of the usage edge. The edge only
+ * decides whether a single winner is assigned to itself or belongs to a
+ * sibling. Keeping that split explicit lets one report cache the costly URL
+ * parse and target-route scan without altering attribution semantics.
+ */
+type SourceAttributionClass = Exclude<MeasurementAttributionClass, 'assigned' | 'sibling'> | 'matched'
+
+interface SourceAttribution {
+  classification: SourceAttributionClass
+  normalizedUrl: string | null
+  matchedTargetIds: string[]
+  matchedUrlIds: string[]
 }
 
 interface RouteClaim {
@@ -427,12 +448,11 @@ function routeClaim(
   }
 }
 
-export function classifyCitedUrl(
+function classifySourceAttribution(
   value: string,
   targets: readonly MeasurementTargetInput[],
-  ownedHosts: readonly string[],
-  usageEdge: MeasurementUsageEdgeInput,
-): MeasurementAttributionResult {
+  normalizedOwnedHosts: readonly string[],
+): SourceAttribution {
   const source = parseSourceUrl(value)
   if (!source) {
     return { classification: 'invalid', normalizedUrl: null, matchedTargetIds: [], matchedUrlIds: [] }
@@ -455,7 +475,7 @@ export function classifyCitedUrl(
   const best = claims.at(0)
   if (!best) {
     return {
-      classification: ownedBy(source.host, ownedHosts.map(normalizedHost)) ? 'ownedUnmapped' : 'external',
+      classification: ownedBy(source.host, normalizedOwnedHosts) ? 'ownedUnmapped' : 'external',
       normalizedUrl: source.normalizedUrl,
       matchedTargetIds: [],
       matchedUrlIds: [],
@@ -469,13 +489,45 @@ export function classifyCitedUrl(
   }
 
   return {
-    classification: usageEdge.type === 'target' && usageEdge.targetId === matchedTargetIds[0]
-      ? 'assigned'
-      : 'sibling',
+    classification: 'matched',
     normalizedUrl: source.normalizedUrl,
     matchedTargetIds,
     matchedUrlIds,
   }
+}
+
+function classifySourceForUsageEdge(
+  source: SourceAttribution,
+  usageEdge: MeasurementUsageEdgeInput,
+): MeasurementAttributionResult {
+  if (source.classification !== 'matched') {
+    return {
+      classification: source.classification,
+      normalizedUrl: source.normalizedUrl,
+      matchedTargetIds: source.matchedTargetIds,
+      matchedUrlIds: source.matchedUrlIds,
+    }
+  }
+  return {
+    classification: usageEdge.type === 'target' && usageEdge.targetId === source.matchedTargetIds[0]
+      ? 'assigned'
+      : 'sibling',
+    normalizedUrl: source.normalizedUrl,
+    matchedTargetIds: source.matchedTargetIds,
+    matchedUrlIds: source.matchedUrlIds,
+  }
+}
+
+export function classifyCitedUrl(
+  value: string,
+  targets: readonly MeasurementTargetInput[],
+  ownedHosts: readonly string[],
+  usageEdge: MeasurementUsageEdgeInput,
+): MeasurementAttributionResult {
+  return classifySourceForUsageEdge(
+    classifySourceAttribution(value, targets, ownedHosts.map(normalizedHost)),
+    usageEdge,
+  )
 }
 
 export function normalizeMeasurementLocation(value: string | null): string | null {
@@ -510,12 +562,23 @@ function containsAnyAlias(answerText: string, aliases: readonly string[]): boole
   return false
 }
 
-function mentionedTargets(answerText: string | null, targets: readonly MeasurementTargetInput[]): ReadonlySet<string> {
+interface MentionAlias {
+  targetId: string
+  words: string[]
+}
+
+function compiledMentionAliases(targets: readonly MeasurementTargetInput[]): MentionAlias[] {
+  return targets.flatMap(target => target.aliases.map(alias => ({ targetId: target.id, words: words(alias) })))
+    .filter(alias => alias.words.length > 0)
+}
+
+function mentionedTargetsForAliases(
+  answerText: string | null,
+  aliases: readonly MentionAlias[],
+): ReadonlySet<string> {
   const result = new Set<string>()
   if (answerText === null) return result
   const textWords = words(answerText)
-  const aliases = targets.flatMap(target => target.aliases.map(alias => ({ targetId: target.id, words: words(alias) })))
-    .filter(alias => alias.words.length > 0)
 
   for (let start = 0; start < textWords.length;) {
     const matches = aliases.filter(alias => aliasMatchesAt(textWords, alias.words, start))
@@ -529,6 +592,10 @@ function mentionedTargets(answerText: string | null, targets: readonly Measureme
     start += longest
   }
   return result
+}
+
+function mentionedTargets(answerText: string | null, targets: readonly MeasurementTargetInput[]): ReadonlySet<string> {
+  return mentionedTargetsForAliases(answerText, compiledMentionAliases(targets))
 }
 
 /**
@@ -566,11 +633,19 @@ function observationSource(observation: MeasurementObservationInput): {
   }
 }
 
-function prepareReport(input: MeasurementReportInput): PreparedReport {
+function prepareReport(
+  input: MeasurementReportInput,
+  options: MeasurementPreparationBuildOptions = {},
+): PreparedReport {
   const ambiguous = new Set<string>()
   const unmatched = new Set<string>()
   const bridged = new Set<string>()
   const candidates = new Map<string, MeasurementObservationInput[]>()
+  // Alias tokenization is definition work, not answer work. A portfolio's
+  // frozen aliases are stable for this preparation pass, so compiling them
+  // once avoids rescanning hundreds of Property names for every provider
+  // answer while preserving the same longest/ambiguous matching algorithm.
+  const mentionAliases = compiledMentionAliases(input.targets)
 
   for (const observation of input.observations) {
     const slots = observation.executionId !== null
@@ -617,7 +692,7 @@ function prepareReport(input: MeasurementReportInput): PreparedReport {
       historical: source.historical,
       sourceComplete: source.complete,
       sourceUrls: source.urls,
-      mentionedTargetIds: mentionedTargets(observation.answerText, input.targets),
+      mentionedTargetIds: mentionedTargetsForAliases(observation.answerText, mentionAliases),
     })
   }
 
@@ -632,10 +707,23 @@ function prepareReport(input: MeasurementReportInput): PreparedReport {
   // produces a row here, which is the only way a Property's gap is visible: the
   // per-URL rows below can describe a citation and nothing else.
   const answers: MeasurementAnswerEvidence[] = []
+  // A portfolio can fan one answer out to hundreds of Property edges. Parsing
+  // and route-ranking a source per edge turns that normal shape into an
+  // O(edges × targets × sources) read. The winners below are edge-independent;
+  // only assigned vs sibling is projected per edge.
+  const normalizedOwnedHosts = input.ownedHosts.map(normalizedHost)
+  const sourceAttributions = new Map<string, SourceAttribution>()
+  const sourceAttribution = (sourceUrl: string): SourceAttribution => {
+    const cached = sourceAttributions.get(sourceUrl)
+    if (cached !== undefined) return cached
+    const resolved = classifySourceAttribution(sourceUrl, input.targets, normalizedOwnedHosts)
+    sourceAttributions.set(sourceUrl, resolved)
+    return resolved
+  }
   // Computed once: a Property whose aliases tokenize to nothing can never be
   // mentioned, and the rate path already treats that as unreadable.
   const mentionableIds = new Set(
-    input.targets.filter(target => target.aliases.some(alias => words(alias).length > 0)).map(target => target.id),
+    mentionAliases.map(alias => alias.targetId),
   )
   for (const observation of observationsBySlot.values()) {
     const edges = [...(edgesByExecution.get(observation.slot.executionId) ?? [])]
@@ -643,7 +731,7 @@ function prepareReport(input: MeasurementReportInput): PreparedReport {
     for (const edge of edges) {
       const sources = observation.sourceUrls.map(sourceUrl => {
         const { classification, normalizedUrl, matchedTargetIds, matchedUrlIds } =
-          classifyCitedUrl(sourceUrl, input.targets, input.ownedHosts, edge)
+          classifySourceForUsageEdge(sourceAttribution(sourceUrl), edge)
         return { sourceUrl, normalizedUrl, classification, matchedTargetIds, matchedUrlIds }
       })
       answers.push({
@@ -709,6 +797,8 @@ function prepareReport(input: MeasurementReportInput): PreparedReport {
     || compareText(left.sourceUrl, right.sourceUrl)
     || compareText(left.classification, right.classification)
   ))
+
+  options.onSourceAttributionComputed?.(sourceAttributions.size)
 
   return {
     observationsBySlot,
@@ -1234,7 +1324,7 @@ export function buildMeasurementOverview(
   input: MeasurementOverviewInput,
   options: MeasurementOverviewBuildOptions = {},
 ): MeasurementOverview {
-  const prepared = prepareReport(input)
+  const prepared = prepareReport(input, options)
   const indexes = buildMeasurementOverviewIndexes(input, prepared, options.onEvidenceIndexed)
   const targetIds = new Set(input.scopeTargetIds)
   const edges = indexedScopeEdges(indexes, targetIds)
@@ -1300,13 +1390,19 @@ export interface MeasurementEvidenceResult {
  * identical to `buildMeasurementReport(input).evidence` — same preparation,
  * same deterministic order — so the two reads can never disagree.
  */
-export function buildMeasurementEvidence(input: MeasurementReportInput): MeasurementEvidenceResult {
-  const prepared = prepareReport(input)
+export function buildMeasurementEvidence(
+  input: MeasurementReportInput,
+  options: MeasurementPreparationBuildOptions = {},
+): MeasurementEvidenceResult {
+  const prepared = prepareReport(input, options)
   return { answers: prepared.answers, evidence: prepared.evidence, diagnostics: prepared.diagnostics }
 }
 
-export function buildMeasurementReport(input: MeasurementReportInput): MeasurementReport {
-  const prepared = prepareReport(input)
+export function buildMeasurementReport(
+  input: MeasurementReportInput,
+  options: MeasurementPreparationBuildOptions = {},
+): MeasurementReport {
+  const prepared = prepareReport(input, options)
   return {
     revision: input.revision,
     groups: [...input.groups]

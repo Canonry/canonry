@@ -97,6 +97,14 @@ function advancedMeasurementOperation(value: string | undefined, usage: string) 
 }
 
 export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['measurement-plan', 'visibility'],
+    usage: 'canonry measurement-plan visibility <project> [<json|->] [--format json]',
+    run: input => runAdvancedMeasurementOperation(
+      requireProject(input, 'measurement-plan.visibility', 'canonry measurement-plan visibility <project> [<json|->] [--format json]'),
+      'visibility', input.positionals[1], input.format,
+    ),
+  },
   { path: ['measurement-plan', 'show'], usage: 'canonry measurement-plan show <project> [--revision N] [--format json]', options: { revision: stringOption() }, run: async input => {
     const value = getString(input.values, 'revision')
     const revision = value === undefined ? undefined : Number(value)
