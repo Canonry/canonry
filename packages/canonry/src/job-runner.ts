@@ -6,7 +6,8 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, bucketOnboardingCount, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
@@ -777,6 +778,47 @@ export class JobRunner {
             providerErrors.set(providerName, msg)
           }
         }
+      }
+
+      // A simple run resolves its inputs at dispatch, unlike a plan-aware run
+      // whose manifest is already immutable. Persist this exact resolved
+      // input set after quota succeeds but before even one adapter can start.
+      // This is deliberately sidecar-only: it neither alters plan execution
+      // nor makes stored capture data an input to the legacy execution path.
+      if (
+        existingRun.kind === RunKinds['answer-visibility']
+        && existingRun.trigger !== RunTriggers.probe
+        && existingRun.measurementPlanVersionId === null
+      ) {
+        const definition = buildSimpleMeasurementDefinition({
+          capturedAt: new Date().toISOString(),
+          identity: {
+            displayName: project.displayName,
+            aliases: project.aliases,
+            canonicalDomain: project.canonicalDomain,
+            ownedDomains: project.ownedDomains,
+          },
+          country: project.country,
+          language: project.language,
+          location: runLocation ?? null,
+          engines: activeProviders.map(({ adapter, config }) => ({
+            provider: adapter.name,
+            requestedModel: config.model ?? null,
+          })),
+          // The legacy competitors table has domains only. Freeze the exact
+          // identity we actually dispatched with so later reporting never
+          // borrows renamed or newly added competitors from live project state.
+          competitors: projectCompetitors.map(competitor => {
+            const label = brandLabelFromDomain(competitor.domain) || competitor.domain
+            return { domain: competitor.domain, label, aliases: [label] }
+          }),
+          queries: projectQueries.map(query => ({
+            queryId: query.id,
+            queryText: query.query,
+            provenance: query.provenance ?? null,
+          })),
+        })
+        captureSimpleMeasurementDefinition(this.db, { projectId, runId, definition })
       }
 
       providerCallStart = Date.now()
