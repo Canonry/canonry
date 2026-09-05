@@ -17,6 +17,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 ## Table Groups
 
 - **Core domain**: projects, queries, competitors, runs, querySnapshots, auditLog
+- **Simple measurement provenance**: `simpleMeasurementDefinitions` stores dispatch inputs for new official simple runs. Migration 150 leaves historical runs untouched. A composite project/run foreign key prevents cross-project captures. An UPDATE trigger protects the frozen definition. Run deletion cascades to its definition.
 - **Scheduling**: schedules, notifications, webhooks
 - **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, gscDailyTotals (property-level daily totals — headline/trend source), gscQueryDailyTotals (per-query daily totals — the accurate per-query impressions/position source), urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, gaDailyTotals (property-level daily totals — deduplicated `users`, unlike the per-page snapshots), ga4AiReferrals, ga4Summaries, gaSocialReferrals
 - **System**: apiKeys, usageCounters
