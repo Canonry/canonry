@@ -496,6 +496,7 @@ function isOverviewRead(url: string): boolean {
     'competitors',
     'timeline',
     'overview',
+    'visibility-report',
     'analytics/metrics',
     'google/gsc/coverage',
     'bing/coverage',

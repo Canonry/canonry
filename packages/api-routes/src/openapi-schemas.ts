@@ -23,6 +23,8 @@
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
 import {
   agentProvidersResponseDtoSchema,
   apiKeyDtoSchema,
@@ -283,6 +285,12 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  VisibilityReportResponse: visibilityReportResponseSchema,
+  QueryTrackingWorkspaceResponse: queryTrackingWorkspaceResponseSchema,
+  QueryTrackingPreviewRequest: queryTrackingPreviewRequestSchema,
+  QueryTrackingPreviewResponse: queryTrackingPreviewResponseSchema,
+  QueryTrackingCommitRequest: queryTrackingCommitRequestSchema,
+  QueryTrackingCommitResponse: queryTrackingCommitResponseSchema,
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
   AdsAccountDto: adsAccountDtoSchema,
   AdsActivateTreeResponse: adsActivateTreeResponseSchema,

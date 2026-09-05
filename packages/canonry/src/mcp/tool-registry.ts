@@ -59,6 +59,9 @@ import {
   measurementQuerySetUpsertRequestSchema,
   measurementQueryTemplateApplyRequestSchema,
   measurementQueryTemplateUpsertRequestSchema,
+  visibilityReportRequestSchema,
+  queryTrackingPreviewRequestSchema,
+  queryTrackingCommitRequestSchema,
   GOOGLE_MARKETING_STORED_SNAPSHOT_PAGE_MAX,
   googleAdsMetricsWindowSchema,
   canonicalizeGtmAccountId,
@@ -1079,6 +1082,48 @@ const AGENT_WEBHOOK_EVENTS = [
 ] satisfies NotificationEvent[]
 
 export const canonryMcpTools = [
+  defineTool({
+    name: 'canonry_visibility_report',
+    title: 'Read scoped AI visibility',
+    description: 'Read stored visibility for a site, group, market or property. Branded, non-brand and unclassified answers remain separate populations. The response owns rates, trends, query performance, answers and competitors under one frozen measured definition. Material plan changes retain the prior measured revision; pending assignments are explicit. Search filters the query list only. Reuse cursors with identical selection. Never starts a sweep.',
+    access: 'read', tier: 'monitoring',
+    inputSchema: visibilityReportRequestSchema.safeExtend({ project: projectNameSchema }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/visibility-report'],
+    handler: (client, input) => {
+      const { project, ...selection } = input
+      return client.getVisibilityReport(project, selection)
+    },
+  }),
+  defineTool({
+    name: 'canonry_query_tracking_workspace',
+    title: 'Read query assignments',
+    description: 'Read tracked queries, exact assignments, saved research sources and the current workspace version for a simple site or advanced portfolio.',
+    access: 'read', tier: 'setup', inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/query-tracking'],
+    handler: (client, input) => client.getQueryTrackingWorkspace(input.project),
+  }),
+  defineTool({
+    name: 'canonry_query_tracking_preview',
+    title: 'Preview query assignments',
+    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, deduplicated change and next-sweep workload. Does not publish or start provider work. This POST requires write access.',
+    access: 'write', tier: 'setup',
+    inputSchema: z.object({ project: projectNameSchema, request: queryTrackingPreviewRequestSchema }).strict(),
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/query-tracking/preview'],
+    handler: (client, input) => client.previewQueryTracking(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_query_tracking_commit',
+    title: 'Publish reviewed query assignments',
+    description: 'Commit the exact reviewed mutation using its workspace version and preview token. No-op changes do not publish a revision. A successful publication starts zero provider calls; new assignments await the next project-wide sweep. Use the returned revision rather than predicting one.',
+    access: 'write', tier: 'setup',
+    inputSchema: z.object({ project: projectNameSchema, request: queryTrackingCommitRequestSchema }).strict(),
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/query-tracking/commit'],
+    handler: (client, input) => client.commitQueryTracking(input.project, input.request),
+  }),
   defineTool({
     name: 'canonry_projects_list',
     title: 'List Canonry projects',

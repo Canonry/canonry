@@ -4,6 +4,575 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type VisibilityReportResponse = {
+    selection: {
+        mode: 'simple' | 'advanced';
+        queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+        scope: {
+            id: string;
+            label: string;
+            kind: 'project' | 'group' | 'market' | 'property';
+            targetCount: number;
+        };
+        provider: string | null;
+        model: string | null;
+        location: {
+            kind: 'all';
+        } | {
+            kind: 'none';
+        } | {
+            kind: 'exact';
+            value: string;
+        };
+        time: {
+            from: string | null;
+            to: string | null;
+        };
+        revision: number | null;
+        run: {
+            id: string | null;
+            explicit: boolean;
+        };
+        provenance: {
+            kind: 'frozen-simple';
+            definitionRevision: null;
+        } | {
+            kind: 'legacy-simple';
+            definitionRevision: null;
+        } | {
+            kind: 'frozen-advanced';
+            definitionRevision: number;
+        } | {
+            kind: 'unsupported-advanced-v1';
+            definitionRevision: number;
+        };
+        measurement: {
+            state: 'measured' | 'not-measured' | 'partial';
+            activeRevision: number | null;
+            measuredRevision: number | null;
+            awaitingSweep: boolean;
+            pendingAssignmentCount: number;
+            completedAt: string | null;
+        };
+        availability: {
+            state: 'available';
+        } | {
+            state: 'unsupported';
+            reason: 'advanced-v1';
+        };
+    };
+    scopeOptions: Array<{
+        id: string;
+        label: string;
+        kind: 'project' | 'group' | 'market' | 'property';
+        targetCount: number;
+    }>;
+    filterOptions: {
+        providers: Array<string>;
+        models: Array<{
+            provider: string;
+            model: string;
+        }>;
+        locations: Array<{
+            kind: 'all';
+        } | {
+            kind: 'none';
+        } | {
+            kind: 'exact';
+            value: string;
+        }>;
+    };
+    populations: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        summary: {
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            propertyReach: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            outcomes: {
+                bothSignals: number;
+                mentionedOnly: number;
+                citedOnly: number;
+                neither: number;
+                notMeasured: number;
+                total: number;
+            };
+        };
+        trend: Array<{
+            runId: string;
+            createdAt: string;
+            revision: number | null;
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            continuity: {
+                state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
+                comparedRunId: string | null;
+            };
+        }>;
+        queries: {
+            items: Array<{
+                queryKey: string;
+                queryId: string | null;
+                query: string;
+                provider: string;
+                model: string | null;
+                location: string | null;
+                targetKeys: Array<string>;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+            }>;
+            nextCursor: string | null;
+            total: number;
+        };
+        evidence: {
+            items: Array<{
+                answerId: string;
+                runId: string;
+                queryKey: string;
+                query: string;
+                provider: string;
+                model: string | null;
+                location: string | null;
+                targetKeys: Array<string>;
+                mentioned: boolean | null;
+                cited: boolean | null;
+                answerText: string | null;
+                createdAt: string;
+                sources: Array<string>;
+                observedCompetitors: Array<string>;
+            }>;
+            nextCursor: string | null;
+            total: number;
+        };
+        competitorAvailability: {
+            state: 'available';
+        } | {
+            state: 'unavailable';
+            reason: 'frozen-competitor-identity-missing';
+        };
+        competitors: Array<{
+            domain: string;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+            };
+        }>;
+        observedCompetitors: Array<{
+            name: string;
+            answerCount: number;
+        }>;
+        breakdown: {
+            properties: Array<{
+                id: string;
+                label: string;
+                queryCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+            }>;
+            groups: Array<{
+                id: string;
+                label: string;
+                queryCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                };
+            }>;
+        };
+    }>;
+};
+
+export type QueryTrackingWorkspaceResponse = {
+    mode: 'simple' | 'advanced';
+    workspaceVersion: string;
+    active: {
+        revision: number;
+        compiledChecksum: string;
+    } | null;
+    defaultContexts: Array<{
+        providers: Array<string>;
+        models: {
+            [key: string]: string;
+        };
+        location: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        } | null;
+    }>;
+    targets: Array<{
+        stableKey: string;
+        label: string;
+    }>;
+    groups: Array<{
+        stableKey: string;
+        label: string;
+        targetKeys: Array<string>;
+    }>;
+    markets: Array<{
+        stableKey: string;
+        label: string;
+        usageEdges: Array<{
+            executionNodeKey: string;
+            targetKey: string;
+            queryId: string;
+        }>;
+    }>;
+    tracked: Array<{
+        queryId: string;
+        queryText: string;
+        normalizedText: string;
+        provenance: {
+            source: 'manual' | 'query-set' | 'template' | 'research' | 'discovery';
+            sourceId: string | null;
+            capturedAt: string;
+            template?: {
+                templateId: string;
+                templateVersion: string;
+                template: string;
+                bindings: {
+                    [key: string]: string;
+                };
+                output: string;
+            };
+        } | null;
+        state: 'tracked' | 'awaiting-sweep';
+        lastMeasuredAt: string | null;
+        assignments: Array<{
+            targetKey: string;
+            groupKeys: Array<string>;
+            marketKeys: Array<string>;
+            queryClass: 'branded' | 'non-brand';
+            classificationSource: 'frozen' | 'server' | 'operator';
+            contexts: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+            }>;
+        }>;
+    }>;
+    savedSources: {
+        research: Array<{
+            researchRunId: string;
+            researchRunQueryId: string;
+            queryText: string;
+            createdAt: string;
+        }>;
+        discovery: Array<{
+            discoverySessionId: string;
+            discoveryProbeId: string;
+            queryText: string;
+            createdAt: string;
+        }>;
+    };
+};
+
+export type QueryTrackingPreviewRequest = {
+    additions: Array<{
+        input: {
+            source: 'manual';
+            text: string;
+        } | {
+            source: 'template';
+            templateId: string;
+            templateVersion: string;
+            template: string;
+        } | {
+            source: 'research';
+            researchRunQueryId: string;
+        } | {
+            source: 'discovery';
+            discoveryProbeId: string;
+        };
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+        contexts?: Array<{
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            location: string | null;
+        }>;
+        queryClass?: 'branded' | 'non-brand';
+    }>;
+    removals: Array<{
+        queryId?: string;
+        queryText?: string;
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+    }>;
+    expectedWorkspaceVersion: string;
+};
+
+export type QueryTrackingPreviewResponse = {
+    mode: 'simple' | 'advanced';
+    workspaceVersion: string;
+    previewToken: string;
+    reviewedAt: string;
+    active: {
+        revision: number;
+        compiledChecksum: string;
+    } | null;
+    tracked: Array<{
+        queryId: string;
+        queryText: string;
+        normalizedText: string;
+        provenance: {
+            source: 'manual' | 'query-set' | 'template' | 'research' | 'discovery';
+            sourceId: string | null;
+            capturedAt: string;
+            template?: {
+                templateId: string;
+                templateVersion: string;
+                template: string;
+                bindings: {
+                    [key: string]: string;
+                };
+                output: string;
+            };
+        } | null;
+        state: 'tracked' | 'awaiting-sweep';
+        lastMeasuredAt: string | null;
+        assignments: Array<{
+            targetKey: string;
+            groupKeys: Array<string>;
+            marketKeys: Array<string>;
+            queryClass: 'branded' | 'non-brand';
+            classificationSource: 'frozen' | 'server' | 'operator';
+            contexts: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+            }>;
+        }>;
+    }>;
+    diff: {
+        added: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        removed: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        reused: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        unchanged: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        noOp: boolean;
+    };
+    workload: {
+        existingNodes: number;
+        existingProviderCalls: number;
+        nextSweepNodes: number;
+        nextSweepProviderCalls: number;
+        addedNodes: number;
+        addedProviderCalls: number;
+        removedNodes: number;
+        removedProviderCalls: number;
+    };
+};
+
+export type QueryTrackingCommitRequest = {
+    additions: Array<{
+        input: {
+            source: 'manual';
+            text: string;
+        } | {
+            source: 'template';
+            templateId: string;
+            templateVersion: string;
+            template: string;
+        } | {
+            source: 'research';
+            researchRunQueryId: string;
+        } | {
+            source: 'discovery';
+            discoveryProbeId: string;
+        };
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+        contexts?: Array<{
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            location: string | null;
+        }>;
+        queryClass?: 'branded' | 'non-brand';
+    }>;
+    removals: Array<{
+        queryId?: string;
+        queryText?: string;
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+    }>;
+    expectedWorkspaceVersion: string;
+    previewToken: string;
+    reviewedAt: string;
+};
+
+export type QueryTrackingCommitResponse = {
+    committed: boolean;
+    mode: 'simple' | 'advanced';
+    workspaceVersion: string;
+    reviewedAt: string;
+    active: {
+        revision: number;
+        compiledChecksum: string;
+    } | null;
+    diff: {
+        added: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        removed: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        reused: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        unchanged: Array<{
+            queryId: string;
+            queryText: string;
+            assignmentCount: number;
+        }>;
+        noOp: boolean;
+    };
+    workload: {
+        existingNodes: number;
+        existingProviderCalls: number;
+        nextSweepNodes: number;
+        nextSweepProviderCalls: number;
+        addedNodes: number;
+        addedProviderCalls: number;
+        removedNodes: number;
+        removedProviderCalls: number;
+    };
+};
+
 export type AgentProvidersResponseDto = {
     providers: Array<{
         id: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
@@ -4463,15 +5032,25 @@ export type MeasurementDraftCompilePreviewResponse = {
             queryId: string;
             queryText: string;
             provenance: {
-                source: 'manual' | 'query-set' | 'template' | 'discovery';
+                source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                 sourceId: string | null;
                 capturedAt: string;
+                template?: {
+                    templateId: string;
+                    templateVersion: string;
+                    template: string;
+                    bindings: {
+                        [key: string]: string;
+                    };
+                    output: string;
+                };
             };
         }>;
         assignments: Array<{
             targetKey: string;
             queryId: string;
             queryClass: 'branded' | 'non-brand';
+            classificationSource?: 'server' | 'operator';
             executionNodeKey: string;
         }>;
         executionNodes: Array<{
@@ -4497,6 +5076,16 @@ export type MeasurementDraftCompilePreviewResponse = {
             executionNodeKey: string;
             targetKey: string;
             queryId: string;
+        }>;
+        reportingScopes?: Array<{
+            stableKey: string;
+            label: string;
+            kind: 'market';
+            usageEdges: Array<{
+                executionNodeKey: string;
+                targetKey: string;
+                queryId: string;
+            }>;
         }>;
         compiledChecksum: string;
     };
@@ -4576,15 +5165,25 @@ export type MeasurementDraftDiffPreviewResponse = {
             queryId: string;
             queryText: string;
             provenance: {
-                source: 'manual' | 'query-set' | 'template' | 'discovery';
+                source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                 sourceId: string | null;
                 capturedAt: string;
+                template?: {
+                    templateId: string;
+                    templateVersion: string;
+                    template: string;
+                    bindings: {
+                        [key: string]: string;
+                    };
+                    output: string;
+                };
             };
         }>;
         assignments: Array<{
             targetKey: string;
             queryId: string;
             queryClass: 'branded' | 'non-brand';
+            classificationSource?: 'server' | 'operator';
             executionNodeKey: string;
         }>;
         executionNodes: Array<{
@@ -4610,6 +5209,16 @@ export type MeasurementDraftDiffPreviewResponse = {
             executionNodeKey: string;
             targetKey: string;
             queryId: string;
+        }>;
+        reportingScopes?: Array<{
+            stableKey: string;
+            label: string;
+            kind: 'market';
+            usageEdges: Array<{
+                executionNodeKey: string;
+                targetKey: string;
+                queryId: string;
+            }>;
         }>;
         compiledChecksum: string;
     };
@@ -5180,6 +5789,16 @@ export type MeasurementDraftResponse = {
                     label: string;
                     domain: string;
                     aliases: Array<string>;
+                }>;
+            }>;
+            reportingScopes?: Array<{
+                stableKey: string;
+                label: string;
+                kind: 'market';
+                usageEdges: Array<{
+                    executionNodeKey: string;
+                    targetKey: string;
+                    queryId: string;
                 }>;
             }>;
             discovery?: {
@@ -6303,15 +6922,25 @@ export type MeasurementPlanResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
+                    template?: {
+                        templateId: string;
+                        templateVersion: string;
+                        template: string;
+                        bindings: {
+                            [key: string]: string;
+                        };
+                        output: string;
+                    };
                 };
             }>;
             assignments: Array<{
                 targetKey: string;
                 queryId: string;
                 queryClass: 'branded' | 'non-brand';
+                classificationSource?: 'server' | 'operator';
                 executionNodeKey: string;
             }>;
             executionNodes: Array<{
@@ -6337,6 +6966,16 @@ export type MeasurementPlanResponse = {
                 executionNodeKey: string;
                 targetKey: string;
                 queryId: string;
+            }>;
+            reportingScopes?: Array<{
+                stableKey: string;
+                label: string;
+                kind: 'market';
+                usageEdges: Array<{
+                    executionNodeKey: string;
+                    targetKey: string;
+                    queryId: string;
+                }>;
             }>;
             compiledChecksum: string;
         };
@@ -6394,15 +7033,25 @@ export type MeasurementPlanV2PublishResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
+                    template?: {
+                        templateId: string;
+                        templateVersion: string;
+                        template: string;
+                        bindings: {
+                            [key: string]: string;
+                        };
+                        output: string;
+                    };
                 };
             }>;
             assignments: Array<{
                 targetKey: string;
                 queryId: string;
                 queryClass: 'branded' | 'non-brand';
+                classificationSource?: 'server' | 'operator';
                 executionNodeKey: string;
             }>;
             executionNodes: Array<{
@@ -6428,6 +7077,16 @@ export type MeasurementPlanV2PublishResponse = {
                 executionNodeKey: string;
                 targetKey: string;
                 queryId: string;
+            }>;
+            reportingScopes?: Array<{
+                stableKey: string;
+                label: string;
+                kind: 'market';
+                usageEdges: Array<{
+                    executionNodeKey: string;
+                    targetKey: string;
+                    queryId: string;
+                }>;
             }>;
             compiledChecksum: string;
         };
@@ -6567,15 +7226,25 @@ export type MeasurementPlanVersionResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
+                    template?: {
+                        templateId: string;
+                        templateVersion: string;
+                        template: string;
+                        bindings: {
+                            [key: string]: string;
+                        };
+                        output: string;
+                    };
                 };
             }>;
             assignments: Array<{
                 targetKey: string;
                 queryId: string;
                 queryClass: 'branded' | 'non-brand';
+                classificationSource?: 'server' | 'operator';
                 executionNodeKey: string;
             }>;
             executionNodes: Array<{
@@ -6601,6 +7270,16 @@ export type MeasurementPlanVersionResponse = {
                 executionNodeKey: string;
                 targetKey: string;
                 queryId: string;
+            }>;
+            reportingScopes?: Array<{
+                stableKey: string;
+                label: string;
+                kind: 'market';
+                usageEdges: Array<{
+                    executionNodeKey: string;
+                    targetKey: string;
+                    queryId: string;
+                }>;
             }>;
             compiledChecksum: string;
         };
@@ -12801,6 +13480,109 @@ export type GetApiV1ProjectsByNameMeasurementOverviewResponses = {
 
 export type GetApiV1ProjectsByNameMeasurementOverviewResponse = GetApiV1ProjectsByNameMeasurementOverviewResponses[keyof GetApiV1ProjectsByNameMeasurementOverviewResponses];
 
+export type GetApiV1ProjectsByNameVisibilityReportData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Auto selects the current project measurement mode.
+         */
+        mode?: 'auto' | 'simple' | 'advanced';
+        /**
+         * A project, property collection, frozen market edge set, or property.
+         */
+        scope?: 'project' | 'group' | 'market' | 'property';
+        /**
+         * Stable scope key. Required for non-project scopes.
+         */
+        scopeKey?: string;
+        /**
+         * All returns independent populations, never pooled coverage.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'unknown' | 'all';
+        /**
+         * Exact answer engine.
+         */
+        provider?: string;
+        /**
+         * Exact observed model.
+         */
+        model?: string;
+        /**
+         * Exact location label, or none for no location.
+         */
+        location?: string;
+        /**
+         * Inclusive ISO start time.
+         */
+        from?: string;
+        /**
+         * Inclusive ISO end time.
+         */
+        to?: string;
+        /**
+         * Exact official measured run, independent of browser drawer state.
+         */
+        runId?: string;
+        /**
+         * Exact query-context key for answer detail.
+         */
+        queryKey?: string;
+        /**
+         * Tracked query identity for answer detail; mutually exclusive with queryKey.
+         */
+        queryId?: string;
+        /**
+         * Opaque page cursor. Reuse with the identical selection.
+         */
+        cursor?: string;
+        /**
+         * Query list search only. Does not change summary or trend denominators.
+         */
+        search?: string;
+        /**
+         * Exact frozen measurement revision.
+         */
+        revision?: number;
+        /**
+         * Maximum query or answer rows per page.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/visibility-report';
+};
+
+export type GetApiV1ProjectsByNameVisibilityReportErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, scope, revision, or run not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The evidence changed while paging.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameVisibilityReportError = GetApiV1ProjectsByNameVisibilityReportErrors[keyof GetApiV1ProjectsByNameVisibilityReportErrors];
+
+export type GetApiV1ProjectsByNameVisibilityReportResponses = {
+    /**
+     * Scoped report and frozen provenance.
+     */
+    200: VisibilityReportResponse;
+};
+
+export type GetApiV1ProjectsByNameVisibilityReportResponse = GetApiV1ProjectsByNameVisibilityReportResponses[keyof GetApiV1ProjectsByNameVisibilityReportResponses];
+
 export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
     body?: never;
     path: {
@@ -13652,6 +14434,120 @@ export type PostApiV1ProjectsByNameResearchRunsResponses = {
 };
 
 export type PostApiV1ProjectsByNameResearchRunsResponse = PostApiV1ProjectsByNameResearchRunsResponses[keyof PostApiV1ProjectsByNameResearchRunsResponses];
+
+export type GetApiV1ProjectsByNameQueryTrackingData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/query-tracking';
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingError = GetApiV1ProjectsByNameQueryTrackingErrors[keyof GetApiV1ProjectsByNameQueryTrackingErrors];
+
+export type GetApiV1ProjectsByNameQueryTrackingResponses = {
+    /**
+     * Query workspace with exact assignments and frozen contexts.
+     */
+    200: QueryTrackingWorkspaceResponse;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResponse = GetApiV1ProjectsByNameQueryTrackingResponses[keyof GetApiV1ProjectsByNameQueryTrackingResponses];
+
+export type PostApiV1ProjectsByNameQueryTrackingPreviewData = {
+    body: QueryTrackingPreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/query-tracking/preview';
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingPreviewErrors = {
+    /**
+     * Invalid assignments or source.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Write access required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or source not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Workspace changed; refresh and preview again.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingPreviewError = PostApiV1ProjectsByNameQueryTrackingPreviewErrors[keyof PostApiV1ProjectsByNameQueryTrackingPreviewErrors];
+
+export type PostApiV1ProjectsByNameQueryTrackingPreviewResponses = {
+    /**
+     * Assignment impact and review token.
+     */
+    200: QueryTrackingPreviewResponse;
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingPreviewResponse = PostApiV1ProjectsByNameQueryTrackingPreviewResponses[keyof PostApiV1ProjectsByNameQueryTrackingPreviewResponses];
+
+export type PostApiV1ProjectsByNameQueryTrackingCommitData = {
+    body: QueryTrackingCommitRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/query-tracking/commit';
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
+    /**
+     * Invalid mutation or review token.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Write access required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or source not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Workspace changed; preview again.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingCommitError = PostApiV1ProjectsByNameQueryTrackingCommitErrors[keyof PostApiV1ProjectsByNameQueryTrackingCommitErrors];
+
+export type PostApiV1ProjectsByNameQueryTrackingCommitResponses = {
+    /**
+     * Actual committed revision, or unchanged no-op.
+     */
+    200: QueryTrackingCommitResponse;
+};
+
+export type PostApiV1ProjectsByNameQueryTrackingCommitResponse = PostApiV1ProjectsByNameQueryTrackingCommitResponses[keyof PostApiV1ProjectsByNameQueryTrackingCommitResponses];
 
 export type GetApiV1ProjectsByNameResearchRunsByRunIdData = {
     body?: never;

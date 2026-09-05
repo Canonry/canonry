@@ -501,6 +501,20 @@ test('a caller-supplied embed-tabs header still narrows within the configured al
   }
 })
 
+test('the overview embed reads measured visibility but cannot read or change the query workspace', async () => {
+  const embedded = await bootEmbedApp(['overview'])
+  try {
+    const report = await embedded.inject({ method: 'GET', url: '/api/v1/projects/sample/visibility-report', headers: withKey(ROOT_KEY) })
+    expect(report.statusCode).toBe(200)
+    for (const [method, suffix] of [['GET', ''], ['POST', '/preview'], ['POST', '/commit']] as const) {
+      const denied = await embedded.inject({ method, url: `/api/v1/projects/sample/query-tracking${suffix}`, headers: withKey(ROOT_KEY) })
+      expect(denied.statusCode).toBe(403)
+    }
+  } finally {
+    await embedded.close()
+  }
+})
+
 // ─── P2.5 sessions that never end ──────────────────────────────────────────
 
 test('the technical-aeo embed tab permits its Site Health graph and semantic reads', async () => {

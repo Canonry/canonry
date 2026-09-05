@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AppError, describeError, notFound, validationError } from '../src/errors.js'
+import { AppError, describeError, notFound, queryTrackingPreviewStale, validationError } from '../src/errors.js'
 
 describe('describeError', () => {
   it('returns the message of an Error', () => {
@@ -98,5 +98,16 @@ describe('describeError', () => {
     expect(describeError({ error: { code: 'NOT_FOUND', message: 'gone' } })).toBe(
       '{"error":{"code":"NOT_FOUND","message":"gone"}}',
     )
+  })
+})
+
+describe('query tracking errors', () => {
+  it('exposes only workspace fingerprints on a stale preview', () => {
+    const error = queryTrackingPreviewStale('qtw_expected', 'qtw_actual')
+    expect(error).toMatchObject({
+      code: 'QUERY_TRACKING_PREVIEW_STALE',
+      statusCode: 409,
+      details: { expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' },
+    })
   })
 })
