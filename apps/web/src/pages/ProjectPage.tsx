@@ -3,7 +3,7 @@ import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import { measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
@@ -28,8 +28,8 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
-import { DiscoverySection } from '../components/project/DiscoverySection.js'
+import { VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { QueriesSection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -120,7 +120,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1294,6 +1294,97 @@ function OverviewDisclosure({
   )
 }
 
+function OverviewSignals({
+  insights,
+  suggestedQueries,
+  onManageQueries,
+}: {
+  insights: ProjectCommandCenterVm['insights']
+  suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
+  onManageQueries?: () => void
+}) {
+  const { openEvidence } = useDrawer()
+
+  const visibleSuggestions = onManageQueries ? suggestedQueries.rows : []
+
+  if (insights.length === 0 && visibleSuggestions.length === 0) return null
+
+  const renderInsight = (insight: ProjectCommandCenterVm['insights'][number]) => (
+    <div key={insight.id} className="py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-heading">{insight.title}</p>
+          {insight.detail ? <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">{insight.detail}</p> : null}
+        </div>
+        <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
+      </div>
+
+      {insight.affectedPhrases.length > 0 ? (
+        <details className="mt-2">
+          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+            Evidence · {insight.affectedPhrases.length} affected {insight.affectedPhrases.length === 1 ? 'query' : 'queries'}
+          </summary>
+          <ul className="mt-2 divide-y divide-subtle border-y border-subtle">
+            {insight.affectedPhrases.map((phrase, index) => (
+              <li key={phrase.evidenceId || `${insight.id}-${index}`} className="flex flex-wrap items-center gap-2 py-2">
+                <CitationBadge state={phrase.citationState} />
+                <span className="min-w-0 flex-1 text-sm text-strong">{phrase.query}</span>
+                {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
+                {!isEmbed() && phrase.evidenceId ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                    View evidence
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  )
+
+  const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
+    <div key={suggestion.query} className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
+        <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
+        <p className="mt-0.5 text-sm text-secondary">{suggestion.reason}</p>
+      </div>
+      {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
+    </div>
+  )
+
+  const primaryInsights = insights.slice(0, 1)
+  const primarySuggestions = visibleSuggestions.slice(0, 1)
+  const remainingInsights = insights.slice(1)
+  const remainingSuggestions = visibleSuggestions.slice(1)
+  const remainingCount = remainingInsights.length + remainingSuggestions.length
+
+  return (
+    <section className="page-section-divider" aria-labelledby="overview-signals-title">
+      <div className="section-head">
+        <h2 id="overview-signals-title">Latest signals</h2>
+      </div>
+
+      <div className="divide-y divide-default border-y border-default">
+        {primaryInsights.map(renderInsight)}
+        {primarySuggestions.map(renderSuggestion)}
+      </div>
+      {remainingCount > 0 ? (
+        <details className="mt-2">
+          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+            {remainingCount} more {remainingCount === 1 ? 'signal' : 'signals'}
+          </summary>
+          <div className="mt-2 divide-y divide-default border-y border-default">
+            {remainingInsights.map(renderInsight)}
+            {remainingSuggestions.map(renderSuggestion)}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
 /**
  * Thin shell that guards on project-dashboard readiness. The real
  * component (`ProjectPageContent`) declares all the page's ~60 hooks,
@@ -1538,13 +1629,17 @@ function ProjectPageContent({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const appendQueries = useAppendQueries()
-  const projectSearchParams = useSearch({ strict: false }) as {
+  const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
     manageQueries?: boolean
     runId?: string
     siteHealthRunId?: string
     scope?: string
     class?: string
   }
+  const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  const updateVisibilitySearch = useCallback((patch: Record<string, unknown>) => {
+    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, patch) })
+  }, [navigate])
   const manageQueriesRequested = projectSearchParams.manageQueries === true
   const releaseInitialSiteHealthRun = useCallback(() => {
     void navigate({
@@ -1667,9 +1762,9 @@ function ProjectPageContent({
   } as const
   const advancedMeasurementOverviewQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions(advancedMeasurementOverviewQueryInput),
-    enabled: tab === 'overview'
-      && Boolean(projectName)
-      && activeMeasurementPlanSchemaVersion === 2,
+    // V2 results now come from visibility-report. Keep the legacy query shape
+    // only for the retained landing presentation; do not double-read evidence.
+    enabled: false,
     initialPageParam: advancedMeasurementOverviewQueryInput,
     getNextPageParam: (lastPage, pages) => {
       if (!lastPage.properties.nextCursor) return undefined
@@ -1702,8 +1797,7 @@ function ProjectPageContent({
     enabled: tab === 'overview'
       && Boolean(projectName)
       && activeMeasurementPlan !== null
-      && (activeMeasurementPlanSchemaVersion === 1
-        || hasExpandedAdvancedProperty && advancedMeasurementDisplayedRunId !== undefined),
+      && activeMeasurementPlanSchemaVersion === 1,
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1745,11 +1839,11 @@ function ProjectPageContent({
   // its denominator. All markets is a separate raw-evidence aggregate, never
   // an average of market percentages.
   const competitorLandscapeGroupKey = activeMeasurementPlanSchemaVersion === 2
-    && advancedMeasurementView.scope === 'group'
-    ? advancedMeasurementView.groupKey
+    && visibilitySelection.measurementScope === 'group'
+    ? visibilitySelection.measurementScopeKey
     : undefined
   const isAdvancedAllMarkets = activeMeasurementPlanSchemaVersion === 2
-    && advancedMeasurementView.scope === 'all'
+    && visibilitySelection.measurementScope === 'project'
   const selectedCompetitorLandscapeGroup = useMemo(() => {
     if (activeMeasurementPlan?.plan.schemaVersion !== 2 || !competitorLandscapeGroupKey) return undefined
     return activeMeasurementPlan.plan.groups.find(group => group.stableKey === competitorLandscapeGroupKey)
@@ -1762,7 +1856,7 @@ function ProjectPageContent({
       // Simple projects have no class control, so the card asks for the one
       // class a competitive reading can be built on. Pooling branded queries in
       // would hand the project its own name back as market share.
-      queryClass: activeMeasurementPlanSchemaVersion === 2 ? advancedMeasurementView.queryClass : 'non-brand' as const,
+      queryClass: activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.queryClass !== 'unknown' ? visibilitySelection.queryClass : 'non-brand' as const,
       ...(competitorLandscapeGroupKey ? { groupKey: competitorLandscapeGroupKey } : {}),
       ...(isAdvancedAllMarkets ? { scope: 'all-markets' as const } : {}),
     },
@@ -1770,6 +1864,9 @@ function ProjectPageContent({
   const competitorLandscapeReadEnabled = tab === 'overview'
     && Boolean(projectName)
     && !isMeasurementModeUnresolved
+    && (visibilitySelection.measurementScope === 'project' || activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.measurementScope === 'group')
+    && visibilitySelection.queryClass !== 'unknown'
+    && (activeMeasurementPlanSchemaVersion === 2 || visibilitySelection.queryClass !== 'branded')
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -2277,7 +2374,7 @@ function ProjectPageContent({
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
     { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
@@ -2315,7 +2412,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          <p className="text-sm text-muted">{model.dateRangeLabel}</p>
+          <p className="text-sm text-muted">{tab === 'overview' ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
           {!isEmbed() && (isDashboardManagedSweeps() ? (
             <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (
@@ -2359,6 +2456,7 @@ function ProjectPageContent({
             <Link
               key={item.key}
               to={item.href}
+              search={previous => ({ ...previous, onboarding: undefined })}
               className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
               aria-current={item.key === tab ? 'page' : undefined}
             >
@@ -2440,7 +2538,18 @@ function ProjectPageContent({
               </Button>
             </div>
           ) : null}
-          <AdvancedMeasurementLanding
+          {visibilitySelection.measurementScope === 'project' ? <OverviewSignals
+            insights={model.insights}
+            suggestedQueries={model.suggestedQueries}
+            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+          /> : null}
+          <VisibilityWorkspace
+            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined })}`}
+            projectName={projectName}
+            selection={visibilitySelection}
+            onSelectionChange={updateVisibilitySearch}
+            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+            fallback={<AdvancedMeasurementLanding
             key={`${projectName}:${activeMeasurementRevision}`}
             mode={advancedMeasurementMode}
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
@@ -2503,22 +2612,7 @@ function ProjectPageContent({
 
           </section>
 
-          <section className="page-section-divider">
-            <CompetitorLandscape
-              window={competitorLandscapeWindow}
-              landscape={competitorLandscapeQuery.data}
-              pinnedFallback={projectPinnedCompetitorFallback}
-              canWrite={canWrite}
-              isEmbed={isEmbed()}
-              onWindowChange={setCompetitorLandscapeWindow}
-              onPin={canWrite && !isEmbed() ? handleAddCompetitor : undefined}
-              onUnpin={canWrite && !isEmbed() ? handleRemoveCompetitor : undefined}
-              onAddCompetitor={canWrite && !isEmbed() ? handleAddCompetitor : undefined}
-              error={competitorLandscapeError}
-              onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
-              isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
-            />
-          </section>
+
 
           <OverviewDisclosure
             id="evidence-section"
@@ -2720,9 +2814,10 @@ function ProjectPageContent({
             isLoadingMore={advancedMeasurementOverviewQuery.isFetchingNextPage}
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
-          />
-          {advancedMeasurementMode.surface !== 'simple-overview' ? (
-            <section className="page-section-divider">
+          />} />
+          {competitorLandscapeReadEnabled ? (
+            <details className="page-section-divider">
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Competitor history</summary>
               <CompetitorLandscape
                 window={competitorLandscapeWindow}
                 landscape={competitorLandscapeQuery.data}
@@ -2750,10 +2845,10 @@ function ProjectPageContent({
                 onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
                 isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
                 scopeLabel={competitorLandscapeGroupKey
-                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} market`
+                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
                   : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
               />
-            </section>
+            </details>
           ) : null}
         </>
         )
@@ -2831,8 +2926,18 @@ function ProjectPageContent({
         </>
       ) : tab === 'report' ? (
         <ReportPage projectName={model.project.name} />
-      ) : tab === 'discovery' ? (
-        <DiscoverySection projectName={projectName} />
+      ) : tab === 'queries' || tab === 'discovery' ? (
+        <QueriesSection
+          projectName={projectName}
+          queryWorkspace={projectSearchParams.queryWorkspace === 'research' || (tab === 'discovery' && projectSearchParams.queryWorkspace === undefined) ? 'research' : 'tracked'}
+          onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
+          researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
+          onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}
+          selection={visibilitySelection}
+          onSelectionChange={updateVisibilitySearch}
+          trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
+          onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
+        />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection
           projectName={model.project.name}

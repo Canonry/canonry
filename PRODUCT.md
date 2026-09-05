@@ -2,6 +2,14 @@
 
 register: product
 
+## Query control and visibility
+
+AI Visibility shows measured trends, query performance, answers, sources, and competitors.
+Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace.
+Publication starts no provider work. New assignments await the project-wide sweep.
+Simple sites and portfolios use the same report contract with separate query-class populations.
+Groups collect properties. Markets select explicit execution-context edges.
+
 ## Product purpose
 
 Canonry is an agent-first AEO operating platform. The API and CLI are the

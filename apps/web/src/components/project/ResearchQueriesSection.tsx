@@ -29,7 +29,13 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.running,
 ])
 
-export function ResearchQueriesSection({ projectName }: { projectName: string }) {
+export function ResearchQueriesSection({
+  projectName,
+  onReviewForTracking,
+}: {
+  projectName: string
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   const queryClient = useQueryClient()
   const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
@@ -255,12 +261,20 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
         </Card>
       </div>
 
-      <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} />
+      <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={onReviewForTracking} />
     </div>
   )
 }
 
-function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto | null; isLoading: boolean }) {
+function ResearchRunDetail({
+  detail,
+  isLoading,
+  onReviewForTracking,
+}: {
+  detail: ResearchRunDetailDto | null
+  isLoading: boolean
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -297,14 +311,22 @@ function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto
               </tbody>
             </table>
           </div>
-          <ResearchAnswer query={selected} isLoading={isLoading} />
+          <ResearchAnswer query={selected} isLoading={isLoading} onReviewForTracking={onReviewForTracking} />
         </div>
       )}
     </Card>
   )
 }
 
-function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | null; isLoading: boolean }) {
+function ResearchAnswer({
+  query,
+  isLoading,
+  onReviewForTracking,
+}: {
+  query: ResearchRunQueryDto | null
+  isLoading: boolean
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading saved answers…' : 'Select a query to inspect its answer.'}</p>
   return (
     <div className="space-y-4 border-t border-default pt-4 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
@@ -312,6 +334,14 @@ function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | nul
         <p className="text-[10px] uppercase tracking-wide text-muted">Selected query</p>
         <p className="mt-1 text-sm font-medium leading-6 text-heading">{query.query}</p>
       </div>
+      {!isEmbed() && onReviewForTracking && (
+        <div className="rounded-md border border-default bg-surface-subtle px-3 py-3">
+          <WriteButton type="button" size="sm" onClick={() => onReviewForTracking({ researchRunQueryId: query.id })}>
+            Review for tracking
+          </WriteButton>
+          <p className="mt-2 text-xs leading-5 text-muted">Only this saved query text enters tracking review. Its answer remains research evidence.</p>
+        </div>
+      )}
       {query.error ? (
         <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
       ) : query.answerText ? (
