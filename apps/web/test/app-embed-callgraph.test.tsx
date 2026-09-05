@@ -2,6 +2,7 @@ import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
@@ -51,34 +52,86 @@ const project = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
-const emptyMetrics = {
-  window: 'all',
-  buckets: [],
-  overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
-  byProvider: {},
-  trend: 'stable',
-  mentionTrend: 'stable',
-  queryChanges: [],
-}
+const rate = { numerator: 1, denominator: 1, rate: 1 }
 
-const emptyCitationVisibility = {
-  summary: {
-    providersConfigured: 0,
-    providersCiting: 0,
-    providersMentioning: 0,
-    totalQueries: 0,
-    queriesCitedAndMentioned: 0,
-    queriesCitedOnly: 0,
-    queriesMentionedOnly: 0,
-    queriesInvisible: 0,
-    latestRunId: null,
-    latestRunAt: null,
+// This is the one aggregate read the embed overview uses. Keep it a valid
+// shared-report response: returning a permissive empty object here would let a
+// legacy fallback hide an accidental call outside the embed allowlist.
+const visibilityReport = visibilityReportResponseSchema.parse({
+  selection: {
+    mode: 'simple',
+    queryClass: 'non-brand',
+    scope: { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+    provider: null,
+    model: null,
+    location: { kind: 'all' },
+    time: { from: null, to: null },
+    revision: null,
+    run: { id: 'run-embed-callgraph', explicit: false },
+    provenance: { kind: 'frozen-simple', definitionRevision: null },
+    measurement: {
+      state: 'measured',
+      activeRevision: null,
+      measuredRevision: null,
+      awaitingSweep: false,
+      pendingAssignmentCount: 0,
+      completedAt: '2026-09-04T12:05:00.000Z',
+    },
+    availability: { state: 'available' },
   },
-  byQuery: [],
-  competitorGaps: [],
-  status: 'no-data',
-  reason: 'no-runs-yet',
-}
+  scopeOptions: [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 }],
+  filterOptions: {
+    providers: ['openai'],
+    models: [{ provider: 'openai', model: 'search-model' }],
+    locations: [{ kind: 'all' }],
+  },
+  populations: [{
+    queryClass: 'non-brand',
+    summary: {
+      queryCount: 1,
+      answerCount: 1,
+      mentionCoverage: rate,
+      citationCoverage: rate,
+      propertyReach: rate,
+      outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
+    },
+    trend: [{
+      runId: 'run-embed-callgraph',
+      createdAt: '2026-09-04T12:05:00.000Z',
+      revision: null,
+      provenance: { kind: 'frozen-simple', definitionRevision: null },
+      queryCount: 1,
+      answerCount: 1,
+      mentionCoverage: rate,
+      citationCoverage: rate,
+      continuity: { state: 'first', comparedRunId: null },
+    }],
+    queries: {
+      items: [{
+        queryKey: 'embed-callgraph-query',
+        queryId: 'query-embed-callgraph',
+        query: 'emergency dentist near me',
+        provider: 'openai',
+        model: 'search-model',
+        location: null,
+        targetKeys: ['citypoint'],
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+      }],
+      nextCursor: null,
+      total: 1,
+    },
+    evidence: { items: [], nextCursor: null, total: 0 },
+    competitorAvailability: { state: 'available' },
+    competitors: [],
+    observedCompetitors: [],
+    breakdown: {
+      properties: [{ id: 'citypoint', label: 'Citypoint Dental NYC', queryCount: 1, mentionCoverage: rate, citationCoverage: rate }],
+      groups: [],
+    },
+  }],
+})
 
 test('embed project overview only issues reads covered by the overview server allowlist', async () => {
   window.__CANONRY_CONFIG__ = {
@@ -109,8 +162,7 @@ test('embed project overview only issues reads covered by the overview server al
       if (path === '/api/v1/projects/citypoint/bing/coverage') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/insights') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/overview') return jsonResponse(null)
-      if (path === '/api/v1/projects/citypoint/analytics/metrics') return jsonResponse(emptyMetrics)
-      if (path === '/api/v1/projects/citypoint/citations/visibility') return jsonResponse(emptyCitationVisibility)
+      if (path.startsWith('/api/v1/projects/citypoint/visibility-report?')) return jsonResponse(visibilityReport)
 
       if (path.startsWith('/api/v1/')) {
         disallowed.push(path)
@@ -137,10 +189,11 @@ test('embed project overview only issues reads covered by the overview server al
   )
 
   await waitFor(() => {
-    expect(observed.has('/api/v1/projects/citypoint/citations/visibility')).toBe(true)
-    expect(observed.has('/api/v1/projects/citypoint/analytics/metrics')).toBe(true)
+    expect(Array.from(observed).some(path => path.startsWith('/api/v1/projects/citypoint/visibility-report?'))).toBe(true)
   })
 
   expect(disallowed).toEqual([])
+  expect(Array.from(observed).some(path => path.startsWith('/api/v1/projects/citypoint/analytics/metrics'))).toBe(false)
+  expect(Array.from(observed).some(path => path.startsWith('/api/v1/projects/citypoint/citations/visibility'))).toBe(false)
   expect(Array.from(observed).some(path => path.startsWith('/api/v1/settings'))).toBe(false)
 })

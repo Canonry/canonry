@@ -80,3 +80,56 @@ export function measurementViewSearch(view: MeasurementViewState): { scope?: str
     class: view.queryClass === DEFAULT_MEASUREMENT_VIEW.queryClass ? undefined : view.queryClass,
   }
 }
+
+/** One URL selection for measured results and query administration. */
+export interface VisibilitySelectionState {
+  measurementScope: 'project' | 'group' | 'market' | 'property'
+  measurementScopeKey?: string
+  queryClass: MeasurementQueryClass | 'unknown'
+  provider?: string
+  model?: string
+  location?: string
+  from?: string
+  to?: string
+  revision?: number
+  measurementRunId?: string
+  queryKey?: string
+}
+
+export function parseVisibilitySelection(search: Record<string, unknown>): VisibilitySelectionState {
+  const string = (key: string): string | undefined => typeof search[key] === 'string' && search[key] !== '' ? search[key] : undefined
+  const legacy = parseMeasurementViewSearch({ scope: string('scope'), class: string('class') })
+  const scope = string('measurementScope') ?? (legacy.scope === 'group' ? 'group' : 'project')
+  const key = string('measurementScopeKey') ?? (string('measurementScope') ? undefined : legacy.groupKey)
+  const queryClass = string('queryClass') ?? string('class')
+  const result: VisibilitySelectionState = {
+    measurementScope: key && (scope === 'group' || scope === 'market' || scope === 'property') ? scope : 'project',
+    queryClass: queryClass === 'all' || queryClass === 'branded' || queryClass === 'unknown' ? queryClass : 'non-brand',
+  }
+  if (result.measurementScope !== 'project') result.measurementScopeKey = key
+  for (const [urlKey, field] of [
+    ['measurementProvider', 'provider'], ['measurementModel', 'model'], ['measurementLocation', 'location'],
+    ['measurementFrom', 'from'], ['measurementTo', 'to'], ['measurementRunId', 'measurementRunId'], ['measurementQueryKey', 'queryKey'],
+  ] as const) {
+    const value = string(urlKey)
+    if (value !== undefined) result[field] = value
+  }
+  const revision = Number(search.measurementRevision)
+  if (Number.isSafeInteger(revision) && revision > 0) result.revision = revision
+  return result
+}
+
+export function patchVisibilitySelection(
+  previous: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...previous, ...patch }
+  // Legacy scope tokens must not reappear when the user returns to the project.
+  if ('measurementScope' in patch) {
+    next.scope = undefined
+    next.measurementQueryKey = undefined
+    if (patch.measurementScope === 'project') next.measurementScopeKey = undefined
+  }
+  if ('queryClass' in patch) next.class = undefined
+  return next
+}

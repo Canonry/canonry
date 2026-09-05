@@ -3,12 +3,16 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
+import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
+import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
@@ -16,13 +20,14 @@ import {
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
+  getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
-})
+}, 60_000)
 
 afterEach(() => {
   cleanup()
@@ -40,6 +45,7 @@ async function renderAt(
     report?: ReturnType<typeof measurementReportResponse>
     overview?: ReturnType<typeof measurementOverviewResponse>
     overviewKey?: { scope?: 'all' | 'group'; groupKey?: string; queryClass?: 'all' | 'non-brand' | 'branded' }
+    visibilityReport?: VisibilityReportResponse
   },
   /**
    * `seedPlan: false` leaves the measurement-plan query unseeded, which is the
@@ -47,7 +53,7 @@ async function renderAt(
    * decidable. These render one synchronous pass, so an unseeded query stays
    * pending for the whole render.
    */
-  options: { schedule?: unknown; seedPlan?: boolean } = {},
+  options: { schedule?: unknown; seedPlan?: boolean; seedVisibilityReport?: boolean } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
@@ -108,6 +114,19 @@ async function renderAt(
       { pages: [measurement.overview], pageParams: [{ path: { name: projectName }, query: q }] },
     )
   }
+  if (options.seedVisibilityReport !== false) {
+    const url = new URL(pathname, 'http://localhost')
+    const selection = parseVisibilitySelection(Object.fromEntries(url.searchParams.entries()))
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(projectName, selection)),
+      measurement?.visibilityReport ?? visibilityReportResponse({
+        mode: measurement?.plan?.active?.plan.schemaVersion === 2 ? 'advanced' : 'simple',
+        queryClass: selection.queryClass,
+        scope: selection.measurementScope,
+        scopeKey: selection.measurementScopeKey,
+      }),
+    )
+  }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
 
@@ -118,6 +137,184 @@ async function renderAt(
       </DashboardProvider>
     </QueryClientProvider>,
   )
+}
+
+function visibilityReportQuery(
+  projectName: string,
+  selection: VisibilitySelectionState,
+  pagination: { cursor?: string; search?: string } = {},
+) {
+  return {
+    client: heyClient,
+    path: { name: projectName },
+    query: {
+      scope: selection.measurementScope,
+      scopeKey: selection.measurementScopeKey,
+      queryClass: selection.queryClass,
+      provider: selection.provider,
+      model: selection.model,
+      location: selection.location,
+      from: selection.from,
+      to: selection.to,
+      revision: selection.revision,
+      runId: selection.measurementRunId,
+      queryKey: selection.queryKey,
+      limit: 50,
+      cursor: pagination.cursor,
+      search: pagination.search,
+    },
+  }
+}
+
+function visibilityReportResponse(overrides: {
+  mode?: 'simple' | 'advanced'
+  queryClass?: 'all' | 'non-brand' | 'branded' | 'unknown'
+  scope?: 'project' | 'group' | 'market' | 'property'
+  scopeKey?: string
+  scopeLabel?: string
+  label?: string
+  targetKey?: string
+  queryKey?: string
+  nextCursor?: string | null
+  total?: number
+  evidence?: boolean
+} = {}): VisibilityReportResponse {
+  const mode = overrides.mode ?? 'simple'
+  const queryClass = overrides.queryClass ?? 'non-brand'
+  const scopeKind = overrides.scope ?? 'project'
+  const scopeId = scopeKind === 'project' ? 'project' : overrides.scopeKey ?? `${scopeKind}-synthetic`
+  const scopeLabel = overrides.scopeLabel ?? (scopeKind === 'project' ? 'Whole site' : 'North')
+  const rate = { numerator: 1, denominator: 1, rate: 1 }
+  const classes = queryClass === 'all'
+    ? ['branded', 'non-brand', 'unknown'] as const
+    : [queryClass]
+  const revision = mode === 'advanced' ? 4 : null
+  const query = overrides.label ?? 'Harbor House'
+  const queryKey = overrides.queryKey ?? 'visibility-query-old'
+  const total = overrides.total ?? 1
+
+  return visibilityReportResponseSchema.parse({
+    selection: {
+      mode,
+      queryClass,
+      scope: { id: scopeId, label: scopeLabel, kind: scopeKind, targetCount: 1 },
+      provider: null,
+      model: null,
+      location: { kind: 'all' },
+      time: { from: null, to: null },
+      revision,
+      run: { id: 'run-synthetic', explicit: false },
+      provenance: mode === 'advanced'
+        ? { kind: 'frozen-advanced', definitionRevision: 4 }
+        : { kind: 'frozen-simple', definitionRevision: null },
+      measurement: {
+        state: 'measured',
+        activeRevision: revision,
+        measuredRevision: revision,
+        awaitingSweep: false,
+        pendingAssignmentCount: 0,
+        completedAt: '2026-08-02T12:05:00.000Z',
+      },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+      { id: 'north', label: 'North', kind: 'group', targetCount: 1 },
+    ],
+    filterOptions: { providers: ['openai'], models: [{ provider: 'openai', model: 'search-model' }], locations: [{ kind: 'all' }] },
+    populations: classes.map(populationClass => ({
+      queryClass: populationClass,
+      summary: {
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        propertyReach: rate,
+        outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
+      },
+      trend: [{
+        runId: 'run-synthetic',
+        createdAt: '2026-08-02T12:05:00.000Z',
+        revision,
+        provenance: mode === 'advanced'
+          ? { kind: 'frozen-advanced', definitionRevision: 4 }
+          : { kind: 'frozen-simple', definitionRevision: null },
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        continuity: { state: 'first', comparedRunId: null },
+      }],
+      queries: {
+        items: [{
+          queryKey,
+          queryId: 'query-old',
+          query,
+          provider: 'openai',
+          model: 'search-model',
+          location: null,
+          targetKeys: [overrides.targetKey ?? 'harbor-house'],
+          answerCount: 1,
+          mentionCoverage: rate,
+          citationCoverage: rate,
+        }],
+        nextCursor: overrides.nextCursor ?? null,
+        total,
+      },
+      evidence: {
+        items: overrides.evidence ? [{
+          answerId: 'answer-synthetic',
+          runId: 'run-synthetic',
+          queryKey,
+          query,
+          provider: 'openai',
+          model: 'search-model',
+          location: null,
+          targetKeys: [overrides.targetKey ?? 'harbor-house'],
+          mentioned: true,
+          cited: true,
+          answerText: 'Stored answer text.',
+          createdAt: '2026-08-02T12:05:00.000Z',
+          sources: ['https://locations.example/harbor-house'],
+          observedCompetitors: [],
+        }] : [],
+        nextCursor: null,
+        total: overrides.evidence ? 1 : 0,
+      },
+      competitorAvailability: { state: 'available' },
+      competitors: [],
+      observedCompetitors: [],
+      breakdown: {
+        properties: [{ id: 'harbor-house', label: 'Harbor House', queryCount: 1, mentionCoverage: rate, citationCoverage: rate }],
+        groups: [{ id: 'north', label: 'North', queryCount: 1, mentionCoverage: rate, citationCoverage: rate }],
+      },
+    })),
+  })
+}
+
+function queryTrackingWorkspaceResponse() {
+  const context = { providers: ['openai'], models: { openai: 'search-model' }, location: null }
+  return queryTrackingWorkspaceResponseSchema.parse({
+    mode: 'advanced',
+    workspaceVersion: `qtw_${'a'.repeat(64)}`,
+    active: { revision: 4, compiledChecksum: 'b'.repeat(64) },
+    defaultContexts: [context],
+    targets: [{ stableKey: 'citypoint', label: 'Citypoint Dental' }],
+    groups: [{ stableKey: 'north', label: 'North', targetKeys: ['citypoint'] }],
+    markets: [],
+    tracked: [{
+      queryId: 'query-citypoint',
+      queryText: 'Citypoint dentist',
+      normalizedText: 'citypoint dentist',
+      provenance: { source: 'manual', sourceId: null, capturedAt: '2026-09-04T12:00:00.000Z' },
+      state: 'tracked',
+      lastMeasuredAt: '2026-09-04T12:10:00.000Z',
+      assignments: [{
+        targetKey: 'citypoint', groupKeys: ['north'], marketKeys: [], queryClass: 'branded', classificationSource: 'frozen', contexts: [context],
+      }],
+    }],
+    savedSources: { research: [], discovery: [] },
+  })
 }
 
 function measurementPlanResponse(revision: number, populated = false) {
@@ -353,14 +550,15 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   expect(html).not.toContain('Coverage and performance')
 })
 
-test('a Simple project keeps the existing Overview without advertising advanced measurement', async () => {
+test('a Simple project opens the unified non-brand report without advertising advanced measurement', async () => {
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Non-brand queries')
+  expect(html).toContain('1 of 1')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
-  expect(html).not.toContain('Latest measurement')
+  expect(html).not.toContain('Where competitors are winning')
 })
 
 test('project navigation ignores stale Site Health onboarding markers', async () => {
@@ -387,6 +585,10 @@ test('a stale Site Health onboarding marker cannot redirect the project overview
     getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
     { active: null },
   )
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(projectName, parseVisibilitySelection({}))),
+    visibilityReportResponse(),
+  )
   const router = createAppRouter(queryClient, {
     initialEntries: ['/projects/project_citypoint?onboarding=site-health'],
   })
@@ -399,46 +601,44 @@ test('a stale Site Health onboarding marker cannot redirect the project overview
     </QueryClientProvider>,
   )
 
-  expect(await page.findByText('Where competitors are winning')).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
   expect(router.state.location.pathname).toBe('/projects/project_citypoint')
 })
 
-test('an active setup replaces the Simple Overview with the advanced measurement landing', async () => {
+test('an active setup uses the unified report without flashing legacy metrics', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, {
     plan: measurementPlanResponse(3, true),
     report: measurementReportResponse(3),
+    visibilityReport: visibilityReportResponse({ mode: 'advanced' }),
   })
 
-  expect(html).toContain('Republish setup')
-  // The advanced surface counts Properties and only Properties. The
-  // assignment-denominated hero was removed: two populations side by side, with
-  // the unit printed on neither, is what made the section unreadable.
-  // That fixture carries no outcome counts, so the row correctly renders
-  // nothing; what matters is that the assignment-denominated hero is gone.
-  expect(html).not.toContain('aria-label="Coverage"')
-  expect(html).toContain('advanced-measurement-properties-title')
+  expect(html).toContain('Non-brand queries')
+  expect(html).toContain('Properties mentioned')
   expect(html).toContain('Harbor House')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Where competitors are winning')
+  expect(html).not.toContain('Republish setup')
 })
 
 test('a version-two setup never renders version-one class metrics as if they were current', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, {
     plan: measurementPlanV2Response(4),
     overview: measurementOverviewResponse(),
+    visibilityReport: visibilityReportResponse({ mode: 'advanced' }),
   })
 
   // Was: asserted 'Edit setup' rendered here. Editing a published plan moved to
   // Settings; on the results surface it was a control unrelated to reading the
   // numbers, sitting between the headline and the table.
   expect(html).not.toContain('Edit setup')
+  expect(html).toContain('Non-brand queries')
   expect(html).toContain('Harbor House')
-  expect(html).toContain('1 of 1 (100%)')
+  expect(html).toContain('1 of 1')
   expect(html).not.toContain('Republish setup')
   expect(html).not.toContain('Republish setup to enable Non-brand and Branded reporting.')
 })
 
-test('a version-two Overview uses server scope, search and pagination and defers evidence until a Property expands', async () => {
+test('the unified visibility report owns scope, class, paging, search, and answer drill-in', async () => {
   const observed: string[] = []
   let releaseSearch: (() => void) | undefined
   let failRetrySearch = true
@@ -462,48 +662,62 @@ test('a version-two Overview uses server scope, search and pagination and defers
         draft: null,
       })
     }
-    if (url.pathname.endsWith('/measurement-overview')) {
+    if (url.pathname.endsWith('/visibility-report')) {
+      if (url.searchParams.get('queryKey')) {
+        return jsonResponse(visibilityReportResponse({
+          mode: 'advanced',
+          scope: 'group',
+          scopeKey: 'north',
+          scopeLabel: 'North',
+          label: 'Harbor Search Result',
+          evidence: true,
+        }))
+      }
       if (url.searchParams.get('search') === 'retry') {
         if (failRetrySearch) {
           failRetrySearch = false
           return jsonResponse({ code: 'INTERNAL_ERROR', message: 'Synthetic failure' }, 500)
         }
-        return jsonResponse(measurementOverviewResponse({ label: 'Recovered Search Result' }))
+        return jsonResponse(visibilityReportResponse({ mode: 'advanced', label: 'Recovered Search Result' }))
       }
       if (url.searchParams.get('cursor') === 'cursor-2') {
-        return jsonResponse(measurementOverviewResponse({
+        return jsonResponse(visibilityReportResponse({
+          mode: 'advanced',
           label: 'Harbor Annex',
           targetKey: 'harbor-annex',
-          totalEstimate: 2,
+          total: 2,
         }))
       }
       if (url.searchParams.get('search') === 'harbor') {
         await searchGate
-        return jsonResponse(measurementOverviewResponse({
+        return jsonResponse(visibilityReportResponse({
+          mode: 'advanced',
           scope: 'group',
           scopeKey: 'north',
           scopeLabel: 'North',
           label: 'Harbor Search Result',
         }))
       }
-      if (url.searchParams.get('groupKey') === 'north') {
-        return jsonResponse(measurementOverviewResponse({
+      if (url.searchParams.get('scope') === 'group' && url.searchParams.get('scopeKey') === 'north') {
+        return jsonResponse(visibilityReportResponse({
+          mode: 'advanced',
           scope: 'group',
           scopeKey: 'north',
           scopeLabel: 'North',
           label: 'North Property',
         }))
       }
-      return jsonResponse(measurementOverviewResponse({ nextCursor: 'cursor-2', totalEstimate: 2 }))
+      return jsonResponse(visibilityReportResponse({ mode: 'advanced', nextCursor: 'cursor-2', total: 2 }))
     }
-    if (url.pathname.endsWith('/measurement-report')) return jsonResponse(measurementReportResponse(4))
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  // Global runId belongs to the run drawer. It must not silently pin this
+  // report; only measurementRunId is a visibility-report filter.
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint?runId=drawer-run'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -513,43 +727,47 @@ test('a version-two Overview uses server scope, search and pagination and defers
     </QueryClientProvider>,
   )
 
+  // The global drawer owns `runId`; close it before exercising the report and
+  // keep the first report URL assertion below as the boundary guard.
+  fireEvent.click(await page.findByRole('button', { name: 'Close' }))
   expect(await page.findByText('Harbor House')).toBeTruthy()
-  const firstOverviewUrl = observed.find(path => path.includes('/measurement-overview?'))
-  expect(firstOverviewUrl).toContain('scope=all')
-  // All queries is the default now — the operator has not yet said which lane
-  // he is asking about, and defaulting to one silently hid the other.
-  expect(firstOverviewUrl).toContain('queryClass=all')
-  expect(firstOverviewUrl).toContain('limit=50')
-  expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
+  const firstReportUrl = observed.find(path => path.includes('/visibility-report?'))
+  expect(firstReportUrl).toContain('scope=project')
+  expect(firstReportUrl).toContain('queryClass=non-brand')
+  expect(firstReportUrl).toContain('limit=50')
+  expect(firstReportUrl).not.toContain('runId=drawer-run')
+  expect(observed.some(path => path.includes('/measurement-overview?') || path.includes('/measurement-report?'))).toBe(false)
 
-  fireEvent.click(page.getByRole('button', { name: 'Show 50 more' }))
+  fireEvent.click(page.getByRole('button', { name: 'Next queries' }))
   expect(await page.findByText('Harbor Annex')).toBeTruthy()
-  expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=run-synthetic'))).toBe(true)
+  expect(observed.some(path => path.includes('cursor=cursor-2'))).toBe(true)
+  expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=drawer-run'))).toBe(false)
 
-  // Group is a segmented radiogroup at <=5 groups, so pick the option by label.
-  fireEvent.click(within(page.getByLabelText('Group')).getByRole('radio', { name: 'North' }))
+  const scopePicker = page.getByText('Whole site', { selector: 'summary' }).closest('details')!
+  fireEvent.click(page.getByText('Whole site', { selector: 'summary' }))
+  fireEvent.click(within(scopePicker).getByRole('button', { name: /^North/ }))
   expect(await page.findByText('North Property')).toBeTruthy()
-  expect(observed.some(path => path.includes('scope=group') && path.includes('groupKey=north'))).toBe(true)
+  expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
 
-  fireEvent.change(page.getByLabelText('Search properties'), { target: { value: 'harbor' } })
+  fireEvent.change(page.getByLabelText('Search Non-brand queries'), { target: { value: 'harbor' } })
   await waitFor(() => expect(observed.some(path => path.includes('search=harbor'))).toBe(true))
-  expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('harbor')
-  expect(page.queryByText('North Property')).toBeNull()
-  expect(page.getByLabelText('Updating Property results')).toBeTruthy()
+  expect((page.getByLabelText('Search Non-brand queries') as HTMLInputElement).value).toBe('harbor')
   releaseSearch!()
   expect(await page.findByText('Harbor Search Result')).toBeTruthy()
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
 
-  fireEvent.click(page.getByText('Harbor Search Result').closest('tr')!)
-  expect(await page.findByText('Assigned queries')).toBeTruthy()
-  await waitFor(() => expect(observed.some(path => path.includes('/measurement-report?revision=4') && path.includes('runId=run-synthetic'))).toBe(true))
+  fireEvent.click(page.getByRole('button', { name: 'View answers for Harbor Search Result · openai' }))
+  expect(await page.findByText('Stored answer text.')).toBeTruthy()
+  await waitFor(() => expect(observed.some(path => path.includes('queryKey=visibility-query-old'))).toBe(true))
+  fireEvent.click(page.getByRole('button', { name: 'Close answers' }))
+  await waitFor(() => expect(page.queryByRole('button', { name: 'Close answers' })).toBeNull())
 
-  fireEvent.change(page.getByLabelText('Search properties'), { target: { value: 'retry' } })
-  expect(await page.findByText('Could not load the advanced measurement report.')).toBeTruthy()
-  fireEvent.click(page.getByRole('button', { name: 'Retry report' }))
+  fireEvent.change(page.getByLabelText('Search Non-brand queries'), { target: { value: 'retry' } })
+  expect(await page.findByRole('heading', { name: 'AI visibility unavailable' })).toBeTruthy()
+  fireEvent.click(page.getByRole('button', { name: 'Retry' }))
   expect(await page.findByText('Recovered Search Result')).toBeTruthy()
-  expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('retry')
-})
+  expect((page.getByLabelText('Search Non-brand queries') as HTMLInputElement).value).toBe('retry')
+}, 15_000)
 
 test('a direct Portfolio URL falls back safely in embed mode', async () => {
   const html = await renderAt('/projects/project_citypoint/portfolio', {
@@ -559,7 +777,7 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   })
 
   expect(html).toContain('Citypoint Dental NYC')
-  expect(html).toContain('Visibility')
+  expect(html).toContain('Non-brand queries')
   expect(html).not.toContain('Import sitemap')
   expect(html).not.toContain('>Portfolio</a>')
   expect(html).not.toContain('Coverage and performance')
@@ -575,6 +793,7 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     const path = `${decodeURIComponent(url.pathname)}${url.search}`
     observed.push(path)
     if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (url.pathname.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse())
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
@@ -591,13 +810,124 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText('Visibility')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
   await waitFor(() => expect(observed.some(path => path.endsWith('/runs?kind=answer-visibility'))).toBe(true))
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.filter(path =>
     path.endsWith('/queries')
-    || path.includes('/measurement-report?'),
+    || path.includes('/measurement-report?')
+    || path.includes('/measurement-overview?')
+    || path.includes('/query-tracking'),
   )).toEqual([])
+  expect(observed.some(path => path.includes('/visibility-report?'))).toBe(true)
+})
+
+test('embedded Queries and legacy Discovery URLs fall back before reading unpublished tracking or research data', async () => {
+  window.__CANONRY_CONFIG__ = {
+    embed: { enabled: true, views: ['project'], projectTabs: ['overview', 'queries', 'discovery'] },
+  }
+  const observed: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (url.pathname.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse())
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  for (const tab of ['queries', 'discovery']) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint/${tab}`] })
+    await router.load()
+    const screen = render(
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
+    screen.unmount()
+  }
+
+  expect(observed.some(path => path.includes('/query-tracking') || path.includes('/research') || path.includes('/discover'))).toBe(false)
+})
+
+test('the Queries route reads the generated tracking workspace', async () => {
+  const observed: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  expect(page.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
+  await waitFor(() => expect(observed.some(path => path.endsWith('/query-tracking'))).toBe(true))
+  expect(observed.some(path => path.includes('/discover') || path.includes('/research'))).toBe(false)
+})
+
+test('the legacy Discovery route opens the separate research workspace without tracking reads', async () => {
+  const observed: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/discover/sessions')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/discovery'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect(page.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true')
+  expect(page.getByRole('tab', { name: 'Find queries' }).getAttribute('aria-selected')).toBe('true')
+  await waitFor(() => expect(observed.some(path => path.includes('/discover/sessions'))).toBe(true))
+  expect(observed.some(path => path.includes('/query-tracking'))).toBe(false)
 })
 
 test('the Portfolio workspace refreshes its setup data without reading a report early', async () => {
@@ -696,6 +1026,7 @@ test('a failed setup read keeps project results and the global run action visibl
     if (path.endsWith('/measurement-plan') || path.endsWith('/measurement-setup')) {
       return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
     }
+    if (url.pathname.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse())
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
@@ -713,7 +1044,7 @@ test('a failed setup read keeps project results and the global run action visibl
   )
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
-  expect(page.getByText('Where competitors are winning')).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
   expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
@@ -881,7 +1212,7 @@ test('Settings resumes an unpublished draft over an active advanced setup', asyn
 // Restored: these two shipped in #953 and were dropped when a later branch's
 // version of this file was taken wholesale. The guard they cover
 // (`isMeasurementModeUnresolved`) stayed on main the whole time, unguarded.
-test('an unresolved measurement plan shows a skeleton instead of flashing the Simple Overview', async () => {
+test('an unresolved measurement plan shows a skeleton instead of flashing legacy or unified metrics', async () => {
   // The bug: `resolveAdvancedMeasurementMode` reads a pending plan read as
   // `null`, and `null` means "this project has no plan". So a project WITH an
   // advanced plan painted the legacy overview first and swapped it out once the
@@ -889,17 +1220,18 @@ test('an unresolved measurement plan shows a skeleton instead of flashing the Si
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { seedPlan: false })
 
   expect(html).toContain('Loading project overview')
-  // The legacy overview's own copy must not appear while the answer is unknown.
+  // Neither the old overview nor a cached report can answer an unresolved plan.
   expect(html).not.toContain('Where competitors are winning')
+  expect(html).not.toContain('Non-brand queries')
 })
 
-test('a settled plan read still renders the Simple Overview, so the guard is not a permanent skeleton', async () => {
-  // The other half: once the read settles as "no plan", `null` means what it
-  // says and the legacy surface is correct. A guard that cannot tell pending
-  // from settled would strand this on the skeleton forever.
+test('a settled plan read renders the unified report, so the guard is not a permanent skeleton', async () => {
+  // The other half: once the plan settles as absent, the report can resolve the
+  // Simple selection. A guard that cannot tell pending from settled would
+  // strand this on the skeleton forever.
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Non-brand queries')
   expect(html).not.toContain('Loading project overview')
 })
 
@@ -908,54 +1240,74 @@ test('a settled plan read still renders the Simple Overview, so the guard is not
 // Scale is the reason. At 47 properties an operator can re-pick a market after
 // every reload; at 200+ markets that is the whole interaction, and a scope that
 // only exists in component state cannot be linked, bookmarked, or reloaded.
-// `?scope=group:<key>` makes a market a place you can send someone.
+// `?measurementScope=group&measurementScopeKey=<key>` makes a market a place
+// you can send someone.
 
 test('a scope in the URL selects that group on first paint, with no interaction', async () => {
   const html = await renderAt(
-    '/projects/project_citypoint?scope=group:north',
+    '/projects/project_citypoint?measurementScope=group&measurementScopeKey=north',
     undefined,
     {
       plan: measurementPlanV2Response(2),
-      overview: measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North' }),
-      overviewKey: { scope: 'group', groupKey: 'north' },
+      visibilityReport: visibilityReportResponse({ mode: 'advanced', scope: 'group', scopeKey: 'north', scopeLabel: 'North' }),
     },
   )
 
-  // The group control reflects the URL rather than defaulting to all-properties.
+  // The server-resolved scope reflects the URL rather than defaulting to site.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const group = doc.querySelector('[aria-labelledby="advanced-measurement-group-label"]')
-  const checked = group?.querySelector('[role="radio"][aria-checked="true"], option[selected]')
-  expect(checked?.textContent).toBe('North')
+  expect(doc.querySelector('summary')?.textContent).toBe('North')
 })
 
 test('a query class in the URL selects that class on first paint', async () => {
   const html = await renderAt(
-    '/projects/project_citypoint?class=branded',
+    '/projects/project_citypoint?queryClass=branded',
     undefined,
     {
       plan: measurementPlanV2Response(2),
-      overview: measurementOverviewResponse({ queryClass: 'branded' }),
-      overviewKey: { queryClass: 'branded' },
+      visibilityReport: visibilityReportResponse({ mode: 'advanced', queryClass: 'branded' }),
     },
   )
 
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const control = doc.querySelector('[aria-labelledby="advanced-measurement-class-label"]')
-  const checked = control?.querySelector('[role="radio"][aria-checked="true"]')
+  const control = doc.querySelector('select[aria-label="Query type"]')
+  const checked = control?.querySelector('option[selected]')
   expect(checked?.textContent).toBe('Branded')
 })
 
-test('a stale group key in the URL falls back to all properties instead of erroring', async () => {
-  // A bookmark outlives the group it names. The page must still render.
-  const html = await renderAt(
-    '/projects/project_citypoint?scope=group:deleted-market',
-    undefined,
-    { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() },
+test('a stale group key fails closed instead of silently broadening to the whole site', async () => {
+  const observed: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(2))
+    if (url.pathname.endsWith('/visibility-report')) {
+      return jsonResponse({ code: 'VISIBILITY_SCOPE_NOT_FOUND', message: 'That group no longer exists.' }, 400)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, {
+    initialEntries: ['/projects/project_citypoint?measurementScope=group&measurementScopeKey=deleted-market'],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
   )
 
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  const group = doc.querySelector('[aria-labelledby="advanced-measurement-group-label"]')
-  const checked = group?.querySelector('[role="radio"][aria-checked="true"], option[selected]')
-  expect(checked?.textContent).toBe('All properties')
-  expect(html).not.toContain('Something went wrong')
+  expect(await page.findByRole('heading', { name: 'AI visibility unavailable' })).toBeTruthy()
+  const staleRequest = observed.find(path => path.includes('/visibility-report?'))
+  expect(staleRequest).toContain('scope=group')
+  expect(staleRequest).toContain('scopeKey=deleted-market')
+  expect(observed.some(path => path.includes('/visibility-report?scope=project'))).toBe(false)
 })

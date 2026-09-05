@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "canonry",
-  "version": "4.181.1",
+  "version": "4.181.2",
   "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
   "author": {
     "name": "Canonry",

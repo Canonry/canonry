@@ -8,13 +8,18 @@ import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { compile } from 'tailwindcss'
 import ts from 'typescript'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
-import { getApiV1ProjectsByNameMeasurementPlanQueryKey } from '@ainyc/canonry-api-client/react-query'
+import {
+  getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameVisibilityReportQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
+import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 
 const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
 const sourceRoot = resolve(import.meta.dirname, '../src')
@@ -23,6 +28,107 @@ const tailwindRoot = resolve(import.meta.dirname, '../node_modules/tailwindcss')
 beforeAll(async () => {
   await preloadAllLazyRoutes()
 })
+
+function sharedVisibilityReport() {
+  const rate = { numerator: 1, denominator: 1, rate: 1 }
+  return visibilityReportResponseSchema.parse({
+    selection: {
+      mode: 'simple',
+      queryClass: 'non-brand',
+      scope: { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+      provider: null,
+      model: null,
+      location: { kind: 'all' },
+      time: { from: null, to: null },
+      revision: null,
+      run: { id: 'run-synthetic', explicit: false },
+      provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: {
+        state: 'measured',
+        activeRevision: null,
+        measuredRevision: null,
+        awaitingSweep: false,
+        pendingAssignmentCount: 0,
+        completedAt: '2026-09-04T12:00:00.000Z',
+      },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 }],
+    filterOptions: { providers: ['openai'], models: [{ provider: 'openai', model: 'search-model' }], locations: [{ kind: 'all' }] },
+    populations: [{
+      queryClass: 'non-brand',
+      summary: {
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        propertyReach: rate,
+        outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
+      },
+      trend: [{
+        runId: 'run-synthetic',
+        createdAt: '2026-09-04T12:00:00.000Z',
+        revision: null,
+        provenance: { kind: 'frozen-simple', definitionRevision: null },
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        continuity: { state: 'first', comparedRunId: null },
+      }],
+      queries: {
+        items: [{
+          queryKey: 'query-synthetic',
+          queryId: 'query-synthetic',
+          query: 'emergency dentist near me',
+          provider: 'openai',
+          model: 'search-model',
+          location: null,
+          targetKeys: ['citypoint'],
+          answerCount: 1,
+          mentionCoverage: rate,
+          citationCoverage: rate,
+        }],
+        nextCursor: null,
+        total: 1,
+      },
+      evidence: { items: [], nextCursor: null, total: 0 },
+      competitorAvailability: { state: 'available' },
+      competitors: [],
+      observedCompetitors: [],
+      breakdown: { properties: [], groups: [] },
+    }],
+  })
+}
+
+function seedSharedVisibilityReports(queryClient: QueryClient, fixture: ReturnType<typeof createDashboardFixture>): void {
+  const selection = parseVisibilitySelection({})
+  for (const entry of fixture.dashboard.projects) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameVisibilityReportQueryKey({
+        client: heyClient,
+        path: { name: entry.project.name },
+        query: {
+          scope: selection.measurementScope,
+          scopeKey: selection.measurementScopeKey,
+          queryClass: selection.queryClass,
+          provider: selection.provider,
+          model: selection.model,
+          location: selection.location,
+          from: selection.from,
+          to: selection.to,
+          revision: selection.revision,
+          runId: selection.measurementRunId,
+          queryKey: selection.queryKey,
+          limit: 50,
+          cursor: undefined,
+          search: undefined,
+        },
+      }),
+      sharedVisibilityReport(),
+    )
+  }
+}
 
 async function renderRoute(pathname: string): Promise<string> {
   const fixture = createDashboardFixture({})
@@ -36,6 +142,7 @@ async function renderRoute(pathname: string): Promise<string> {
       { active: null },
     )
   }
+  seedSharedVisibilityReports(queryClient, fixture)
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
 
@@ -90,24 +197,26 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
   `)
 })
 
-test('project route keeps the core metric and evidence class baseline stable', async () => {
+test('project route keeps the shared-report class baseline stable', async () => {
   const html = await renderRoute('/projects/Citypoint%20Dental%20NYC')
 
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classFor(html, '.page-header'),
     pageTitle: classFor(html, '.page-title'),
-    firstSectionDivider: classFor(html, '.page-section-divider'),
-    firstMetricFill: classFor(html, '.metric-card-bar-fill'),
-    evidenceDisclosure: classFor(html, '#evidence-section'),
+    reportSection: classFor(html, '[aria-label="AI visibility results"]'),
+    reportPopulation: classFor(html, '[aria-label="Non-brand queries"]'),
+    trendChart: classFor(html, '.visibility-trend-chart'),
+    queryTable: classFor(html, '.evidence-table'),
   }).toMatchInlineSnapshot(`
     {
-      "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
-      "firstMetricFill": "metric-card-bar-fill progress-fill-positive",
-      "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": "page-header",
       "pageTitle": "page-title",
+      "queryTable": "evidence-table",
+      "reportPopulation": "py-6",
+      "reportSection": "page-section-divider",
+      "trendChart": "visibility-trend-chart",
     }
   `)
 })

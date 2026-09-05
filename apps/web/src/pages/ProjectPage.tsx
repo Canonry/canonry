@@ -3,7 +3,7 @@ import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import { measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
@@ -25,8 +25,8 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
-import { DiscoverySection } from '../components/project/DiscoverySection.js'
+import { VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { QueriesSection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -106,7 +106,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { useAccount } from '../contexts/account-context.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1249,42 +1249,17 @@ function OverviewDisclosure({
 function OverviewSignals({
   insights,
   suggestedQueries,
-  projectName,
+  onManageQueries,
 }: {
   insights: ProjectCommandCenterVm['insights']
   suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
-  projectName: string
+  onManageQueries?: () => void
 }) {
   const { openEvidence } = useDrawer()
-  const appendQueries = useAppendQueries()
-  const [pendingQueries, setPendingQueries] = useState<Set<string>>(new Set())
 
-  if (insights.length === 0 && suggestedQueries.rows.length === 0) return null
+  const visibleSuggestions = onManageQueries ? suggestedQueries.rows : []
 
-  const clearPending = (query: string) => {
-    setPendingQueries(current => {
-      const next = new Set(current)
-      next.delete(query)
-      return next
-    })
-  }
-
-  const handleTrackQuery = (query: string) => {
-    setPendingQueries(current => new Set(current).add(query))
-    appendQueries.mutate(
-      { projectName, queries: [query] },
-      {
-        onSuccess: () => {
-          addToast({ tone: 'positive', title: `Tracking "${query}"` })
-          clearPending(query)
-        },
-        onError: (error) => {
-          addToast({ tone: 'negative', title: `Could not track "${query}"`, detail: String(error) })
-          clearPending(query)
-        },
-      },
-    )
-  }
+  if (insights.length === 0 && visibleSuggestions.length === 0) return null
 
   const renderInsight = (insight: ProjectCommandCenterVm['insights'][number]) => (
     <div key={insight.id} className="py-3">
@@ -1320,35 +1295,21 @@ function OverviewSignals({
     </div>
   )
 
-  const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => {
-    const isPending = pendingQueries.has(suggestion.query)
-    return (
-      <div key={suggestion.query} className="flex items-center justify-between gap-4 py-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
-          <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
-          <p className="mt-0.5 text-sm text-secondary">{suggestion.reason}</p>
-        </div>
-        {!isEmbed() ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isPending}
-            aria-label={`Track query "${suggestion.query}"`}
-            onClick={() => handleTrackQuery(suggestion.query)}
-          >
-            {isPending ? 'Tracking…' : 'Track'}
-          </Button>
-        ) : null}
+  const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
+    <div key={suggestion.query} className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
+        <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
+        <p className="mt-0.5 text-sm text-secondary">{suggestion.reason}</p>
       </div>
-    )
-  }
+      {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
+    </div>
+  )
 
   const primaryInsights = insights.slice(0, 1)
-  const primarySuggestions = suggestedQueries.rows.slice(0, 1)
+  const primarySuggestions = visibleSuggestions.slice(0, 1)
   const remainingInsights = insights.slice(1)
-  const remainingSuggestions = suggestedQueries.rows.slice(1)
+  const remainingSuggestions = visibleSuggestions.slice(1)
   const remainingCount = remainingInsights.length + remainingSuggestions.length
 
   return (
@@ -1564,13 +1525,17 @@ function ProjectPageContent({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const appendQueries = useAppendQueries()
-  const projectSearchParams = useSearch({ strict: false }) as {
+  const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
     manageQueries?: boolean
     runId?: string
     siteHealthRunId?: string
     scope?: string
     class?: string
   }
+  const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  const updateVisibilitySearch = useCallback((patch: Record<string, unknown>) => {
+    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, patch) })
+  }, [navigate])
   const manageQueriesRequested = projectSearchParams.manageQueries === true
   const releaseInitialSiteHealthRun = useCallback(() => {
     void navigate({
@@ -1720,9 +1685,9 @@ function ProjectPageContent({
   } as const
   const advancedMeasurementOverviewQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions(advancedMeasurementOverviewQueryInput),
-    enabled: tab === 'overview'
-      && Boolean(projectName)
-      && activeMeasurementPlanSchemaVersion === 2,
+    // V2 results now come from visibility-report. Keep the legacy query shape
+    // only for the retained landing presentation; do not double-read evidence.
+    enabled: false,
     initialPageParam: advancedMeasurementOverviewQueryInput,
     getNextPageParam: (lastPage, pages) => {
       if (!lastPage.properties.nextCursor) return undefined
@@ -1755,8 +1720,7 @@ function ProjectPageContent({
     enabled: tab === 'overview'
       && Boolean(projectName)
       && activeMeasurementPlan !== null
-      && (activeMeasurementPlanSchemaVersion === 1
-        || hasExpandedAdvancedProperty && advancedMeasurementDisplayedRunId !== undefined),
+      && activeMeasurementPlanSchemaVersion === 1,
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -2114,7 +2078,7 @@ function ProjectPageContent({
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
     { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
@@ -2166,7 +2130,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className="page-header-right">
-          <p className="text-sm text-muted">{model.dateRangeLabel}</p>
+          <p className="text-sm text-muted">{tab === 'overview' ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
           {!isEmbed() && (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
@@ -2198,6 +2162,7 @@ function ProjectPageContent({
             <Link
               key={item.key}
               to={item.href}
+              search={previous => ({ ...previous, onboarding: undefined })}
               className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
               aria-current={item.key === tab ? 'page' : undefined}
             >
@@ -2279,7 +2244,18 @@ function ProjectPageContent({
               </Button>
             </div>
           ) : null}
-          <AdvancedMeasurementLanding
+          {visibilitySelection.measurementScope === 'project' ? <OverviewSignals
+            insights={model.insights}
+            suggestedQueries={model.suggestedQueries}
+            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+          /> : null}
+          <VisibilityWorkspace
+            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined })}`}
+            projectName={projectName}
+            selection={visibilitySelection}
+            onSelectionChange={updateVisibilitySearch}
+            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+            fallback={<AdvancedMeasurementLanding
             key={`${projectName}:${activeMeasurementRevision}`}
             mode={advancedMeasurementMode}
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
@@ -2296,12 +2272,6 @@ function ProjectPageContent({
           <OverviewBrief
             model={model}
             sweepRunning={hasActiveVisibilitySweep}
-          />
-
-          <OverviewSignals
-            insights={model.insights}
-            suggestedQueries={model.suggestedQueries}
-            projectName={model.project.name}
           />
 
           <section className="page-section-divider">
@@ -2593,7 +2563,7 @@ function ProjectPageContent({
             isLoadingMore={advancedMeasurementOverviewQuery.isFetchingNextPage}
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
-          />
+          />} />
         </>
         )
       ) : tab === 'settings' ? (
@@ -2670,8 +2640,18 @@ function ProjectPageContent({
         </>
       ) : tab === 'report' ? (
         <ReportPage projectName={model.project.name} />
-      ) : tab === 'discovery' ? (
-        <DiscoverySection projectName={projectName} />
+      ) : tab === 'queries' || tab === 'discovery' ? (
+        <QueriesSection
+          projectName={projectName}
+          queryWorkspace={projectSearchParams.queryWorkspace === 'research' || (tab === 'discovery' && projectSearchParams.queryWorkspace === undefined) ? 'research' : 'tracked'}
+          onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
+          researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
+          onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}
+          selection={visibilitySelection}
+          onSelectionChange={updateVisibilitySearch}
+          trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
+          onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
+        />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection
           projectName={model.project.name}

@@ -5,8 +5,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
-import { getApiV1ProjectsByNameMeasurementPlanQueryKey } from '@ainyc/canonry-api-client/react-query'
+import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import {
+  getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameVisibilityReportQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
+import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
+import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
@@ -47,6 +54,126 @@ function seedNoMeasurementPlan(queryClient: QueryClient, fixture: ReturnType<typ
   }
 }
 
+function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
+  return {
+    client: heyClient,
+    path: { name: projectName },
+    query: {
+      scope: selection.measurementScope,
+      scopeKey: selection.measurementScopeKey,
+      queryClass: selection.queryClass,
+      provider: selection.provider,
+      model: selection.model,
+      location: selection.location,
+      from: selection.from,
+      to: selection.to,
+      revision: selection.revision,
+      runId: selection.measurementRunId,
+      queryKey: selection.queryKey,
+      limit: 50,
+      cursor: undefined,
+      search: undefined,
+    },
+  }
+}
+
+function visibilityReportFixture(selection: VisibilitySelectionState): VisibilityReportResponse {
+  const rate = { numerator: 1, denominator: 1, rate: 1 }
+  const classes = selection.queryClass === 'all'
+    ? ['branded', 'non-brand', 'unknown'] as const
+    : [selection.queryClass]
+  const scopeKind = selection.measurementScope
+  const scopeId = scopeKind === 'project' ? 'project' : selection.measurementScopeKey ?? `${scopeKind}-synthetic`
+
+  return visibilityReportResponseSchema.parse({
+    selection: {
+      mode: 'simple',
+      queryClass: selection.queryClass,
+      scope: { id: scopeId, label: scopeKind === 'project' ? 'Whole site' : 'Selected scope', kind: scopeKind, targetCount: 1 },
+      provider: null,
+      model: null,
+      location: { kind: 'all' },
+      time: { from: null, to: null },
+      revision: null,
+      run: { id: 'run-synthetic', explicit: false },
+      provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: {
+        state: 'measured',
+        activeRevision: null,
+        measuredRevision: null,
+        awaitingSweep: false,
+        pendingAssignmentCount: 0,
+        completedAt: '2026-09-04T12:00:00.000Z',
+      },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [{ id: scopeId, label: scopeKind === 'project' ? 'Whole site' : 'Selected scope', kind: scopeKind, targetCount: 1 }],
+    filterOptions: {
+      providers: ['openai'],
+      models: [{ provider: 'openai', model: 'search-model' }],
+      locations: [{ kind: 'all' }],
+    },
+    populations: classes.map(queryClass => ({
+      queryClass,
+      summary: {
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        propertyReach: rate,
+        outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
+      },
+      trend: [{
+        runId: 'run-synthetic',
+        createdAt: '2026-09-04T12:00:00.000Z',
+        revision: null,
+        provenance: { kind: 'frozen-simple', definitionRevision: null },
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        continuity: { state: 'first', comparedRunId: null },
+      }],
+      queries: {
+        items: [{
+          queryKey: 'query-synthetic',
+          queryId: 'query-synthetic',
+          query: 'emergency dentist near me',
+          provider: 'openai',
+          model: 'search-model',
+          location: null,
+          targetKeys: ['citypoint'],
+          answerCount: 1,
+          mentionCoverage: rate,
+          citationCoverage: rate,
+        }],
+        nextCursor: null,
+        total: 1,
+      },
+      evidence: { items: [], nextCursor: null, total: 0 },
+      competitorAvailability: { state: 'available' },
+      competitors: [],
+      observedCompetitors: [],
+      breakdown: { properties: [], groups: [] },
+    })),
+  })
+}
+
+function seedVisibilityReport(
+  queryClient: QueryClient,
+  fixture: ReturnType<typeof createDashboardFixture>,
+  pathname: string,
+): void {
+  const url = new URL(pathname, 'http://localhost')
+  const selection = parseVisibilitySelection(Object.fromEntries(url.searchParams.entries()))
+  for (const entry of fixture.dashboard.projects) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(entry.project.name, selection)),
+      visibilityReportFixture(selection),
+    )
+  }
+}
+
 async function renderApp(
   pathname: string,
   options: Parameters<typeof createDashboardFixture>[0] = {},
@@ -63,6 +190,7 @@ async function renderApp(
   }
 
   seedNoMeasurementPlan(queryClient, fixture)
+  seedVisibilityReport(queryClient, fixture, pathname)
 
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -98,27 +226,28 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Search Engines/)
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
-  expect(html).toMatch(/Query Discovery/)
-  expect(html).toMatch(/Visibility/)
-  expect(html).toMatch(/Coverage now/)
-  expect(html).toMatch(/Since last sweep/)
-  expect(html).toMatch(/Mentioned/)
-  expect(html).toMatch(/Cited/)
-  expect(html).toMatch(/1 query added · 8 comparable queries\./)
+  expect(html).toMatch(/Queries/)
   expect(html).toMatch(/Latest signals/)
   expect(html).toMatch(/Lost citation on 1 query/)
   expect(html).toMatch(/Emergency-intent prompts stopped grounding Citypoint/)
   expect(html).toMatch(/Evidence · 1 affected query/)
-  expect(html).toMatch(/Suggested query/)
+  expect(html).toMatch(/Complete/)
+  expect(html).toMatch(/Non-brand queries/)
+  expect(html).toMatch(/Mentioned answers/)
+  expect(html).toMatch(/Cited answers/)
+  expect(html).toMatch(/Query performance/)
   expect(html).toMatch(/emergency dentist near me/)
-  expect(html).toMatch(/aria-label="Track query &quot;emergency dentist near me&quot;"/)
+  expect(html).toMatch(/aria-label="View answers for emergency dentist near me · openai"/)
+  expect(html).toMatch(/Trend data and comparability/)
+  expect(html).toMatch(/Competitors/)
+  expect(html).toMatch(/Manage queries/)
+  expect(html).toMatch(/Suggested query/)
+  expect(html).toMatch(/Review in Queries/)
+  expect(html).not.toMatch(/aria-label="Track query/)
   expect(html).not.toMatch(/Next action/)
   expect(html).not.toMatch(/Action queue/)
   expect(html).not.toMatch(/What needs your attention/)
-  expect(html).toMatch(/<details id="evidence-section"/)
-  expect(html).toMatch(/Query evidence/)
-  expect(html).toMatch(/Citation and engine diagnostics/)
-  expect(html).toMatch(/Recent execution history/)
+  expect(html).not.toMatch(/Loading AI visibility/)
 })
 
 test('runs route renders the operational timeline and filters', async () => {
@@ -273,6 +402,9 @@ test('project route renders server attention without restoring the action queue'
     })
   })
 
+  expect(html).toMatch(/Non-brand queries/)
+  expect(html).toMatch(/Query performance/)
+  expect(html).toMatch(/emergency dentist near me/)
   expect(html).toMatch(/Sharp citation drop detected/)
   expect(html).toMatch(/Visibility data needs refresh/)
   expect(html).toMatch(/A newer integration sync landed after the latest visibility sweep/)

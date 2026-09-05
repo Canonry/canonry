@@ -20,6 +20,8 @@ export const PROJECT_QUERY_DOMAINS = {
   traffic: 'getApiV1ProjectsByNameTraffic',
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
+  visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
+  queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   runs: 'getApiV1ProjectsByNameRuns',
 } as const
