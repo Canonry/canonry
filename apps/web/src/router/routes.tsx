@@ -92,6 +92,20 @@ type SearchParams = {
    */
   scope?: string
   class?: string
+  queryWorkspace?: string
+  researchMode?: string
+  trackingQueryId?: string
+  measurementScope?: string
+  measurementScopeKey?: string
+  queryClass?: string
+  measurementProvider?: string
+  measurementModel?: string
+  measurementLocation?: string
+  measurementFrom?: string
+  measurementTo?: string
+  measurementRevision?: string
+  measurementRunId?: string
+  measurementQueryKey?: string
 }
 
 function RootLayoutWithErrorBoundary() {
@@ -119,6 +133,11 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     setupProject: typeof search.setupProject === 'string' ? search.setupProject : undefined,
     scope: typeof search.scope === 'string' ? search.scope : undefined,
     class: typeof search.class === 'string' ? search.class : undefined,
+    ...Object.fromEntries([
+      'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'queryClass',
+      'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
+      'measurementRevision', 'measurementRunId', 'measurementQueryKey',
+    ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
   }),
 })
 
@@ -239,6 +258,12 @@ export const projectDiscoveryRoute = createRoute({
   component: () => <LazyProjectPage tab="discovery" />,
 })
 
+export const projectQueriesRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/queries',
+  component: () => <LazyProjectPage tab="queries" />,
+})
+
 // One Property has its own page rather than an inline row expansion: it is a
 // destination an operator links to and comes back to, and the row cannot hold
 // the class comparison, the per-engine split, and paged evidence at once.
@@ -345,6 +370,7 @@ export const routeTree = rootRoute.addChildren([
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,
+    projectQueriesRoute,
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,

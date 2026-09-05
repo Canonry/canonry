@@ -60,6 +60,13 @@ test('invalidates the project-scoped runs list so the project page refreshes aft
   expect(predicateMatches('getApiV1ProjectsByNameRuns')).toBe(true)
 })
 
+test('a completed sweep refreshes frozen visibility and assignment readiness without changing filters', () => {
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+  expect(predicateMatches('getApiV1ProjectsByNameVisibilityReport')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameQueryTracking')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameResearchRuns')).toBe(false)
+})
+
 test('does not prefix-invalidate the analytics trend after an answer-visibility run', () => {
   // The trend key ends in the revision of the NEWEST completed|partial
   // non-probe sweep (`['analytics-metrics', project, window, frameKey,

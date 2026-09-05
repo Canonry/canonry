@@ -3,12 +3,19 @@ import { test, expect, beforeAll, afterEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
-import { getApiV1ProjectsByNameMeasurementPlanQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
+import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
+import {
+  getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameVisibilityReportQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; theme?: Record<string, string> }
@@ -50,13 +57,19 @@ async function renderAt(
     }
   }
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  // One synchronous render pass, so no query settles. Seed the "no advanced
-  // plan" answer these embed assertions describe, or the overview paints its
-  // loading skeleton instead of the surface under test.
+  const url = new URL(pathname, 'http://localhost')
+  const selection = parseVisibilitySelection(Object.fromEntries(url.searchParams.entries()))
+  // One synchronous render pass, so no query settles. Embed hides the advanced
+  // setup reads; seed its shared, read-only visibility report rather than the
+  // retired dashboard composites so assertions exercise actual overview content.
   for (const entry of fixture.dashboard.projects) {
     queryClient.setQueryData(
       getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: entry.project.name } }),
       { active: null },
+    )
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(entry.project.name, selection)),
+      visibilityReportResponse(selection),
     )
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
@@ -78,6 +91,115 @@ function parseHtml(html: string): Document {
 function detailsForTitle(doc: Document, title: string): HTMLDetailsElement | null {
   return [...doc.querySelectorAll<HTMLDetailsElement>('details.overview-disclosure')]
     .find((details) => details.querySelector('.overview-disclosure-title')?.textContent === title) ?? null
+}
+
+function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
+  return {
+    client: heyClient,
+    path: { name: projectName },
+    query: {
+      scope: selection.measurementScope,
+      scopeKey: selection.measurementScopeKey,
+      queryClass: selection.queryClass,
+      provider: selection.provider,
+      model: selection.model,
+      location: selection.location,
+      from: selection.from,
+      to: selection.to,
+      revision: selection.revision,
+      runId: selection.measurementRunId,
+      queryKey: selection.queryKey,
+      limit: 50,
+      cursor: undefined,
+      search: undefined,
+    },
+  }
+}
+
+function visibilityReportResponse(selection: VisibilitySelectionState): VisibilityReportResponse {
+  const scopeKind = selection.measurementScope
+  const scopeId = scopeKind === 'project' ? 'project' : selection.measurementScopeKey ?? `${scopeKind}-synthetic`
+  const scopeLabel = scopeKind === 'project' ? 'Whole site' : 'North'
+  const rate = { numerator: 1, denominator: 1, rate: 1 }
+  const classes = selection.queryClass === 'all'
+    ? ['branded', 'non-brand', 'unknown'] as const
+    : [selection.queryClass]
+
+  return visibilityReportResponseSchema.parse({
+    selection: {
+      mode: 'simple',
+      queryClass: selection.queryClass,
+      scope: { id: scopeId, label: scopeLabel, kind: scopeKind, targetCount: 1 },
+      provider: null,
+      model: null,
+      location: { kind: 'all' },
+      time: { from: null, to: null },
+      revision: null,
+      run: { id: 'run-embed-synthetic', explicit: false },
+      provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: {
+        state: 'measured',
+        activeRevision: null,
+        measuredRevision: null,
+        awaitingSweep: false,
+        pendingAssignmentCount: 0,
+        completedAt: '2026-09-04T12:05:00.000Z',
+      },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [{ id: scopeId, label: scopeLabel, kind: scopeKind, targetCount: 1 }],
+    filterOptions: {
+      providers: ['openai'],
+      models: [{ provider: 'openai', model: 'search-model' }],
+      locations: [{ kind: 'all' }],
+    },
+    populations: classes.map(queryClass => ({
+      queryClass,
+      summary: {
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        propertyReach: rate,
+        outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 },
+      },
+      trend: [{
+        runId: 'run-embed-synthetic',
+        createdAt: '2026-09-04T12:05:00.000Z',
+        revision: null,
+        provenance: { kind: 'frozen-simple', definitionRevision: null },
+        queryCount: 1,
+        answerCount: 1,
+        mentionCoverage: rate,
+        citationCoverage: rate,
+        continuity: { state: 'first', comparedRunId: null },
+      }],
+      queries: {
+        items: [{
+          queryKey: 'embed-query',
+          queryId: 'query-embed',
+          query: 'emergency dentist near me',
+          provider: 'openai',
+          model: 'search-model',
+          location: null,
+          targetKeys: ['citypoint'],
+          answerCount: 1,
+          mentionCoverage: rate,
+          citationCoverage: rate,
+        }],
+        nextCursor: null,
+        total: 1,
+      },
+      evidence: { items: [], nextCursor: null, total: 0 },
+      competitorAvailability: { state: 'available' },
+      competitors: [],
+      observedCompetitors: [],
+      breakdown: {
+        properties: [{ id: 'citypoint', label: 'Citypoint Dental NYC', queryCount: 1, mentionCoverage: rate, citationCoverage: rate }],
+        groups: [],
+      },
+    })),
+  })
 }
 
 test('without embed config the full application chrome renders', async () => {
@@ -173,26 +295,29 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   // longer evidence of anything — assert it left the header instead.
   expect(operator).not.toContain('Delete project')
 
-  // A read-only view still renders in the embed (the project name + a section
-  // heading + a metric label), proving we hid controls, not content.
+  // A read-only report still renders in the embed, proving we hid controls,
+  // not content.
   expect(embed).toContain('Citypoint Dental NYC')
-  expect(embed).toContain('Where competitors are winning')
-  expect(embed).toContain('Mention share')
+  expect(embed).toContain('AI visibility results')
+  expect(embed).toContain('Non-brand queries')
+  expect(embed).toContain('Query performance')
+  expect(embed).toContain('emergency dentist near me')
 })
 
-test('embed hides the overview competitor and query managers', async () => {
+test('embed hides the shared-report query manager without reviving retired overview managers', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the overview write affordances. Identity editing now lives
-  // in project Settings instead of the overview header.
-  expect(operator).toContain('+ Add competitor')
+  // Query administration stays an operator control even though the report is
+  // otherwise readable in both surfaces. Competitor editing is no longer part
+  // of the overview report, so do not accidentally restore the retired control.
   expect(operator).toContain('Manage queries')
-  expect(operator).not.toContain('+ add domain')
-  expect(operator).not.toContain('Also known as')
-  // The write affordances do not render in the embed.
-  expect(embed).not.toContain('+ Add competitor')
   expect(embed).not.toContain('Manage queries')
+  expect(operator).not.toContain('+ Add competitor')
+  expect(embed).not.toContain('+ Add competitor')
+  expect(embed).toContain('Query performance')
+  expect(embed).toContain('View answers')
+  expect(embed).toContain('Competitors')
 
   // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the
   // embed drops it while the operator keeps it. The locale still shows once in
@@ -203,16 +328,25 @@ test('embed hides the overview competitor and query managers', async () => {
   expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 
-test('embed defaults client-value overview disclosures open and omits run history', async () => {
+test('embed keeps shared report drill-down readable without restoring legacy overview disclosures', async () => {
   const embedDoc = parseHtml(await renderAt('/projects/project_citypoint', { enabled: true, views: ['project'] }))
   const operatorDoc = parseHtml(await renderAt('/projects/project_citypoint'))
 
-  expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(false)
-  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(false)
-  expect(detailsForTitle(operatorDoc, 'Recent execution history')).not.toBeNull()
+  // The shared report has its own measured-run disclosure and progressive
+  // query/competitor drill-down. The old overview disclosures must not shadow
+  // it in either operator or embed renders.
+  expect([...operatorDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'Date, model and measured run')).toBe(true)
+  expect([...embedDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'Date, model and measured run')).toBe(true)
+  expect(operatorDoc.body.textContent).toContain('Query performance')
+  expect(embedDoc.body.textContent).toContain('Query performance')
+  expect(operatorDoc.body.textContent).toContain('Competitors')
+  expect(embedDoc.body.textContent).toContain('Competitors')
 
-  expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(true)
+  expect(detailsForTitle(operatorDoc, 'Query evidence')).toBeNull()
+  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')).toBeNull()
+  expect(detailsForTitle(operatorDoc, 'Recent execution history')).toBeNull()
+  expect(detailsForTitle(embedDoc, 'Query evidence')).toBeNull()
+  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')).toBeNull()
   expect(detailsForTitle(embedDoc, 'Recent execution history')).toBeNull()
 })
 
