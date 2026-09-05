@@ -228,7 +228,7 @@ function seedAuthoring(
         targetKey: assignment.targetKey,
         queryId: assignment.queryId,
         queryClass: assignment.queryClass,
-        classificationSource: 'operator',
+        classificationSource: assignment.classificationSource === 'server' ? 'rule' : 'operator',
       })
     }
     return {
@@ -249,6 +249,12 @@ function seedAuthoring(
         targetKeys: [...group.targetKeys],
         competitors: group.competitors.map(competitor => ({ ...competitor })),
       })),
+      ...(active.reportingScopes === undefined ? {} : {
+        reportingScopes: active.reportingScopes.map(scope => ({
+          ...scope,
+          usageEdges: scope.usageEdges.map(edge => ({ ...edge })),
+        })),
+      }),
     }
   }
 

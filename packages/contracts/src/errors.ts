@@ -27,6 +27,7 @@ export type ErrorCode =
   | 'MEASUREMENT_DRAFT_ETAG_STALE'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_REQUIRED'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
+  | 'QUERY_TRACKING_PREVIEW_STALE'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -213,6 +214,22 @@ export function measurementIdempotencyKeyConflict(operation: string): AppError {
     `The \`Idempotency-Key\` for '${operation}' was already used with a different request body.`,
     409,
     { operation },
+  )
+}
+
+/**
+ * A query-control review includes live query rows as well as the active plan,
+ * so a plan-revision conflict alone is not enough to guard its publication.
+ */
+export function queryTrackingPreviewStale(
+  expectedWorkspaceVersion: string,
+  actualWorkspaceVersion: string,
+): AppError {
+  return new AppError(
+    'QUERY_TRACKING_PREVIEW_STALE',
+    'The query workspace changed after this preview. Reload the review and publish again.',
+    409,
+    { expectedWorkspaceVersion, actualWorkspaceVersion },
   )
 }
 

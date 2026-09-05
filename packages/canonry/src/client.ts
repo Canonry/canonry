@@ -1,6 +1,15 @@
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import type {
+  VisibilityReportRequest, VisibilityReportResponse,
+  QueryTrackingWorkspaceResponse, QueryTrackingPreviewRequest, QueryTrackingPreviewResponse,
+  QueryTrackingCommitRequest, QueryTrackingCommitResponse,
+} from '@ainyc/canonry-contracts'
+import {
+  getApiV1ProjectsByNameVisibilityReport, getApiV1ProjectsByNameQueryTracking,
+  postApiV1ProjectsByNameQueryTrackingPreview, postApiV1ProjectsByNameQueryTrackingCommit,
+} from '@ainyc/canonry-api-client'
+import type {
   ProjectDto,
   ProjectConfig,
   ProjectUpsertRequest,
@@ -3597,6 +3606,30 @@ export class ApiClient {
         path: { name: project, runId },
       }),
     )
+  }
+
+  async getVisibilityReport(project: string, request: VisibilityReportRequest): Promise<VisibilityReportResponse> {
+    return this.invoke<VisibilityReportResponse>(() => getApiV1ProjectsByNameVisibilityReport({
+      client: this.heyClient, path: { name: project }, query: request,
+    }))
+  }
+
+  async getQueryTrackingWorkspace(project: string): Promise<QueryTrackingWorkspaceResponse> {
+    return this.invoke<QueryTrackingWorkspaceResponse>(() => getApiV1ProjectsByNameQueryTracking({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async previewQueryTracking(project: string, request: QueryTrackingPreviewRequest): Promise<QueryTrackingPreviewResponse> {
+    return this.invoke<QueryTrackingPreviewResponse>(() => postApiV1ProjectsByNameQueryTrackingPreview({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  async commitQueryTracking(project: string, request: QueryTrackingCommitRequest): Promise<QueryTrackingCommitResponse> {
+    return this.invoke<QueryTrackingCommitResponse>(() => postApiV1ProjectsByNameQueryTrackingCommit({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
   }
 
   async getDiscoveryHarvest(

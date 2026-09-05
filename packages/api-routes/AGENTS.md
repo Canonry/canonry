@@ -92,7 +92,18 @@ First capture is refused if the run already has stored answers.
 Probe and advanced runs do not receive this definition.
 Identical capture is idempotent. Changed capture fails before provider work.
 The checksum includes capture time. It is not a cross-run comparability key.
-Historical runs receive no inferred definition. Reporting adapters do not consume this storage yet.
+Historical runs receive no inferred definition. `visibility-report` reads this storage and labels older results as unclassified.
+
+### Query control and visibility
+
+`query-tracking` owns workspace, preview, and commit for simple sites and v2 portfolios.
+Commit requires the exact workspace version and preview token. A no-op must not publish a revision.
+Query identity uses normalized text and prefers the ID already bound by the active plan.
+Publication starts zero provider calls. Existing drafts become stale through their normal base-version guard.
+`visibility-report` owns metrics, denominators, scope, provenance, trends, and paginated evidence.
+Groups select properties. Markets select frozen `reportingScopes` execution edges.
+Label-only revisions use the comparable chain. Material changes read prior evidence through its own frozen plan.
+Never infer a market from a group label or reuse the browser's global run drawer parameter.
 
 ### Route file structure
 

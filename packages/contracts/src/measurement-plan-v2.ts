@@ -97,14 +97,26 @@ export const measurementV2GroupSchema = z.object({
 }).strict()
 export type MeasurementV2Group = z.output<typeof measurementV2GroupSchema>
 
-export const measurementV2QueryProvenanceSourceSchema = z.enum(['manual', 'query-set', 'template', 'discovery'])
+export const measurementV2QueryProvenanceSourceSchema = z.enum(['manual', 'query-set', 'template', 'discovery', 'research'])
 export type MeasurementV2QueryProvenanceSource = z.output<typeof measurementV2QueryProvenanceSourceSchema>
+
+/** Template bytes + bindings are frozen only when the query-control flow writes them. */
+export const measurementV2TemplateProvenanceSchema = z.object({
+  templateId: z.string().trim().min(1).max(256),
+  templateVersion: z.string().trim().min(1).max(256),
+  template: z.string().trim().min(1).max(4_000),
+  bindings: z.record(z.string().trim().min(1).max(128), z.string().trim().min(1).max(128)),
+  output: z.string().trim().min(1).max(4_000),
+}).strict()
+export type MeasurementV2TemplateProvenance = z.output<typeof measurementV2TemplateProvenanceSchema>
 
 /** Where the frozen question came from, so a later reader can explain the basket without the live assets. */
 export const measurementV2QueryProvenanceSchema = z.object({
   source: measurementV2QueryProvenanceSourceSchema,
   sourceId: z.string().min(1).nullable(),
   capturedAt: z.string().datetime(),
+  /** Optional so existing v2 template rows remain decodable; query control always writes it. */
+  template: measurementV2TemplateProvenanceSchema.optional(),
 }).strict()
 
 export const measurementV2QuerySnapshotSchema = z.object({
@@ -143,6 +155,8 @@ export const measurementV2AssignmentSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   queryId: measurementV2QueryIdSchema,
   queryClass: measurementQueryClassSchema,
+  /** Optional only on revisions published before query-control froze the basis. */
+  classificationSource: z.enum(['server', 'operator']).optional(),
   executionNodeKey: z.string().min(1),
 }).strict()
 export type MeasurementV2Assignment = z.output<typeof measurementV2AssignmentSchema>
@@ -155,6 +169,24 @@ export const measurementV2UsageEdgeSchema = z.object({
 }).strict()
 export type MeasurementV2UsageEdge = z.output<typeof measurementV2UsageEdgeSchema>
 
+/**
+ * A market is a reporting-only frozen selection. It owns exact usage-edge
+ * triples, not Targets: selecting a shared Target must never pull another
+ * location or question into the market by implication.
+ */
+export const measurementV2ReportingScopeSchema = z.object({
+  stableKey: measurementV2StableKeySchema,
+  label: z.string().trim().min(1),
+  kind: z.literal('market'),
+  usageEdges: z.array(measurementV2UsageEdgeSchema),
+}).strict()
+export type MeasurementV2ReportingScope = z.output<typeof measurementV2ReportingScopeSchema>
+
+/** Canonical identity of a frozen usage edge and of one market membership row. */
+export function measurementV2UsageEdgeKey(edge: MeasurementV2UsageEdge): string {
+  return [edge.executionNodeKey, edge.targetKey, edge.queryId].join('\u0000')
+}
+
 /** Frozen persisted v2 decoder. */
 export const measurementPlanV2Schema = z.object({
   schemaVersion: z.literal(MEASUREMENT_PLAN_V2_SCHEMA_VERSION),
@@ -165,6 +197,8 @@ export const measurementPlanV2Schema = z.object({
   assignments: z.array(measurementV2AssignmentSchema),
   executionNodes: z.array(measurementV2ExecutionNodeSchema),
   usageEdges: z.array(measurementV2UsageEdgeSchema),
+  /** Optional for every pre-market revision; omission preserves historic bytes. */
+  reportingScopes: z.array(measurementV2ReportingScopeSchema).optional(),
   /**
    * The review guard, distinct from `measurement_plan_versions.checksum`. It
    * excludes storage ids, timestamps, revision and itself, so the same content
@@ -208,6 +242,38 @@ export const measurementPlanV2Schema = z.object({
         message: `Usage edge references unknown Target "${edge.targetKey}"`,
       })
     }
+  })
+
+  const usageEdgeKeys = new Set(plan.usageEdges.map(measurementV2UsageEdgeKey))
+  const reportingScopeKeys = new Set<string>()
+  plan.reportingScopes?.forEach((scope, scopeIndex) => {
+    if (reportingScopeKeys.has(scope.stableKey)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reportingScopes', scopeIndex, 'stableKey'],
+        message: `Duplicate reporting scope key "${scope.stableKey}"`,
+      })
+    }
+    reportingScopeKeys.add(scope.stableKey)
+    const memberKeys = new Set<string>()
+    scope.usageEdges.forEach((edge, edgeIndex) => {
+      const key = measurementV2UsageEdgeKey(edge)
+      if (!usageEdgeKeys.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['reportingScopes', scopeIndex, 'usageEdges', edgeIndex],
+          message: `Reporting scope "${scope.stableKey}" references a usage edge that this revision does not contain.`,
+        })
+      }
+      if (memberKeys.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['reportingScopes', scopeIndex, 'usageEdges', edgeIndex],
+          message: `Reporting scope "${scope.stableKey}" repeats a usage edge.`,
+        })
+      }
+      memberKeys.add(key)
+    })
   })
 
   plan.assignments.forEach((assignment, index) => {
@@ -309,6 +375,17 @@ export function canonicalMeasurementPlanV2(plan: MeasurementPlanV2): Measurement
       || compareText(left.targetKey, right.targetKey)
       || compareText(left.queryId, right.queryId)
     )),
+    ...(plan.reportingScopes === undefined ? {} : {
+      reportingScopes: [...plan.reportingScopes]
+        .map(scope => ({
+          ...scope,
+          usageEdges: [...scope.usageEdges].sort((left, right) => compareText(
+            measurementV2UsageEdgeKey(left),
+            measurementV2UsageEdgeKey(right),
+          )),
+        }))
+        .sort((left, right) => compareText(left.stableKey, right.stableKey)),
+    }),
     compiledChecksum: plan.compiledChecksum,
   }
 }
