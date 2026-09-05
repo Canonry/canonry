@@ -170,6 +170,12 @@ The CLI also keeps interactive chrome (the "new version available" banner) off a
 
 ### Run completion pipeline
 
+Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
+The frozen definition records exact query text, identity, classification, location, and requested models.
+Capture failure prevents provider calls. Probe and advanced runs retain their existing paths.
+Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
+This capture does not change current report calculations or reconstruct historical definitions.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.

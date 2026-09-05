@@ -12,6 +12,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
+| `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/config-schema.ts` | Config file Zod validation |
 | `src/models.ts` | Shared model types |

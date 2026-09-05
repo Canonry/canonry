@@ -791,6 +791,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Immutable canonical JSON backing the compiled measurement-plan API, not a direct row DTO.',
   },
+  simpleMeasurementDefinitions: {
+    kind: 'internal-only',
+    reason: 'Frozen dispatch inputs for future reporting adapters. Existing run DTOs and reporting behavior remain unchanged.',
+  },
   measurementSegments: {
     kind: 'internal-only',
     reason: 'Stable target/group identity anchor; labels and attribution rules remain in immutable plan JSON.',

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -291,6 +291,28 @@ export const runs = sqliteTable('runs', {
     columns: [table.projectId, table.measurementPlanVersionId],
     foreignColumns: [measurementPlanVersions.projectId, measurementPlanVersions.id],
   }),
+])
+
+/**
+ * The frozen inputs of a simple, planless answer-visibility run. This is a
+ * sidecar rather than a `runs` column so historic runs remain absent instead of
+ * acquiring a definition they never actually executed. The composite FK makes
+ * a copied run id from another project impossible, while a run deletion (and
+ * therefore project deletion) removes its capture automatically.
+ */
+export const simpleMeasurementDefinitions = sqliteTable('simple_measurement_definitions', {
+  runId: text('run_id').notNull().primaryKey(),
+  projectId: text('project_id').notNull(),
+  definition: text('definition', { mode: 'json' }).$type<SimpleMeasurementDefinition>().notNull(),
+  checksum: text('checksum').notNull(),
+  capturedAt: text('captured_at').notNull(),
+}, (table) => [
+  index('idx_simple_measurement_definitions_project').on(table.projectId),
+  foreignKey({
+    name: 'simple_measurement_definitions_project_run_fk',
+    columns: [table.projectId, table.runId],
+    foreignColumns: [runs.projectId, runs.id],
+  }).onDelete('cascade'),
 ])
 
 /**
