@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   MEASUREMENT_GROUP_MEMBERSHIP_CSV_MAX_BYTES,
   canonicalMeasurementPlanV2,
+  canonicalMeasurementPlanV2Json,
+  measurementPlanV2ChecksumJson,
+  measurementPlanV2Schema,
   measurementDraftApplyGroupMembershipResponseSchema,
   measurementDraftCompilePreviewResponseSchema,
   measurementDraftDiffPreviewResponseSchema,
@@ -38,6 +41,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { sha256Hex } from '../src/measurement-draft-repo.js'
 
 const ROOT_KEY = 'cnry_draft_root'
 const NOW = '2026-08-02T00:00:00.000Z'
@@ -1230,6 +1234,132 @@ describe('measurement draft publish', () => {
     expect(reverted.json()).toMatchObject({ published: true, active: { revision: 3 } })
     expect(reverted.json().active.compiledChecksum).toBe(revisionOne.compiledChecksum)
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(3)
+  })
+
+  it('round-trips frozen heterogeneous execution contexts and query provenance from an active v2 plan', async () => {
+    const initialDraft = await readyDraft()
+    const initialPublish = await publish(initialDraft, null)
+    expect(initialPublish.statusCode, initialPublish.body).toBe(200)
+
+    const sourceQueryId = queryId('best widget supplier')
+    const sourceQueryText = 'best widget supplier'
+    const version = db.select().from(measurementPlanVersions).get()!
+    const active = measurementPlanV2Schema.parse(JSON.parse(version.canonicalJson))
+    const originalAssignment = active.assignments.find(assignment => assignment.queryId === sourceQueryId)!
+    const namedContext = active.executionNodes.find(node => node.stableKey === originalAssignment.executionNodeKey)!.context
+    const nullContext = { providers: ['openai'] as const, models: {}, location: null }
+    // Published imports may own stable keys that are not compiler hashes.
+    const namedKey = 'imported-named-context'
+    const nullKey = 'imported-location-free-context'
+    const plan = measurementPlanV2Schema.parse({
+      ...active,
+      querySnapshots: active.querySnapshots.map(snapshot => ({
+        ...snapshot,
+        ...(snapshot.queryId === sourceQueryId
+          ? { provenance: { source: 'discovery', sourceId: 'discovery-1', capturedAt: '1970-01-01T00:00:00.000Z' } }
+          : { provenance: { source: 'research', sourceId: 'research-1', capturedAt: '1970-01-01T00:00:00.000Z' } }),
+      })),
+      assignments: [
+        ...active.assignments.filter(assignment => assignment.queryId !== sourceQueryId),
+        { ...originalAssignment, executionNodeKey: namedKey },
+        { ...originalAssignment, executionNodeKey: nullKey },
+      ],
+      executionNodes: [
+        ...active.executionNodes.filter(node => node.queryId !== sourceQueryId),
+        { stableKey: namedKey, queryId: sourceQueryId, queryText: sourceQueryText, context: namedContext, expectedSnapshots: namedContext.providers.length },
+        { stableKey: nullKey, queryId: sourceQueryId, queryText: sourceQueryText, context: nullContext, expectedSnapshots: nullContext.providers.length },
+      ],
+      usageEdges: [
+        ...active.usageEdges.filter(edge => edge.queryId !== sourceQueryId),
+        { executionNodeKey: namedKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId },
+        { executionNodeKey: nullKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId },
+      ],
+      reportingScopes: [
+        { stableKey: 'named-market', label: 'Named market', kind: 'market', usageEdges: [{ executionNodeKey: namedKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId }] },
+        { stableKey: 'location-free-market', label: 'Location-free market', kind: 'market', usageEdges: [{ executionNodeKey: nullKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId }] },
+      ],
+      compiledChecksum: '0'.repeat(64),
+    })
+    const frozen = measurementPlanV2Schema.parse({
+      ...plan,
+      compiledChecksum: sha256Hex(measurementPlanV2ChecksumJson(plan)),
+    })
+    const frozenJson = canonicalMeasurementPlanV2Json(frozen)
+    db.update(measurementPlanVersions).set({
+      canonicalJson: frozenJson,
+      checksum: sha256Hex(frozenJson),
+      compiledChecksum: frozen.compiledChecksum,
+    }).where(eq(measurementPlanVersions.id, version.id)).run()
+
+    const seeded = await DraftSession.start(1)
+    const loaded = await request('GET', '/measurement-plan/draft')
+    const sourceAssignment = loaded.json().draft.authoring.assignments
+      .find((assignment: { queryId: string }) => assignment.queryId === sourceQueryId)
+    expect(sourceAssignment).toMatchObject({
+      queryClass: originalAssignment.queryClass,
+      classificationSource: originalAssignment.classificationSource === 'server' ? 'rule' : 'operator',
+      executionContexts: expect.arrayContaining([
+        { ...namedContext, executionNodeKey: namedKey },
+        { ...nullContext, executionNodeKey: nullKey },
+      ]),
+      queryProvenance: { source: 'discovery', sourceId: 'discovery-1', capturedAt: '1970-01-01T00:00:00.000Z' },
+    })
+
+    // A routine audience reapply without a context override must leave the
+    // frozen list untouched; it is not permission to expand defaults.
+    const reapplied = await seeded.run('apply-assignments', {
+      targetKey: originalAssignment.targetKey,
+      queryIds: [sourceQueryId],
+    })
+    expect(reapplied.json()).toMatchObject({ changed: false, etag: '"mpd_1"' })
+
+    // A frozen active override may name a provider outside an operator's new
+    // default selection. Defaults are not a provider registry, so this must
+    // retain the exact old node rather than reject or remap it.
+    const draftRowBeforePreview = db.select().from(measurementPlanDrafts).get()!
+    const authoringWithNarrowerDefault = JSON.parse(draftRowBeforePreview.authoringJson)
+    authoringWithNarrowerDefault.defaultContext.providers = ['gemini']
+    authoringWithNarrowerDefault.defaultContext.models = { gemini: 'gemini-test' }
+    db.update(measurementPlanDrafts).set({ authoringJson: JSON.stringify(authoringWithNarrowerDefault) })
+      .where(eq(measurementPlanDrafts.id, draftRowBeforePreview.id)).run()
+
+    const preview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(canonicalMeasurementPlanV2Json(preview.json().plan)).toBe(frozenJson)
+    expect(preview.json().plan.executionNodes.map((node: { stableKey: string }) => node.stableKey).sort()).toEqual(
+      frozen.executionNodes.map(node => node.stableKey).sort(),
+    )
+
+    const noOp = await publish(seeded, 1)
+    expect(noOp.statusCode, noOp.body).toBe(200)
+    expect(noOp.json()).toMatchObject({ published: false, active: { revision: 1, compiledChecksum: frozen.compiledChecksum } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+
+    const labelEdit = await DraftSession.start(1)
+    await labelEdit.run('upsert-target', { target: { ...WIDGETS_TARGET, label: 'Widgets renamed' } })
+    const labelPreview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(labelPreview.statusCode, labelPreview.body).toBe(200)
+    const canonicalFrozen = measurementPlanV2Schema.parse(JSON.parse(frozenJson))
+    const canonicalLabelPreview = measurementPlanV2Schema.parse(JSON.parse(canonicalMeasurementPlanV2Json(labelPreview.json().plan)))
+    expect(canonicalLabelPreview.reportingScopes).toEqual(canonicalFrozen.reportingScopes)
+    expect(canonicalLabelPreview.assignments).toEqual(canonicalFrozen.assignments)
+    expect(canonicalLabelPreview.executionNodes).toEqual(canonicalFrozen.executionNodes)
+
+    await labelEdit.run('upsert-target', { target: GADGETS_TARGET })
+    await labelEdit.run('apply-assignments', {
+      targetKey: 'gadgets', queryIds: [sourceQueryId],
+      contextOverride: {
+        providers: namedContext.providers, models: namedContext.models,
+        locations: [namedContext.location!.label],
+      },
+    })
+    const expanded = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(expanded.statusCode, expanded.body).toBe(200)
+    const canonicalExpanded = measurementPlanV2Schema.parse(JSON.parse(canonicalMeasurementPlanV2Json(expanded.json().plan)))
+    expect(canonicalExpanded.executionNodes).toEqual(canonicalFrozen.executionNodes)
+    expect(expanded.json().plan.usageEdges).toContainEqual({
+      executionNodeKey: namedKey, targetKey: 'gadgets', queryId: sourceQueryId,
+    })
   })
 
   it('links a cosmetic publish to the revision it supersedes and withholds the link when execution changes', async () => {

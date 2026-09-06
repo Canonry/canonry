@@ -5145,6 +5145,34 @@ export type MeasurementDraftAssignmentPage = {
             };
             locations?: Array<string>;
         };
+        executionContexts?: Array<{
+            providers: Array<string>;
+            models: {
+                [key: string]: string;
+            };
+            location: {
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            } | null;
+            executionNodeKey?: string;
+        }>;
+        queryProvenance?: {
+            source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
+            sourceId: string | null;
+            capturedAt: string;
+            template?: {
+                templateId: string;
+                templateVersion: string;
+                template: string;
+                bindings: {
+                    [key: string]: string;
+                };
+                output: string;
+            };
+        };
         queryClass: 'branded' | 'non-brand' | 'unclassified';
         classificationSource: 'rule' | 'operator';
     }>;
@@ -6007,6 +6035,34 @@ export type MeasurementDraftResponse = {
                         [key: string]: string;
                     };
                     locations?: Array<string>;
+                };
+                executionContexts?: Array<{
+                    providers: Array<string>;
+                    models: {
+                        [key: string]: string;
+                    };
+                    location: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    executionNodeKey?: string;
+                }>;
+                queryProvenance?: {
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
+                    sourceId: string | null;
+                    capturedAt: string;
+                    template?: {
+                        templateId: string;
+                        templateVersion: string;
+                        template: string;
+                        bindings: {
+                            [key: string]: string;
+                        };
+                        output: string;
+                    };
                 };
                 queryClass: 'branded' | 'non-brand' | 'unclassified';
                 classificationSource: 'rule' | 'operator';

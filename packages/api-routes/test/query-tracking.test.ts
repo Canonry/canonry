@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSimpleMeasurementDefinition,
   canonicalSimpleMeasurementDefinitionJson,
@@ -18,10 +18,12 @@ import {
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys,
+  auditLog,
   createClient,
   discoveryProbes,
   discoverySessions,
   measurementPlanVersions,
+  measurementOperationReceipts,
   measurementPlans,
   measurementQueryTemplates,
   migrate,
@@ -36,6 +38,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { sweepExpiredMeasurementReceipts } from '../src/measurement-draft-repo.js'
 
 const ROOT_KEY = 'cnry_query_tracking_root'
 const NOW = '2026-09-04T00:00:00.000Z'
@@ -334,6 +337,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await app.close()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -574,6 +578,152 @@ describe('query tracking workspace: simple projects', () => {
 })
 
 describe('query tracking workspace: advanced portfolios', () => {
+  it('reuses frozen executions and changes classification only in the selected market', async () => {
+    seedMultiMarketPlan()
+    const before = activeV2Plan()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }],
+      removals: [],
+    }
+    const review = await preview(mutation)
+    expect(review.workload).toMatchObject({ addedNodes: 0, addedProviderCalls: 0, nextSweepProviderCalls: 3 })
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    const after = activeV2Plan().plan
+    expect(after.executionNodes).toEqual(before.plan.executionNodes)
+    expect(after.usageEdges).toEqual(before.plan.usageEdges)
+    expect(after.assignments.filter(row => row.executionNodeKey === 'exec-alpha'))
+      .toEqual(before.plan.assignments.filter(row => row.executionNodeKey === 'exec-alpha').map(row => ({ ...row, queryClass: 'branded', classificationSource: 'operator' })))
+    expect(after.assignments.filter(row => row.executionNodeKey === 'exec-beta'))
+      .toEqual(before.plan.assignments.filter(row => row.executionNodeKey === 'exec-beta'))
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, before.version.id)).get()).toEqual(before.version)
+  })
+
+  it('does not widen an explicit context classification change to another execution', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { targetKeys: ['harbor-point'] }, contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }], queryClass: 'branded' }],
+      removals: [],
+    }
+    const review = await preview(mutation)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(activeV2Plan().plan.assignments.find(row => row.executionNodeKey === 'exec-beta'))
+      .toMatchObject({ queryClass: 'non-brand', classificationSource: 'server' })
+    expect(activeV2Plan().plan.executionNodes).toHaveLength(2)
+  })
+
+  it('refuses market-only reclassification of an execution also owned by an unselected market', async () => {
+    seedMultiMarketPlan()
+    rewriteActivePlan(plan => {
+      const scopes = plan.reportingScopes as Array<{ stableKey: string; usageEdges: unknown[] }>
+      scopes.find(row => row.stableKey === 'beta-market')!.usageEdges.push({ executionNodeKey: 'exec-alpha', targetKey: 'harbor-point', queryId: 'q-existing' })
+    })
+    const before = activeV2Plan()
+    const current = await workspace()
+    const response = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }], removals: [],
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { message: expect.stringContaining('shared with another market') } })
+    expect(activeV2Plan()).toEqual(before)
+  })
+
+  it('treats an equivalent legacy execution as a no-op and prefers the actively bound query identity', async () => {
+    seedMultiMarketPlan()
+    db.insert(queries).values({ id: 'q-older-duplicate', projectId: 'project-northwind', query: 'Ｂｅｓｔ  apartments in northbridge', createdAt: '2020-01-01T00:00:00.000Z' }).run()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'Ｂｅｓｔ  apartments in northbridge' }, audience: { marketKeys: ['alpha-market'] } }], removals: [],
+    }
+    const review = await preview(mutation)
+    expect(review.diff.noOp).toBe(true)
+    expect(review.diff.reused.map(row => row.queryId)).toEqual(['q-existing'])
+    expect(review.workload).toMatchObject({ addedProviderCalls: 0, addedNodes: 0 })
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(queryTrackingCommitResponseSchema.parse(response.json())).toMatchObject({ committed: false, active: { revision: 1 } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
+  it.each(['simple', 'advanced'])('replays a lost %s commit response without another write', async mode => {
+    if (mode === 'advanced') seedMultiMarketPlan()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'apartments with a rooftop terrace' }, ...(mode === 'advanced' ? { audience: { marketKeys: ['alpha-market'] } } : {}) }], removals: [],
+    }
+    const review = await preview(mutation)
+    const payload = { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt }
+    const responses = await Promise.all([commit(payload), commit(payload), commit(payload)])
+    for (const response of responses) {
+      expect(response.statusCode, response.body).toBe(200)
+      expect(response.json()).toEqual(responses[0]!.json())
+    }
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(1)
+    expect(db.select().from(auditLog).all()).toHaveLength(1)
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(mode === 'advanced' ? 2 : 0)
+    expect(db.select().from(runs).all()).toHaveLength(0)
+    const altered = await commit({ ...payload, additions: [{ input: { source: 'manual', text: 'another question' } }] })
+    expect(altered.statusCode).toBe(409)
+    expect(altered.json()).toMatchObject({ error: { code: 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT' } })
+  })
+
+  it('recovers an expired review only when its original commit already succeeded', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-05T12:00:00.000Z'))
+    const current = await workspace()
+    const mutation = { expectedWorkspaceVersion: current.workspaceVersion, additions: [{ input: { source: 'manual', text: 'apartments near a park' } }], removals: [] }
+    const review = await preview(mutation)
+    const payload = { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt }
+    const first = await commit(payload)
+    expect(first.statusCode, first.body).toBe(200)
+    vi.setSystemTime(new Date('2026-09-05T12:20:00.000Z'))
+    const replay = await commit(payload)
+    expect(replay.statusCode, replay.body).toBe(200)
+    expect(replay.json()).toEqual(first.json())
+
+    db.update(measurementOperationReceipts).set({ expiresAt: '2026-09-05T12:20:00.000Z' }).run()
+    const expired = await commit(payload)
+    expect(expired.statusCode).toBe(400)
+    expect(expired.json()).toMatchObject({ error: { message: expect.stringContaining('expired') } })
+    expect(sweepExpiredMeasurementReceipts(db, new Date())).toBe(1)
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(0)
+  })
+
+  it('checks write authorization before replaying a committed review', async () => {
+    const current = await workspace()
+    const mutation = { expectedWorkspaceVersion: current.workspaceVersion, additions: [{ input: { source: 'manual', text: 'apartments near a park' } }], removals: [] }
+    const review = await preview(mutation)
+    const payload = { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt }
+    const first = await commit(payload)
+    expect(first.statusCode, first.body).toBe(200)
+    db.update(apiKeys).set({ scopes: ['unrelated.write'] }).where(eq(apiKeys.keyHash, hashApiKey(ROOT_KEY))).run()
+    const denied = await commit(payload)
+    expect(denied.statusCode).toBe(403)
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(1)
+  })
+
+  it('allows only one of two competing reviewed mutations to publish', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const mutations = ['apartments near a park', 'apartments near a library'].map(text => ({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text }, audience: { marketKeys: ['alpha-market'] } }], removals: [],
+    }))
+    const reviews = await Promise.all(mutations.map(preview))
+    const commits = await Promise.all(mutations.map((mutation, i) => commit({ ...mutation, previewToken: reviews[i]!.previewToken, reviewedAt: reviews[i]!.reviewedAt })))
+    expect(commits.map(response => response.statusCode).sort()).toEqual([200, 409])
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(1)
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(2)
+    expect(db.select().from(auditLog).all()).toHaveLength(1)
+  })
+
   it('applies Whole site to every active Property with explicit contexts, and removes it globally', async () => {
     seedMultiMarketPlan()
     const original = activeV2Plan().version

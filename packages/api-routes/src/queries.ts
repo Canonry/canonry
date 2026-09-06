@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { queries, querySnapshots } from '@ainyc/canonry-db'
 import { AppError, keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound, providerAuthError, quotaExceeded, providerError, classifyProviderErrorMessage, describeError } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
-import { diffProjectQueries, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
+import { assertQueryCatalogMutationAllowed, assertQueryReplacementAllowed, changedQueryIdsForReplace, diffProjectQueries, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 
 /**
  * Turn a raw provider failure into an error that keeps its KIND.
@@ -72,6 +72,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     // `cnry backfill snapshot-attribution` for the recovery path when
     // this safety net wasn't yet in place.
     app.db.transaction((tx) => {
+      assertQueryReplacementAllowed(tx, { projectId: project.id, projectName: project.name }, body.queries)
       replaceProjectQueries(tx, project.id, body.queries, now)
 
       writeAuditLog(tx, auditFromRequest(request, {
@@ -81,7 +82,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
         entityType: 'query',
         diff: { queries: body.queries },
       }))
-    })
+    }, { behavior: 'immediate' })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
@@ -109,6 +110,12 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const diff = diffProjectQueries(
       currentRows.map(r => ({ id: r.id, text: r.query })),
       body.queries,
+    )
+    assertQueryCatalogMutationAllowed(
+      app.db,
+      { projectId: project.id, projectName: project.name },
+      changedQueryIdsForReplace(diff),
+      diff.insertedTexts.length > 0,
     )
     const removed = diff.removed.map(r => r.text)
     const added = diff.insertedTexts
@@ -153,17 +160,20 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       throw validationError('Body must contain a non-empty "queries" array')
     }
 
-    const existing = app.db
-      .select()
-      .from(queries)
-      .where(eq(queries.projectId, project.id))
-      .all()
+    app.db.transaction((tx) => {
+      const existing = tx.select()
+        .from(queries)
+        .where(eq(queries.projectId, project.id))
+        .all()
+      const toDelete = new Set(body.queries)
+      const idsToDelete = existing.filter(q => toDelete.has(q.query)).map(q => q.id)
+      assertQueryCatalogMutationAllowed(
+        tx,
+        { projectId: project.id, projectName: project.name },
+        idsToDelete,
+      )
 
-    const toDelete = new Set(body.queries)
-    const idsToDelete = existing.filter(q => toDelete.has(q.query)).map(q => q.id)
-
-    if (idsToDelete.length > 0) {
-      app.db.transaction((tx) => {
+      if (idsToDelete.length > 0) {
         // Preserve query_text on associated snapshots before the FK
         // detaches. See queries.replaced handler above for rationale.
         preserveSnapshotQueryText(tx, project.id, idsToDelete)
@@ -178,8 +188,8 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           entityType: 'query',
           diff: { deleted: body.queries.filter(q => existing.some(e => e.query === q)) },
         }))
-      })
-    }
+      }
+    }, { behavior: 'immediate' })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
@@ -191,17 +201,18 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
   }>('/projects/:name/queries/:id', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const query = app.db
-      .select()
-      .from(queries)
-      .where(and(eq(queries.projectId, project.id), eq(queries.id, request.params.id)))
-      .get()
-
-    if (!query) {
-      throw notFound('Query', request.params.id)
-    }
-
     app.db.transaction((tx) => {
+      const query = tx.select()
+        .from(queries)
+        .where(and(eq(queries.projectId, project.id), eq(queries.id, request.params.id)))
+        .get()
+      if (!query) throw notFound('Query', request.params.id)
+      assertQueryCatalogMutationAllowed(
+        tx,
+        { projectId: project.id, projectName: project.name },
+        [query.id],
+      )
+
       // Preserve query_text on associated snapshots before the FK detaches.
       preserveSnapshotQueryText(tx, project.id, [query.id])
       tx.delete(queries).where(eq(queries.id, query.id)).run()
@@ -214,7 +225,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
         entityId: query.id,
         diff: { deleted: [query.query] },
       }))
-    })
+    }, { behavior: 'immediate' })
 
     return reply.status(204).send()
   })
@@ -339,6 +350,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const now = new Date().toISOString()
 
     app.db.transaction((tx) => {
+      assertQueryReplacementAllowed(tx, { projectId: project.id, projectName: project.name }, body.keywords)
       replaceProjectQueries(tx, project.id, body.keywords, now)
 
       writeAuditLog(tx, auditFromRequest(request, {
@@ -348,7 +360,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
         entityType: 'query',
         diff: { queries: body.keywords },
       }))
-    })
+    }, { behavior: 'immediate' })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, keyword: r.query, createdAt: r.createdAt })))
@@ -365,17 +377,20 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       throw validationError('Body must contain a non-empty "keywords" array')
     }
 
-    const existing = app.db
-      .select()
-      .from(queries)
-      .where(eq(queries.projectId, project.id))
-      .all()
+    app.db.transaction((tx) => {
+      const existing = tx.select()
+        .from(queries)
+        .where(eq(queries.projectId, project.id))
+        .all()
+      const toDelete = new Set(body.keywords)
+      const idsToDelete = existing.filter(q => toDelete.has(q.query)).map(q => q.id)
+      assertQueryCatalogMutationAllowed(
+        tx,
+        { projectId: project.id, projectName: project.name },
+        idsToDelete,
+      )
 
-    const toDelete = new Set(body.keywords)
-    const idsToDelete = existing.filter(q => toDelete.has(q.query)).map(q => q.id)
-
-    if (idsToDelete.length > 0) {
-      app.db.transaction((tx) => {
+      if (idsToDelete.length > 0) {
         preserveSnapshotQueryText(tx, project.id, idsToDelete)
         for (const id of idsToDelete) {
           tx.delete(queries).where(eq(queries.id, id)).run()
@@ -388,8 +403,8 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           entityType: 'query',
           diff: { deleted: body.keywords.filter(keyword => existing.some(e => e.query === keyword)) },
         }))
-      })
-    }
+      }
+    }, { behavior: 'immediate' })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, keyword: r.query, createdAt: r.createdAt })))

@@ -3,6 +3,83 @@ import { measurementDraftAuthoringSchema } from '@ainyc/canonry-contracts'
 import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
 
 describe('measurement draft compiler', () => {
+  it.each([
+    ['America/New_York', 'America/Chicago'],
+    ['America/New_York', undefined],
+    [undefined, 'America/New_York'],
+  ])('refuses frozen timezone drift from %s to %s', (frozenTimezone, configuredTimezone) => {
+    const place = { label: 'market', city: 'Example City', region: 'EX', country: 'US' }
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['openai'], locations: ['market'] },
+      targets: [{
+        stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: [],
+        urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual',
+      }],
+      assignments: [{
+        targetKey: 'widgets', queryId: 'question-one', queryClass: 'non-brand', classificationSource: 'operator',
+        executionContexts: [{
+          providers: ['openai'], models: {}, executionNodeKey: 'frozen-market-context',
+          location: { ...place, ...(frozenTimezone === undefined ? {} : { timezone: frozenTimezone }) },
+        }],
+      }],
+      groups: [],
+    })
+    const result = compileMeasurementDraft(authoring, {
+      canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'],
+      locations: [{ ...place, ...(configuredTimezone === undefined ? {} : { timezone: configuredTimezone }) }],
+      trackedQueries: [{ id: 'question-one', query: 'first question' }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({ ruleId: 'execution-context-location-mismatch', severity: 'fail' }))
+  })
+
+  it('gives newly authored exact contexts distinct keys when only timezone differs', () => {
+    const keys = ['America/New_York', 'America/Chicago'].map(timezone => {
+      const location = { label: 'market', city: 'Example City', region: 'EX', country: 'US', timezone }
+      const authoring = measurementDraftAuthoringSchema.parse({
+        defaultContext: { providers: ['openai'], locations: [] },
+        targets: [{
+          stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: [],
+          urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual',
+        }],
+        assignments: [{
+          targetKey: 'widgets', queryId: 'question-one', queryClass: 'non-brand', classificationSource: 'operator',
+          executionContexts: [{ providers: ['openai'], models: {}, location }],
+        }],
+        groups: [],
+      })
+      const result = compileMeasurementDraft(authoring, {
+        canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [location],
+        trackedQueries: [{ id: 'question-one', query: 'first question' }],
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('Expected a valid exact context')
+      return result.plan.executionNodes[0]!.stableKey
+    })
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('refuses a frozen execution key reused by a different question', () => {
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['openai'], locations: [] },
+      targets: [{
+        stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: [],
+        urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual',
+      }],
+      assignments: ['question-one', 'question-two'].map(queryId => ({
+        targetKey: 'widgets', queryId, queryClass: 'non-brand', classificationSource: 'operator',
+        executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'shared-imported-key' }],
+      })),
+      groups: [],
+    })
+    const result = compileMeasurementDraft(authoring, {
+      canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [],
+      trackedQueries: [{ id: 'question-one', query: 'first question' }, { id: 'question-two', query: 'second question' }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({ ruleId: 'execution-key-conflict', severity: 'fail' }))
+  })
+
   it('uses original Property indices for every unassigned Property', () => {
     const authoring = measurementDraftAuthoringSchema.parse({
       defaultContext: { providers: ['openai'], locations: [] },

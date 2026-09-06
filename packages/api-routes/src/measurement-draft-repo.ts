@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, gt, lte } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
   measurementDraftAuthoringSchema,
@@ -218,6 +218,7 @@ export function replayReceipt(
     eq(measurementOperationReceipts.projectId, projectId),
     eq(measurementOperationReceipts.operation, lookup.operation),
     eq(measurementOperationReceipts.idempotencyKey, lookup.key),
+    gt(measurementOperationReceipts.expiresAt, new Date().toISOString()),
   )).get()
   if (!existing) return null
   if (existing.requestChecksum !== lookup.checksum) throw measurementIdempotencyKeyConflict(lookup.operation)
@@ -258,6 +259,6 @@ export function writeReceipt(
  */
 export function sweepExpiredMeasurementReceipts(db: DbLike, now: Date): number {
   const result = db.delete(measurementOperationReceipts)
-    .where(lt(measurementOperationReceipts.expiresAt, now.toISOString())).run()
+    .where(lte(measurementOperationReceipts.expiresAt, now.toISOString())).run()
   return Number(result.changes)
 }

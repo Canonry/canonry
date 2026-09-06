@@ -5,6 +5,8 @@ import {
   measurementPlanV2Schema,
   measurementQueryClassSchema,
   measurementV2ReportingScopeSchema,
+  measurementV2ExecutionContextSchema,
+  measurementV2QueryProvenanceSchema,
   measurementV2CompetitorSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
@@ -71,9 +73,24 @@ export const measurementDraftAssignmentSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   queryId: measurementDraftQueryIdSchema,
   contextOverride: measurementDraftContextOverrideSchema.optional(),
+  /** Frozen contexts never expand against the current defaults. */
+  executionContexts: z.array(measurementV2ExecutionContextSchema.extend({
+    /** Imported plans may use keys other than compiler-generated hashes. */
+    executionNodeKey: z.string().min(1).optional(),
+  })).min(1).optional(),
+  /** Source facts retained when an active revision seeds a draft. */
+  queryProvenance: measurementV2QueryProvenanceSchema.optional(),
   queryClass: measurementDraftQueryClassSchema,
   classificationSource: measurementClassificationSourceSchema,
-}).strict()
+}).strict().superRefine((value, context) => {
+  if (value.contextOverride !== undefined && value.executionContexts !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['executionContexts'],
+      message: 'Use either frozen execution contexts or a context override, not both.',
+    })
+  }
+})
 export type MeasurementDraftAssignment = z.output<typeof measurementDraftAssignmentSchema>
 
 export const measurementDraftCompetitorSchema = measurementV2CompetitorSchema

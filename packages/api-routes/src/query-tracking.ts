@@ -69,7 +69,17 @@ import {
   plansAreLabelOnlyVariants,
   proposeQueryClassForTarget,
 } from './measurement-draft-compile.js'
-import { activePlanVersionRow, actorFromRequest, canonicalJson, serializeActor, sha256Hex } from './measurement-draft-repo.js'
+import {
+  activePlanVersionRow,
+  actorFromRequest,
+  canonicalJson,
+  replayReceipt,
+  requestChecksum,
+  serializeActor,
+  sha256Hex,
+  sweepExpiredMeasurementReceipts,
+  writeReceipt,
+} from './measurement-draft-repo.js'
 import {
   buildMeasurementPlanV2ReportInput,
   measurementRunExpectedSlots,
@@ -1367,7 +1377,14 @@ function ensureAdvancedEdge(
   classificationSource: 'server' | 'operator',
   context: MeasurementV2ExecutionContext,
 ): MeasurementV2UsageEdge {
-  const compiled = compileExecution(state, target, queryId, queryText, queryClass, classificationSource, context)
+  // Stable node keys are compiler-version details. Reuse the frozen execution
+  // with the same inputs rather than buying a second answer for a legacy key.
+  const equivalentNodes = plan.executionNodes.filter(node => node.queryId === queryId && contextKey(node.context) === contextKey(context))
+  const existingNode = equivalentNodes.find(node => plan.assignments.some(assignment => assignment.queryId === queryId
+    && assignment.targetKey === target.stableKey && assignment.executionNodeKey === node.stableKey)) ?? equivalentNodes.at(0)
+  const compiled = existingNode
+    ? { node: existingNode, edge: { queryId, targetKey: target.stableKey, executionNodeKey: existingNode.stableKey } }
+    : compileExecution(state, target, queryId, queryText, queryClass, classificationSource, context)
   if (!plan.executionNodes.some(node => node.stableKey === compiled.node.stableKey)) {
     plan.executionNodes.push(compiled.node)
   }
@@ -1392,11 +1409,18 @@ function applyOperatorClass(
   queryId: string,
   targetKey: string,
   queryClass: QueryClass,
+  executionNodeKeys?: ReadonlySet<string>,
+  marketKeys?: ReadonlySet<string>,
 ): boolean {
   let changed = false
   for (const assignment of plan.assignments) {
     if (assignment.queryId !== queryId || assignment.targetKey !== targetKey) continue
+    if (executionNodeKeys && !executionNodeKeys.has(assignment.executionNodeKey)) continue
     if (assignment.queryClass !== queryClass || assignment.classificationSource !== 'operator') {
+      if (marketKeys?.size && (plan.reportingScopes ?? []).some(scope => !marketKeys.has(scope.stableKey)
+        && scope.usageEdges.some(edge => edgeKey(edge) === edgeKey(assignment)))) {
+        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+      }
       assignment.queryClass = queryClass
       assignment.classificationSource = 'operator'
       changed = true
@@ -1675,10 +1699,7 @@ function addAdvancedSource(
       : existing.length > 0
         ? (existingSource ?? 'operator')
         : 'server'
-    if (addition.queryClass !== undefined && applyOperatorClass(plan, queryId, targetKey, addition.queryClass)) {
-      mutatedQueryIds.add(queryId)
-    }
-
+    const selectedNodeKeys = new Set<string>()
     if (source.audience.marketKeys.length > 0) {
       for (const marketKey of source.audience.marketKeys) {
         // Scope membership comes from the reviewed active revision, not a
@@ -1693,9 +1714,13 @@ function addAdvancedSource(
         }
         for (const context of contexts) {
           const edge = ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context)
+          selectedNodeKeys.add(edge.executionNodeKey)
           addMarketEdge(plan, marketKey, edge)
           mutatedQueryIds.add(queryId)
         }
+      }
+      if (addition.queryClass !== undefined && applyOperatorClass(plan, queryId, targetKey, addition.queryClass, selectedNodeKeys, new Set(source.audience.marketKeys))) {
+        mutatedQueryIds.add(queryId)
       }
       continue
     }
@@ -1707,7 +1732,11 @@ function addAdvancedSource(
       )
     }
     for (const context of contexts ?? []) {
-      ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context)
+      const edge = ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context)
+      selectedNodeKeys.add(edge.executionNodeKey)
+      mutatedQueryIds.add(queryId)
+    }
+    if (addition.queryClass !== undefined && applyOperatorClass(plan, queryId, targetKey, addition.queryClass, contexts === undefined ? undefined : selectedNodeKeys)) {
       mutatedQueryIds.add(queryId)
     }
   }
@@ -2035,13 +2064,21 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     })
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/commit', async request => {
+  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/commit', async (request, reply) => {
     requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const parsed = queryTrackingCommitRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid query tracking commit payload', { issues: parsed.error.issues })
-    const reviewedAt = assertReviewedAt(parsed.data.reviewedAt)
     const project = resolveProject(app.db, request.params.name)
-    const result = app.db.transaction(tx => {
+    // The review token already identifies one exact operation. Replaying its
+    // receipt recovers a lost response without requiring a separate client key.
+    // Authorization stays above replay; stale state/expiry checks stay below.
+    const lookup = { operation: 'query-tracking.commit', key: parsed.data.previewToken, checksum: requestChecksum(parsed.data) }
+    const replay = replayReceipt(app.db, project.id, lookup, reply)
+    if (replay !== null) return replay
+    return app.db.transaction(tx => {
+      const transactionReplay = replayReceipt(tx, project.id, lookup, reply)
+      if (transactionReplay !== null) return transactionReplay
+      const reviewedAt = assertReviewedAt(parsed.data.reviewedAt)
       const currentProject = tx.select().from(projects).where(eq(projects.id, project.id)).get()
       if (!currentProject) throw notFound('Project', project.name)
       const state = readWorkspace(tx, currentProject)
@@ -2052,10 +2089,10 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       if (parsed.data.previewToken !== mutationPreviewToken(candidate, parsed.data, reviewedAt)) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
       }
-      if (candidate.diff.noOp) return { candidate, active: state.active, committed: false }
-      const now = new Date().toISOString()
-      if (candidate.state.mode === 'simple') {
-        writeSimpleCandidate(tx, candidate, now)
+      const now = new Date()
+      let active = state.active
+      if (!candidate.diff.noOp && candidate.state.mode === 'simple') {
+        writeSimpleCandidate(tx, candidate, now.toISOString())
         writeAuditLog(tx, auditFromRequest(request, {
           projectId: candidate.state.project.id,
           actor: 'api',
@@ -2063,19 +2100,23 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
           entityType: 'query',
           diff: { added: candidate.diff.added.length, removed: candidate.diff.removed.length, reused: candidate.diff.reused.length },
         }))
-        return { candidate, active: null, committed: true }
+        active = null
+      } else if (!candidate.diff.noOp) {
+        active = writeAdvancedCandidate(tx, candidate, request, now.toISOString())
       }
-      return { candidate, active: writeAdvancedCandidate(tx, candidate, request, now), committed: true }
-    })
-    const current = readWorkspace(app.db, resolveProject(app.db, project.name))
-    return queryTrackingCommitResponseSchema.parse({
-      committed: result.committed,
-      mode: result.candidate.state.mode,
-      workspaceVersion: current.workspaceVersion,
-      reviewedAt,
-      active: activeDto(result.active),
-      diff: result.candidate.diff,
-      workload: result.candidate.workload,
-    })
+      const current = readWorkspace(tx, currentProject)
+      const response = queryTrackingCommitResponseSchema.parse({
+        committed: !candidate.diff.noOp,
+        mode: candidate.state.mode,
+        workspaceVersion: current.workspaceVersion,
+        reviewedAt,
+        active: activeDto(active),
+        diff: candidate.diff,
+        workload: candidate.workload,
+      })
+      sweepExpiredMeasurementReceipts(tx, now)
+      writeReceipt(tx, project.id, lookup, response, 200, now)
+      return response
+    }, { behavior: 'immediate' })
   })
 }
