@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, useId } from 'react'
 import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
@@ -1484,8 +1484,109 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
 
 type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
 
+export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }: {
+  items: ProjectTabItem[]
+  overflowItems: ProjectTabItem[]
+  settingsItem: ProjectTabItem | null
+  activeTab: ProjectPageTab
+}) {
+  const navRef = useRef<HTMLElement>(null)
+  const measurementRef = useRef<HTMLDivElement>(null)
+  const [layout, setLayout] = useState<{ visibleKeys: ProjectPageTab[]; settingsInMore: boolean } | null>(null)
+
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const measurements = measurementRef.current
+    if (!nav || !measurements) return
+    const measure = () => {
+      const available = nav.getBoundingClientRect().width
+      if (!available) return // Hidden surfaces are measured when they become visible.
+      const gap = Number.parseFloat(getComputedStyle(nav).columnGap) || 0
+      const widths = new Map([...measurements.querySelectorAll<HTMLElement>('[data-project-tab]')]
+        .map(element => [element.dataset.projectTab!, element.getBoundingClientRect().width]))
+      const widthOf = (key: string) => widths.get(key) ?? 0
+      const totalWidth = (keys: string[]) => keys.reduce((total, key) => total + widthOf(key), 0) + Math.max(0, keys.length - 1) * gap
+      const allKeys = [...items.map(item => item.key), ...(overflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
+      let visibleKeys = items.map(item => item.key)
+      let settingsInMore = false
+      if (totalWidth(allKeys) > available) {
+        // Keep the selected primary section in view, even when it is near the
+        // end of the tab list. Settings joins More only on very narrow panels.
+        const active = items.find(item => item.key === activeTab)
+        const selected = active ? [active.key] : []
+        settingsInMore = Boolean(settingsItem && totalWidth([...selected, 'more', settingsItem.key]) > available)
+        const trailing = ['more', ...(settingsItem && !settingsInMore ? [settingsItem.key] : [])]
+        for (const item of items) {
+          if (item.key === active?.key) continue
+          if (totalWidth([...selected, item.key, ...trailing]) > available) break
+          selected.push(item.key)
+        }
+        visibleKeys = items.filter(item => selected.includes(item.key)).map(item => item.key)
+      }
+      setLayout(previous => previous?.settingsInMore === settingsInMore && previous.visibleKeys.join() === visibleKeys.join()
+        ? previous
+        : { visibleKeys, settingsInMore })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(nav)
+    observer.observe(measurements) // Font loading or changed labels can alter item widths.
+    return () => observer.disconnect()
+  }, [items, overflowItems, settingsItem, activeTab])
+
+  const visibleItems = layout ? items.filter(item => layout.visibleKeys.includes(item.key)) : items
+  const menuItems = [
+    ...items.filter(item => !visibleItems.includes(item)),
+    ...overflowItems,
+    ...(layout?.settingsInMore && settingsItem ? [settingsItem] : []),
+  ]
+
+  return (
+    <nav className="project-subnav" aria-label="Project sections" ref={navRef}>
+      <div className="project-subnav-measure" aria-hidden="true">
+        <div className="project-subnav-measure-row" ref={measurementRef}>
+          {[...items, ...(settingsItem ? [settingsItem] : [])].map(item => (
+            <span className="project-subnav-link" key={item.key} data-project-tab={item.key}>{item.label}</span>
+          ))}
+          <span className="project-subnav-link project-subnav-more-trigger" data-project-tab="more">
+            More<ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        </div>
+      </div>
+      {visibleItems.map(item => (
+        <Link
+          key={item.key}
+          to={item.href}
+          search={previous => ({ ...previous, onboarding: undefined })}
+          className={`project-subnav-link ${item.key === activeTab ? 'project-subnav-link-active project-subnav-current' : ''}`}
+          aria-current={item.key === activeTab ? 'page' : undefined}
+        >
+          <span className="project-subnav-label">{item.label}</span>
+        </Link>
+      ))}
+      <div className="project-subnav-trailing">
+        <ProjectSubnavMore items={menuItems} activeTab={activeTab} />
+        {settingsItem && !layout?.settingsInMore && (
+          <Link
+            to={settingsItem.href}
+            search={previous => ({ ...previous, onboarding: undefined })}
+            className={`project-subnav-link ${activeTab === 'settings' ? 'project-subnav-link-active' : ''}`}
+            aria-current={activeTab === 'settings' ? 'page' : undefined}
+          >
+            {settingsItem.label}
+          </Link>
+        )}
+      </div>
+    </nav>
+  )
+}
+
 /**
- * Trailing overflow ("More") menu for low-frequency project sections (Report).
+ * Trailing overflow ("More") menu for sections that do not fit in the tab row.
  * A standard disclosure: button toggles a `role="menu"`, closes on outside
  * pointerdown, Escape, or item selection. Self-contained so its hooks don't
  * sit below ProjectPageContent's early returns. Lives here (not in its own
@@ -1494,13 +1595,27 @@ type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
 function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const initialFocus = useRef<'first' | 'last'>('first')
+  const menuId = useId()
+  const itemKeys = items.map(item => item.key).join()
+  useEffect(() => { setOpen(false) }, [itemKeys])
+  useEffect(() => {
+    if (!open) return
+    const menuItems = ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')
+    const selected = initialFocus.current === 'last' ? menuItems?.[menuItems.length - 1] : menuItems?.[0]
+    selected?.focus()
+  }, [open])
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -1517,21 +1632,47 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
     <div className="project-subnav-more" ref={ref}>
       <button
         type="button"
+        ref={triggerRef}
         className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => { initialFocus.current = 'first'; setOpen(prev => !prev) }}
+        onKeyDown={event => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+          event.preventDefault()
+          initialFocus.current = event.key === 'ArrowUp' ? 'last' : 'first'
+          setOpen(true)
+        }}
       >
         More
         <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
       {open ? (
-        <div className="project-subnav-menu" role="menu">
+        <div className="project-subnav-menu" role="menu" id={menuId} aria-label="More project sections"
+          onKeyDown={event => {
+            const menuItems = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+            const current = menuItems.indexOf(document.activeElement as HTMLElement)
+            const next = event.key === 'Home' ? 0
+              : event.key === 'End' ? menuItems.length - 1
+                : event.key === 'ArrowDown' ? (current + 1) % menuItems.length
+                  : event.key === 'ArrowUp' ? (current - 1 + menuItems.length) % menuItems.length : null
+            if (next !== null) {
+              event.preventDefault()
+              menuItems[next]?.focus()
+            }
+          }}
+          onBlur={event => {
+            if (!ref.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
+          }}
+        >
           {items.map((item) => (
             <Link
               key={item.key}
               to={item.href}
+              search={previous => ({ ...previous, onboarding: undefined })}
               role="menuitem"
+              tabIndex={-1}
               className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
               aria-current={item.key === activeTab ? 'page' : undefined}
               onClick={() => setOpen(false)}
@@ -2450,34 +2591,12 @@ function ProjectPageContent({
         </div>
       </div>
 
-      <nav className="project-subnav" aria-label="Project sections">
-        {projectTabItems.map((item) => {
-          return (
-            <Link
-              key={item.key}
-              to={item.href}
-              search={previous => ({ ...previous, onboarding: undefined })}
-              className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
-              aria-current={item.key === tab ? 'page' : undefined}
-            >
-              {item.label}
-            </Link>
-          )
-        })}
-        <div className="project-subnav-trailing">
-          <ProjectSubnavMore items={projectOverflowTabItems} activeTab={tab} />
-          {projectSettingsTab && (
-            <Link
-              key={projectSettingsTab.key}
-              to={projectSettingsTab.href}
-              className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
-              aria-current={tab === 'settings' ? 'page' : undefined}
-            >
-              {projectSettingsTab.label}
-            </Link>
-          )}
-        </div>
-      </nav>
+      <ProjectSubnav
+        items={projectTabItems}
+        overflowItems={projectOverflowTabItems}
+        settingsItem={projectSettingsTab}
+        activeTab={tab}
+      />
 
       {tab === 'portfolio' && !isEmbed() ? (
         <AdvancedMeasurementSection
@@ -2544,7 +2663,7 @@ function ProjectPageContent({
             onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
           /> : null}
           <VisibilityWorkspace
-            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined })}`}
+            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
             projectName={projectName}
             selection={visibilitySelection}
             onSelectionChange={updateVisibilitySearch}

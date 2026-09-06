@@ -70,6 +70,28 @@ function ruleFor(css: string, selector: string) {
   throw new Error(`Compiled rule for ${selector} was not closed`)
 }
 
+test('scope picker panels compile outside document flow with an opaque surface', async () => {
+  const css = await compileAppStyles([])
+  const panel = ruleFor(css, '.visibility-scope-menu')
+  expect(panel).toContain('position: absolute')
+  expect(panel).toContain('top: 100%')
+  expect(panel).toContain('z-index: 30')
+  expect(panel).toContain('background-color: var(--color-bg)')
+})
+
+test('measurement table actions stay visible on an opaque surface while columns scroll', async () => {
+  const css = await compileAppStyles([])
+  const actions = ruleFor(css, '.measurement-table-actions')
+  expect(actions).toContain('position: sticky')
+  expect(actions).toContain('right: 0')
+  expect(actions).toContain('background-color: var(--color-bg)')
+  expect(actions).toContain('white-space: nowrap')
+  expect(actions).toContain('z-index: 1')
+  expect(ruleFor(css, '.query-tracking-workspace')).toContain('container-type: inline-size')
+  expect(ruleFor(css, '.tracking-row-actions')).toContain('flex-direction: column')
+  expect(ruleFor(css, '.tracking-row-actions')).toContain('align-items: flex-start')
+})
+
 test('self-hosts the default Geist families and never loads Google Fonts', async () => {
   const [main, styles, app, embed, viteConfig] = await Promise.all([
     readFile(mainPath, 'utf8'),

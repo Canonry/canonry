@@ -108,6 +108,7 @@ type SearchParams = {
   measurementRevision?: string
   measurementRunId?: string
   measurementQueryKey?: string
+  measurementAnswer?: string
 }
 
 function RootLayoutWithErrorBoundary() {
@@ -143,7 +144,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     ...Object.fromEntries([
       'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'queryClass',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
-      'measurementRevision', 'measurementRunId', 'measurementQueryKey',
+      'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
     ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
   }),
 })

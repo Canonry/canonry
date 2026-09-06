@@ -923,6 +923,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(firstReportUrl).not.toContain('runId=drawer-run')
   expect(observed.some(path => path.includes('/measurement-overview?') || path.includes('/measurement-report?'))).toBe(false)
 
+  fireEvent.click(page.getByText('Query results', { selector: 'span' }).closest('summary')!)
   fireEvent.click(page.getByRole('button', { name: 'Next queries' }))
   expect(await page.findByText('Harbor Annex')).toBeTruthy()
   expect(observed.some(path => path.includes('cursor=cursor-2'))).toBe(true)
@@ -934,6 +935,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(await page.findByText('North Property')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
 
+  fireEvent.click(page.getByText('Query results', { selector: 'span' }).closest('summary')!)
   fireEvent.change(page.getByLabelText('Search Non-brand queries'), { target: { value: 'harbor' } })
   await waitFor(() => expect(observed.some(path => path.includes('search=harbor'))).toBe(true))
   expect((page.getByLabelText('Search Non-brand queries') as HTMLInputElement).value).toBe('harbor')
@@ -1129,7 +1131,7 @@ test('embedded Queries and legacy Discovery URLs fall back before reading unpubl
   expect(observed.some(path => path.includes('/query-tracking') || path.includes('/research') || path.includes('/discover'))).toBe(false)
 })
 
-test('the Queries route reads the generated tracking workspace', async () => {
+test('the Queries route reads the workspace and keeps scoped removal active after its URL update', async () => {
   const observed: string[] = []
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -1148,7 +1150,7 @@ test('the Queries route reads the generated tracking workspace', async () => {
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries'] })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -1163,6 +1165,14 @@ test('the Queries route reads the generated tracking workspace', async () => {
   expect(page.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
   await waitFor(() => expect(observed.some(path => path.endsWith('/query-tracking'))).toBe(true))
   expect(observed.some(path => path.includes('/discover') || path.includes('/research'))).toBe(false)
+
+  fireEvent.click(page.getByRole('button', { name: 'Remove Citypoint dentist' }))
+  await waitFor(() => expect(router.state.location.search.trackingQueryId).toBe('query-citypoint'))
+  expect(router.state.location.search.measurementScope).toBe('group')
+  expect(router.state.location.search.measurementScopeKey).toBe('north')
+  expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
+  expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
+  expect(page.getByText('Only assignments in North will be removed. Earlier results stay unchanged.')).toBeTruthy()
 })
 
 test('the legacy Discovery route opens the separate research workspace without tracking reads', async () => {

@@ -81,6 +81,35 @@ export function measurementViewSearch(view: MeasurementViewState): { scope?: str
   }
 }
 
+/** A row's evidence context is independent of the surrounding report filters. */
+export interface VisibilityAnswerSelection {
+  queryKey: string
+  queryClass: Exclude<MeasurementQueryClass, 'all'> | 'unknown'
+  provider: string
+  model: string | null
+  location: string | null
+  runId: string | null
+  revision: number | null
+}
+
+function parseAnswerSelection(value: unknown, queryKey: string | undefined): VisibilityAnswerSelection | undefined {
+  if (typeof value !== 'string' || value.length > 16_384 || !queryKey) return undefined
+  try {
+    const answer: unknown = JSON.parse(value)
+    if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) return undefined
+    const row = answer as Record<string, unknown>
+    const nonBlank = (field: unknown): field is string => typeof field === 'string' && field.trim().length > 0
+    const nullableString = (field: unknown): field is string | null => field === null || nonBlank(field)
+    if (row.queryKey !== queryKey || !nonBlank(row.provider)
+      || (row.queryClass !== 'branded' && row.queryClass !== 'non-brand' && row.queryClass !== 'unknown')
+      || !nullableString(row.model) || !nullableString(row.location) || !nullableString(row.runId)
+      || (row.revision !== null && (typeof row.revision !== 'number' || !Number.isSafeInteger(row.revision) || row.revision <= 0))) return undefined
+    return { queryKey, queryClass: row.queryClass, provider: row.provider, model: row.model, location: row.location, runId: row.runId, revision: row.revision }
+  } catch {
+    return undefined
+  }
+}
+
 /** One URL selection for measured results and query administration. */
 export interface VisibilitySelectionState {
   measurementScope: 'project' | 'group' | 'market' | 'property'
@@ -94,6 +123,7 @@ export interface VisibilitySelectionState {
   revision?: number
   measurementRunId?: string
   queryKey?: string
+  answer?: VisibilityAnswerSelection
 }
 
 export function parseVisibilitySelection(search: Record<string, unknown>): VisibilitySelectionState {
@@ -116,6 +146,8 @@ export function parseVisibilitySelection(search: Record<string, unknown>): Visib
   }
   const revision = Number(search.measurementRevision)
   if (Number.isSafeInteger(revision) && revision > 0) result.revision = revision
+  const answer = parseAnswerSelection(search.measurementAnswer, result.queryKey)
+  if (answer) result.answer = answer
   return result
 }
 
@@ -124,6 +156,15 @@ export function patchVisibilitySelection(
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
   const next = { ...previous, ...patch }
+  if ([
+    'measurementScope', 'measurementScopeKey', 'queryClass', 'measurementProvider', 'measurementModel',
+    'measurementLocation', 'measurementFrom', 'measurementTo', 'measurementRevision', 'measurementRunId',
+  ].some(key => key in patch)) {
+    next.measurementQueryKey = undefined
+    next.measurementAnswer = undefined
+  } else if ('measurementQueryKey' in patch && !('measurementAnswer' in patch)) {
+    next.measurementAnswer = undefined
+  }
   // Legacy scope tokens must not reappear when the user returns to the project.
   if ('measurementScope' in patch) {
     next.scope = undefined

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
+import { rootRoute } from '../src/router/routes.js'
 
 describe('shared visibility selection URL', () => {
   it('defaults to non-brand for simple and advanced projects', () => {
@@ -32,5 +33,28 @@ describe('shared visibility selection URL', () => {
   it('does not fabricate a valid scope from a missing scope key', () => {
     expect(parseVisibilitySelection({ measurementScope: 'market', queryClass: 'unknown' }))
       .toEqual({ measurementScope: 'project', queryClass: 'unknown' })
+  })
+
+  it('round trips an exact answer context independently of report and drawer filters', () => {
+    const answer = { queryKey: 'query-1', queryClass: 'branded', provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2 }
+    const search = { queryClass: 'all', measurementProvider: 'openai', measurementQueryKey: 'query-1', measurementAnswer: JSON.stringify(answer), runId: 'drawer' }
+    expect(parseVisibilitySelection(search)).toMatchObject({ queryClass: 'all', provider: 'openai', queryKey: 'query-1', answer })
+    expect(patchVisibilitySelection(search, { measurementQueryKey: undefined })).toMatchObject({ queryClass: 'all', measurementProvider: 'openai', measurementAnswer: undefined, runId: 'drawer' })
+    expect(patchVisibilitySelection(search, { measurementFrom: '2026-09-01T00:00:00.000Z' })).toMatchObject({ measurementQueryKey: undefined, measurementAnswer: undefined, runId: 'drawer' })
+    const validateSearch = rootRoute.options.validateSearch
+    expect(typeof validateSearch).toBe('function')
+    if (typeof validateSearch !== 'function') throw new Error('Expected route search validator')
+    expect(parseVisibilitySelection(validateSearch(search))).toMatchObject({ queryClass: 'all', provider: 'openai', queryKey: 'query-1', answer })
+  })
+
+  it.each([
+    '{', 'null', '[]', JSON.stringify({ queryKey: 'other' }),
+    ...[
+      { queryKey: 'other' }, { queryClass: 'all' }, { provider: '' }, { model: 42 },
+      { location: {} }, { runId: [] }, { revision: 0 }, { revision: '2' },
+    ].map(patch => JSON.stringify({ queryKey: 'query-1', queryClass: 'non-brand', provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2, ...patch })),
+  ])('ignores invalid or mismatched answer context while keeping a legacy query link: %s', measurementAnswer => {
+    expect(parseVisibilitySelection({ measurementQueryKey: 'query-1', measurementAnswer }))
+      .toEqual({ measurementScope: 'project', queryClass: 'non-brand', queryKey: 'query-1' })
   })
 })

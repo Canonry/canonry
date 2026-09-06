@@ -214,8 +214,8 @@ test('project route keeps the shared-report class baseline stable', async () => 
       "pageHeader": "page-header",
       "pageTitle": "page-title",
       "queryTable": "evidence-table",
-      "reportPopulation": "py-6",
-      "reportSection": "page-section-divider",
+      "reportPopulation": "py-4",
+      "reportSection": "visibility-report",
       "trendChart": "visibility-trend-chart",
     }
   `)

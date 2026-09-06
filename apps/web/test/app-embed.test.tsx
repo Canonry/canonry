@@ -287,10 +287,14 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   // favor of the Settings-tab results downloads + `canonry export`. Deleting
   // the project is no longer here at all — it moved to the end of the Settings
   // tab, away from the button next to it.)
-  expect(operator).toContain('AI sweep')
+  const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
+  const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
+  const hasSweepAction = (doc: Document) => [...doc.querySelectorAll('.page-header button')]
+    .some(button => /^(?:Run AI sweep|AI sweep running…|Starting…)$/.test(button.textContent ?? ''))
+  expect(hasSweepAction(operatorDoc)).toBe(true)
   // …the embed render does not (this renders OUTSIDE the tab switch, so it
   // would otherwise leak on the default overview embed).
-  expect(embed).not.toContain('AI sweep')
+  expect(hasSweepAction(embedDoc)).toBe(false)
   // Delete is absent from BOTH headers now, so its absence in the embed is no
   // longer evidence of anything — assert it left the header instead.
   expect(operator).not.toContain('Delete project')
@@ -300,7 +304,7 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   expect(embed).toContain('Citypoint Dental NYC')
   expect(embed).toContain('AI visibility results')
   expect(embed).toContain('Non-brand queries')
-  expect(embed).toContain('Query performance')
+  expect(embed).toContain('Query results')
   expect(embed).toContain('emergency dentist near me')
 })
 
@@ -315,7 +319,7 @@ test('embed hides the shared-report query manager without reviving retired overv
   expect(embed).not.toContain('Manage queries')
   expect(operator).not.toContain('+ Add competitor')
   expect(embed).not.toContain('+ Add competitor')
-  expect(embed).toContain('Query performance')
+  expect(embed).toContain('Query results')
   expect(embed).toContain('View answers')
   expect(embed).toContain('Competitors')
 
@@ -335,10 +339,12 @@ test('embed keeps shared report drill-down readable without restoring legacy ove
   // The shared report has its own measured-run disclosure and progressive
   // query/competitor drill-down. The old overview disclosures must not shadow
   // it in either operator or embed renders.
-  expect([...operatorDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'Date, model and measured run')).toBe(true)
-  expect([...embedDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'Date, model and measured run')).toBe(true)
-  expect(operatorDoc.body.textContent).toContain('Query performance')
-  expect(embedDoc.body.textContent).toContain('Query performance')
+  expect([...operatorDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'More filters')).toBe(true)
+  expect([...embedDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'More filters')).toBe(true)
+  expect(operatorDoc.body.textContent).toContain('Query results')
+  expect(embedDoc.body.textContent).toContain('Query results')
+  expect(operatorDoc.querySelector('details[data-query-results]')?.hasAttribute('open')).toBe(false)
+  expect(embedDoc.querySelector('details[data-query-results]')?.hasAttribute('open')).toBe(false)
   expect(operatorDoc.body.textContent).toContain('Competitors')
   expect(embedDoc.body.textContent).toContain('Competitors')
 
