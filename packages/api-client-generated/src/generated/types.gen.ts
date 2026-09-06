@@ -396,6 +396,16 @@ export type QueryTrackingPreviewRequest = {
             marketKeys?: Array<string>;
         };
     }>;
+    edits?: Array<{
+        queryId: string;
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+        text?: string;
+        queryClass?: 'branded' | 'non-brand' | null;
+    }>;
     expectedWorkspaceVersion: string;
 };
 
@@ -523,6 +533,16 @@ export type QueryTrackingCommitRequest = {
             groupKeys?: Array<string>;
             marketKeys?: Array<string>;
         };
+    }>;
+    edits?: Array<{
+        queryId: string;
+        audience?: {
+            targetKeys?: Array<string>;
+            groupKeys?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+        text?: string;
+        queryClass?: 'branded' | 'non-brand' | null;
     }>;
     expectedWorkspaceVersion: string;
     previewToken: string;

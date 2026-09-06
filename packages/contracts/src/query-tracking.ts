@@ -117,9 +117,26 @@ export const queryTrackingRemovalSchema = z.object({
 })
 export type QueryTrackingRemoval = z.output<typeof queryTrackingRemovalSchema>
 
+/** Edit stored assignments in place; the server retains their exact frozen execution edges. */
+export const queryTrackingEditSchema = z.object({
+  queryId: queryTrackingIdSchema,
+  /** Omission selects the whole query. A supplied audience selects existing assignments only. */
+  audience: queryTrackingAudienceSchema.optional(),
+  /** Resolved question text, never a template to expand again. */
+  text: queryTrackingTextSchema.optional(),
+  /** Omit to preserve classification; null explicitly asks the server to classify again. */
+  queryClass: z.union([queryClassSchema, z.null()]).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.text === undefined && value.queryClass === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Provide query text or a classification change.' })
+  }
+})
+export type QueryTrackingEdit = z.output<typeof queryTrackingEditSchema>
+
 export const queryTrackingMutationSchema = z.object({
   additions: z.array(queryTrackingAdditionSchema),
   removals: z.array(queryTrackingRemovalSchema),
+  edits: z.array(queryTrackingEditSchema).optional(),
 }).strict()
 export type QueryTrackingMutation = z.output<typeof queryTrackingMutationSchema>
 

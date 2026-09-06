@@ -63,6 +63,25 @@ describe('query tracking contract', () => {
     expect(queryTrackingPreviewRequestSchema.safeParse({ ...base, removals: [{ queryId: 'q', queryText: 'query' }] }).success).toBe(false)
   })
 
+  it('accepts scoped edits without reconstructing execution contexts', () => {
+    const edit = { queryId: 'q-shared', audience: { targetKeys: ['harbor-point'] }, text: 'Harbor Point amenities', queryClass: null }
+    const parsed = queryTrackingPreviewRequestSchema.parse({
+      expectedWorkspaceVersion: WORKSPACE_VERSION, additions: [], removals: [], edits: [edit],
+    })
+    expect(parsed.edits).toEqual([edit])
+  })
+
+  it('rejects empty edits and replacement execution contexts', () => {
+    const base = { expectedWorkspaceVersion: WORKSPACE_VERSION, additions: [], removals: [] }
+    for (const edit of [
+      { queryId: 'q-shared' },
+      { queryId: 'q-shared', text: '' },
+      { queryId: 'q-shared', text: 'new question', contexts: [] },
+    ]) {
+      expect(queryTrackingPreviewRequestSchema.safeParse({ ...base, edits: [edit] }).success).toBe(false)
+    }
+  })
+
   it('requires frozen template details only for a template provenance row', () => {
     expect(queryTrackingProvenanceSchema.safeParse({
       source: 'template', sourceId: 'tpl-market@3', capturedAt: '2026-09-04T00:00:00.000Z',

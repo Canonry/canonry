@@ -39,6 +39,7 @@ import {
   type QueryTrackingAudience,
   type QueryTrackingChangeRow,
   type QueryTrackingDiff,
+  type QueryTrackingEdit,
   type QueryTrackingMode,
   type QueryTrackingMutation,
   type QueryTrackingProvenance,
@@ -814,7 +815,9 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
   const targetByKey = new Map(plan.targets.map(target => [target.stableKey, target]))
   const groupByKey = new Map(plan.groups.map(group => [group.stableKey, group]))
   const marketByKey = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
-  const targetKeys = new Set<string>()
+  // An omitted addition audience means the whole active portfolio. Removal
+  // callers retain their separate, explicit global-removal path.
+  const targetKeys = new Set<string>(input === undefined ? targetByKey.keys() : [])
   const groupKeys = unique(input?.groupKeys ?? [])
   const marketKeys = unique(input?.marketKeys ?? [])
   for (const targetKey of unique(input?.targetKeys ?? [])) {
@@ -826,10 +829,25 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
     if (!group) throw validationError(`Selected group "${groupKey}" is not in the active plan.`)
     for (const targetKey of group.targetKeys) targetKeys.add(targetKey)
   }
+  const hasExplicitTargets = targetKeys.size > 0
+  const marketTargetKeys = new Set<string>()
   for (const marketKey of marketKeys) {
     const scope = marketByKey.get(marketKey)
     if (!scope) throw validationError(`Selected market "${marketKey}" is not in the active plan.`)
-    for (const edge of scope.usageEdges) targetKeys.add(edge.targetKey)
+    if (hasExplicitTargets && !scope.usageEdges.some(edge => targetKeys.has(edge.targetKey))) {
+      throw validationError(`Market "${marketKey}" has no selected Property.`)
+    }
+    for (const edge of scope.usageEdges) {
+      marketTargetKeys.add(edge.targetKey)
+      if (!hasExplicitTargets) targetKeys.add(edge.targetKey)
+    }
+  }
+  if (hasExplicitTargets && marketKeys.length > 0) {
+    for (const targetKey of targetKeys) {
+      if (!marketTargetKeys.has(targetKey)) {
+        throw validationError(`Selected Property "${targetKey}" does not belong to any selected market.`)
+      }
+    }
   }
   if (targetKeys.size === 0) {
     throw validationError('Select at least one Property, group, or market for a portfolio query.')
@@ -1440,9 +1458,33 @@ function candidateDiff(
   const attentionIds = new Set([...reusedQueryIds, ...mutatedQueryIds])
   const reusedIds = [...attentionIds].filter(id => beforeIds.has(id) && afterIds.has(id) && !addedIds.includes(id) && !removedIds.has(id))
   const unchangedIds = [...afterIds].filter(id => !addedIds.includes(id) && !reusedIds.includes(id) && !removedIds.has(id))
+  const removedAssignments = new Map<string, Set<string>>()
+  if (state.active && plan && scopedRemovalQueryIds.size > 0) {
+    const remainingEdges = new Set(plan.usageEdges.map(edgeKey))
+    const remainingScopes = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, new Set(scope.usageEdges.map(edgeKey))]))
+    const recordRemoved = (edge: MeasurementV2UsageEdge) => {
+      if (!scopedRemovalQueryIds.has(edge.queryId)) return
+      const keys = removedAssignments.get(edge.queryId) ?? new Set<string>()
+      keys.add(edgeKey(edge))
+      removedAssignments.set(edge.queryId, keys)
+    }
+    for (const edge of state.active.plan.usageEdges) {
+      if (!remainingEdges.has(edgeKey(edge))) recordRemoved(edge)
+    }
+    // A removed market membership counts even when a sibling market still
+    // owns the same execution. Count the exact assignment once in either case.
+    for (const scope of state.active.plan.reportingScopes ?? []) {
+      const remaining = remainingScopes.get(scope.stableKey)
+      for (const edge of scope.usageEdges) {
+        if (!remaining?.has(edgeKey(edge))) recordRemoved(edge)
+      }
+    }
+  }
   return {
     added: changeRows(addedIds, nextRows, plan),
-    removed: changeRows([...removedIds], beforeRows, null, state.active?.plan ?? null),
+    removed: changeRows([...removedIds], beforeRows, null, state.active?.plan ?? null).map(row => scopedRemovalQueryIds.has(row.queryId)
+      ? { ...row, assignmentCount: removedAssignments.get(row.queryId)?.size ?? 0 }
+      : row),
     reused: changeRows(reusedIds, nextRows, plan, state.active?.plan ?? null),
     unchanged: changeRows(unchangedIds, nextRows, plan, state.active?.plan ?? null),
     noOp: false,
@@ -1460,7 +1502,7 @@ function mutationPreviewToken(
     // A commit carries its review token while a preview does not. Bind the
     // review to the semantic mutation only, or every honest commit would hash
     // a different body than the preview that minted its token.
-    mutation: { additions: mutation.additions, removals: mutation.removals },
+    mutation: { additions: mutation.additions, removals: mutation.removals, ...(mutation.edits ? { edits: mutation.edits } : {}) },
     reviewedAt,
     plan: document,
     queries: [...candidate.queryRows.values()]
@@ -1528,6 +1570,20 @@ function buildSimpleCandidate(
   const reusedQueryIds = new Set<string>()
   const mutatedQueryIds = new Set<string>()
   const scopedRemovalQueryIds = new Set<string>()
+  for (const edit of mutation.edits ?? []) {
+    if (edit.audience !== undefined || edit.queryClass != null) {
+      throw validationError('Audience selection and query-class overrides require an active advanced measurement plan.')
+    }
+    const existing = rows.get(edit.queryId)
+    if (!existing) throw notFound('Tracked query', edit.queryId)
+    if (edit.text === undefined || normalizeText(edit.text) === normalizeText(existing.query)) continue
+    rows.delete(edit.queryId)
+    mutatedQueryIds.add(edit.queryId)
+    addSimpleSource(state, rows, {
+      queryText: edit.text,
+      provenance: { source: 'manual', sourceId: null, capturedAt: manualCapturedAt },
+    }, reusedQueryIds)
+  }
   for (const removal of mutation.removals) {
     if (removal.audience !== undefined) {
       throw validationError('Audience selection requires an active advanced measurement plan.')
@@ -1592,6 +1648,18 @@ function addAdvancedSource(
   if (knownBefore) reusedQueryIds.add(queryId)
 
   const requestedContexts = contextsFromInput(state.project, addition.contexts)
+  const frozenPlan = requireAdvanced(state).plan
+  const requestedContextKeys = requestedContexts === undefined ? undefined : new Set(requestedContexts.map(contextKey))
+  if (requestedContexts !== undefined && source.audience.marketKeys.length > 0) {
+    // A template may split one addition into several market/property records;
+    // validate the input against the whole selection before narrowing each.
+    const requestedAudience = resolveAudience(frozenPlan, addition.audience)
+    const frozenContextKeys = new Set(requestedAudience.targetKeys.flatMap(targetKey =>
+      contextsFromMarket(frozenPlan, requestedAudience.marketKeys, targetKey).map(contextKey)))
+    if (requestedContexts.some(context => !frozenContextKeys.has(contextKey(context)))) {
+      throw validationError('Selected execution contexts must match the selected markets\' frozen contexts.')
+    }
+  }
   const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
   for (const targetKey of source.audience.targetKeys) {
     const target = targets.get(targetKey)
@@ -1611,37 +1679,149 @@ function addAdvancedSource(
       mutatedQueryIds.add(queryId)
     }
 
-    let contexts = requestedContexts
-    if (contexts === undefined && source.audience.marketKeys.length > 0) {
-      contexts = contextsFromMarket(plan, source.audience.marketKeys, targetKey)
-      if (contexts.length === 0) {
-        throw validationError(`Market selection has no frozen execution context for Property "${targetKey}". Supply a full execution context explicitly.`)
+    if (source.audience.marketKeys.length > 0) {
+      for (const marketKey of source.audience.marketKeys) {
+        // Scope membership comes from the reviewed active revision, not a
+        // candidate whose removals or earlier additions changed its edges.
+        const frozenContexts = contextsFromMarket(frozenPlan, [marketKey], targetKey)
+        if (frozenContexts.length === 0) continue // This Property belongs to another selected market.
+        const contexts = requestedContextKeys === undefined
+          ? frozenContexts
+          : frozenContexts.filter(context => requestedContextKeys.has(contextKey(context)))
+        if (contexts.length === 0) {
+          throw validationError(`Selected execution contexts do not cover market "${marketKey}" for Property "${targetKey}".`)
+        }
+        for (const context of contexts) {
+          const edge = ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context)
+          addMarketEdge(plan, marketKey, edge)
+          mutatedQueryIds.add(queryId)
+        }
       }
+      continue
     }
+
+    const contexts = requestedContexts
     if (contexts === undefined && existing.length === 0) {
       throw validationError(
         'Select an execution context for a new portfolio assignment. New assignments do not automatically expand across project locations.',
       )
     }
-    const edges: MeasurementV2UsageEdge[] = []
     for (const context of contexts ?? []) {
-      edges.push(ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context))
+      ensureAdvancedEdge(plan, state, target, queryId, queryText, queryClass, classificationSource, context)
+      mutatedQueryIds.add(queryId)
     }
-    for (const marketKey of source.audience.marketKeys) {
-      // Omitted contexts on an already-assigned question use the exact existing
-      // edge set. This is a scope operation, never a Target-wide inference.
-      const scopeEdges = edges.length > 0
-        ? edges
-        : plan.usageEdges.filter(edge => edge.queryId === queryId && edge.targetKey === targetKey)
-      for (const edge of scopeEdges) {
-        const before = plan.reportingScopes?.find(scope => scope.stableKey === marketKey)
-        const present = before?.usageEdges.some(member => edgeKey(member) === edgeKey(edge)) ?? false
-        plan = addMarketEdge(plan, marketKey, edge)
-        if (!present) mutatedQueryIds.add(queryId)
+  }
+}
+
+/**
+ * Edits consume the frozen graph, not the workspace's lossy presentation rows.
+ * Moving a question keeps each exact context and its market memberships. A
+ * scoped edit never reconstructs the unrelated assignments of a shared query.
+ */
+function applyAdvancedEdit(
+  state: WorkspaceState,
+  plan: MeasurementPlanV2,
+  rows: Map<string, CandidateQueryRow>,
+  edit: QueryTrackingEdit,
+  capturedAt: string,
+  reusedQueryIds: Set<string>,
+  mutatedQueryIds: Set<string>,
+  scopedRemovalQueryIds: Set<string>,
+): MeasurementPlanV2 {
+  const snapshot = planSnapshot(plan, edit.queryId)
+  const row = rows.get(edit.queryId)
+  if (!snapshot && !row) throw notFound('Tracked query', edit.queryId)
+  const oldText = snapshot?.queryText ?? row!.query
+  const text = edit.text ?? oldText
+  const textChanged = normalizeText(text) !== normalizeText(oldText)
+  const audience = edit.audience === undefined ? null : resolveAudience(requireAdvanced(state).plan, edit.audience)
+  const targetKeys = audience ? new Set(audience.targetKeys) : null
+  const marketKeys = new Set(audience?.marketKeys ?? [])
+  const marketEdges = marketKeys.size === 0 ? null : new Set((plan.reportingScopes ?? [])
+    .filter(scope => marketKeys.has(scope.stableKey)).flatMap(scope => scope.usageEdges).map(edgeKey))
+  const selectedEdges = plan.usageEdges.filter(edge => edge.queryId === edit.queryId
+    && (!targetKeys || targetKeys.has(edge.targetKey))
+    && (!marketEdges || marketEdges.has(edgeKey(edge))))
+  if (audience && selectedEdges.length === 0) throw validationError('This query has no assignments in the selected scope.')
+  if (edit.queryClass !== undefined && selectedEdges.length === 0) throw validationError('This query has no assignments to classify.')
+  if (!textChanged && edit.queryClass === undefined) return plan
+
+  const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
+  const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+  const records = selectedEdges.map(edge => {
+    const assignment = plan.assignments.find(candidate => assignmentKey(candidate.targetKey, candidate.queryId, candidate.executionNodeKey)
+      === assignmentKey(edge.targetKey, edge.queryId, edge.executionNodeKey))
+    const node = nodes.get(edge.executionNodeKey)
+    const target = targets.get(edge.targetKey)
+    if (!assignment || !node || !target) throw validationError('The stored query assignment is incomplete. Reload the measurement setup.')
+    const proposed = edit.queryClass === null
+      ? proposeQueryClassForTarget(textChanged ? text : oldText, effectiveBrandNames(state.project), target)
+      : edit.queryClass ?? assignment.queryClass
+    if (proposed === 'unclassified') throw validationError('The server could not classify this portfolio query.')
+    const classificationSource = edit.queryClass === undefined ? assignment.classificationSource
+      : edit.queryClass === null ? 'server' as const : 'operator' as const
+    const scopes = (plan.reportingScopes ?? []).filter(scope => scope.usageEdges.some(member => edgeKey(member) === edgeKey(edge)))
+    return { edge, assignment, node, target, queryClass: proposed, classificationSource, scopes }
+  })
+
+  if (!textChanged) {
+    for (const record of records) {
+      if (record.assignment.queryClass === record.queryClass && record.assignment.classificationSource === record.classificationSource) continue
+      if (marketKeys.size > 0 && record.scopes.some(scope => !marketKeys.has(scope.stableKey))) {
+        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+      }
+      record.assignment.queryClass = record.queryClass
+      record.assignment.classificationSource = record.classificationSource
+      mutatedQueryIds.add(edit.queryId)
+    }
+    return plan
+  }
+
+  const newQueryId = candidateIdsForText(state, plan, rows, normalizeText(text)).at(0)
+    ?? preferredQueryId(state, normalizeText(text))
+    ?? stableNewQueryId(state.project.id, normalizeText(text))
+  const queryText = queryTextForId(state, plan, rows, newQueryId, text.trim())
+  const provenance = provenanceForId(state, plan, rows, newQueryId, { source: 'manual', sourceId: null, capturedAt })
+  if (!rows.has(newQueryId)) rows.set(newQueryId, { id: newQueryId, query: queryText, provenance: serializeQueryProvenance(provenance) })
+  if (state.queryRows.some(candidate => candidate.id === newQueryId) || planSnapshot(requireAdvanced(state).plan, newQueryId)) reusedQueryIds.add(newQueryId)
+
+  if (selectedEdges.length > 0) {
+    const selectedTargets = new Set(selectedEdges.map(edge => edge.targetKey))
+    plan = marketKeys.size > 0
+      ? removeMarketMembership(plan, edit.queryId, selectedTargets, marketKeys)
+      : removeAdvancedAssignments(plan, edit.queryId, selectedTargets)
+    if (!planSnapshot(plan, newQueryId)) plan.querySnapshots.push({ queryId: newQueryId, queryText, provenance })
+    for (const record of records) {
+      // Reuse a semantically identical existing execution even when a legacy
+      // plan assigned its node a different stable key from today's compiler.
+      const existingNode = plan.executionNodes.find(node => node.queryId === newQueryId && contextKey(node.context) === contextKey(record.node.context))
+      const existingAssignment = existingNode ? plan.assignments.find(candidate => assignmentKey(candidate.targetKey, candidate.queryId, candidate.executionNodeKey)
+        === assignmentKey(record.target.stableKey, newQueryId, existingNode.stableKey)) : undefined
+      if (existingAssignment && (existingAssignment.queryClass !== record.queryClass || existingAssignment.classificationSource !== record.classificationSource)) {
+        throw validationError('The destination query uses different classification settings. Review that query separately.')
+      }
+      const edge = existingNode
+        ? { queryId: newQueryId, targetKey: record.target.stableKey, executionNodeKey: existingNode.stableKey }
+        : ensureAdvancedEdge(plan, state, record.target, newQueryId, queryText, record.queryClass, record.classificationSource ?? 'server', record.node.context)
+      if (existingNode && !existingAssignment) plan.assignments.push({ ...edge, queryClass: record.queryClass, ...(record.classificationSource ? { classificationSource: record.classificationSource } : {}) })
+      if (!existingNode) {
+        const createdNode = plan.executionNodes.find(node => node.stableKey === edge.executionNodeKey)!
+        if (contextKey(createdNode.context) !== contextKey(record.node.context)) throw validationError('The edited query cannot preserve its stored execution context.')
+        const createdAssignment = plan.assignments.find(candidate => assignmentKey(candidate.targetKey, candidate.queryId, candidate.executionNodeKey)
+          === assignmentKey(edge.targetKey, edge.queryId, edge.executionNodeKey))!
+        if (record.classificationSource === undefined) delete createdAssignment.classificationSource
+      }
+      if (!plan.usageEdges.some(candidate => edgeKey(candidate) === edgeKey(edge))) plan.usageEdges.push(edge)
+      for (const scope of record.scopes) {
+        if (marketKeys.size === 0 || marketKeys.has(scope.stableKey)) addMarketEdge(plan, scope.stableKey, edge)
       }
     }
-    if (edges.length > 0) mutatedQueryIds.add(queryId)
   }
+  if (!planSnapshot(plan, edit.queryId)) rows.delete(edit.queryId)
+  else scopedRemovalQueryIds.add(edit.queryId)
+  mutatedQueryIds.add(edit.queryId)
+  mutatedQueryIds.add(newQueryId)
+  return plan
 }
 
 function buildAdvancedCandidate(
@@ -1658,17 +1838,21 @@ function buildAdvancedCandidate(
   const scopedRemovalQueryIds = new Set<string>()
   const fullRemovals = new Set<string>()
 
+  for (const edit of mutation.edits ?? []) {
+    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds)
+  }
+
   for (const removal of mutation.removals) {
     const queryId = resolveMutationQueryId(state, plan, rows, removal)
     if (!queryId) continue
     const before = canonicalMeasurementPlanV2Json(plan)
     if (removal.audience?.marketKeys?.length) {
-      const audience = resolveAudience(plan, removal.audience)
+      const audience = resolveAudience(active.plan, removal.audience)
       plan = removeMarketMembership(plan, queryId, new Set(audience.targetKeys), new Set(audience.marketKeys))
     } else {
       const targetKeys = removal.audience === undefined
         ? new Set(plan.assignments.filter(assignment => assignment.queryId === queryId).map(assignment => assignment.targetKey))
-        : new Set(resolveAudience(plan, removal.audience).targetKeys)
+        : new Set(resolveAudience(active.plan, removal.audience).targetKeys)
       if (targetKeys.size > 0) plan = removeAdvancedAssignments(plan, queryId, targetKeys)
       // An unassigned query may still be a visible row. A full basket removal
       // deletes that row too; a scoped Target removal leaves it for its other
@@ -1682,7 +1866,7 @@ function buildAdvancedCandidate(
   }
 
   for (const addition of mutation.additions) {
-    const audience = resolveAudience(plan, addition.audience)
+    const audience = resolveAudience(active.plan, addition.audience)
     const records = addition.input.source === 'template'
       ? templateRecords(db, state, addition, audience)
       : sourceRecord(db, state.project.id, addition, manualCapturedAt).map(record => ({ ...record, audience }))

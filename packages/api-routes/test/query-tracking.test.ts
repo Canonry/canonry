@@ -136,6 +136,41 @@ function rewriteActivePlan(mutate: (plan: Record<string, unknown>) => void) {
   return plan
 }
 
+/** Alpha contains both Properties; only Harbor Point also belongs to Beta. */
+function seedMultiMarketPlan() {
+  seedAdvancedPlan()
+  return rewriteActivePlan(plan => {
+    const targets = plan.targets as Array<Record<string, unknown>>
+    const groups = plan.groups as Array<Record<string, unknown>>
+    const assignments = plan.assignments as Array<Record<string, unknown>>
+    const usageEdges = plan.usageEdges as Array<Record<string, unknown>>
+    const reportingScopes = plan.reportingScopes as Array<{ stableKey: string; label: string; kind: string; usageEdges: Array<Record<string, unknown>> }>
+    targets.push({
+      stableKey: 'river-point', label: 'River Point', aliases: ['River Point'],
+      urlMatchers: [{ kind: 'prefix', host: 'northwind.example', pathPrefix: '/river-point', pathCase: 'insensitive' }],
+      mentionNotApplicable: false, discoveryIdentity: null,
+    })
+    groups.push({ stableKey: 'southbridge', label: 'Southbridge', targetKeys: ['river-point'], competitors: [] })
+    const riverEdge = { executionNodeKey: 'exec-alpha', targetKey: 'river-point', queryId: 'q-existing' }
+    assignments.push({ ...riverEdge, queryClass: 'non-brand', classificationSource: 'server' })
+    usageEdges.push(riverEdge)
+    reportingScopes[0]!.usageEdges.push(riverEdge)
+    reportingScopes.push({
+      stableKey: 'beta-market', label: 'Beta', kind: 'market',
+      usageEdges: [{ executionNodeKey: 'exec-beta', targetKey: 'harbor-point', queryId: 'q-existing' }],
+    })
+  })
+}
+
+function additionSource(pattern: string | null) {
+  if (pattern === null) return { source: 'manual' as const, text: 'apartments with a rooftop terrace' }
+  db.insert(measurementQueryTemplates).values({
+    id: 'template-assignment', projectId: 'project-northwind', name: 'assignment template', description: null,
+    pattern, variables: [...pattern.matchAll(/\{(\w+)\}/g)].map(match => match[1]!), createdAt: NOW, updatedAt: NOW,
+  }).run()
+  return { source: 'template' as const, templateId: 'template-assignment', templateVersion: NOW, template: pattern }
+}
+
 /** Insert only canonical, full-sweep evidence for the exact frozen v2 slots. */
 function insertFrozenV2Run(opts: {
   id: string
@@ -539,6 +574,175 @@ describe('query tracking workspace: simple projects', () => {
 })
 
 describe('query tracking workspace: advanced portfolios', () => {
+  it('applies Whole site to every active Property with explicit contexts, and removes it globally', async () => {
+    seedMultiMarketPlan()
+    const original = activeV2Plan().version
+    const current = await workspace()
+    const addition = { input: additionSource(null) }
+    const implicit = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [addition], removals: [],
+    })
+    expect(implicit.statusCode).toBe(400)
+    expect(implicit.json()).toMatchObject({ error: { message: expect.stringContaining('Select an execution context') } })
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ ...addition, contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }] }],
+      removals: [],
+    }
+    const review = await preview(mutation)
+    expect(review.tracked.find(row => row.queryText === 'apartments with a rooftop terrace')?.assignments.map(row => row.targetKey).sort())
+      .toEqual(['harbor-point', 'river-point'])
+    expect(review.workload.addedProviderCalls).toBe(1)
+    const published = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(published.statusCode, published.body).toBe(200)
+    const queryId = review.diff.added[0]!.queryId
+    const after = await workspace()
+    const removal = { expectedWorkspaceVersion: after.workspaceVersion, additions: [], removals: [{ queryId }] }
+    const removalReview = await preview(removal)
+    const removed = await commit({ ...removal, previewToken: removalReview.previewToken, reviewedAt: removalReview.reviewedAt })
+    expect(removed.statusCode, removed.body).toBe(200)
+    expect(activeV2Plan().plan.assignments.some(row => row.queryId === queryId)).toBe(false)
+    expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toBeUndefined()
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
+    expect(db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it.each([
+    { kind: 'manual', pattern: null, output: 'apartments with a rooftop terrace' },
+    { kind: 'variable-free template', pattern: 'apartments with a rooftop terrace', output: 'apartments with a rooftop terrace' },
+    { kind: 'market template', pattern: 'apartments in {market}', output: 'apartments in Alpha' },
+    { kind: 'property template', pattern: '{property} amenities', output: 'Harbor Point amenities' },
+    { kind: 'combined template', pattern: '{property} amenities in {market}', output: 'Harbor Point amenities in Alpha' },
+  ].flatMap(testCase => [
+    { ...testCase, selection: 'Property', audience: { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] } },
+    { ...testCase, selection: 'group', audience: { groupKeys: ['northbridge'], marketKeys: ['alpha-market'] } },
+  ]))('keeps $kind scoped to an explicitly selected $selection within a shared market', async ({ pattern, output, audience }) => {
+    seedMultiMarketPlan()
+    const original = activeV2Plan().version
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(pattern), audience }], removals: [],
+    }
+    const review = await preview(mutation)
+    expect(review.diff.added.map(row => row.queryText)).toEqual([output])
+    const added = review.tracked.find(row => row.queryText === output)!
+    expect(added.assignments.map(row => row.targetKey)).toEqual(['harbor-point'])
+    expect(added.assignments[0]?.queryClass).toBe(pattern?.includes('{property}') ? 'branded' : 'non-brand')
+    expect(review.workload.addedProviderCalls).toBe(1)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(activeV2Plan().plan.usageEdges.filter(edge => edge.queryId === added.queryId).map(edge => edge.targetKey)).toEqual(['harbor-point'])
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
+    expect(db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it.each([
+    { kind: 'manual', pattern: null, outputs: ['apartments with a rooftop terrace'], calls: 3 },
+    { kind: 'variable-free template', pattern: 'apartments with a rooftop terrace', outputs: ['apartments with a rooftop terrace'], calls: 3 },
+    { kind: 'market template', pattern: 'apartments in {market}', outputs: ['apartments in Alpha', 'apartments in Beta'], calls: 3 },
+    { kind: 'property template', pattern: '{property} amenities', outputs: ['Harbor Point amenities', 'River Point amenities'], calls: 4 },
+    { kind: 'combined template', pattern: '{property} amenities in {market}', outputs: ['Harbor Point amenities in Alpha', 'Harbor Point amenities in Beta', 'River Point amenities in Alpha'], calls: 4 },
+  ])('keeps every market on its own frozen contexts for $kind and makes retry a no-op', async ({ pattern, outputs, calls }) => {
+    seedMultiMarketPlan()
+    const original = activeV2Plan().version
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(pattern), audience: { marketKeys: ['alpha-market', 'beta-market'] } }], removals: [],
+    }
+    const review = await preview(mutation)
+    expect(review.diff.added.map(row => row.queryText).sort()).toEqual([...outputs].sort())
+    expect(review.workload.addedProviderCalls).toBe(calls)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    const { plan, version } = activeV2Plan()
+    const addedIds = new Set(review.diff.added.map(row => row.queryId))
+    const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+    for (const market of plan.reportingScopes ?? []) {
+      const edges = market.usageEdges.filter(edge => addedIds.has(edge.queryId))
+      expect(edges.length).toBeGreaterThan(0)
+      expect([...new Set(edges.map(edge => nodes.get(edge.executionNodeKey)?.context.location?.label))])
+        .toEqual([market.stableKey === 'alpha-market' ? 'alpha' : 'beta'])
+      expect([...new Set(edges.map(edge => edge.targetKey))].sort())
+        .toEqual(market.stableKey === 'alpha-market' ? ['harbor-point', 'river-point'] : ['harbor-point'])
+    }
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
+    const after = await workspace()
+    const retry = { ...mutation, expectedWorkspaceVersion: after.workspaceVersion }
+    const retryReview = await preview(retry)
+    expect(retryReview.diff.noOp).toBe(true)
+    expect(retryReview.workload).toMatchObject({ addedProviderCalls: 0, removedProviderCalls: 0 })
+    const retried = await commit({ ...retry, previewToken: retryReview.previewToken, reviewedAt: retryReview.reviewedAt })
+    expect(queryTrackingCommitResponseSchema.parse(retried.json()).committed).toBe(false)
+    expect(activeV2Plan().version).toEqual(version)
+    expect(db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it.each([
+    { targetKeys: ['river-point'], marketKeys: ['beta-market'] },
+    { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['beta-market'] },
+    { groupKeys: ['southbridge'], marketKeys: ['alpha-market', 'beta-market'] },
+  ])('rejects an explicit audience that cannot belong to the selected markets: %j', async audience => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const response = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(null), audience }], removals: [],
+    })
+    expect(response.statusCode, response.body).toBe(400)
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
+  it('partitions explicit contexts by frozen market membership and rejects incompatible contexts', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const input = additionSource(null)
+    const audience = { targetKeys: ['harbor-point'], marketKeys: ['alpha-market', 'beta-market'] }
+    const contexts = [
+      { providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' },
+      { providers: ['gemini', 'openai'], models: { gemini: 'gemini-test', openai: 'gpt-test' }, location: 'beta' },
+    ]
+    const mutation = { expectedWorkspaceVersion: current.workspaceVersion, additions: [{ input, audience, contexts }], removals: [] }
+    const review = await preview(mutation)
+    expect(review.workload.addedProviderCalls).toBe(3)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    const { plan } = activeV2Plan()
+    const addedId = review.diff.added[0]!.queryId
+    const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+    for (const market of plan.reportingScopes ?? []) {
+      expect(market.usageEdges.filter(edge => edge.queryId === addedId).map(edge => nodes.get(edge.executionNodeKey)?.context.location?.label))
+        .toEqual([market.stableKey === 'alpha-market' ? 'alpha' : 'beta'])
+    }
+    const after = await workspace()
+    for (const invalidContexts of [
+      [contexts[0]!],
+      [...contexts, { providers: ['openai'], models: { openai: 'gpt-test' }, location: null }],
+    ]) {
+      const invalid = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: after.workspaceVersion,
+        additions: [{ input, audience, contexts: invalidContexts }], removals: [],
+      })
+      expect(invalid.statusCode, invalid.body).toBe(400)
+    }
+  })
+
+  it('resolves replacement market contexts from the frozen plan even when removing its last query first', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(null), audience: { marketKeys: ['alpha-market', 'beta-market'] } }],
+      removals: [{ queryId: 'q-existing' }],
+    }
+    const review = await preview(mutation)
+    expect(review.workload).toMatchObject({ addedProviderCalls: 3, removedProviderCalls: 3, nextSweepProviderCalls: 3 })
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(activeV2Plan().plan.reportingScopes?.map(scope => scope.usageEdges.length)).toEqual([2, 1])
+  })
+
   it('preserves full contexts, assigns a template through a market edge, and publishes no provider work', async () => {
     seedAdvancedPlan()
     db.insert(measurementQueryTemplates).values({
@@ -623,6 +827,7 @@ describe('query tracking workspace: advanced portfolios', () => {
       removals: [{ queryId: 'q-existing', audience: { marketKeys: ['alpha-market'] } }],
     }
     const review = await preview(mutation)
+    expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(1)
     expect(review.workload).toMatchObject({
       existingProviderCalls: 3,
       nextSweepProviderCalls: 2,
@@ -657,6 +862,7 @@ describe('query tracking workspace: advanced portfolios', () => {
       removals: [{ queryId: 'q-existing', audience: { marketKeys: ['alpha-market'] } }],
     }
     const review = await preview(mutation)
+    expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(1)
     expect(review.workload).toMatchObject({ removedNodes: 0, removedProviderCalls: 0, nextSweepProviderCalls: 3 })
 
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
@@ -742,6 +948,7 @@ describe('query tracking workspace: advanced portfolios', () => {
       removals: [{ queryId: 'q-existing', audience: { groupKeys: ['northbridge'] } }],
     }
     const review = await preview(mutation)
+    expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(2)
     expect(review.diff.noOp).toBe(false)
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(queryTrackingCommitResponseSchema.parse(response.json()).committed).toBe(true)

@@ -22,6 +22,22 @@ For a simple site, the project is the assignment target.
 The server classifies its queries from the project identity.
 Advanced assignments can carry an explicit operator classification.
 
+## Edit or remove a query
+
+1. Select Whole site, a property, a group, or a market.
+2. Select **Edit** or **Remove** beside the query.
+3. Review the selected scope and the proposed changes.
+4. Select **Confirm changes**.
+
+Whole site changes every assignment of that query. Other scopes change only their existing assignments.
+An edit preserves the stored engines, models, locations, and unrelated market assignments.
+A scoped text edit creates or reuses the new question. Other properties keep the original question and its measured history.
+An unchanged edit publishes no revision. Editing a resolved template question does not expand the template again.
+
+The editor preserves existing classifications by default. **Automatic** asks the server to classify the selected assignments again.
+An exact assignment can belong to several markets. The API refuses a classification change that also changes an unselected market.
+New assignments use **Add query**, not **Edit**.
+
 ## Scope definitions
 
 | Scope | Includes |
@@ -34,6 +50,8 @@ Advanced assignments can carry an explicit operator classification.
 A group is not a search location. One property can participate in multiple markets.
 Market selection does not include unrelated queries merely because they share a property.
 The published plan stores market edges in `reportingScopes`.
+Property and group selections constrain a selected market. They do not add every property in that market.
+Each market retains its own frozen engines, models, and search locations.
 
 Templates expand before publication. Each result retains its template version, bindings, and resolved query text.
 Duplicate matching prefers the query ID that the active plan already uses.
@@ -91,7 +109,10 @@ Embeds expose measured results, not query publication or saved research administ
 | Publish changes | `canonry query commit <project> <json\|->` | `canonry_query_tracking_commit` |
 | Read visibility | `canonry measurement-plan visibility <project> [<json\|->]` | `canonry_visibility_report` |
 
-Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`.
+Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, with an optional `edits` array.
+Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
+An omitted `queryClass` preserves classification. A `null` value requests automatic classification.
+The server retains the exact execution contexts. An edit cannot replace those contexts.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
