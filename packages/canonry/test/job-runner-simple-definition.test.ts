@@ -279,6 +279,49 @@ test('freezes the direct competitor identities dispatched with a new simple run'
   }
 })
 
+test.each(['acme roofing', ' ', '', ' https://Peer.example/path '])('preserves legacy competitor %j without preventing a sweep', async (domain) => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    db.insert(competitors).values({
+      id: crypto.randomUUID(), projectId: fixture.projectId, domain,
+      createdAt: '2026-09-04T16:00:00.000Z',
+    }).run()
+    const calls: RecordedCall[] = []
+    const capturedBeforeDispatch: boolean[] = []
+    await new JobRunner(db, registryFor(calls, () => {
+      capturedBeforeDispatch.push(db.select().from(simpleMeasurementDefinitions)
+        .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()?.definition.competitors?.[0]?.domain === domain)
+    })).executeRun(fixture.runId, fixture.projectId)
+
+    expect(db.select().from(runs).where(eq(runs.id, fixture.runId)).get()?.status).toBe(RunStatuses.completed)
+    expect(calls).toHaveLength(4)
+    expect(capturedBeforeDispatch).toEqual([true, true, true, true])
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.runId, fixture.runId)).all()).toHaveLength(4)
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('preserves distinct stored competitor identifiers that normalize alike', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    const domains = ['Peer.example', 'peer.example', ' peer.example ']
+    db.insert(competitors).values(domains.map(domain => ({
+      id: crypto.randomUUID(), projectId: fixture.projectId, domain,
+      createdAt: '2026-09-04T16:00:00.000Z',
+    }))).run()
+    const calls: RecordedCall[] = []
+    await new JobRunner(db, registryFor(calls)).executeRun(fixture.runId, fixture.projectId)
+    expect(calls).toHaveLength(4)
+    expect(db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()?.definition.competitors?.map(row => row.domain).sort()).toEqual([...domains].sort())
+  } finally {
+    db.$client.close()
+  }
+})
+
 test('freezes the provider override and explicit no-location context actually dispatched', async () => {
   const db = buildDb()
   try {

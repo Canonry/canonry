@@ -150,7 +150,7 @@ describe('simple measurement definition', () => {
       ...input(),
       competitors: [
       { domain: 'challenger.example', label: 'Challenger', aliases: [] },
-      { domain: 'CHALLENGER.EXAMPLE', label: 'Duplicate', aliases: [] },
+      { domain: 'challenger.example', label: 'Duplicate', aliases: [] },
       ],
     }
     expect(() => buildSimpleMeasurementDefinition(duplicateCompetitor)).toThrow(/duplicate competitor domain/i)

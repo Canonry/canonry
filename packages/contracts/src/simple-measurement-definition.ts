@@ -2,7 +2,6 @@ import { z } from 'zod'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { effectiveBrandNames } from './project.js'
 import { compileQueryClassifier, queryClassSchema } from './query-class.js'
-import { hostOf } from './url-normalize.js'
 
 /** First immutable snapshot format for a planless simple measurement run. */
 export const SIMPLE_MEASUREMENT_DEFINITION_SCHEMA_VERSION = 1 as const
@@ -35,8 +34,11 @@ const simpleMeasurementEngineSchema = z.object({
  * not be relabelled from today's project configuration.
  */
 const simpleMeasurementCompetitorSchema = z.object({
-  domain: z.string().trim().min(1).refine(value => hostOf(value) !== null, 'A competitor domain must be a valid hostname'),
-  label: z.string().trim().min(1),
+  // This is a snapshot of legacy dispatch inputs, not a competitor write API.
+  // Stored identifiers may be labels, URLs, or blank. Preserve them exactly;
+  // readers derive hostname attribution separately when the value supports it.
+  domain: z.string(),
+  label: z.string(),
   aliases: z.array(z.string()),
 }).strict()
 
@@ -87,7 +89,7 @@ function addCollectionIssues(
 
   const competitorDomains = new Set<string>()
   value.competitors?.forEach((competitor, index) => {
-    const key = competitor.domain.trim().toLocaleLowerCase('en')
+    const key = competitor.domain
     if (competitorDomains.has(key)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

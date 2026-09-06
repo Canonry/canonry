@@ -60,6 +60,21 @@ beforeEach(() => {
 afterEach(() => db.$client.close())
 
 describe('simple measurement definition capture', () => {
+  it('requires exact stored competitor identifiers, not normalized approximations', () => {
+    db.insert(competitors).values({
+      id: 'peer', projectId: 'project-a', domain: ' Peer.example ', createdAt: capturedAt,
+    }).run()
+    const frozen = { ...definition(), competitors: [{ domain: 'peer.example', label: 'peer', aliases: [] }] }
+    expect(() => captureSimpleMeasurementDefinition(db, {
+      projectId: 'project-a', runId: 'run-a', definition: frozen,
+    })).toThrow(/exactly match/i)
+    expect(db.select().from(simpleMeasurementDefinitions).all()).toEqual([])
+    frozen.competitors[0]!.domain = ' Peer.example '
+    expect(captureSimpleMeasurementDefinition(db, {
+      projectId: 'project-a', runId: 'run-a', definition: frozen,
+    }).competitors).toEqual(frozen.competitors)
+  })
+
   it('stores a validated dispatch snapshot and canonical checksum', () => {
     const frozen = definition()
     expect(captureSimpleMeasurementDefinition(db, {

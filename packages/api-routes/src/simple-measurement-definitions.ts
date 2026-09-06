@@ -83,8 +83,8 @@ export function captureSimpleMeasurementDefinition(db: DatabaseClient, input: {
     if (definition.competitors !== undefined) {
       const liveCompetitorDomains = new Set(tx.select({ domain: competitors.domain }).from(competitors)
         .where(eq(competitors.projectId, input.projectId)).all()
-        .map(competitor => competitor.domain.trim().toLocaleLowerCase('en')))
-      const capturedDomains = new Set(definition.competitors.map(competitor => competitor.domain.trim().toLocaleLowerCase('en')))
+        .map(competitor => competitor.domain))
+      const capturedDomains = new Set(definition.competitors.map(competitor => competitor.domain))
       if (liveCompetitorDomains.size !== capturedDomains.size
         || [...liveCompetitorDomains].some(domain => !capturedDomains.has(domain))) {
         throw validationError('Captured competitors must exactly match the project competitors dispatched for this run.')
