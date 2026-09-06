@@ -184,14 +184,22 @@ async function renderAt(
   if (options.seedVisibilityReport !== false) {
     const url = new URL(pathname, 'http://localhost')
     const selection = parseVisibilitySelection(Object.fromEntries(url.searchParams.entries()))
-    queryClient.setQueryData(
-      getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(projectName, selection)),
-      measurement?.visibilityReport ?? visibilityReportResponse({
+    const report = measurement?.visibilityReport ?? visibilityReportResponse({
         mode: measurement?.plan?.active?.plan.schemaVersion === 2 ? 'advanced' : 'simple',
         queryClass: selection.queryClass,
         scope: selection.measurementScope,
         scopeKey: selection.measurementScopeKey,
-      }),
+      })
+    // Fresh-project fixtures must not be seeded with a measured report.
+    const project = fixture.dashboard.projects.find(entry => entry.project.name === projectName)!
+    if (!measurement && options.configureFixture && project.queryCounts.total === 0) {
+      report.selection.run.id = null
+      report.selection.measurement.state = 'not-measured'
+      report.selection.measurement.completedAt = null
+      report.populations = []
+    }
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(projectName, selection)), report,
     )
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
@@ -262,7 +270,7 @@ function visibilityReportQuery(
       revision: selection.revision,
       runId: selection.measurementRunId,
       queryKey: selection.queryKey,
-      limit: 50,
+      limit: 25,
       cursor: pagination.cursor,
       search: pagination.search,
     },
@@ -919,7 +927,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   const firstReportUrl = observed.find(path => path.includes('/visibility-report?'))
   expect(firstReportUrl).toContain('scope=project')
   expect(firstReportUrl).toContain('queryClass=non-brand')
-  expect(firstReportUrl).toContain('limit=50')
+  expect(firstReportUrl).toContain('limit=25')
   expect(firstReportUrl).not.toContain('runId=drawer-run')
   expect(observed.some(path => path.includes('/measurement-overview?') || path.includes('/measurement-report?'))).toBe(false)
 
@@ -1172,7 +1180,7 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
   expect(router.state.location.search.measurementScopeKey).toBe('north')
   expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
-  expect(page.getByText('Only assignments in North will be removed. Earlier results stay unchanged.')).toBeTruthy()
+  expect(page.getByText('Only assignments in North · Group will be removed. Earlier results stay unchanged.')).toBeTruthy()
 })
 
 test('the legacy Discovery route opens the separate research workspace without tracking reads', async () => {
@@ -1572,7 +1580,7 @@ test('a first sweep in flight replaces empty-state instructions with one live st
   expect(html).not.toContain('No comparison yet')
 })
 
-test('a baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
+test('a frozen visibility baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
@@ -1586,10 +1594,9 @@ test('a baseline remains visible when five newer failed runs fill the recent-run
     },
   })
 
-  expect(html).toContain('Coverage now')
-  expect(html).toContain('Mention share')
-  expect(html).toContain('Mention gaps')
-  expect(html).toContain('Citation gaps')
+  expect(html).toContain('Mentioned answers')
+  expect(html).toContain('Cited answers')
+  expect(html).toContain('1 of 1 answers')
   expect(html).not.toContain('No AI Visibility baseline yet')
   expect(html).not.toContain('Complete your first AI Visibility sweep')
   expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
@@ -1903,6 +1910,46 @@ test('window focus refreshes server-owned sweep readiness on a mounted project',
   expect(setupReads).toBe(2)
 })
 
+test('a sweep confirmation cannot use cached readiness after its refresh fails', async () => {
+  let failed = false
+  const writes: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    const path = decodeURIComponent(url.pathname)
+    if (input instanceof Request && input.method === 'POST') writes.push(path)
+    if (path.endsWith('/measurement-setup')) return failed
+      ? jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
+      : jsonResponse(simpleMeasurementSetupResponse())
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (path.endsWith('/schedules') || path.endsWith('/runs')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
+  fireEvent.click(await page.findByRole('button', { name: 'Run AI sweep' }))
+  const confirm = await page.findByRole('button', { name: 'Run project-wide sweep' })
+  expect((confirm as HTMLButtonElement).disabled).toBe(false)
+  expect(writes).toEqual([])
+  failed = true
+  await act(async () => {
+    await queryClient.refetchQueries({ queryKey: getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: project.project.name } }) })
+  })
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(true))
+  fireEvent.click(confirm)
+  expect(writes).toEqual([])
+  fireEvent.click(page.getByRole('button', { name: 'Cancel' }))
+  expect(await page.findByRole('button', { name: 'Retry AI readiness' })).toBeTruthy()
+  await waitFor(() => expect(document.activeElement).toBe(page.getByRole('button', { name: 'Retry AI readiness' })))
+})
+
 test('AI Visibility honors the project provider allowlist instead of any configured provider', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
@@ -2102,7 +2149,7 @@ test('a scope in the URL selects that group on first paint, with no interaction'
 
   // The server-resolved scope reflects the URL rather than defaulting to site.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector('summary')?.textContent).toBe('North')
+  expect(doc.querySelector('summary')?.textContent).toBe('North · Group')
 })
 
 test('a market scope reads that group\'s stored competitor landscape', async () => {

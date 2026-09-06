@@ -144,6 +144,7 @@ test('leaves no audience after the last property is unchecked and requires an ex
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   expect((screen.getByRole('checkbox', { name: 'Whole site' }) as HTMLInputElement).checked).toBe(false)
   expect(screen.getByText('Choose Whole site or at least one property, group, or market.')).toBeTruthy()
@@ -162,7 +163,7 @@ test('leaves no audience after the last property is unchecked and requires an ex
   }])
 })
 
-test('starts with the question, preserves written text across sources, and discloses required measurement options', async () => {
+test('starts with the question, preserves written text, and keeps required measurement controls outside optional options', async () => {
   installWorkspaceApi()
   renderWorkspace()
   await screen.findByText('Acme pricing')
@@ -178,10 +179,40 @@ test('starts with the question, preserves written text across sources, and discl
   const options = screen.getByLabelText('Classification').closest('details')!
   expect(options).not.toBeNull()
   expect(options.open).toBe(false)
-  expect(screen.getByText('Choose location and engines (required)', { selector: 'summary' })).toBeTruthy()
-  expect(screen.getByLabelText('Location and engines').closest('details')).toBe(options)
+  expect(screen.getByText('Measurement options', { selector: 'summary' })).toBeTruthy()
+  expect(screen.getByLabelText('Location and engines').closest('details')).toBeNull()
   chooseContext()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
+})
+
+test('opens Property Add with a compact destination and expands assignments only on Change', async () => {
+  const data = workspace()
+  data.targets.push(...Array.from({ length: 224 }, (_, index) => ({ stableKey: `property-${index}`, label: `Property ${index}` })))
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  expect(screen.getByText('Property: Acme')).toBeTruthy()
+  expect(screen.getByText('Property: Acme').closest('fieldset')?.classList.contains('self-start')).toBe(true)
+  expect(screen.queryByRole('checkbox', { name: 'Property 223, Property' })).toBeNull()
+  expect(screen.getByRole('combobox', { name: 'Location and engines' }).closest('details')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
+  expect(screen.getByRole('checkbox', { name: 'Acme, Property' })).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter assignments' }), { target: { value: 'Property 223' } })
+  expect(screen.getByRole('checkbox', { name: 'Property 223, Property' })).toBeTruthy()
+})
+
+test.each(['group', 'market'] as const)('keeps the selected %s kind visible in the tracking picker and removal caption', async kind => {
+  const data = workspace()
+  data.groups[0]!.label = 'Metro Beta'
+  data.markets[0]!.label = 'Metro Beta'
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: kind, measurementScopeKey: kind === 'group' ? 'north-east' : 'new-york', queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  const kindLabel = kind === 'group' ? 'Group' : 'Market'
+  expect(screen.getByText(`Metro Beta · ${kindLabel}`, { selector: 'summary' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  expect(screen.getByText(`Only assignments in Metro Beta · ${kindLabel} will be removed. Earlier results stay unchanged.`)).toBeTruthy()
 })
 
 test('distinguishes this property from shared assignments and deduplicates group and market names', async () => {
@@ -803,7 +834,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     if (path === '/api/v1/projects/demo/research/runs/research-run-1' && method === 'GET') {
       return jsonResponse({ ...run, queries: [researchQuery('research-other', 'Another research question'), researchQuery('research-query-1', queryText)] })
     }
-    if (path === '/api/v1/projects/demo' && method === 'GET') return jsonResponse({ name: 'demo', locations: [context.location] })
+    if (path === '/api/v1/projects/demo' && method === 'GET') return jsonResponse({ name: 'demo', locations: [context.location], providers: [], providerModels: {}, defaultLocation: null })
     if (path === '/api/v1/settings' && method === 'GET') return jsonResponse({ providers: [], providerCatalog: [] })
     if (path === '/api/v1/projects/demo/query-tracking/preview' && method === 'POST') return jsonResponse(reviewed)
     if (path === '/api/v1/projects/demo/query-tracking/commit' && method === 'POST') {
@@ -812,10 +843,12 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     }
     throw new Error(`Unexpected ${method}: ${path}`)
   }, [], data)
-  renderWorkspace({ queryWorkspace: undefined, researchMode: undefined })
+  const selectedProperty = { measurementScope: 'property' as const, measurementScopeKey: 'acme', queryClass: 'all' as const, provider: 'gemini', location: 'Boston' }
+  renderWorkspace({ queryWorkspace: undefined, researchMode: undefined, selection: selectedProperty })
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('tab', { name: 'Research', exact: true }))
+  expect(await screen.findByText('Tracking destination: Acme · Property')).toBeTruthy()
   if (source === 'research') {
     fireEvent.click(screen.getByRole('tab', { name: 'Test queries' }))
     fireEvent.click(await screen.findByRole('button', { name: queryText }))
@@ -830,14 +863,16 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
   expect(screen.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
   expect((screen.getByLabelText(source === 'research' ? 'Saved research query' : 'Discovery query') as HTMLSelectElement).value).toBe(source === 'research' ? 'research-query-1' : 'discovery-probe-1')
-  fireEvent.click(screen.getByRole('checkbox', { name: 'North East, Group' }))
+  expect(screen.getByText('Property: Acme')).toBeTruthy()
+  expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   expect(writes).toEqual([])
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 added')
   expect(writes).toEqual([{
     path: '/api/v1/projects/demo/query-tracking/preview',
-    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: { groupKeys: ['north-east'] }, contexts: [selectedContext] }], removals: [] },
+    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }], removals: [] },
   }])
   fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
   await waitFor(() => expect(writes).toHaveLength(2))
@@ -848,6 +883,38 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   const trackedRow = await screen.findByText(queryText, { selector: 'td' })
   expect(trackedRow.closest('tr')?.textContent).toContain('Awaiting sweep')
 }, 15_000)
+
+test.each([false, true])('keeps reused-query classifications collapsed until requested (no-op: %s)', async noOp => {
+  const data = workspace()
+  data.targets.push({ stableKey: 'beta', label: 'Beta' })
+  const existing = data.tracked[0]!
+  const reused = { ...existing, assignments: [
+    { ...existing.assignments[0]!, queryClass: 'non-brand' },
+    { ...existing.assignments[0]!, targetKey: 'beta', queryClass: 'branded' },
+  ] }
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({
+      tracked: [reused], diff: { added: [], removed: [], reused: [{ queryId: existing.queryId, queryText: existing.queryText, assignmentCount: 1 }], unchanged: [], noOp },
+    }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], data)
+  renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.click(screen.getByText('Measurement options', { selector: 'summary' }))
+  fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
+  chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  const results = await screen.findByRole('region', { name: 'Reused queries' })
+  const summary = within(results).getByText('Classifications · 2 properties', { selector: 'summary' })
+  const disclosure = summary.closest('details')!
+  expect(disclosure.open).toBe(false)
+  fireEvent.click(summary)
+  expect(disclosure.open).toBe(true)
+  expect(within(results).getByText(/^Acme · Non-brand ·/)).toBeTruthy()
+  expect(within(results).getByText(/^Beta · Branded ·/)).toBeTruthy()
+})
 
 test('sends an explicit class only when the operator overrides server classification', async () => {
   let previewBody: Record<string, unknown> | undefined

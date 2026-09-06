@@ -913,7 +913,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await screen.findByRole('heading', { name: 'Groups' })
     fireEvent.click(screen.getByRole('button', { name: 'Remove Dallas' }))
     await waitFor(() => expect(fake.service.removeGroup).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue without groups' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue without groups' }))
     await screen.findByRole('heading', { name: 'Queries' })
 
     expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('all')

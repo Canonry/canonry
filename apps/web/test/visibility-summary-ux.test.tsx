@@ -71,7 +71,7 @@ test('scope choices distinguish a property group from a market query context', (
 
 test('keeps revision mechanics behind help, with pending assignments visible', () => {
   render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
-  expect(screen.getByText('15 query assignments pending')).toBeTruthy()
+  expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
   expect(screen.queryByText(/Measured under revision/)).toBeNull()
   expect(screen.getByRole('button', { name: /Measured under revision 2/ })).toBeTruthy()
 })

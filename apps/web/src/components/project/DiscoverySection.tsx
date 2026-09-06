@@ -42,9 +42,10 @@ const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queue
 
 export type QueryWorkspace = 'tracked' | 'research'
 export type ResearchWorkspaceMode = 'find' | 'test'
-type PendingTrackingSource =
+type SavedTrackingSource =
   | { source: 'research'; researchRunQueryId: string }
   | { source: 'discovery'; discoveryProbeId: string }
+type PendingTrackingSource = SavedTrackingSource & { trackingSelection?: NonNullable<QueriesSectionProps['selection']> }
 
 /**
  * The project page owns the URL. This section owns only the interaction state
@@ -94,8 +95,8 @@ export function QueriesSection({
     if (controlledResearchMode === undefined) setUncontrolledResearchMode(mode)
     onResearchModeChange?.(mode)
   }
-  const reviewSavedSource = (source: PendingTrackingSource) => {
-    setPendingTrackingSource(source)
+  const reviewSavedSource = (source: SavedTrackingSource) => {
+    setPendingTrackingSource({ ...source, trackingSelection: { ...selection } })
     selectWorkspace('tracked')
   }
 
@@ -122,6 +123,7 @@ export function QueriesSection({
         ) : (
           <QueryResearchWorkspace
             projectName={projectName}
+            selection={selection}
             mode={researchMode}
             onModeChange={selectResearchMode}
             onReviewSavedSource={reviewSavedSource}
@@ -148,17 +150,28 @@ function WorkspaceTab({ active, label, onClick }: { active: boolean; label: stri
 
 function QueryResearchWorkspace({
   projectName,
+  selection,
   mode,
   onModeChange,
   onReviewSavedSource,
 }: {
   projectName: string
+  selection: NonNullable<QueriesSectionProps['selection']>
   mode: ResearchWorkspaceMode
   onModeChange: (mode: ResearchWorkspaceMode) => void
-  onReviewSavedSource: (source: PendingTrackingSource) => void
+  onReviewSavedSource: (source: SavedTrackingSource) => void
 }) {
+  const workspaceQuery = useQuery({
+    ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: selection.measurementScope !== 'project',
+  })
+  const scopeLabel = workspaceQuery.data
+    ? selectionScopeLabel(selection, workspaceQuery.data)
+    : selection.measurementScope === 'project' ? 'Whole site' : `${selection.measurementScopeKey ?? 'Selected scope'} · ${selection.measurementScope === 'group' ? 'Group' : selection.measurementScope === 'market' ? 'Market' : 'Property'}`
+  const destination = workspaceQuery.data && selection.measurementScope === 'property' ? `${scopeLabel} · Property` : scopeLabel
   return (
     <div>
+      <p className="mb-3 text-sm text-secondary">Tracking destination: {destination}</p>
       <div className="flex border-b border-default" role="tablist" aria-label="Research workspace">
         <WorkspaceTab active={mode === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
         <WorkspaceTab active={mode === 'test'} label="Test queries" onClick={() => onModeChange('test')} />
@@ -243,7 +256,7 @@ function TrackedQueriesWorkspace({
 
   useEffect(() => {
     if (!pendingTrackingSource) return
-    const next = defaultTrackingDraft(selection)
+    const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection)
     setAction({ kind: 'add' })
     setDraft(pendingTrackingSource.source === 'research'
       ? { ...next, source: 'research', researchRunQueryId: pendingTrackingSource.researchRunQueryId }
@@ -513,7 +526,9 @@ function audienceForSelection(selection: NonNullable<QueriesSectionProps['select
 
 function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selection']>, workspace: QueryTrackingWorkspaceResponse): string {
   const collection = selection.measurementScope === 'property' ? workspace.targets : selection.measurementScope === 'group' ? workspace.groups : selection.measurementScope === 'market' ? workspace.markets : []
-  return collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label ?? 'Whole site'
+  const label = collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label
+  if (!label) return 'Whole site'
+  return selection.measurementScope === 'group' ? `${label} · Group` : selection.measurementScope === 'market' ? `${label} · Market` : label
 }
 
 function filterTrackedRows(
@@ -586,7 +601,7 @@ function TrackingScopePicker({
         event.currentTarget.querySelector('summary')?.focus()
       }}>
         <summary aria-labelledby="tracking-scope-label" className="visibility-scope-trigger min-h-11 rounded-md border border-default bg-surface px-3 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">
-          {selected.label}
+          {selected.detail === 'Group' || selected.detail === 'Market' ? `${selected.label} · ${selected.detail}` : selected.label}
           <ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
         </summary>
         <div className="visibility-scope-menu">
@@ -833,16 +848,14 @@ function TrackingComposer({
         <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
       </div>
 
+      {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) ? (
+        <div className="mt-4">
+          <TrackingContextSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
+        </div>
+      ) : null}
       <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">
-          {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) && draft.contexts.length === 0
-            ? 'Choose location and engines (required)'
-            : 'Measurement options'}
-        </summary>
+        <summary className="min-h-11 cursor-pointer py-3">Measurement options</summary>
         <div className="grid gap-4 pb-3 sm:grid-cols-2">
-          {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) ? (
-            <TrackingContextSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
-          ) : null}
           {workspace.mode === 'advanced' ? (
             <div className="block">
               <label className="text-xs font-medium text-secondary" htmlFor="tracking-query-class">Classification</label>
@@ -1023,6 +1036,7 @@ function AssignmentSelector({
   onDraftChange: (draft: TrackingDraft) => void
 }) {
   const [filter, setFilter] = useState('')
+  const [changingDestination, setChangingDestination] = useState(() => draft.wholeSite || draft.targetKeys.length !== 1 || draft.groupKeys.length > 0 || draft.marketKeys.length > 0)
   const options = useMemo(() => [
     ...workspace.targets.map(target => ({ kind: 'target' as const, key: target.stableKey, label: target.label, detail: 'Property' })),
     ...workspace.groups.map(group => ({ kind: 'group' as const, key: group.stableKey, label: group.label, detail: 'Group' })),
@@ -1040,6 +1054,19 @@ function AssignmentSelector({
 
   function isChecked(kind: 'target' | 'group' | 'market', key: string): boolean {
     return (kind === 'target' ? draft.targetKeys : kind === 'group' ? draft.groupKeys : draft.marketKeys).includes(key)
+  }
+
+  if (!changingDestination) {
+    const target = workspace.targets.find(candidate => candidate.stableKey === draft.targetKeys[0])
+    return (
+      <fieldset className="self-start rounded-md border border-default bg-surface-subtle p-3">
+        <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-strong">Property: {target?.label ?? draft.targetKeys[0]}</p>
+          <Button type="button" variant="ghost" size="sm" aria-label="Change tracking destination" onClick={() => setChangingDestination(true)}>Change</Button>
+        </div>
+      </fieldset>
+    )
   }
 
   return (
@@ -1175,9 +1202,28 @@ function PreviewChangeList({
             // `tracked` is the post-change state, so its scopes describe what survives.
             ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
             : previewRowDetail(row, tracked, workspace)}</p>
+          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} /> : null}
         </li>)}
       </ul>
     </section>
+  )
+}
+
+function PreviewClassifications({ row, workspace }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse }) {
+  if (!row?.assignments.length) return null
+  const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
+  return (
+    <details className="mt-2 text-secondary">
+      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
+      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
+        {row.assignments.map((assignment, index) => {
+          const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
+          const queryClass = assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown'
+          const contexts = assignment.contexts.map(context => contextLabel(contextInput(context))).join('; ')
+          return <li key={`${assignment.targetKey}:${index}`}>{[target, queryClass, contexts].filter(Boolean).join(' · ')}</li>
+        })}
+      </ul>
+    </details>
   )
 }
 

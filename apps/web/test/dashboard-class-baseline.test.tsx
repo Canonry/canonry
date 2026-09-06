@@ -120,7 +120,7 @@ function seedSharedVisibilityReports(queryClient: QueryClient, fixture: ReturnTy
           revision: selection.revision,
           runId: selection.measurementRunId,
           queryKey: selection.queryKey,
-          limit: 50,
+          limit: 25,
           cursor: undefined,
           search: undefined,
         },

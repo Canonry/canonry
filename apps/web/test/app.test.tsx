@@ -70,7 +70,7 @@ function visibilityReportQuery(projectName: string, selection: VisibilitySelecti
       revision: selection.revision,
       runId: selection.measurementRunId,
       queryKey: selection.queryKey,
-      limit: 50,
+      limit: 25,
       cursor: undefined,
       search: undefined,
     },

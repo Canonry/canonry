@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
@@ -64,6 +64,68 @@ function reportWithAnswer(queryKey: string, answerText: string): VisibilityRepor
 }
 
 describe('shared production visibility view', () => {
+  it.each([
+    { mode: 'simple' as const, showUnmeasuredFallback: true, expectsFallback: true },
+    { mode: 'simple' as const, showUnmeasuredFallback: false, expectsFallback: false },
+    { mode: 'advanced' as const, showUnmeasuredFallback: true, expectsFallback: false },
+  ])('uses unmeasured onboarding only when opted in for simple tracking ($mode, $showUnmeasuredFallback)', async ({ mode, showUnmeasuredFallback, expectsFallback }) => {
+    const report = reportFixture()
+    report.selection.mode = mode
+    report.selection.measurement.state = 'not-measured'
+    onTestFinished(mockFetch(() => jsonResponse(report)))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><VisibilityWorkspace projectName="demo" selection={{ measurementScope: 'project', queryClass: 'all' }} onSelectionChange={() => {}} fallback={<p>First sweep onboarding</p>} showUnmeasuredFallback={showUnmeasuredFallback} /></QueryClientProvider>)
+    if (expectsFallback) expect(await screen.findByText('First sweep onboarding')).toBeTruthy()
+    else {
+      expect(await screen.findByText('Query results', { selector: 'span' })).toBeTruthy()
+      expect(screen.queryByText('First sweep onboarding')).toBeNull()
+    }
+  })
+
+  it.each(['group', 'market'] as const)('names the selected %s kind and identifies pending assignments as project-wide', kind => {
+    const report = reportFixture()
+    report.scopeOptions.push(...(['group', 'market'] as const).map(scopeKind => ({ id: `${scopeKind}-beta`, label: 'Metro Beta', kind: scopeKind, targetCount: 15 })))
+    report.selection.scope = report.scopeOptions.find(scope => scope.id === `${kind}-beta`)!
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const kindLabel = kind === 'group' ? 'Group' : 'Market'
+    expect(screen.getByText(`Metro Beta · ${kindLabel}`, { selector: 'summary' })).toBeTruthy()
+    expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
+    expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
+  })
+
+  it('paginates large property breakdowns and searches all properties without changing server metrics', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    population.breakdown.properties = Array.from({ length: 225 }, (_, index) => ({ ...population.breakdown.groups[0]!, id: `property-${index}`, label: `Property ${index}` }))
+    population.breakdown.groups = []
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    expect(within(breakdown).getAllByRole('row')).toHaveLength(26)
+    expect(within(breakdown).queryByRole('button', { name: 'Property 25', exact: true })).toBeNull()
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Next', exact: true }))
+    expect(within(breakdown).getByRole('button', { name: 'Property 25', exact: true })).toBeTruthy()
+    fireEvent.change(within(breakdown).getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'Property 224' } })
+    expect(within(breakdown).getByRole('button', { name: 'Property 224', exact: true })).toBeTruthy()
+    expect(within(breakdown).getAllByRole('row')).toHaveLength(2)
+    expect(screen.getAllByText('43%').length).toBeGreaterThan(0)
+    expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
+  })
+
+  it('requests a bounded page of query results while retaining server cursor paging', async () => {
+    const requests: URL[] = []
+    const report = reportFixture()
+    report.populations[0]!.queries.nextCursor = 'next-result-page'
+    report.populations[0]!.queries.total = 225
+    onTestFinished(mockFetch(url => { requests.push(new URL(url)); return jsonResponse(report) }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><VisibilityWorkspace projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand' }} onSelectionChange={() => {}} /></QueryClientProvider>)
+    const results = await screen.findByText('Query results', { selector: 'span' })
+    fireEvent.click(results.closest('summary')!)
+    expect(requests[0]!.searchParams.get('limit')).toBe('25')
+    fireEvent.click(screen.getByRole('button', { name: 'Next queries' }))
+    await waitFor(() => expect(requests.at(-1)!.searchParams.get('cursor')).toBe('next-result-page'))
+    expect(requests.at(-1)!.searchParams.get('limit')).toBe('25')
+  })
   it('renders server rates without dividing counts and keeps unavailable values explicit', () => {
     const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
     expect(html).toContain('43%')

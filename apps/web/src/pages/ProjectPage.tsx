@@ -10,6 +10,7 @@ import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { MentionShare } from '../components/project/MentionShare.js'
@@ -121,6 +122,28 @@ import {
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
+  open: boolean
+  projectLabel: string
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  onClosed?: () => void
+  disabled: boolean
+}) {
+  return <Sheet open={open} onOpenChange={onOpenChange}>
+    <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <SheetHeader>
+        <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
+        <SheetDescription>Runs all tracked queries for {projectLabel}. Report filters do not limit the sweep. Provider charges apply.</SheetDescription>
+      </SheetHeader>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide sweep</WriteButton>
+      </div>
+    </SheetContent>
+  </Sheet>
+}
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1702,6 +1725,8 @@ function ProjectPageContent({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canWrite } = useAccount()
+  const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
+  const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
   const projectName = model.project.name
   const measurementSetupQuery = useQuery({
@@ -2192,6 +2217,7 @@ function ProjectPageContent({
       || providerReady === undefined
       || measurementSetupQuery.isFetching)
   const sweepPrerequisitesReady = !sweepReadinessPending
+    && !providerReadinessFailed
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
@@ -2287,12 +2313,14 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
         projectLabel,
         sourceAction: 'project-run',
       })
+      setSweepConfirmationProject(null)
       void refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
@@ -2572,7 +2600,7 @@ function ProjectPageContent({
                   ? () => { void measurementSetupQuery.refetch() }
                   : sweepSetupRequired
                     ? openAiVisibilitySetup
-                    : asyncHandler(handleTriggerRun)}
+                    : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
               >
                 {triggerRunMutation.isPending
                   ? 'Starting…'
@@ -2591,6 +2619,14 @@ function ProjectPageContent({
         </div>
       </div>
 
+      {!isEmbed() && <ProjectSweepConfirmation
+        open={sweepConfirmationProject === projectName}
+        projectLabel={projectLabel}
+        onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
+        onConfirm={asyncHandler(handleTriggerRun)}
+        onClosed={() => sweepOpener.current?.focus()}
+        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady}
+      />}
       <ProjectSubnav
         items={projectTabItems}
         overflowItems={projectOverflowTabItems}
@@ -2666,6 +2702,12 @@ function ProjectPageContent({
             key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
             projectName={projectName}
             selection={visibilitySelection}
+            showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
+              && visibilitySelection.measurementScope === 'project'
+              && visibilitySelection.queryClass === 'non-brand'
+              && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
+              && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
+              && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}
             onSelectionChange={updateVisibilitySearch}
             onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
             fallback={<AdvancedMeasurementLanding
