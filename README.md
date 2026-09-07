@@ -2,8 +2,6 @@
 
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
 
-**Give your agent the evidence, tools, and skills to run AEO.**
-
 Canonry is an **agent-first, open-source AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
 
 **Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
