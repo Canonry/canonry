@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1140" height="1100" viewBox="0 0 1140 1100" role="img" aria-labelledby="title desc">
   <title id="title">Canonry: historical evidence, agent actions, and repeated measurement</title>
-  <desc id="desc">Connected AI, search, local, analytics, and site/traffic sources feed Canonry on a schedule or on demand. Canonry retains baseline, earlier, and latest evidence for mentions, citations, competitors, portfolios, and site health. Your agent reads that evidence and sends commands to Canonry action tools. The agent also uses its own tools for code and content. Canonry publishes to WordPress and submits sitemaps and URLs to Google and Bing. Dashboard, reports, and webhook outputs share project evidence. After site changes, rerun checks and compare against earlier results.</desc>
+  <desc id="desc">Connected AI, search, local, analytics, and site/traffic sources feed Canonry on a schedule or on demand. Canonry stores baseline, earlier, and latest project evidence across multiple domains and portfolios in SQLite. Your agent reads that evidence and sends commands to Canonry action tools. The agent also uses its own tools for code and content. Canonry publishes to WordPress and submits sitemaps and URLs to Google and Bing. Dashboard, reports, and webhook outputs share project evidence. After site changes, rerun checks and compare against earlier results.</desc>
   <metadata>
 Embedded, unmodified Geist and Geist Mono fonts.
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
@@ -152,20 +152,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     </g>
   </g>
   <text x="492" y="424" font-size="34" fill="#edf0f4" font-weight="620" text-anchor="start">Canonry</text>
-  <text x="426" y="474" font-size="22" fill="#edf0f4" font-weight="400" text-anchor="start">Historical project evidence</text>
-  <path d="M430 514H726" fill="none" stroke="#505863" stroke-width="1.5" stroke-linejoin="round" />
-  <circle cx="430" cy="514" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
-  <circle cx="578.0" cy="514" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
-  <circle cx="726" cy="514" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
-  <text x="430" y="552" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="start">Baseline</text>
-  <text x="578" y="552" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="middle">Earlier checks</text>
-  <text x="726" y="552" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="end">Latest</text>
-  <text x="426" y="608" font-size="22" fill="#edf0f4" font-weight="400" text-anchor="start">Mentions + citations</text>
-  <text x="426" y="652" font-size="22" fill="#edf0f4" font-weight="400" text-anchor="start">Competitors + portfolios</text>
-  <text x="426" y="696" font-size="22" fill="#edf0f4" font-weight="400" text-anchor="start">Search · traffic · site health</text>
+  <text x="426" y="534" font-size="22" fill="#edf0f4" font-weight="400" text-anchor="start">Historical project evidence</text>
+  <path d="M430 574H726" fill="none" stroke="#505863" stroke-width="1.5" stroke-linejoin="round" />
+  <circle cx="430" cy="574" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
+  <circle cx="578.0" cy="574" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
+  <circle cx="726" cy="574" r="5.8" fill="#69aafa" stroke="#121820" stroke-width="2" />
+  <text x="430" y="612" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="start">Baseline</text>
+  <text x="578" y="612" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="middle">Earlier checks</text>
+  <text x="726" y="612" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="end">Latest</text>
+  <g transform="translate(457 650)" fill="#121820" stroke="#a8b0bc" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect width="32" height="26" rx="3" />
+    <rect x="7" y="7" width="32" height="26" rx="3" />
+    <rect x="14" y="14" width="32" height="26" rx="3" />
+    <path d="M14 22h32M20 18h2m4 0h2M21 29h18m-18 5h11" fill="none" />
+  </g>
+  <text x="519" y="678" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="start">Domains + portfolios</text>
   <path d="M398 728H758" fill="none" stroke="#303741" stroke-width="1" stroke-linejoin="round" />
-  <text x="426" y="778" font-size="25" fill="#edf0f4" font-weight="560" text-anchor="start">Action tools</text>
-  <text x="730" y="778" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="end">SQLite</text>
+  <g transform="translate(532 758)" fill="none" stroke="#a8b0bc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <ellipse cx="12" cy="5" rx="9" ry="3" />
+    <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
+  </g>
+  <text x="568" y="778" font-size="18" fill="#a8b0bc" font-weight="400" text-anchor="start">SQLite</text>
   <rect x="32" y="558" width="230" height="252" rx="10" fill="#161e27" stroke="#505863" stroke-width="1.5" />
   <text x="58" y="614" font-size="30" fill="#edf0f4" font-weight="610" text-anchor="start">Your agent</text>
   <text x="58" y="669" font-size="22" fill="#a8b0bc" font-weight="400" text-anchor="start">Agent Plugin</text>
