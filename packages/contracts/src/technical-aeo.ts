@@ -1551,7 +1551,12 @@ export type SiteCrawlDeadLinksResponseDto = z.infer<typeof siteCrawlDeadLinksRes
 /** Canonry-local crawl defaults. These are part of request identity. */
 export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = 1_000
 export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
-export const SITE_AUDIT_DEFAULT_EDGE_LIMIT = 100_000
+/**
+ * There is deliberately no default edge limit. The crawl engine derives the
+ * edge budget from the resolved page count, and any flat default applied here
+ * would cap below that derivation on a large site, silently ending page
+ * admission long before the page budget is spent.
+ */
 export const SITE_AUDIT_MAX_EDGE_LIMIT = 1_000_000
 
 /** Body for `POST /projects/:name/technical-aeo/runs`. */
@@ -1562,7 +1567,7 @@ export const siteAuditRunRequestSchema = z.object({
   limit: z.number().int().positive().max(2000).optional(),
   /** Crawl page budget. When omitted, Canonry crawls up to 1,000 pages. */
   maxPages: z.number().int().positive().max(50_000).optional(),
-  /** Internal-link observation budget. When omitted, Canonry retains up to 100,000 edges. */
+  /** Internal-link observation budget. When omitted, the crawl engine derives it from the page count. */
   maxEdges: z.number().int().positive().max(1_000_000).optional(),
   /** Maximum crawl depth from the root. */
   maxDepth: z.number().int().min(0).max(100).optional(),
@@ -1576,28 +1581,41 @@ export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
  * this before work starts so only requests with the same output identity can
  * consolidate onto an in-flight run. `limit` and `maxPages` intentionally
  * collapse to one field because `limit` is only a compatibility alias.
+ *
+ * `maxEdges` is nullable on purpose: `null` means the operator chose no edge
+ * budget and the engine derives one, which is a DIFFERENT crawl from any
+ * explicit number — including the number that used to be substituted here.
+ *
+ * schemaVersion 2 supersedes 1, where an omitted `maxEdges` was persisted as
+ * the literal 100000 and could not be told apart from an explicit 100000.
+ * A version-1 row is therefore never identity-equal to a version-2 request.
  */
 export interface SiteAuditEffectiveRequest {
-  schemaVersion: 1
+  schemaVersion: 2
   sitemapUrl: string | null
   maxPages: number
-  maxEdges: number
+  /** `null` = unset; the crawl engine derives the budget from the page count. */
+  maxEdges: number | null
   maxDepth: number | null
   checkDeadLinks: boolean
 }
 
 export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>): SiteAuditEffectiveRequest {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sitemapUrl: request.sitemapUrl ? new URL(request.sitemapUrl).toString() : null,
     maxPages: request.maxPages ?? request.limit ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
-    maxEdges: request.maxEdges ?? SITE_AUDIT_DEFAULT_EDGE_LIMIT,
+    maxEdges: request.maxEdges ?? null,
     maxDepth: request.maxDepth ?? null,
     checkDeadLinks: request.checkDeadLinks === true,
   }
 }
 
-/** Stable, versioned identity key for exact in-flight request comparison. */
+/**
+ * Stable, versioned identity key for exact in-flight request comparison.
+ * Positional, so an unset `maxEdges` serializes as `null` and matches another
+ * unset request while staying distinct from every explicit number.
+ */
 export function siteAuditRequestIdentity(request: SiteAuditEffectiveRequest): string {
   return JSON.stringify([
     request.schemaVersion,

@@ -1070,7 +1070,7 @@ const technicalAeoRunInputSchema = z.object({
   sitemapUrl: z.string().url().optional().describe('Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.'),
   limit: z.number().int().positive().max(2000).optional().describe('Deprecated compatibility alias for maxPages.'),
   maxPages: z.number().int().positive().max(50_000).optional().describe('Maximum pages crawled and audited. Defaults to 1,000; hard maximum 50,000.'),
-  maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. Defaults to 100,000; hard maximum 1,000,000.'),
+  maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. When omitted the crawl engine derives the budget from the page count; hard maximum 1,000,000.'),
   maxDepth: z.number().int().min(0).max(100).optional().describe('Maximum internal-link depth from the root page.'),
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
 })

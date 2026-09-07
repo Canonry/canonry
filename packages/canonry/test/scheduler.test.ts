@@ -643,10 +643,11 @@ test('site-audit schedule persists default request identity before dispatch', ()
   expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
     projectId: 'proj_site_audit',
     effectiveOptions: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       sitemapUrl: null,
       maxPages: 1_000,
-      maxEdges: 100_000,
+      // Unattended crawls set no edge budget; the engine derives it.
+      maxEdges: null,
       maxDepth: null,
       checkDeadLinks: false,
     },

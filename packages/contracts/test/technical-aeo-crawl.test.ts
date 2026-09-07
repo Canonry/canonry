@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SITE_AUDIT_DEFAULT_EDGE_LIMIT,
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
@@ -21,12 +20,22 @@ import {
 } from '../src/technical-aeo.js'
 
 describe('Technical AEO crawl contracts', () => {
-  it('uses conservative unattended budgets while retaining the explicit hard caps', () => {
+  it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
     expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(1_000)
-    expect(SITE_AUDIT_DEFAULT_EDGE_LIMIT).toBe(100_000)
     expect(SITE_AUDIT_MAX_PAGE_LIMIT).toBe(50_000)
     expect(SITE_AUDIT_MAX_EDGE_LIMIT).toBe(1_000_000)
-    expect(normalizeSiteAuditRunRequest({})).toMatchObject({ maxPages: 1_000, maxEdges: 100_000 })
+    // A flat edge default here caps BELOW the engine's own derivation
+    // (pages x 50, floored at 100,000) on any crawl over 2,000 pages, so an
+    // omitted maxEdges must stay null all the way to the executor.
+    expect(normalizeSiteAuditRunRequest({})).toEqual({
+      schemaVersion: 2,
+      sitemapUrl: null,
+      maxPages: 1_000,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+    })
+    expect(normalizeSiteAuditRunRequest({ maxEdges: 435_000 })).toMatchObject({ maxEdges: 435_000 })
   })
 
   it('models exact stored run progress without inventing a completion percentage', () => {
@@ -94,6 +103,31 @@ describe('Technical AEO crawl contracts', () => {
     ]) {
       expect(siteAuditRequestIdentity(changed)).not.toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({})))
     }
+  })
+
+  it('dedups two unset edge budgets against each other but never against an explicit number', () => {
+    const unset = siteAuditRequestIdentity(normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({})))
+    const alsoUnset = siteAuditRequestIdentity(
+      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxPages: 1_000 })),
+    )
+    // Unset is one stable request, so two unattended crawls still consolidate.
+    expect(unset).toBe(alsoUnset)
+
+    // "Let the engine decide" is a different crawl from "cap me at 100,000",
+    // which is exactly the collision the old flat default created.
+    const explicitOldDefault = siteAuditRequestIdentity(
+      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxEdges: 100_000 })),
+    )
+    expect(explicitOldDefault).not.toBe(unset)
+
+    // The identity is positional JSON, so an unset budget must serialize as a
+    // readable null rather than collapsing out of the array.
+    expect(JSON.parse(unset)[3]).toBeNull()
+    expect(JSON.parse(explicitOldDefault)[3]).toBe(100_000)
+    // A version-1 key (omitted maxEdges stored as 100000) can never be read as
+    // a version-2 request, so a pre-upgrade in-flight run refuses instead of
+    // silently absorbing a crawl with different budget semantics.
+    expect(JSON.parse(unset)[0]).toBe(2)
   })
 
   it('makes no crawl data distinct from a zero-count crawl and from disabled dead-link checks', () => {
