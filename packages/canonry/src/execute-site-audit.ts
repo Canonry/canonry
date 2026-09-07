@@ -49,7 +49,6 @@ import { classifySiteCrawlTemplateLinks } from './site-crawl-template-links.js'
 const log = createLogger('SiteAudit')
 
 export {
-  SITE_AUDIT_DEFAULT_EDGE_LIMIT,
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
@@ -810,11 +809,13 @@ export async function executeSiteAudit(
         indexabilityVersion: crawlSummary.indexabilityRulesetVersion,
         linkScoreVersion: crawlSummary.linkScoreAlgorithmVersion,
         effectiveOptions: {
-          mode: 'summary', sitemapUrl: opts.sitemapUrl ?? null, maxPages, maxEdges,
+          // Null, never absent: a reader must be able to tell "the operator set
+          // no edge budget and the engine derived one" from a missing field.
+          mode: 'summary', sitemapUrl: opts.sitemapUrl ?? null, maxPages, maxEdges: maxEdges ?? null,
           maxDepth: opts.maxDepth ?? null, checkDeadLinks: opts.checkDeadLinks ?? false,
         },
         pageBudget: maxPages,
-        edgeBudget: maxEdges,
+        edgeBudget: maxEdges ?? null,
         maxDepth: opts.maxDepth ?? null,
         checkDeadLinks: opts.checkDeadLinks ?? false,
         complete: crawlSummary.complete,

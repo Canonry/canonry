@@ -316,7 +316,7 @@ describe('MCP tool registry', () => {
     expect(changes.inputSchema.safeParse({ project: 'acme', limit: 26 }).success).toBe(false)
 
     const run = canonryMcpTools.find(candidate => candidate.name === 'canonry_technical_aeo_run')!
-    expect(run.description).toContain('1,000 pages and 100,000 link observations')
+    expect(run.description).toContain('the engine derives the link-observation budget from that page count')
     expect(run.inputSchema.safeParse({ project: 'acme', maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 100, checkDeadLinks: true }).success).toBe(true)
     expect(run.inputSchema.safeParse({ project: 'acme', maxPages: 50_001 }).success).toBe(false)
     expect(run.inputSchema.safeParse({ project: 'acme', maxEdges: 1_000_001 }).success).toBe(false)

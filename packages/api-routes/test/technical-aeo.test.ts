@@ -1241,25 +1241,44 @@ describe('POST /technical-aeo/runs', () => {
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, firstId)).get()).toMatchObject({
       projectId: ctx.projectId,
       effectiveOptions: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         sitemapUrl: null,
         maxPages: 50,
-        maxEdges: 100_000,
+        maxEdges: null,
         maxDepth: null,
         checkDeadLinks: false,
       },
     })
   })
 
-  it('persists the conservative default identity for omitted crawl budgets', async () => {
+  it('persists an omitted edge budget as unset and still consolidates two such requests', async () => {
     const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
     const second = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
     const runId = (first.json() as { runId: string }).runId
 
     expect((second.json() as { runId: string }).runId).toBe(runId)
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()).toMatchObject({
-      effectiveOptions: { maxPages: 1_000, maxEdges: 100_000 },
+      effectiveOptions: { maxPages: 1_000, maxEdges: null },
     })
+    // The executor must receive no edge budget at all, so the crawl engine
+    // derives it from the page count instead of inheriting a flat ceiling.
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 1_000 })
+    expect(ctx.siteAuditRequested[0]!.opts!.maxEdges).toBeUndefined()
+  })
+
+  it('treats an explicit 100,000 as a different request from an omitted edge budget', async () => {
+    const omitted = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    const omittedId = (omitted.json() as { runId: string }).runId
+
+    const explicit = await ctx.app.inject({
+      method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: { maxEdges: 100_000 },
+    })
+    expect(explicit.statusCode).toBe(409)
+    expect(explicit.json()).toMatchObject({
+      error: { code: 'OPERATION_IN_PROGRESS', details: { activeRunId: omittedId } },
+    })
+    expect(ctx.siteAuditRequested).toHaveLength(1)
   })
 
   it('refuses to consolidate semantically different crawl requests onto an active run', async () => {

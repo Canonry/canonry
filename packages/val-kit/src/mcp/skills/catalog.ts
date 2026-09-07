@@ -59,7 +59,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Orchestration Workflows",
     description: "Workflow recipes — baseline, regression response, weekly review, content gap analysis. Read when planning a multi-step task or recurring review.",
     entryPoint: false,
-    characters: 6788,
+    characters: 6913,
     content: aeroReferencesOrchestrationPart0,
   },
   {
@@ -129,7 +129,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 101811,
+    characters: 101856,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {

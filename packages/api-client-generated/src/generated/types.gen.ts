@@ -24995,7 +24995,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          */
         maxPages?: number;
         /**
-         * Internal-link observation budget. Defaults to 100000; max 1000000.
+         * Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.
          */
         maxEdges?: number;
         /**

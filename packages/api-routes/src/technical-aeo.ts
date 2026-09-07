@@ -2532,7 +2532,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         sitemapUrl: effectiveRequest.sitemapUrl ?? undefined,
         limit: parsed.data.limit,
         maxPages: effectiveRequest.maxPages,
-        maxEdges: effectiveRequest.maxEdges,
+        // Stays undefined when unset so the engine derives the edge budget
+        // from the page count instead of inheriting a flat ceiling here.
+        maxEdges: effectiveRequest.maxEdges ?? undefined,
         maxDepth: effectiveRequest.maxDepth ?? undefined,
         checkDeadLinks: effectiveRequest.checkDeadLinks,
       })
