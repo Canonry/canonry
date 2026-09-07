@@ -248,3 +248,11 @@ test('loadConfigRaw reads config without applying env-var transformations', () =
   expect(raw!.apiUrl).toBe('http://localhost:4100') // not port-overridden
   expect(raw!.basePath).toBe('/original') // not env-overridden
 })
+
+test('loadConfig preserves managed sweeps from config.yaml and validates its boolean type', () => {
+  const configured = baseConfig({ dashboard: { showResourceLinks: false, managedSweeps: true } })
+  fs.writeFileSync(getConfigPath(), stringify(configured))
+  expect(loadConfig().dashboard).toEqual(configured.dashboard)
+  fs.writeFileSync(getConfigPath(), stringify({ ...configured, dashboard: { managedSweeps: 'true' } }))
+  expect(loadConfig).toThrow(/managedSweeps/)
+})

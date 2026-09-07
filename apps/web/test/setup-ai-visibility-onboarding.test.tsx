@@ -25,6 +25,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
   navigate.mockReset()
   clearOnboardingRunLaunched()
 })
@@ -645,4 +646,16 @@ test('keeps project-scoped query controls blocked until the canonical query read
   expect(await screen.findByText('saved canonical query')).toBeTruthy()
   expect(screen.queryByText('Loading saved queries…')).toBeNull()
   expect(screen.queryByLabelText('Queries (one per line)')).toBeNull()
+})
+
+
+test('managed sweeps finishes setup without offering to launch or retry a sweep', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
+  expect(screen.queryByText(/Run a first sweep/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Open project dashboard →' }))
+  expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
 })

@@ -16,7 +16,8 @@ import {
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient } from '../api.js'
+import { heyClient, isDashboardManagedSweeps } from '../api.js'
+import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { getEmbedConfig } from '../api.js'
 import { isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
@@ -977,7 +978,7 @@ export function MeasurementPropertyPage() {
       {selected && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement') ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
           <p className="text-sm text-secondary">
-            {canWrite
+            {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
               ? 'Run a measurement from the project overview to collect this Property’s coverage and source evidence.'
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
@@ -1039,7 +1040,7 @@ export function MeasurementPropertyPage() {
         ) : evidenceState === 'not_measured' ? (
           // Not measured is not "no evidence". Saying "none" here would report
           // an absent measurement as a measured result.
-          <p className="text-sm text-secondary">Not measured yet. Run a measurement to collect the answers for this Property.</p>
+          <p className="text-sm text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Not measured yet. Run a measurement to collect the answers for this Property.'}</p>
         ) : evidenceShapeMismatch ? (
           <p role="alert" className="text-sm text-caution">
             This measurement was returned in an older format, so the answers cannot be shown here.

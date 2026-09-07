@@ -2,13 +2,15 @@
 
 ## Purpose
 
-Typed environment and configuration parsing. Single-file package that provides `loadConfig()` for reading `~/.canonry/config.yaml` and environment variables into a strongly-typed config object.
+Typed environment parsing and the dashboard config schema. `loadConfig()` and
+`saveConfigPatch()` live in `packages/canonry/src/config.ts`; `loadConfig()`
+validates the optional dashboard block with this package's schema.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `src/index.ts` | Everything — config schema (Zod), `loadConfig()`, `saveConfigPatch()`, env var mapping |
+| `src/index.ts` | `dashboardConfigSchema` (including optional `managedSweeps`), `getPlatformEnv()`, `getBootstrapEnv()` |
 
 ## Patterns
 

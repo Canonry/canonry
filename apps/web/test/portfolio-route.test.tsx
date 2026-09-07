@@ -19,6 +19,7 @@ import {
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
+  getApiV1ProjectsByNameScheduleQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
@@ -61,6 +62,8 @@ async function renderAt(
   options: {
     cdpStatus?: { connected: boolean; endpoint: string; browserVersion?: string; targets: [] }
     schedule?: unknown
+    managedSweeps?: boolean
+    accountRole?: 'admin' | 'viewer'
     seedPlan?: boolean
     apiKey?: { id: string; scopes: string[]; projectId: string | null; readOnly: boolean }
     queries?: Array<{ id: string; query: string; createdAt: string }>
@@ -71,6 +74,9 @@ async function renderAt(
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
+  if (options.managedSweeps !== undefined) {
+    window.__CANONRY_CONFIG__ = { ...window.__CANONRY_CONFIG__, dashboard: { managedSweeps: options.managedSweeps } }
+  }
 
   const fixture = createDashboardFixture({})
   options.configureFixture?.(fixture.dashboard)
@@ -87,6 +93,10 @@ async function renderAt(
     options.queries ?? [],
   )
   if (options.schedule !== undefined) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName }, query: { kind: 'answer-visibility' } }),
+      options.schedule,
+    )
     queryClient.setQueryData(
       getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
       [options.schedule],
@@ -167,7 +177,7 @@ async function renderAt(
   await router.load()
 
   const tree = (
-    <AccountProvider account={null} apiKey={options.apiKey}>
+    <AccountProvider account={options.accountRole ? { name: 'operator', role: options.accountRole } : null} apiKey={options.apiKey}>
       <QueryClientProvider client={queryClient}>
         <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
           <RouterProvider router={router} />
@@ -1920,4 +1930,75 @@ test('a stale group key in the URL falls back to all properties instead of error
   const checked = group?.querySelector('[role="radio"][aria-checked="true"], option[selected]')
   expect(checked?.textContent).toBe('All properties')
   expect(html).not.toContain('Something went wrong')
+})
+
+const managedSchedule = {
+  id: 'managed-schedule', projectId: 'project_citypoint', kind: 'answer-visibility',
+  enabled: true, cronExpr: '0 6 * * *', timezone: 'UTC', providers: [],
+  nextRunAt: '2026-09-08T06:00:00.000Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+}
+
+function projectHeader(html: string) {
+  const container = document.createElement('div')
+  container.innerHTML = html
+  return container.querySelector('.page-header')!
+}
+
+test('managed sweeps unset preserves the operator sweep control and identical opt-out markup', async () => {
+  const options = { settleReadiness: true, readiness: true,
+    configureFixture(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
+      dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
+    },
+  }
+  const original = await renderAt('/projects/project_citypoint', undefined, undefined, options)
+  const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
+  expect(projectHeader(original).outerHTML).toBe(projectHeader(disabled).outerHTML)
+  expect(projectHeader(original).textContent).toContain('Run AI sweep')
+  expect(original).not.toContain('managed by your Canonry team')
+  expect(original).not.toContain('Sweeps are run by your Canonry team')
+})
+
+test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s header control for admins and viewers', async mode => {
+  for (const accountRole of ['admin', 'viewer'] as const) {
+    const html = await renderAt('/projects/project_citypoint', undefined,
+      mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+      { managedSweeps: true, schedule: managedSchedule, accountRole },
+    )
+    const header = projectHeader(html)
+    expect(header.querySelector('button')).toBeNull()
+    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
+    expect(header.textContent).toContain('Next sync Tuesday 8 Sept, 06:00 UTC · managed by your Canonry team')
+    expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
+  }
+})
+
+test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { managedSweeps: true })
+  const status = projectHeader(html).querySelector('[role="status"]')!
+  expect(status.textContent).toBe('Sweeps are run by your Canonry team')
+  expect(status.querySelector('time')).toBeNull()
+  expect(projectHeader(html).querySelector('button')).toBeNull()
+  expect(status.textContent).not.toMatch(/Next sync|UTC|\d/)
+})
+
+test('managed sweeps removes Simple empty-state launch instructions', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    managedSweeps: true, configureFixture: forceNoisyFreshVisibility,
+  })
+  expect(html).toContain('Sweeps are run by your Canonry team')
+  expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep/)
+})
+
+test('managed sweeps leaves Site Health scan controls available', async () => {
+  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
+  expect(html).toMatch(/Run scan|Checking scan/)
+  expect(projectHeader(html).textContent).toContain('Sweeps are run by your Canonry team')
+})
+
+test('managed sweeps replaces the global batch sweep control', async () => {
+  const original = await renderAt('/runs')
+  expect(original).toContain('Run all projects')
+  const managed = await renderAt('/runs', undefined, undefined, { managedSweeps: true })
+  expect(managed).not.toContain('Run all projects')
+  expect(managed).toContain('Sweeps are run by your Canonry team')
 })

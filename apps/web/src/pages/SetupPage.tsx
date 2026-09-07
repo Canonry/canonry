@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
+import { isDashboardManagedSweeps } from '../api.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
@@ -1528,11 +1530,19 @@ function ReadySetupPage({
             <div className="section-head">
               <div>
                 <p className="eyebrow eyebrow-soft">{isProjectScoped ? 'Step 2 of 2' : 'Step 5 of 5'}</p>
-                <h2>Launch first run</h2>
+                <h2>{isDashboardManagedSweeps() ? 'Setup complete' : 'Launch first run'}</h2>
               </div>
               {stepBadge}
             </div>
-            {persistedSetupComplete ? (
+            {isDashboardManagedSweeps() ? (
+              <div className="compact-stack">
+                {createdProjectName ? <ManagedSweepStatus projectName={createdProjectName} /> : <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
+                </div>
+              </div>
+            ) : persistedSetupComplete ? (
               <div className="compact-stack">
                 <p className="text-secondary">
                   Setup is complete. <span className="text-strong font-medium">{createdProjectName}</span> already has a successful answer-visibility baseline.

@@ -52,6 +52,7 @@ import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -73,6 +74,7 @@ import {
   heyClient,
   getEmbedConfig,
   isEmbed,
+  isDashboardManagedSweeps,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -1196,7 +1198,7 @@ function OverviewBrief({
             <p className="mt-4 border-t border-subtle pt-4 text-sm font-medium text-strong">
               {sweepRunning
                 ? 'Your first sweep is running. Results will appear when it completes.'
-                : 'Complete your first AI Visibility sweep to measure both signals.'}
+                : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete your first AI Visibility sweep to measure both signals.'}
             </p>
           </div>
         </div>
@@ -1218,7 +1220,7 @@ function OverviewBrief({
             {!comparison.hasPreviousRun ? (
               <>
                 <p className="overview-brief-panel-title">No comparison yet</p>
-                <p className="overview-brief-panel-copy">Run another sweep to measure mention and citation movement.</p>
+                <p className="overview-brief-panel-copy">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another sweep to measure mention and citation movement.'}</p>
               </>
             ) : (
               <>
@@ -1960,7 +1962,7 @@ function ProjectPageContent({
   // after queries or providers are removed.
   const sweepSchedulesQuery = useQuery({
     ...getApiV1ProjectsByNameSchedulesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && Boolean(projectName),
+    enabled: !isEmbed() && !isDashboardManagedSweeps() && Boolean(projectName),
     retry: false,
   })
   // Only claim a next sweep when one is genuinely coming: a schedule that
@@ -2312,9 +2314,11 @@ function ProjectPageContent({
             </div>
           )}
         </div>
-        <div className="page-header-right">
+        <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
-          {!isEmbed() && (
+          {!isEmbed() && (isDashboardManagedSweeps() ? (
+            <ManagedSweepStatus projectName={projectName} />
+          ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
               {/* Secondary, not primary. The schedule beside it is what actually
@@ -2345,7 +2349,7 @@ function ProjectPageContent({
                         : 'Run AI sweep'}
               </WriteButton>
             </div>
-          )}
+          ))}
         </div>
       </div>
 

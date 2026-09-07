@@ -9,7 +9,7 @@ import {
   type AdvancedMeasurementProperty,
 } from '../src/components/project/advanced-measurement/AdvancedMeasurementOverview.js'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); delete window.__CANONRY_CONFIG__ })
 
 function ratio(numerator: number, denominator: number): AdvancedMeasurementMetric {
   return { numerator, denominator }
@@ -1179,4 +1179,13 @@ describe('sorting and status', () => {
     // The exception still shows, next to the Property it belongs to.
     expect(within(table).getByText('Review')).toBeTruthy()
   })
+})
+
+
+it('managed sweeps removes the Advanced Measurement launch affordance even for an editor', () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  const { onRunMeasurement } = renderOverview()
+  expect(screen.queryByRole('button', { name: 'Run measurement' })).toBeNull()
+  expect(onRunMeasurement).not.toHaveBeenCalled()
+  expect(screen.getByRole('region', { name: 'Advanced measurement overview' })).toBeTruthy()
 })

@@ -141,6 +141,16 @@ ship with a registered Zod schema.
 
 Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/v1`.
 
+### Managed sweeps
+
+`isDashboardManagedSweeps()` reads the optional deployment flag. When true,
+replace answer-visibility launch controls and empty-state launch instructions
+for every dashboard role, including admins. `ManagedSweepStatus` reads
+`GET /projects/:name/schedule?kind=answer-visibility`; only an enabled schedule
+with a valid `nextRunAt` gets a UTC date. Keep Site Health and other run kinds
+unchanged. The operator's manual lever is `canonry run <project>`, and the flag
+must never enter authorization checks. Unset/false preserves existing markup.
+
 ### Read-only embed mode (#716)
 
 When the server injects `window.__CANONRY_CONFIG__.embed` (via `canonry serve --embed`), `RootLayout` (`src/App.tsx`) takes a chromeless branch — placed AFTER every hook so Rules of Hooks hold on both paths — rendering only `<Outlet/>` inside a minimal `app-shell-embed` shell with NO sidebar / topbar / mobile nav / footer / drawers / `RunNotificationObserver` / `Toaster` / `AeroBarHost`. The optional `embed.views` allowlist gates the route via `embedViewIdForPath` (a non-allowlisted route renders a `embed-view-unavailable` state instead of the page, so surfaces like `/settings` are not reachable inside the iframe — a presentational gate, NOT a security boundary; the API key scope is the real boundary). The optional `embed.projectTabs` allowlist is a FINER gate that `ProjectPage` applies to the in-page tab subnav (Overview / Search Engines / Activity / Site Health / Local / Discovery / Backlinks / Report / Settings): it filters the rendered tabs to the allowlist and `resolveEmbedProjectTab` falls a direct-URL hit on a hidden tab back to Overview (or the first allowed tab). Site Health retains the stable `technical-aeo` allowlist token. This is what `embed.views` cannot do — every `/projects/*` collapses to the one `project` view id. Same posture as `views`: presentational, NOT a security boundary; unset = all tabs. The optional `embed.theme` supports `mode`, `bg`, `fg`, and `accent` through `embedThemeStyle` (sanitized, via the React `style` prop). Font overrides are unsupported. Every dashboard uses the bundled Geist files. With embed off, `getEmbedConfig()` returns `null` and the full chrome renders exactly as before.

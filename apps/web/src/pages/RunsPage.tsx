@@ -4,10 +4,11 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { RunKinds, RunStatuses, type RunKind, type RunStatus } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
 
+import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { RunRow } from '../components/shared/RunRow.js'
-import { heyClient, isEmbed } from '../api.js'
+import { heyClient, isEmbed, isDashboardManagedSweeps } from '../api.js'
 import { toRunListItem } from '../build-dashboard.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { toTitleCase } from '../lib/format-helpers.js'
@@ -133,11 +134,11 @@ export function RunsPage() {
           <h1 className="page-title">Runs</h1>
           <p className="page-subtitle">Recent jobs across all projects.</p>
         </div>
-        {!isEmbed() && (
+        {!isEmbed() && (isDashboardManagedSweeps() ? <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p> : (
           <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
             {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
           </Button>
-        )}
+        ))}
       </div>
 
       <section>

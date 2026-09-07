@@ -18,7 +18,7 @@ import {
 import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
-import { heyClient } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
@@ -195,7 +195,8 @@ export function AeroBar({ projectName }: AeroBarProps) {
     if (/\s/.test(trimmed)) return []
     const q = trimmed.toLowerCase()
     return SLASH_COMMANDS.filter(
-      (cmd) => cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1)),
+      (cmd) => (!isDashboardManagedSweeps() || cmd.command !== '/run-sweep')
+        && (cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1))),
     )
   }, [draft])
 

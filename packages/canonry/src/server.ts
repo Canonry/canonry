@@ -313,6 +313,12 @@ function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: Canon
     ?? true;
 }
 
+function resolveDashboardManagedSweeps(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_MANAGED_SWEEPS)
+    ?? config.dashboard?.managedSweeps
+    ?? false;
+}
+
 function resolveDashboardShowUpdateNotification(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
   return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION)
     ?? config.dashboard?.showUpdateNotification
@@ -2092,6 +2098,7 @@ export async function createServer(opts: {
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
+  const dashboardManagedSweeps = resolveDashboardManagedSweeps(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   app.log.info(
     { dashboardRequirePassword },
@@ -3256,7 +3263,7 @@ export async function createServer(opts: {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
       // Keep the default client config byte-for-byte unchanged. Only inject the
-      // dashboard block when the operator opts out of dashboard chrome.
+      // dashboard block when the operator changes dashboard presentation.
       const dashboardConfig: Record<string, boolean | string> = {};
       if (dashboardOnboardingMode) {
         dashboardConfig.onboardingMode = dashboardOnboardingMode;
@@ -3266,6 +3273,9 @@ export async function createServer(opts: {
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
+      }
+      if (dashboardManagedSweeps) {
+        dashboardConfig.managedSweeps = true;
       }
       // The agent kill-switch removes the routes; without telling the browser,
       // the command bar still rendered and every request 404'd in front of the

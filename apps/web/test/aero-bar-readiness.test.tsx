@@ -19,6 +19,7 @@ const PROJECT_NAME = 'citypoint'
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
   try {
     window.localStorage.clear()
   } catch {
@@ -120,4 +121,18 @@ test('does not send a view-only user to administrator settings', async () => {
 
   expect(screen.getByRole('status').textContent).toContain('Ask an administrator to configure one.')
   expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+})
+
+
+test('managed sweeps hides the Aero sweep shortcut while retaining read shortcuts', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  })
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
+  expect(screen.getByText('/status')).toBeTruthy()
+  expect(screen.queryByText('/run-sweep')).toBeNull()
+  expect(screen.queryByText('Run sweep now')).toBeNull()
 })

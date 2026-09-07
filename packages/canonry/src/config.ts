@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
+import { dashboardConfigSchema } from '@ainyc/canonry-config'
 import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
@@ -350,6 +351,9 @@ export interface DashboardConfigEntry {
    * or CLI update notice.
    */
   showUpdateNotification?: boolean
+
+  /** Hide dashboard sweep controls; operators can still use `canonry run`. Defaults to false. */
+  managedSweeps?: boolean
 }
 
 /**
@@ -547,6 +551,7 @@ export function loadConfig(): CanonryConfig {
   }
 
   normalizeGoogleConfig(parsed)
+  if (parsed.dashboard) parsed.dashboard = dashboardConfigSchema.parse(parsed.dashboard)
   normalizeGoogleMarketingConfig(parsed)
   normalizeWordpressConfig(parsed)
   normalizeCloudflareTrafficConfig(parsed)
