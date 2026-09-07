@@ -257,7 +257,7 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --format json
 Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@canonry/aeo-audit`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. `site-health` is the operator-facing CLI name; `technical-aeo` remains compatible.
 
 ```bash
-cnry technical-aeo run <project> --wait                 # full crawl + audit; defaults to 1,000 pages / 100,000 edges; waits for terminal state
+cnry technical-aeo run <project> --wait                 # full crawl + audit; defaults to 1,000 pages, edges derived from the page count unless --max-edges is set; waits for terminal state
 cnry technical-aeo run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
 cnry technical-aeo run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
 cnry technical-aeo progress <project> --run-id <id> [--format json] # exact durable phase and pages found / checked / failed counters; never a synthesized percentage

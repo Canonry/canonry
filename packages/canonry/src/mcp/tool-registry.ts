@@ -3092,7 +3092,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_run',
     title: 'Run Technical AEO site audit',
     description:
-      'Start a site-audit run. The run discovers root, sitemap, and linked pages. Its unattended default is 1,000 pages and 100,000 link observations; callers may explicitly raise either to its hard maximum. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
+      'Start a site-audit run. The run discovers root, sitemap, and linked pages. It defaults to 1,000 pages, and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,
