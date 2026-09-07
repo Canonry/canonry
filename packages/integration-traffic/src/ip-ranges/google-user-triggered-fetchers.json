@@ -1,6 +1,6 @@
 {
   "_source": "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json",
-  "creationTime": "2026-08-17T14:45:56.000000",
+  "creationTime": "2026-09-04T14:46:58.000000",
   "prefixes": [
     {
       "ipv4Prefix": "142.250.32.0/27"
@@ -510,6 +510,9 @@
       "ipv4Prefix": "66.249.84.32/27"
     },
     {
+      "ipv4Prefix": "66.249.84.64/27"
+    },
+    {
       "ipv4Prefix": "66.249.84.96/27"
     },
     {
@@ -958,6 +961,9 @@
     },
     {
       "ipv6Prefix": "2001:4860:4801:4062::/64"
+    },
+    {
+      "ipv6Prefix": "2001:4860:4801:4063::/64"
     },
     {
       "ipv6Prefix": "2001:4860:4801:4064::/64"
