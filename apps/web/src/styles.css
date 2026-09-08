@@ -1045,6 +1045,44 @@
 
   /* ── Visibility trend (citations & mentions over time) ── */
 
+  .visibility-report {
+    container-type: inline-size;
+    @apply mt-4;
+  }
+
+  .visibility-filter-container {
+    container-type: inline-size;
+  }
+
+  .visibility-report-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    @apply items-end gap-4 border-b border-default py-4;
+  }
+
+  @container (min-width: 50rem) {
+    .visibility-report-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .visibility-report-filters[data-has-scope='false'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  @container (max-width: 26rem) {
+    .visibility-report-filters { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .visibility-scope-trigger {
+    @apply flex cursor-pointer list-none items-center justify-between gap-2;
+  }
+
+  .visibility-scope-trigger::-webkit-details-marker {
+    display: none;
+  }
+
+  .visibility-scope-menu {
+    width: max(100%, 20rem);
+    max-width: calc(100vw - 4rem);
+    @apply absolute left-0 top-full z-30 mt-2 rounded-md border border-default bg-bg p-3 shadow-lg;
+  }
+
   .visibility-trend {
     @apply rounded-xl border border-default bg-surface px-5 py-5;
   }
@@ -1699,11 +1737,28 @@
      text that recedes, the active tab marked by a Snow underline sitting on
      the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-default;
+    @apply relative mt-5 mb-5 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
+  }
+
+  .project-subnav-measure {
+    @apply pointer-events-none invisible absolute inset-0 overflow-hidden;
+  }
+
+  .project-subnav-measure-row {
+    @apply flex w-max;
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading;
+    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading;
+  }
+
+  .project-subnav-current {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .project-subnav-label {
+    @apply truncate;
   }
 
   .project-subnav-link-active {
@@ -1712,7 +1767,7 @@
 
   /* Trailing group (overflow "More" + Settings), pushed to the far right. */
   .project-subnav-trailing {
-    @apply ml-auto flex items-stretch gap-x-1;
+    @apply ml-auto flex shrink-0 items-stretch gap-x-1;
   }
 
   .project-subnav-more {
@@ -1725,7 +1780,7 @@
 
   /* Overflow menu surface — floating, so a real shadow is allowed here. */
   .project-subnav-menu {
-    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)];
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] max-w-[calc(100vw-2rem)] max-h-[min(28rem,70vh)] flex-col gap-0.5 overflow-y-auto rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)];
   }
 
   .project-subnav-menu-item {
@@ -2167,6 +2222,43 @@
 
   .evidence-table td {
     @apply px-4 py-3 text-neutral;
+  }
+
+  /* Keep row actions reachable when a measurement table is wider than its pane. */
+  .measurement-responsive-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .measurement-responsive-table tbody tr:not(:last-child) > td {
+    @apply border-b border-subtle;
+  }
+
+  .measurement-table-actions {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    white-space: nowrap;
+    background-color: var(--color-bg);
+    box-shadow: -1px 0 0 var(--color-border);
+  }
+
+  .measurement-query-cell { min-width: 16rem; }
+  .measurement-target-cell { min-width: 10rem; }
+  .query-tracking-workspace { container-type: inline-size; }
+  .tracking-query-cell { min-width: 18rem; }
+  .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
+
+  @container (max-width: 60rem) {
+    .visibility-report .measurement-responsive-table th,
+    .visibility-report .measurement-responsive-table td,
+    .query-tracking-workspace .measurement-responsive-table th,
+    .query-tracking-workspace .measurement-responsive-table td { padding-inline: 0.75rem; }
+    .measurement-query-cell { min-width: 14rem; }
+    .measurement-target-cell { min-width: 8rem; }
+    .tracking-query-cell { min-width: 14rem; }
+    .tracking-scope-cell { min-width: 10rem; }
+    .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 
   /* Site Health tables read as prose, not as a spec sheet: sentence-case

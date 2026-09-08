@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, useId } from 'react'
 import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import { measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { CitationBadge } from '../components/shared/CitationBadge.js'
+import { useDrawer } from '../hooks/use-drawer.js'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { MentionShare } from '../components/project/MentionShare.js'
@@ -28,8 +31,8 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
-import { DiscoverySection } from '../components/project/DiscoverySection.js'
+import { VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { QueriesSection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -120,7 +123,30 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
+  open: boolean
+  projectLabel: string
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  onClosed?: () => void
+  disabled: boolean
+}) {
+  if (isEmbed() || isDashboardManagedSweeps()) return null
+  return <Sheet open={open} onOpenChange={onOpenChange}>
+    <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <SheetHeader>
+        <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
+        <SheetDescription>Runs all tracked queries for {projectLabel}. Report filters do not limit the sweep. Provider charges apply.</SheetDescription>
+      </SheetHeader>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide sweep</WriteButton>
+      </div>
+    </SheetContent>
+  </Sheet>
+}
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1294,6 +1320,97 @@ function OverviewDisclosure({
   )
 }
 
+function OverviewSignals({
+  insights,
+  suggestedQueries,
+  onManageQueries,
+}: {
+  insights: ProjectCommandCenterVm['insights']
+  suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
+  onManageQueries?: () => void
+}) {
+  const { openEvidence } = useDrawer()
+
+  const visibleSuggestions = onManageQueries ? suggestedQueries.rows : []
+
+  if (insights.length === 0 && visibleSuggestions.length === 0) return null
+
+  const renderInsight = (insight: ProjectCommandCenterVm['insights'][number]) => (
+    <div key={insight.id} className="py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-heading">{insight.title}</p>
+          {insight.detail ? <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">{insight.detail}</p> : null}
+        </div>
+        <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
+      </div>
+
+      {insight.affectedPhrases.length > 0 ? (
+        <details className="mt-2">
+          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+            Evidence · {insight.affectedPhrases.length} affected {insight.affectedPhrases.length === 1 ? 'query' : 'queries'}
+          </summary>
+          <ul className="mt-2 divide-y divide-subtle border-y border-subtle">
+            {insight.affectedPhrases.map((phrase, index) => (
+              <li key={phrase.evidenceId || `${insight.id}-${index}`} className="flex flex-wrap items-center gap-2 py-2">
+                <CitationBadge state={phrase.citationState} />
+                <span className="min-w-0 flex-1 text-sm text-strong">{phrase.query}</span>
+                {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
+                {!isEmbed() && phrase.evidenceId ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                    View evidence
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  )
+
+  const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
+    <div key={suggestion.query} className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
+        <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
+        <p className="mt-0.5 text-sm text-secondary">{suggestion.reason}</p>
+      </div>
+      {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
+    </div>
+  )
+
+  const primaryInsights = insights.slice(0, 1)
+  const primarySuggestions = visibleSuggestions.slice(0, 1)
+  const remainingInsights = insights.slice(1)
+  const remainingSuggestions = visibleSuggestions.slice(1)
+  const remainingCount = remainingInsights.length + remainingSuggestions.length
+
+  return (
+    <section className="page-section-divider" aria-labelledby="overview-signals-title">
+      <div className="section-head">
+        <h2 id="overview-signals-title">Latest signals</h2>
+      </div>
+
+      <div className="divide-y divide-default border-y border-default">
+        {primaryInsights.map(renderInsight)}
+        {primarySuggestions.map(renderSuggestion)}
+      </div>
+      {remainingCount > 0 ? (
+        <details className="mt-2">
+          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+            {remainingCount} more {remainingCount === 1 ? 'signal' : 'signals'}
+          </summary>
+          <div className="mt-2 divide-y divide-default border-y border-default">
+            {remainingInsights.map(renderInsight)}
+            {remainingSuggestions.map(renderSuggestion)}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
 /**
  * Thin shell that guards on project-dashboard readiness. The real
  * component (`ProjectPageContent`) declares all the page's ~60 hooks,
@@ -1393,8 +1510,109 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
 
 type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
 
+export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }: {
+  items: ProjectTabItem[]
+  overflowItems: ProjectTabItem[]
+  settingsItem: ProjectTabItem | null
+  activeTab: ProjectPageTab
+}) {
+  const navRef = useRef<HTMLElement>(null)
+  const measurementRef = useRef<HTMLDivElement>(null)
+  const [layout, setLayout] = useState<{ visibleKeys: ProjectPageTab[]; settingsInMore: boolean } | null>(null)
+
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const measurements = measurementRef.current
+    if (!nav || !measurements) return
+    const measure = () => {
+      const available = nav.getBoundingClientRect().width
+      if (!available) return // Hidden surfaces are measured when they become visible.
+      const gap = Number.parseFloat(getComputedStyle(nav).columnGap) || 0
+      const widths = new Map([...measurements.querySelectorAll<HTMLElement>('[data-project-tab]')]
+        .map(element => [element.dataset.projectTab!, element.getBoundingClientRect().width]))
+      const widthOf = (key: string) => widths.get(key) ?? 0
+      const totalWidth = (keys: string[]) => keys.reduce((total, key) => total + widthOf(key), 0) + Math.max(0, keys.length - 1) * gap
+      const allKeys = [...items.map(item => item.key), ...(overflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
+      let visibleKeys = items.map(item => item.key)
+      let settingsInMore = false
+      if (totalWidth(allKeys) > available) {
+        // Keep the selected primary section in view, even when it is near the
+        // end of the tab list. Settings joins More only on very narrow panels.
+        const active = items.find(item => item.key === activeTab)
+        const selected = active ? [active.key] : []
+        settingsInMore = Boolean(settingsItem && totalWidth([...selected, 'more', settingsItem.key]) > available)
+        const trailing = ['more', ...(settingsItem && !settingsInMore ? [settingsItem.key] : [])]
+        for (const item of items) {
+          if (item.key === active?.key) continue
+          if (totalWidth([...selected, item.key, ...trailing]) > available) break
+          selected.push(item.key)
+        }
+        visibleKeys = items.filter(item => selected.includes(item.key)).map(item => item.key)
+      }
+      setLayout(previous => previous?.settingsInMore === settingsInMore && previous.visibleKeys.join() === visibleKeys.join()
+        ? previous
+        : { visibleKeys, settingsInMore })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(nav)
+    observer.observe(measurements) // Font loading or changed labels can alter item widths.
+    return () => observer.disconnect()
+  }, [items, overflowItems, settingsItem, activeTab])
+
+  const visibleItems = layout ? items.filter(item => layout.visibleKeys.includes(item.key)) : items
+  const menuItems = [
+    ...items.filter(item => !visibleItems.includes(item)),
+    ...overflowItems,
+    ...(layout?.settingsInMore && settingsItem ? [settingsItem] : []),
+  ]
+
+  return (
+    <nav className="project-subnav" aria-label="Project sections" ref={navRef}>
+      <div className="project-subnav-measure" aria-hidden="true">
+        <div className="project-subnav-measure-row" ref={measurementRef}>
+          {[...items, ...(settingsItem ? [settingsItem] : [])].map(item => (
+            <span className="project-subnav-link" key={item.key} data-project-tab={item.key}>{item.label}</span>
+          ))}
+          <span className="project-subnav-link project-subnav-more-trigger" data-project-tab="more">
+            More<ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        </div>
+      </div>
+      {visibleItems.map(item => (
+        <Link
+          key={item.key}
+          to={item.href}
+          search={previous => ({ ...previous, onboarding: undefined })}
+          className={`project-subnav-link ${item.key === activeTab ? 'project-subnav-link-active project-subnav-current' : ''}`}
+          aria-current={item.key === activeTab ? 'page' : undefined}
+        >
+          <span className="project-subnav-label">{item.label}</span>
+        </Link>
+      ))}
+      <div className="project-subnav-trailing">
+        <ProjectSubnavMore items={menuItems} activeTab={activeTab} />
+        {settingsItem && !layout?.settingsInMore && (
+          <Link
+            to={settingsItem.href}
+            search={previous => ({ ...previous, onboarding: undefined })}
+            className={`project-subnav-link ${activeTab === 'settings' ? 'project-subnav-link-active' : ''}`}
+            aria-current={activeTab === 'settings' ? 'page' : undefined}
+          >
+            {settingsItem.label}
+          </Link>
+        )}
+      </div>
+    </nav>
+  )
+}
+
 /**
- * Trailing overflow ("More") menu for low-frequency project sections (Report).
+ * Trailing overflow ("More") menu for sections that do not fit in the tab row.
  * A standard disclosure: button toggles a `role="menu"`, closes on outside
  * pointerdown, Escape, or item selection. Self-contained so its hooks don't
  * sit below ProjectPageContent's early returns. Lives here (not in its own
@@ -1403,13 +1621,27 @@ type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
 function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const initialFocus = useRef<'first' | 'last'>('first')
+  const menuId = useId()
+  const itemKeys = items.map(item => item.key).join()
+  useEffect(() => { setOpen(false) }, [itemKeys])
+  useEffect(() => {
+    if (!open) return
+    const menuItems = ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')
+    const selected = initialFocus.current === 'last' ? menuItems?.[menuItems.length - 1] : menuItems?.[0]
+    selected?.focus()
+  }, [open])
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -1426,21 +1658,47 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
     <div className="project-subnav-more" ref={ref}>
       <button
         type="button"
+        ref={triggerRef}
         className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => { initialFocus.current = 'first'; setOpen(prev => !prev) }}
+        onKeyDown={event => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+          event.preventDefault()
+          initialFocus.current = event.key === 'ArrowUp' ? 'last' : 'first'
+          setOpen(true)
+        }}
       >
         More
         <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
       {open ? (
-        <div className="project-subnav-menu" role="menu">
+        <div className="project-subnav-menu" role="menu" id={menuId} aria-label="More project sections"
+          onKeyDown={event => {
+            const menuItems = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+            const current = menuItems.indexOf(document.activeElement as HTMLElement)
+            const next = event.key === 'Home' ? 0
+              : event.key === 'End' ? menuItems.length - 1
+                : event.key === 'ArrowDown' ? (current + 1) % menuItems.length
+                  : event.key === 'ArrowUp' ? (current - 1 + menuItems.length) % menuItems.length : null
+            if (next !== null) {
+              event.preventDefault()
+              menuItems[next]?.focus()
+            }
+          }}
+          onBlur={event => {
+            if (!ref.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
+          }}
+        >
           {items.map((item) => (
             <Link
               key={item.key}
               to={item.href}
+              search={previous => ({ ...previous, onboarding: undefined })}
               role="menuitem"
+              tabIndex={-1}
               className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
               aria-current={item.key === activeTab ? 'page' : undefined}
               onClick={() => setOpen(false)}
@@ -1470,6 +1728,8 @@ function ProjectPageContent({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canWrite } = useAccount()
+  const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
+  const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
   const projectName = model.project.name
   const measurementSetupQuery = useQuery({
@@ -1538,13 +1798,17 @@ function ProjectPageContent({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const appendQueries = useAppendQueries()
-  const projectSearchParams = useSearch({ strict: false }) as {
+  const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
     manageQueries?: boolean
     runId?: string
     siteHealthRunId?: string
     scope?: string
     class?: string
   }
+  const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  const updateVisibilitySearch = useCallback((patch: Record<string, unknown>) => {
+    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, patch) })
+  }, [navigate])
   const manageQueriesRequested = projectSearchParams.manageQueries === true
   const releaseInitialSiteHealthRun = useCallback(() => {
     void navigate({
@@ -1667,9 +1931,9 @@ function ProjectPageContent({
   } as const
   const advancedMeasurementOverviewQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions(advancedMeasurementOverviewQueryInput),
-    enabled: tab === 'overview'
-      && Boolean(projectName)
-      && activeMeasurementPlanSchemaVersion === 2,
+    // V2 results now come from visibility-report. Keep the legacy query shape
+    // only for the retained landing presentation; do not double-read evidence.
+    enabled: false,
     initialPageParam: advancedMeasurementOverviewQueryInput,
     getNextPageParam: (lastPage, pages) => {
       if (!lastPage.properties.nextCursor) return undefined
@@ -1702,8 +1966,7 @@ function ProjectPageContent({
     enabled: tab === 'overview'
       && Boolean(projectName)
       && activeMeasurementPlan !== null
-      && (activeMeasurementPlanSchemaVersion === 1
-        || hasExpandedAdvancedProperty && advancedMeasurementDisplayedRunId !== undefined),
+      && activeMeasurementPlanSchemaVersion === 1,
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1745,11 +2008,11 @@ function ProjectPageContent({
   // its denominator. All markets is a separate raw-evidence aggregate, never
   // an average of market percentages.
   const competitorLandscapeGroupKey = activeMeasurementPlanSchemaVersion === 2
-    && advancedMeasurementView.scope === 'group'
-    ? advancedMeasurementView.groupKey
+    && visibilitySelection.measurementScope === 'group'
+    ? visibilitySelection.measurementScopeKey
     : undefined
   const isAdvancedAllMarkets = activeMeasurementPlanSchemaVersion === 2
-    && advancedMeasurementView.scope === 'all'
+    && visibilitySelection.measurementScope === 'project'
   const selectedCompetitorLandscapeGroup = useMemo(() => {
     if (activeMeasurementPlan?.plan.schemaVersion !== 2 || !competitorLandscapeGroupKey) return undefined
     return activeMeasurementPlan.plan.groups.find(group => group.stableKey === competitorLandscapeGroupKey)
@@ -1762,7 +2025,7 @@ function ProjectPageContent({
       // Simple projects have no class control, so the card asks for the one
       // class a competitive reading can be built on. Pooling branded queries in
       // would hand the project its own name back as market share.
-      queryClass: activeMeasurementPlanSchemaVersion === 2 ? advancedMeasurementView.queryClass : 'non-brand' as const,
+      queryClass: activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.queryClass !== 'unknown' ? visibilitySelection.queryClass : 'non-brand' as const,
       ...(competitorLandscapeGroupKey ? { groupKey: competitorLandscapeGroupKey } : {}),
       ...(isAdvancedAllMarkets ? { scope: 'all-markets' as const } : {}),
     },
@@ -1770,6 +2033,9 @@ function ProjectPageContent({
   const competitorLandscapeReadEnabled = tab === 'overview'
     && Boolean(projectName)
     && !isMeasurementModeUnresolved
+    && (visibilitySelection.measurementScope === 'project' || activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.measurementScope === 'group')
+    && visibilitySelection.queryClass !== 'unknown'
+    && (activeMeasurementPlanSchemaVersion === 2 || visibilitySelection.queryClass !== 'branded')
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -1954,6 +2220,7 @@ function ProjectPageContent({
       || providerReady === undefined
       || measurementSetupQuery.isFetching)
   const sweepPrerequisitesReady = !sweepReadinessPending
+    && !providerReadinessFailed
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
@@ -2049,12 +2316,14 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
         projectLabel,
         sourceAction: 'project-run',
       })
+      setSweepConfirmationProject(null)
       void refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
@@ -2277,7 +2546,7 @@ function ProjectPageContent({
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
     { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
@@ -2315,7 +2584,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          <p className="text-sm text-muted">{model.dateRangeLabel}</p>
+          <p className="text-sm text-muted">{tab === 'overview' ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
           {!isEmbed() && (isDashboardManagedSweeps() ? (
             <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (
@@ -2334,7 +2603,7 @@ function ProjectPageContent({
                   ? () => { void measurementSetupQuery.refetch() }
                   : sweepSetupRequired
                     ? openAiVisibilitySetup
-                    : asyncHandler(handleTriggerRun)}
+                    : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
               >
                 {triggerRunMutation.isPending
                   ? 'Starting…'
@@ -2353,33 +2622,20 @@ function ProjectPageContent({
         </div>
       </div>
 
-      <nav className="project-subnav" aria-label="Project sections">
-        {projectTabItems.map((item) => {
-          return (
-            <Link
-              key={item.key}
-              to={item.href}
-              className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
-              aria-current={item.key === tab ? 'page' : undefined}
-            >
-              {item.label}
-            </Link>
-          )
-        })}
-        <div className="project-subnav-trailing">
-          <ProjectSubnavMore items={projectOverflowTabItems} activeTab={tab} />
-          {projectSettingsTab && (
-            <Link
-              key={projectSettingsTab.key}
-              to={projectSettingsTab.href}
-              className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
-              aria-current={tab === 'settings' ? 'page' : undefined}
-            >
-              {projectSettingsTab.label}
-            </Link>
-          )}
-        </div>
-      </nav>
+      {!isEmbed() && !isDashboardManagedSweeps() && <ProjectSweepConfirmation
+        open={sweepConfirmationProject === projectName}
+        projectLabel={projectLabel}
+        onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
+        onConfirm={asyncHandler(handleTriggerRun)}
+        onClosed={() => sweepOpener.current?.focus()}
+        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady}
+      />}
+      <ProjectSubnav
+        items={projectTabItems}
+        overflowItems={projectOverflowTabItems}
+        settingsItem={projectSettingsTab}
+        activeTab={tab}
+      />
 
       {tab === 'portfolio' && !isEmbed() ? (
         <AdvancedMeasurementSection
@@ -2440,7 +2696,19 @@ function ProjectPageContent({
               </Button>
             </div>
           ) : null}
-          <AdvancedMeasurementLanding
+          <VisibilityWorkspace
+            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
+            projectName={projectName}
+            selection={visibilitySelection}
+            showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
+              && visibilitySelection.measurementScope === 'project'
+              && visibilitySelection.queryClass === 'non-brand'
+              && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
+              && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
+              && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}
+            onSelectionChange={updateVisibilitySearch}
+            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+            fallback={<AdvancedMeasurementLanding
             key={`${projectName}:${activeMeasurementRevision}`}
             mode={advancedMeasurementMode}
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
@@ -2503,22 +2771,7 @@ function ProjectPageContent({
 
           </section>
 
-          <section className="page-section-divider">
-            <CompetitorLandscape
-              window={competitorLandscapeWindow}
-              landscape={competitorLandscapeQuery.data}
-              pinnedFallback={projectPinnedCompetitorFallback}
-              canWrite={canWrite}
-              isEmbed={isEmbed()}
-              onWindowChange={setCompetitorLandscapeWindow}
-              onPin={canWrite && !isEmbed() ? handleAddCompetitor : undefined}
-              onUnpin={canWrite && !isEmbed() ? handleRemoveCompetitor : undefined}
-              onAddCompetitor={canWrite && !isEmbed() ? handleAddCompetitor : undefined}
-              error={competitorLandscapeError}
-              onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
-              isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
-            />
-          </section>
+
 
           <OverviewDisclosure
             id="evidence-section"
@@ -2720,9 +2973,19 @@ function ProjectPageContent({
             isLoadingMore={advancedMeasurementOverviewQuery.isFetchingNextPage}
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
-          />
-          {advancedMeasurementMode.surface !== 'simple-overview' ? (
-            <section className="page-section-divider">
+          />} />
+          {visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
+            <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
+            <OverviewSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+            />
+          </details> : null}
+          {competitorLandscapeReadEnabled ? (
+            <details className="page-section-divider">
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Competitor history</summary>
+              <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
               <CompetitorLandscape
                 window={competitorLandscapeWindow}
                 landscape={competitorLandscapeQuery.data}
@@ -2750,10 +3013,10 @@ function ProjectPageContent({
                 onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
                 isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
                 scopeLabel={competitorLandscapeGroupKey
-                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} market`
+                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
                   : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
               />
-            </section>
+            </details>
           ) : null}
         </>
         )
@@ -2831,8 +3094,18 @@ function ProjectPageContent({
         </>
       ) : tab === 'report' ? (
         <ReportPage projectName={model.project.name} />
-      ) : tab === 'discovery' ? (
-        <DiscoverySection projectName={projectName} />
+      ) : tab === 'queries' || tab === 'discovery' ? (
+        <QueriesSection
+          projectName={projectName}
+          queryWorkspace={projectSearchParams.queryWorkspace === 'research' || (tab === 'discovery' && projectSearchParams.queryWorkspace === undefined) ? 'research' : 'tracked'}
+          onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
+          researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
+          onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}
+          selection={visibilitySelection}
+          onSelectionChange={updateVisibilitySearch}
+          trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
+          onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
+        />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection
           projectName={model.project.name}

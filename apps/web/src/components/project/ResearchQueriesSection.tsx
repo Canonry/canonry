@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Play } from 'lucide-react'
 import {
@@ -23,19 +23,30 @@ import { safeExternalUrl } from '../../lib/safe-url.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { Button } from '../ui/button.js'
+import { useAccount } from '../../contexts/account-context.js'
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.queued,
   ResearchRunStatuses.running,
 ])
 
-export function ResearchQueriesSection({ projectName }: { projectName: string }) {
+export function ResearchQueriesSection({
+  projectName,
+  onReviewForTracking,
+}: {
+  projectName: string
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   const queryClient = useQueryClient()
+  const { canWrite } = useAccount()
   const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
-  const [locationChoice, setLocationChoice] = useState('__default__')
+  const [locationChoice, setLocationChoice] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const retryRequest = useRef<{ fingerprint: string; key: string } | null>(null)
+  const submitInFlight = useRef(false)
 
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
@@ -53,7 +64,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
     }),
     refetchInterval: (query) => query.state.data?.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status)) ? 3000 : false,
   })
-  const runs = runsQuery.data?.runs ?? []
+  const runs = runsQuery.isError ? [] : runsQuery.data?.runs ?? []
 
   useEffect(() => {
     if (!selectedRunId && runs[0]) setSelectedRunId(runs[0].id)
@@ -65,10 +76,10 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
       client: heyClient,
       path: { name: projectName, runId: selectedRunId ?? '' },
     }),
-    enabled: Boolean(selectedRunId),
+    enabled: !runsQuery.isError && Boolean(selectedRunId),
     refetchInterval: selectedRun && ACTIVE_RESEARCH_STATUSES.has(selectedRun.status) ? 3000 : false,
   })
-  const detail = detailQuery.data ?? null
+  const detail = runsQuery.isError || detailQuery.isError ? null : detailQuery.data ?? null
 
   const submittedQueries = useMemo(() => normalizeResearchQueries(queryText), [queryText])
   const locations = projectQuery.data?.locations ?? []
@@ -82,15 +93,43 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
-    if (provider && !selectedProvider) {
-      setProvider('')
-      setModel('')
+    if (!provider && projectQuery.data && !projectQuery.isError && !settingsQuery.isError) {
+      const preferred = projectQuery.data.providers.find(name => providerOptions.some(item => item.name === name))
+      setProvider(preferred ?? providerOptions[0]?.name ?? '')
     }
-  }, [provider, selectedProvider])
+  }, [provider, providerOptions, projectQuery.data, projectQuery.isError, settingsQuery.isError])
+
+  useEffect(() => {
+    if (!locationChoice && projectQuery.data && !projectQuery.isError) {
+      setLocationChoice(projectQuery.data.defaultLocation ?? '__none__')
+    }
+  }, [locationChoice, projectQuery.data, projectQuery.isError])
+
+  const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
+  const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
+  const resolvedModel = (configurableModel ? model.trim() : '')
+    || (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '')
+    || selectedProvider?.catalog.defaultModel
+  const payload = selectedProvider && selectedLocation !== undefined && resolvedModel ? {
+    queries: submittedQueries,
+    provider: selectedProvider.name,
+    ...(configurableModel ? { model: resolvedModel } : {}),
+    location: selectedLocation,
+  } : null
+  const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
+  const canSubmit = canWrite && !isEmbed() && payload !== null
+    && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
+    && !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching
+    && submittedQueries.length > 0 && submittedQueries.length <= 50
+
+  useEffect(() => {
+    if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = null
+  }, [fingerprint])
 
   const researchMutation = useMutation({
     ...postApiV1ProjectsByNameResearchRunsMutation(),
     onSuccess: async (run) => {
+      retryRequest.current = null
       setSelectedRunId(run.id)
       setQueryText('')
       setModel('')
@@ -110,23 +149,21 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
         tone: 'negative',
       })
     },
+    onSettled: () => { submitInFlight.current = false },
   })
 
   function submitResearch() {
-    if (submittedQueries.length === 0 || submittedQueries.length > 50 || noConfiguredApiProviders || researchMutation.isPending || isEmbed()) return
-    const location = locationChoice === '__default__'
-      ? undefined
-      : locationChoice === '__none__'
-        ? null
-        : locations.find(item => item.label === locationChoice) ?? undefined
+    if (!canSubmit || researchMutation.isPending || submitInFlight.current || !payload || !fingerprint) return
+    submitInFlight.current = true
+    if (retryRequest.current?.fingerprint !== fingerprint) {
+      retryRequest.current = { fingerprint, key: crypto.randomUUID() }
+    }
     researchMutation.mutate({
       client: heyClient,
       path: { name: projectName },
       body: {
-        queries: submittedQueries,
-        ...(provider ? { provider } : {}),
-        ...(provider && model.trim() ? { model: model.trim() } : {}),
-        ...(location !== undefined ? { location } : {}),
+        ...payload,
+        idempotencyKey: retryRequest.current.key,
       },
     })
   }
@@ -137,9 +174,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
         <Card className="surface-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow eyebrow-soft">New batch</p>
-              <h3>Research queries</h3>
-              <p className="mt-1 max-w-xl text-sm leading-6 text-muted">Run specific queries against one API model and keep the answers as a separate research record.</p>
+              <h3>Test queries</h3>
             </div>
           </div>
           <div className="mt-4 space-y-4">
@@ -150,6 +185,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
                 className="mt-1 min-h-36 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                 placeholder={'one query per line\ne.g. What is the best way to choose an AEO platform?'}
                 value={queryText}
+                aria-label="Queries"
                 onChange={(event) => setQueryText(event.target.value)}
                 aria-describedby="research-query-count"
               />
@@ -167,7 +203,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
                   value={provider}
                   onChange={(event) => { setProvider(event.target.value); setModel('') }}
                 >
-                  <option value="">Project default</option>
+                  <option value="" disabled>Choose a provider</option>
                   {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
                 </select>
               </label>
@@ -179,7 +215,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
                   value={locationChoice}
                   onChange={(event) => setLocationChoice(event.target.value)}
                 >
-                  <option value="__default__">Project default</option>
+                  <option value="" disabled>Choose a location</option>
                   <option value="__none__">No location</option>
                   {locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}
                 </select>
@@ -192,9 +228,9 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
                 id="research-model"
                 list="research-known-models"
                 className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder={selectedProvider ? `Default: ${selectedProvider.model ?? selectedProvider.defaultModel ?? selectedProvider.catalog.defaultModel}` : 'Choose a provider to select an exact model'}
+                placeholder={resolvedModel ? `Current: ${resolvedModel}` : 'Choose a provider to select an exact model'}
                 value={model}
-                disabled={!selectedProvider}
+                disabled={!selectedProvider || !configurableModel}
                 onChange={(event) => setModel(event.target.value)}
               />
               <datalist id="research-known-models">
@@ -207,7 +243,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
                 <WriteButton
                   type="button"
                   size="sm"
-                  disabled={submittedQueries.length === 0 || submittedQueries.length > 50 || noConfiguredApiProviders || researchMutation.isPending}
+                  disabled={!canSubmit || researchMutation.isPending}
                   onClick={submitResearch}
                 >
                   <Play size={14} />
@@ -216,7 +252,10 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
               )}
               <p className="text-xs leading-5 text-muted">Saved to research history. Nothing is added to tracked queries.</p>
             </div>
-            {noConfiguredApiProviders && (
+            {payload ? <p className="text-xs text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p> : null}
+            {settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+            {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
+            {!settingsQuery.isError && noConfiguredApiProviders && (
               <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
                 Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.
               </p>
@@ -232,7 +271,7 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
             </div>
             {runsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
           </div>
-          {runs.length === 0 ? (
+          {runsQuery.isError ? <div role="alert" className="mt-4 text-sm text-negative"><p>Could not load research history.</p><Button variant="outline" onClick={() => { void runsQuery.refetch() }}>Retry history</Button></div> : runsQuery.isPending ? <p role="status">Loading research history…</p> : runs.length === 0 ? (
             <p className="mt-4 text-sm text-muted">No research batches yet. Add one or more queries to begin.</p>
           ) : (
             <div className="mt-4 overflow-x-auto">
@@ -255,12 +294,20 @@ export function ResearchQueriesSection({ projectName }: { projectName: string })
         </Card>
       </div>
 
-      <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} />
+      {!runsQuery.isError && detailQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !runsQuery.isError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={onReviewForTracking} /> : null}
     </div>
   )
 }
 
-function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto | null; isLoading: boolean }) {
+function ResearchRunDetail({
+  detail,
+  isLoading,
+  onReviewForTracking,
+}: {
+  detail: ResearchRunDetailDto | null
+  isLoading: boolean
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -297,14 +344,22 @@ function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto
               </tbody>
             </table>
           </div>
-          <ResearchAnswer query={selected} isLoading={isLoading} />
+          <ResearchAnswer query={selected} isLoading={isLoading} onReviewForTracking={onReviewForTracking} />
         </div>
       )}
     </Card>
   )
 }
 
-function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | null; isLoading: boolean }) {
+function ResearchAnswer({
+  query,
+  isLoading,
+  onReviewForTracking,
+}: {
+  query: ResearchRunQueryDto | null
+  isLoading: boolean
+  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+}) {
   if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading saved answers…' : 'Select a query to inspect its answer.'}</p>
   return (
     <div className="space-y-4 border-t border-default pt-4 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
@@ -312,6 +367,14 @@ function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | nul
         <p className="text-[10px] uppercase tracking-wide text-muted">Selected query</p>
         <p className="mt-1 text-sm font-medium leading-6 text-heading">{query.query}</p>
       </div>
+      {!isEmbed() && onReviewForTracking && (
+        <div className="rounded-md border border-default bg-surface-subtle px-3 py-3">
+          <WriteButton type="button" size="sm" onClick={() => onReviewForTracking({ researchRunQueryId: query.id })}>
+            Review for tracking
+          </WriteButton>
+          <p className="mt-2 text-xs leading-5 text-muted">Only this saved query text enters tracking review. Its answer remains research evidence.</p>
+        </div>
+      )}
       {query.error ? (
         <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
       ) : query.answerText ? (

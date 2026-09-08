@@ -20,6 +20,8 @@ export const PROJECT_QUERY_DOMAINS = {
   traffic: 'getApiV1ProjectsByNameTraffic',
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
+  visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
+  queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   runs: 'getApiV1ProjectsByNameRuns',
 } as const
@@ -35,6 +37,24 @@ export function invalidateProjectQueryDomain(
     predicate: (query) => {
       const head = query.queryKey[0] as { _id?: string } | undefined
       return typeof head?._id === 'string' && head._id.startsWith(prefix)
+    },
+  })
+}
+
+/** Query publication changes live assignments and the measurement revision. */
+export function invalidateQueryTrackingPublication(
+  queryClient: Pick<QueryClient, 'invalidateQueries'>,
+  projectName: string,
+): Promise<void> {
+  return queryClient.invalidateQueries({
+    predicate: query => {
+      const head = query.queryKey[0] as { _id?: string; path?: { name?: string } } | undefined
+      if (head?.path?.name !== projectName || typeof head._id !== 'string') return false
+      return head._id.startsWith('getApiV1ProjectsByNameMeasurement')
+        || head._id === PROJECT_QUERY_DOMAINS.queryTracking
+        || head._id === PROJECT_QUERY_DOMAINS.visibilityReport
+        || head._id === 'getApiV1ProjectsByNameQueries'
+        || head._id === 'getApiV1ProjectsByName'
     },
   })
 }
