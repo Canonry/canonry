@@ -3,7 +3,9 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
+import { dashboardManagedSweepsSchema } from '@ainyc/canonry-config'
 import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { CliError } from './cli-error.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
@@ -350,6 +352,9 @@ export interface DashboardConfigEntry {
    * or CLI update notice.
    */
   showUpdateNotification?: boolean
+
+  /** Hide dashboard sweep controls; operators can still use `canonry run`. Defaults to false. */
+  managedSweeps?: boolean | null
 }
 
 /**
@@ -532,6 +537,15 @@ export function loadConfig(): CanonryConfig {
       'Keep the original API key and database path. Do not share secrets.\n' +
       'Do not use "canonry init --force" for recovery. It replaces credentials without a backup.',
     )
+  }
+
+  // Validate only the new field, without cloning/reordering the dashboard or
+  // tightening validation of legacy fields (including blank YAML values).
+  if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
+    })
   }
 
   // Migrate legacy geminiApiKey to providers map

@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Minus } from 'lucide-react'
 import type { CitationCoverageProvider, CitationVisibilityResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameCitationsVisibilityOptions } from '@ainyc/canonry-api-client/react-query'
-import { heyClient } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps } from '../../api.js'
+import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ProviderBadge } from '../shared/ProviderBadge.js'
@@ -45,10 +46,10 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
             <h2>Citation + answer-mention coverage</h2>
           </div>
         </div>
-        <p className="text-sm text-muted">
+        <p className={isDashboardManagedSweeps() ? 'text-sm text-secondary' : 'text-sm text-muted'}>
           {data.reason === 'no-queries'
             ? 'Add queries to start tracking AI citations.'
-            : 'Run a sweep to see which engines cite this project.'}
+            : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a sweep to see which engines cite this project.'}
         </p>
       </section>
     )

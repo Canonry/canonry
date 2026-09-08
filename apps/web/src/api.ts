@@ -174,6 +174,7 @@ declare global {
       dashboard?: {
         showResourceLinks?: boolean
         showUpdateNotification?: boolean
+        managedSweeps?: boolean
         showAgentBar?: boolean
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
@@ -294,6 +295,12 @@ export function shouldShowDashboardAgentBar(): boolean {
 export function shouldShowDashboardUpdateNotification(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showUpdateNotification !== false
+}
+
+/** Presentation only; manual operator sweeps remain available through the CLI. */
+export function isDashboardManagedSweeps(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.__CANONRY_CONFIG__?.dashboard?.managedSweeps === true
 }
 
 /**

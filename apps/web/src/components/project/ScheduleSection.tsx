@@ -8,7 +8,8 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, type ApiSchedule } from '../../api.js'
+import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
+import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 
 // --- Schedule helpers ---
 const FREQ_OPTIONS = [
@@ -39,6 +40,8 @@ const COMMON_TIMEZONES = [
 
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
+  const managedSweeps = isDashboardManagedSweeps()
+  const canManageSchedule = !isEmbed() && !managedSweeps
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [freq, setFreq] = useState('daily')
@@ -105,6 +108,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   }
 
   const startEditing = () => {
+    if (!canManageSchedule) return
     loadScheduleIntoEditor(schedule)
     setError(null)
     setEditing(true)
@@ -135,6 +139,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   }
 
   const handleSave = async () => {
+    if (!canManageSchedule) return
     if (scheduleChangedElsewhere || editingVersion === undefined) return
     setSaving(true)
     setError(null)
@@ -176,7 +181,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   }
 
   const handleToggleEnabled = async () => {
-    if (!schedule) return
+    if (!canManageSchedule || !schedule) return
     const editingScheduleVersion = schedule.updatedAt
     setSaving(true)
     setError(null)
@@ -215,7 +220,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   }
 
   const handleRemove = async () => {
-    if (!schedule) return
+    if (!canManageSchedule || !schedule) return
     const removingScheduleVersion = schedule.updatedAt
     setRemoving(true)
     setError(null)
@@ -245,7 +250,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Scheduled runs</h2>
         </div>
-        {!isEmbed() && !scheduleLoading && !loadFailed && !editing && (
+        {canManageSchedule && !scheduleLoading && !loadFailed && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
             {schedule ? 'Edit schedule' : '+ Set schedule'}
           </Button>
@@ -273,7 +278,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
       {!scheduleLoading && !loadFailed && !editing && schedule === null && (
         <Card className="surface-card compact-card">
-          <p className="supporting-copy">No schedule configured. Set one to automatically trigger visibility sweeps.</p>
+          <p className="supporting-copy">{managedSweeps ? MANAGED_SWEEPS_COPY : 'No schedule configured. Set one to automatically trigger visibility sweeps.'}</p>
         </Card>
       )}
 
@@ -281,6 +286,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
+              {managedSweeps && <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
               <p className="text-sm font-medium text-strong">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
               <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
               {schedule.nextRunAt && (
@@ -294,12 +300,12 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>
                 {schedule.enabled ? 'Active' : 'Paused'}
               </ToneBadge>
-              {!isEmbed() && (
+              {canManageSchedule && (
                 <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
                   {schedule.enabled ? 'Pause' : 'Resume'}
                 </Button>
               )}
-              {!isEmbed() && (
+              {canManageSchedule && (
                 <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
                   {removing ? 'Removing...' : 'Remove'}
                 </Button>
@@ -309,7 +315,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         </Card>
       )}
 
-      {!isEmbed() && editing && (
+      {canManageSchedule && editing && (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
           {scheduleChangedElsewhere && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">

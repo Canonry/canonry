@@ -3,7 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, projects, runs, users, type DatabaseClient } from '@ainyc/canonry-db'
+import { hashUserPassword } from '@ainyc/canonry-api-routes'
 import { RunKinds } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import type { CanonryConfig } from '../src/config.js'
@@ -19,6 +20,7 @@ const EMBED_ENV = [
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
+  'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_ONBOARDING_MODE',
 ] as const
 
@@ -220,6 +222,34 @@ describe('server embed mode (#716)', () => {
       expect(res.body).toContain(
         '<script>window.__CANONRY_CONFIG__={"dashboard":{"showUpdateNotification":false}}</script>',
       )
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    [undefined, undefined, false],
+    [undefined, null, false],
+    [undefined, false, false],
+    [undefined, true, true],
+    ['1', false, true],
+    ['0', true, false],
+    ['invalid', true, true],
+  ] as const)('managed sweeps env=%s config=%s injects only the opt-in', async (env, configured, expected) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_MANAGED_SWEEPS = env
+    const { app, cleanup } = await buildServer(undefined, true, {
+      basePath: '/console',
+      dashboard: { showResourceLinks: false, ...(configured === undefined ? {} : { managedSweeps: configured }) },
+    })
+    try {
+      const expectedConfig = JSON.stringify({ basePath: '/console/', dashboard: {
+        showResourceLinks: false, ...(expected ? { managedSweeps: true } : {}),
+      } })
+      for (const url of ['/console/', '/console/projects/example']) {
+        const response = await app.inject({ method: 'GET', url })
+        const injected = response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]
+        expect(injected).toBe(expectedConfig)
+      }
     } finally {
       await cleanup()
     }
@@ -596,6 +626,35 @@ describe('server embed mode (#716)', () => {
         const res = await app.inject({ ...req, headers: auth })
         expect(res.statusCode, `${req.method} should be forbidden for a read-only key`).toBe(403)
         expect(JSON.parse(res.body).error.code).toBe('FORBIDDEN')
+      }
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([false, true])('managedSweeps=%s preserves viewer and read-only sweep authorization', async managedSweeps => {
+    const { app, db, cleanup } = await buildServer(undefined, true, { dashboard: { managedSweeps } })
+    try {
+      seedProject(db, 'managed_project', 'managed-project')
+      const rawReadKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+      db.insert(apiKeys).values({
+        id: 'read-key', name: 'read-key', scopes: ['read'],
+        keyHash: crypto.createHash('sha256').update(rawReadKey).digest('hex'),
+        keyPrefix: rawReadKey.slice(0, 9), createdAt: new Date().toISOString(),
+      }).run()
+      const password = 'a-long-enough-viewer-password'
+      db.insert(users).values({
+        id: 'viewer', name: 'viewer', nameKey: 'viewer', role: 'viewer',
+        passwordHash: await hashUserPassword(password), createdAt: new Date().toISOString(),
+      }).run()
+      const browserHeaders = { origin: 'http://localhost:4100', host: 'localhost:4100' }
+      const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: browserHeaders, payload: { name: 'viewer', password } })
+      expect(login.statusCode).toBe(200)
+      const cookie = login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ')
+      for (const headers of [{ authorization: `Bearer ${rawReadKey}` }, { ...browserHeaders, cookie }]) {
+        const response = await app.inject({ method: 'POST', url: '/api/v1/projects/managed-project/runs', headers, payload: {} })
+        expect(response.statusCode).toBe(403)
+        expect(db.select().from(runs).all()).toHaveLength(0)
       }
     } finally {
       await cleanup()

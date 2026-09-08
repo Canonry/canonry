@@ -270,6 +270,11 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 
 ## Common Mistakes
 
+- `CANONRY_DASHBOARD_MANAGED_SWEEPS` overrides `dashboard.managedSweeps` and
+  defaults to false. Inject `dashboard.managedSweeps` only when true. This is
+  presentation only: all dashboard roles lose manual sweep controls, while
+  `canonry run <project>` remains the operator lever. See `docs/deployment.md`.
+
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.

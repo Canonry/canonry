@@ -70,6 +70,28 @@ notices active.
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
 
+### Managed sweeps
+
+Set `CANONRY_DASHBOARD_MANAGED_SWEEPS=1` or `dashboard.managedSweeps: true`
+for a deployment where your team runs AI Visibility sweeps for clients.
+The environment variable overrides config.yaml; `0` restores the controls.
+Restart the server with the updated environment after deploying this version.
+
+Simple and Advanced Measurement dashboards replace sweep launch controls with
+the enabled answer-visibility schedule's actual `nextRunAt`, displayed in UTC.
+Without a usable next-run time, they show “Sweeps are run by your Canonry team”.
+Site Health scans and other run kinds keep their controls.
+Running sweeps, baseline results, and failure details remain visible. Project
+Settings shows the schedule without controls to change it. Dashboard Aero uses
+read-only tools and disables its sweep shortcut and write-scope toggle.
+
+This hides sweep controls for **all dashboard roles, including admins**.
+Operators retain `canonry run <project>` against the managed instance as the
+manual lever. CLI, API, MCP, scheduling, and authorization are unchanged.
+Viewer sessions and read-only keys still cannot start sweeps, regardless of
+this presentation flag. Unset or false preserves the existing dashboard and
+injects no additional client config.
+
 ### Embed fonts
 
 Canonry ignores the `font` key in `embed.theme` and `X-Canonry-Embed-Theme`.

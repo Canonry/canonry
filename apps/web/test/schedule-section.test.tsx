@@ -9,6 +9,7 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
   focusManager.setFocused(undefined)
 })
 
@@ -29,6 +30,26 @@ function makeSchedule(overrides: Partial<ApiSchedule> = {}): ApiSchedule {
     ...overrides,
   }
 }
+
+test.each(['absent', 'active', 'paused'] as const)('managed %s schedule stays readable without mutation controls', async state => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  const restore = mockFetch((_url, init) => {
+    expect(init?.method).toBe('GET')
+    return jsonResponse(state === 'absent' ? [] : [makeSchedule({ enabled: state === 'active' })])
+  })
+  onTestFinished(restore)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+
+  if (state !== 'absent') {
+    expect(await screen.findByText('0 6 * * *')).toBeTruthy()
+    expect(screen.getByText(state === 'active' ? 'Active' : 'Paused')).toBeTruthy()
+  }
+  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
+  expect(screen.queryByText(/Set one to automatically trigger/)).toBeNull()
+  expect(screen.queryByRole('combobox')).toBeNull()
+})
 
 test('discovers an existing schedule through the zero-noise collection read', async () => {
   let scheduleReads = 0

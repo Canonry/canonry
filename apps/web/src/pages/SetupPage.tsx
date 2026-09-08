@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
+import { isDashboardManagedSweeps } from '../api.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
@@ -883,6 +885,7 @@ function ReadySetupPage({
   }
 
   const handleLaunchRun = async () => {
+    if (isDashboardManagedSweeps()) return
     if (!createdProjectName || launchBlockedReason) {
       setRunError(launchBlockedReason ?? 'Complete setup before launching the first sweep.')
       const reasonCode = systemBlockReason
@@ -1528,7 +1531,7 @@ function ReadySetupPage({
             <div className="section-head">
               <div>
                 <p className="eyebrow eyebrow-soft">{isProjectScoped ? 'Step 2 of 2' : 'Step 5 of 5'}</p>
-                <h2>Launch first run</h2>
+                <h2>{isDashboardManagedSweeps() ? 'AI Visibility' : 'Launch first run'}</h2>
               </div>
               {stepBadge}
             </div>
@@ -1542,6 +1545,15 @@ function ReadySetupPage({
                   <Button type="button" onClick={openProjectDashboard}>
                     {siteHealthOnboarding ? 'Finish and open project' : 'Open project dashboard →'}
                   </Button>
+                </div>
+              </div>
+            ) : !runTriggered && isDashboardManagedSweeps() ? (
+              <div className="compact-stack">
+                {createdProjectName ? <ManagedSweepStatus projectName={createdProjectName} /> : <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
+                {runError && <p role="alert" className="text-sm text-negative">{runError}</p>}
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
                 </div>
               </div>
             ) : !runTriggered ? (
@@ -1610,15 +1622,17 @@ function ReadySetupPage({
               <div className="compact-stack">
                 <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
                   <p>{runFailureDetail}</p>
-                  <p className="mt-1 text-xs text-secondary">Fix provider or query configuration if needed, then retry without leaving setup.</p>
+                  <p className="mt-1 text-xs text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Fix provider or query configuration if needed, then retry without leaving setup.'}</p>
                 </div>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" asChild>
                     <Link to="/settings">Configure providers</Link>
                   </Button>
-                  <Button type="button" disabled={runSaving || !!launchBlockedReason} onClick={asyncHandler(handleLaunchRun)}>
+                  {isDashboardManagedSweeps() ? (
+                    <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
+                  ) : <Button type="button" disabled={runSaving || !!launchBlockedReason} onClick={asyncHandler(handleLaunchRun)}>
                     {runSaving ? 'Retrying...' : 'Retry visibility sweep'}
-                  </Button>
+                  </Button>}
                 </div>
               </div>
             ) : (

@@ -6,7 +6,8 @@ import {
   getApiV1ProjectsByNameSnapshotsDiffOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps } from '../../api.js'
+import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { AuditHistoryPanel } from '../shared/AuditHistoryPanel.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
@@ -85,7 +86,7 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           {!healthQuery.isLoading && healthRows.length === 0 ? (
             <Card className="surface-card empty-card mt-4">
               <h3>No coverage history yet</h3>
-              <p>Complete an answer visibility sweep to create the first snapshot.</p>
+              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete an answer visibility sweep to create the first snapshot.'}</p>
             </Card>
           ) : null}
           {healthRows.length > 0 ? (
@@ -150,7 +151,7 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           {!runsQuery.isLoading && comparableRuns.length < 2 ? (
             <Card className="surface-card empty-card mt-4">
               <h3>Two completed sweeps are required</h3>
-              <p>Run another answer visibility sweep before comparing historical evidence.</p>
+              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another answer visibility sweep before comparing historical evidence.'}</p>
             </Card>
           ) : null}
           {diffQuery.data && changedRows.length === 0 ? (

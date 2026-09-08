@@ -18,7 +18,7 @@ import {
 import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
-import { heyClient } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
@@ -26,6 +26,7 @@ import {
 import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
+import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -157,6 +158,7 @@ function removePreference(key: string): void {
 }
 
 export function AeroBar({ projectName }: AeroBarProps) {
+  const managedSweeps = isDashboardManagedSweeps()
   const { canWrite } = useAccount()
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -177,10 +179,13 @@ export function AeroBar({ projectName }: AeroBarProps) {
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
   // visit, but key by project so the choice doesn't leak across tenants.
-  const [scope, setScope] = useState<AeroToolScope>(() => {
+  const [preferredScope, setScope] = useState<AeroToolScope>(() => {
     const stored = readPreference(SCOPE_PREF_KEY(projectName))
     return stored === 'all' ? 'all' : 'read-only'
   })
+  // A saved write preference cannot turn the managed dashboard into a sweep
+  // control. Keep it stored for operator deployments, but use read tools here.
+  const scope = managedSweeps ? 'read-only' : preferredScope
   const abortRef = useRef<AbortController | null>(null)
   const { ref: transcriptRef } = useChatScroll<HTMLDivElement>([messages, streamingText, liveTrail])
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -195,9 +200,10 @@ export function AeroBar({ projectName }: AeroBarProps) {
     if (/\s/.test(trimmed)) return []
     const q = trimmed.toLowerCase()
     return SLASH_COMMANDS.filter(
-      (cmd) => cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1)),
+      (cmd) => (!managedSweeps || cmd.command !== '/run-sweep')
+        && (cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1))),
     )
-  }, [draft])
+  }, [draft, managedSweeps])
 
   // Keep the selected index in range as matches narrow. Reset to 0 whenever
   // the palette toggles, so the top option is always the "enter to pick"
@@ -247,12 +253,13 @@ export function AeroBar({ projectName }: AeroBarProps) {
   )
 
   const toggleScope = useCallback(() => {
+    if (managedSweeps) return
     setScope((prev) => {
       const next: AeroToolScope = prev === 'all' ? 'read-only' : 'all'
       writePreference(SCOPE_PREF_KEY(projectName), next)
       return next
     })
-  }, [projectName])
+  }, [projectName, managedSweeps])
 
   // Escape key collapses expanded → compact first, then closes.
   useEffect(() => {
@@ -304,6 +311,10 @@ export function AeroBar({ projectName }: AeroBarProps) {
   async function send(promptText: string) {
     const trimmed = promptText.trim()
     if (!trimmed || streaming || !activeProvider) return
+    if (managedSweeps && /^\/run-sweep(?:\s|$)/i.test(trimmed)) {
+      setError(MANAGED_SWEEPS_COPY)
+      return
+    }
     setError(null)
     setDraft('')
     setStreaming(true)
@@ -565,6 +576,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
               activeProvider={activeProvider}
               scope={scope}
               onToggleScope={toggleScope}
+              scopeLocked={managedSweeps}
               disabled={streaming}
             />
             <div className="relative">
@@ -790,12 +802,14 @@ function ContextPills({
   activeProvider,
   scope,
   onToggleScope,
+  scopeLocked,
   disabled,
 }: {
   projectName: string
   activeProvider: AgentProviderOption | null
   scope: AeroToolScope
   onToggleScope: () => void
+  scopeLocked?: boolean
   disabled?: boolean
 }) {
   const providerLabel = activeProvider?.label.replace(/\s+\(.+\)$/, '') ?? null
@@ -806,7 +820,7 @@ function ContextPills({
       {providerLabel && (
         <><span aria-hidden="true">·</span><span>{providerLabel}</span></>
       )}
-      <button
+      {scopeLocked ? <span className="ml-auto">Read only</span> : <button
         type="button"
         onClick={onToggleScope}
         disabled={disabled}
@@ -822,7 +836,7 @@ function ContextPills({
         }
       >
         {writeMode ? 'Can make changes' : 'Read only'}
-      </button>
+      </button>}
     </div>
   )
 }

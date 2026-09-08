@@ -2,18 +2,20 @@
 
 ## Purpose
 
-Typed environment and configuration parsing. Single-file package that provides `loadConfig()` for reading `~/.canonry/config.yaml` and environment variables into a strongly-typed config object.
+Typed environment parsing and the managed-sweeps flag schema. `loadConfig()` and
+`saveConfigPatch()` live in `packages/canonry/src/config.ts`; `loadConfig()`
+validates only `dashboard.managedSweeps` with this package's scalar schema.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `src/index.ts` | Everything — config schema (Zod), `loadConfig()`, `saveConfigPatch()`, env var mapping |
+| `src/index.ts` | `dashboardManagedSweepsSchema`, `getPlatformEnv()`, `getBootstrapEnv()` |
 
 ## Patterns
 
 - **Config source priority**: Environment variables override `config.yaml` values.
-- **`loadConfig()`**: Returns a fully validated config object. Used by CLI commands (via `createApiClient()`) and the server.
+- **`loadConfig()`**: Loads config for CLI commands (via `createApiClient()`) and the server. Preserve legacy dashboard fields and their key order; never replace the block with schema parse output. An invalid `managedSweeps` raises a path-qualified `CliError` (exit 1). Missing or blank values leave the opt-in unset.
 - **`saveConfigPatch()`**: Merges partial updates into `~/.canonry/config.yaml`.
 - **Base path**: `CANONRY_BASE_PATH` env var and `basePath` in config.yaml are merged into `apiUrl`.
 

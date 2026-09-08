@@ -1,6 +1,9 @@
 import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
+/** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
+export const dashboardManagedSweepsSchema = z.boolean().nullish()
+
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
   API_PORT: z.coerce.number().int().positive().default(3000),

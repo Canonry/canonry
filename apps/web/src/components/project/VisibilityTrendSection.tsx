@@ -22,7 +22,8 @@ import {
   YAxis,
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { fetchAnalyticsMetrics } from '../../api.js'
+import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
+import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
   buildSelectedTrendRows,
@@ -682,7 +683,7 @@ export function VisibilityTrendSection({
         <p className="text-sm text-secondary">
           {metric === 'mentionShare'
             ? `No answer-text brand mentions for you or tracked competitors on ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
-            : 'Run a sweep to start tracking citations and mentions over time.'}
+            : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a sweep to start tracking citations and mentions over time.'}
         </p>
       )
     } else if (byProviderMode && series.length === 0) {

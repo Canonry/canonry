@@ -126,3 +126,13 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   expect(env.googleClientId).toBe('google-client-id')
   expect(env.googleClientSecret).toBe('google-client-secret')
 })
+
+test('managed-sweeps validation accepts booleans and blank values without injecting defaults', async () => {
+  const { dashboardManagedSweepsSchema } = await import('../src/index.js')
+  for (const value of [true, false, undefined, null]) {
+    expect(dashboardManagedSweepsSchema.parse(value)).toBe(value)
+  }
+  for (const value of ['true', 'false', 1, 0, {}, []]) {
+    expect(dashboardManagedSweepsSchema.safeParse(value).success).toBe(false)
+  }
+})
