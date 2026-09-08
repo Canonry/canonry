@@ -4038,6 +4038,36 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE measurement_plan_versions ADD COLUMN comparable_to_version_id TEXT`,
     ],
   },
+  {
+    // A simple (planless) run resolves its live inputs at dispatch, not queue
+    // time. The sidecar freezes only new captures; historic runs intentionally
+    // remain absent because no truthful definition can be reconstructed for
+    // them. It is deliberately separate from the advanced-plan manifest and
+    // checksum/continuity chain.
+    version: 150,
+    name: 'simple-measurement-definitions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS simple_measurement_definitions (
+        run_id      TEXT PRIMARY KEY NOT NULL,
+        project_id  TEXT NOT NULL,
+        definition  TEXT NOT NULL,
+        checksum    TEXT NOT NULL,
+        captured_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, run_id)
+          REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_simple_measurement_definitions_project
+        ON simple_measurement_definitions(project_id)`,
+      // Frozen input cannot be corrected in place: a retry must either reuse
+      // this exact definition or start a distinct run, never reinterpret a
+      // stored answer through newly-current project settings.
+      `CREATE TRIGGER IF NOT EXISTS simple_measurement_definitions_no_update
+        BEFORE UPDATE ON simple_measurement_definitions
+        BEGIN
+          SELECT RAISE(ABORT, 'simple measurement definition is immutable');
+        END`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

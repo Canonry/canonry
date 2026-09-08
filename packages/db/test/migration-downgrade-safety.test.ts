@@ -21,6 +21,10 @@ function tempDb() {
 const ADDITIVE = [
   /^CREATE TABLE IF NOT EXISTS/i,
   /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/i,
+  // v150's immutable-definition trigger only rejects UPDATE on a new sidecar
+  // table. It does not alter or rewrite legacy rows, and older binaries never
+  // write that table, so it is additive and safe across a binary rollback.
+  /^CREATE TRIGGER IF NOT EXISTS simple_measurement_definitions_no_update/i,
   /^ALTER TABLE \S+ ADD COLUMN/i,
 ]
 

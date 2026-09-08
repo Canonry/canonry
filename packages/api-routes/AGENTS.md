@@ -84,6 +84,16 @@ WordPress backfill is forbidden while either continuation field is set.
 
 ## Patterns
 
+### Simple measurement provenance
+
+`captureSimpleMeasurementDefinition` stores resolved inputs before a simple run calls providers.
+Capture requires a running, planless `answer-visibility` run and project-owned query IDs.
+First capture is refused if the run already has stored answers.
+Probe and advanced runs do not receive this definition.
+Identical capture is idempotent. Changed capture fails before provider work.
+The checksum includes capture time. It is not a cross-run comparability key.
+Historical runs receive no inferred definition. Reporting adapters do not consume this storage yet.
+
 ### Route file structure
 
 Each file exports an async Fastify plugin function:
