@@ -1,6 +1,6 @@
 {
   "_source": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
-  "creationTime": "2026-08-17T14:46:48.000000",
+  "creationTime": "2026-09-08T14:45:40.000000",
   "prefixes": [
     {
       "ipv4Prefix": "192.178.4.0/27"
@@ -238,6 +238,9 @@
     },
     {
       "ipv4Prefix": "66.249.68.192/27"
+    },
+    {
+      "ipv4Prefix": "66.249.68.224/27"
     },
     {
       "ipv4Prefix": "66.249.68.32/27"
@@ -664,6 +667,9 @@
     },
     {
       "ipv6Prefix": "2001:4860:4801:42::/64"
+    },
+    {
+      "ipv6Prefix": "2001:4860:4801:43::/64"
     },
     {
       "ipv6Prefix": "2001:4860:4801:44::/64"
