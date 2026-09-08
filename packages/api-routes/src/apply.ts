@@ -7,7 +7,7 @@ import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
-import { replaceProjectQueries } from './query-replace.js'
+import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
@@ -229,6 +229,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       // is not empty, and the audit row is skipped with it so the log never
       // claims a replacement that did not happen.
       if (managesQueries) {
+        assertQueryReplacementAllowed(tx, { projectId, projectName: name }, configQueries)
         replaceProjectQueries(tx, projectId, configQueries, now)
 
         writeAuditLog(tx, {
@@ -340,7 +341,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           diff: { notifications: config.spec.notifications },
         })
       }
-    })
+    }, { behavior: 'immediate' })
 
     // Fire callbacks after transaction commits.
     if (lifecycle.projectCreated) {

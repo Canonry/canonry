@@ -4,6 +4,9 @@ import {
   measurementCursorPageSchema,
   measurementPlanV2Schema,
   measurementQueryClassSchema,
+  measurementV2ReportingScopeSchema,
+  measurementV2ExecutionContextSchema,
+  measurementV2QueryProvenanceSchema,
   measurementV2CompetitorSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
@@ -70,9 +73,24 @@ export const measurementDraftAssignmentSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   queryId: measurementDraftQueryIdSchema,
   contextOverride: measurementDraftContextOverrideSchema.optional(),
+  /** Frozen contexts never expand against the current defaults. */
+  executionContexts: z.array(measurementV2ExecutionContextSchema.extend({
+    /** Imported plans may use keys other than compiler-generated hashes. */
+    executionNodeKey: z.string().min(1).optional(),
+  })).min(1).optional(),
+  /** Source facts retained when an active revision seeds a draft. */
+  queryProvenance: measurementV2QueryProvenanceSchema.optional(),
   queryClass: measurementDraftQueryClassSchema,
   classificationSource: measurementClassificationSourceSchema,
-}).strict()
+}).strict().superRefine((value, context) => {
+  if (value.contextOverride !== undefined && value.executionContexts !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['executionContexts'],
+      message: 'Use either frozen execution contexts or a context override, not both.',
+    })
+  }
+})
 export type MeasurementDraftAssignment = z.output<typeof measurementDraftAssignmentSchema>
 
 export const measurementDraftCompetitorSchema = measurementV2CompetitorSchema
@@ -105,6 +123,14 @@ export const measurementDraftDefaultContextSchema = z.object({
 export type MeasurementDraftDefaultContext = z.output<typeof measurementDraftDefaultContextSchema>
 
 /**
+ * Markets are frozen reporting selections. Draft actions retain them so a
+ * Target/query edit can rebuild or explicitly prune their exact edge members;
+ * they are never inferred from group membership.
+ */
+export const measurementDraftReportingScopeSchema = measurementV2ReportingScopeSchema
+export type MeasurementDraftReportingScope = z.output<typeof measurementDraftReportingScopeSchema>
+
+/**
  * Authoring intent only. Compiled nodes, usage edges, query snapshots and
  * derived counts are compiler output and never round-trip through a draft;
  * strictness is what keeps them out.
@@ -114,6 +140,7 @@ export const measurementDraftAuthoringSchema = z.object({
   targets: z.array(measurementDraftTargetSchema),
   assignments: z.array(measurementDraftAssignmentSchema),
   groups: z.array(measurementDraftGroupSchema),
+  reportingScopes: z.array(measurementDraftReportingScopeSchema).optional(),
   discovery: measurementDraftDiscoverySchema.optional(),
 }).strict()
 export type MeasurementDraftAuthoring = z.output<typeof measurementDraftAuthoringSchema>

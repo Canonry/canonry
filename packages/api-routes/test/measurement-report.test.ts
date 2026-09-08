@@ -138,6 +138,50 @@ describe('attribution', () => {
       id: 'harbor-edge', type: 'target', executionId: 'exec', targetId: 'harbor',
     }).classification).toBe('sibling')
   })
+
+  it('keeps cached URL winners equivalent across assigned, sibling, and ambiguous edge projections', () => {
+    const input: MeasurementReportInput = {
+      revision: 1,
+      ownedHosts: ['northstar.example'],
+      projectBrandNames: ['Northstar'],
+      projectDomain: 'northstar.example',
+      targets,
+      groups: [],
+      expectedSlots: [{ id: 'slot', executionId: 'exec', queryText: 'query', provider: 'openai', location: null }],
+      usageEdges: [
+        { id: 'north', type: 'target', executionId: 'exec', targetId: 'north' },
+        { id: 'harbor', type: 'target', executionId: 'exec', targetId: 'harbor' },
+        { id: 'shared-a', type: 'target', executionId: 'exec', targetId: 'shared-a' },
+      ],
+      observations: [{
+        id: 'observation', executionId: 'exec', queryText: 'query', provider: 'openai', location: null,
+        answerText: 'Northstar Harbor',
+        citedUrls: [
+          'https://northstar.example/locations/harbor/details',
+          'https://northstar.example/shared/article',
+        ],
+        citedUrlsComplete: true,
+      }],
+    }
+    let uniqueSources = 0
+    const report = buildMeasurementReport(input, { onSourceAttributionComputed: count => { uniqueSources = count } })
+    const edges = new Map(input.usageEdges.map(edge => [edge.id, edge]))
+
+    expect(uniqueSources).toBe(2)
+    expect(report.evidence.map(row => row.classification)).toEqual([
+      'assigned', 'ambiguous',
+      'sibling', 'ambiguous',
+      'sibling', 'ambiguous',
+    ])
+    for (const row of report.evidence) {
+      expect(row.classification).toBe(classifyCitedUrl(
+        row.sourceUrl,
+        input.targets,
+        input.ownedHosts,
+        edges.get(row.usageEdgeId)!,
+      ).classification)
+    }
+  })
 })
 
 describe('report kernel', () => {
@@ -391,14 +435,15 @@ describe('report kernel', () => {
     expect(buildMeasurementReport(shuffled)).toEqual(buildMeasurementReport(input))
   })
 
-  it('keeps a 200-target reporting denominator while deduplicating one shared execution', () => {
-    const portfolioTargets: MeasurementTargetInput[] = Array.from({ length: 200 }, (_, index) => ({
+  it('keeps a 225-target reporting denominator while attributing one shared source once', () => {
+    const portfolioTargets: MeasurementTargetInput[] = Array.from({ length: 225 }, (_, index) => ({
       id: `target-${String(index).padStart(3, '0')}`,
       label: `Target ${index}`,
       aliases: [`Target ${index}`],
       urls: [{ id: `target-${index}-url`, mode: 'prefix', host: 'portfolio.example', path: `/targets/target-${index}` }],
     }))
     const targetIds = portfolioTargets.map(target => target.id)
+    let uniqueSources = 0
     const report = buildMeasurementReport({
       revision: 1, ownedHosts: ['portfolio.example'], projectBrandNames: ['Portfolio'], projectDomain: 'portfolio.example',
       targets: portfolioTargets,
@@ -409,11 +454,12 @@ describe('report kernel', () => {
         id: 'observation', executionId: 'exec', queryText: 'query', provider: 'openai', location: null,
         answerText: 'Target 199', citedUrls: ['https://portfolio.example/targets/target-199/details'], citedUrlsComplete: true,
       }],
-    })
+    }, { onSourceAttributionComputed: count => { uniqueSources = count } })
 
     expect(report.groups[0]?.completeness).toMatchObject({ executed: 1, expected: 1, complete: true })
-    expect(report.groups[0]?.targetCoverage).toEqual({ numerator: 1, denominator: 200, rate: 1 / 200 })
-    expect(report.evidence.filter(row => row.usageEdgeType === 'target')).toHaveLength(200)
+    expect(report.groups[0]?.targetCoverage).toEqual({ numerator: 1, denominator: 225, rate: 1 / 225 })
+    expect(report.evidence.filter(row => row.usageEdgeType === 'target')).toHaveLength(225)
+    expect(uniqueSources).toBe(1)
   })
 })
 

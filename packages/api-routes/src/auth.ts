@@ -496,6 +496,7 @@ function isOverviewRead(url: string): boolean {
     'competitors',
     'timeline',
     'overview',
+    'visibility-report',
     'analytics/metrics',
     // Stored historical competitor evidence. This path does not call a
     // provider and write methods are refused before the tab allowlist.

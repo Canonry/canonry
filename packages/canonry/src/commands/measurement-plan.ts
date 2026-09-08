@@ -28,6 +28,9 @@ import {
   measurementQuerySetUpsertRequestSchema,
   measurementQueryTemplateApplyRequestSchema,
   measurementQueryTemplateUpsertRequestSchema,
+  visibilityReportRequestSchema,
+  queryTrackingPreviewRequestSchema,
+  queryTrackingCommitRequestSchema,
 } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 import { isMachineFormat, systemError } from '../cli-error.js'
@@ -54,6 +57,10 @@ function readDiscoveryRule(source: string): MeasurementDiscoveryRule {
  * replacement without post-processing.
  */
 export const ADVANCED_MEASUREMENT_OPERATIONS = [
+  'visibility',
+  'query-workspace',
+  'query-preview',
+  'query-commit',
   'setup',
   'overview',
   'portfolio-summary',
@@ -151,6 +158,19 @@ export async function runAdvancedMeasurementOperation(
   let result: unknown
 
   switch (operation) {
+    case 'visibility':
+      result = await client.getVisibilityReport(project, visibilityReportRequestSchema.parse(input))
+      break
+    case 'query-workspace':
+      advancedEmptyInputSchema.parse(input)
+      result = await client.getQueryTrackingWorkspace(project)
+      break
+    case 'query-preview':
+      result = await client.previewQueryTracking(project, queryTrackingPreviewRequestSchema.parse(input))
+      break
+    case 'query-commit':
+      result = await client.commitQueryTracking(project, queryTrackingCommitRequestSchema.parse(input))
+      break
     case 'setup':
       advancedEmptyInputSchema.parse(input)
       result = await client.getMeasurementSetup(project)

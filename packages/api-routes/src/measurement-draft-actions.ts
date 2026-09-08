@@ -252,6 +252,21 @@ function warn(code: string, message: string, path: (string | number)[]): Measure
   return { code, message, path }
 }
 
+/**
+ * Seeded v2 assignments carry exact frozen execution nodes. A routine
+ * assignment action must leave those alone unless the operator explicitly
+ * supplied a new mutable override; otherwise touching an audience would widen
+ * the old provider/model/location surface on the next publish.
+ */
+function withRequestedContext(
+  assignment: MeasurementDraftAssignment,
+  contextOverride: MeasurementDraftAssignmentAudienceRequest['contextOverride'],
+): MeasurementDraftAssignment {
+  if (contextOverride === undefined) return assignment
+  const { executionContexts: _frozenContexts, ...withoutFrozenContexts } = assignment
+  return { ...withoutFrozenContexts, contextOverride }
+}
+
 function upsertTarget(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
   const { target } = parseBody(measurementDraftUpsertTargetRequestSchema, body, 'upsert-target')
   const index = authoring.targets.findIndex(candidate => candidate.stableKey === target.stableKey)
@@ -421,8 +436,7 @@ export function applyAssignmentsToAuthoring(
       }
       const existing = assignments[index]!
       assignments[index] = {
-        ...existing,
-        ...(request.contextOverride ? { contextOverride: request.contextOverride } : {}),
+        ...withRequestedContext(existing, request.contextOverride),
         ...(existing.classificationSource === 'operator'
           ? {}
           : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),
@@ -538,8 +552,7 @@ function applyPairedAssignments(
     // An operator classification outranks the rule, exactly as in the cross-product path.
     const existing = assignments[index]!
     assignments[index] = {
-      ...existing,
-      ...(contextOverride ? { contextOverride } : {}),
+      ...withRequestedContext(existing, contextOverride),
       ...(existing.classificationSource === 'operator'
         ? {}
         : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),

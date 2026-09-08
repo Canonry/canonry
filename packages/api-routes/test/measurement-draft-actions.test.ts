@@ -40,6 +40,28 @@ const audienceContext = {
 }
 
 describe('measurement draft assignment scale', () => {
+  it.each(['apply-assignments', 'apply-paired-assignments'] as const)('keeps frozen contexts until %s explicitly replaces them', (action) => {
+    const authoring = audienceFixture()
+    authoring.assignments = [{
+      targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+      executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'imported-context' }],
+      queryProvenance: { source: 'research', sourceId: 'saved-test', capturedAt: '2026-08-01T00:00:00.000Z' },
+    }]
+    const selection = action === 'apply-assignments'
+      ? { targetKey: 'dallas-1', queryIds: ['q-market'] }
+      : { pairs: [{ targetKey: 'dallas-1', queryId: 'q-market' }] }
+    const unchanged = applyDraftAction(action, authoring, selection, audienceContext)
+    expect(unchanged.authoring.assignments).toEqual(authoring.assignments)
+    const changed = applyDraftAction(action, authoring, {
+      ...selection, contextOverride: { providers: ['gemini'], locations: [] },
+    }, audienceContext)
+    expect(changed.authoring.assignments[0]!.executionContexts).toBeUndefined()
+    expect(changed.authoring.assignments[0]!.contextOverride).toEqual({ providers: ['gemini'], locations: [] })
+    expect(changed.authoring.assignments[0]!.queryProvenance).toEqual(authoring.assignments[0]!.queryProvenance)
+    expect(measurementDraftAuthoringSchema.safeParse(changed.authoring).success).toBe(true)
+    expect(authoring.assignments[0]!.executionContexts).toHaveLength(1)
+  })
+
   it('applies one query to 200 selected Targets without mutating the input', () => {
     const authoring = measurementDraftAuthoringSchema.parse({
       defaultContext: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },

@@ -5,6 +5,7 @@ import {
   matcherMatchesText,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
+  measurementV2UsageEdgeKey,
   normalizeMeasurementExactUrl,
   normalizeMeasurementHost,
   normalizeMeasurementPathPrefix,
@@ -18,6 +19,7 @@ import {
   type MeasurementV2ExecutionNode,
   type MeasurementV2Group,
   type MeasurementV2QuerySnapshot,
+  type MeasurementV2ReportingScope,
   type MeasurementV2Target,
   type MeasurementV2UrlMatcher,
   type MeasurementV2UsageEdge,
@@ -151,6 +153,66 @@ interface CheckSink {
   warn(ruleId: string, message: string, path: (string | number)[]): void
 }
 
+/**
+ * A market persists exact frozen edge membership. Draft authoring can remove a
+ * question or change its context, so retain an exact surviving edge, remap a
+ * one-to-one target/query successor, or explicitly prune an ambiguous/deleted
+ * member with a visible warning. A group is never used as a fallback here.
+ */
+function rebuildReportingScopes(
+  requested: readonly MeasurementV2ReportingScope[] | undefined,
+  candidateEdges: readonly MeasurementV2UsageEdge[],
+  sink: CheckSink,
+): MeasurementV2ReportingScope[] | undefined {
+  if (requested === undefined) return undefined
+  const exact = new Map(candidateEdges.map(edge => [measurementV2UsageEdgeKey(edge), edge]))
+  const byTargetQuery = new Map<string, MeasurementV2UsageEdge[]>()
+  for (const edge of candidateEdges) {
+    const key = `${edge.targetKey}\u0000${edge.queryId}`
+    const rows = byTargetQuery.get(key)
+    if (rows) rows.push(edge)
+    else byTargetQuery.set(key, [edge])
+  }
+  const scopeKeys = new Set<string>()
+  return requested.map((scope, scopeIndex) => {
+    if (scopeKeys.has(scope.stableKey)) {
+      sink.fail('reporting-scope-duplicate-key', `Duplicate reporting scope key: ${scope.stableKey}`, ['reportingScopes', scopeIndex, 'stableKey'])
+    }
+    scopeKeys.add(scope.stableKey)
+    const memberKeys = new Set<string>()
+    const usageEdges: MeasurementV2UsageEdge[] = []
+    scope.usageEdges.forEach((member, memberIndex) => {
+      const key = measurementV2UsageEdgeKey(member)
+      if (memberKeys.has(key)) {
+        sink.fail('reporting-scope-duplicate-edge', `Reporting scope "${scope.stableKey}" repeats an edge.`, ['reportingScopes', scopeIndex, 'usageEdges', memberIndex])
+        return
+      }
+      memberKeys.add(key)
+      const present = exact.get(key)
+      if (present) {
+        usageEdges.push(present)
+        return
+      }
+      const successors = byTargetQuery.get(`${member.targetKey}\u0000${member.queryId}`) ?? []
+      if (successors.length === 1) {
+        usageEdges.push(successors[0]!)
+        sink.warn(
+          'reporting-scope-edge-rebuilt',
+          `Reporting scope "${scope.stableKey}" now follows the one surviving context for ${member.targetKey}/${member.queryId}.`,
+          ['reportingScopes', scopeIndex, 'usageEdges', memberIndex],
+        )
+        return
+      }
+      sink.warn(
+        'reporting-scope-edge-pruned',
+        `Reporting scope "${scope.stableKey}" no longer includes ${member.targetKey}/${member.queryId}; its exact context was removed or became ambiguous.`,
+        ['reportingScopes', scopeIndex, 'usageEdges', memberIndex],
+      )
+    })
+    return { ...scope, usageEdges }
+  })
+}
+
 function createChecks(): { checks: MeasurementDraftCompileCheck[]; sink: CheckSink; failed: () => boolean } {
   const checks: MeasurementDraftCompileCheck[] = []
   let failures = 0
@@ -173,6 +235,13 @@ interface ResolvedContext {
   providers: string[]
   models: Record<string, string>
   locations: Array<LocationContext | null>
+}
+
+interface ResolvedExecutionContext {
+  executionNodeKey?: string
+  providers: string[]
+  models: Record<string, string>
+  location: LocationContext | null
 }
 
 function normalizeProviders(values: readonly string[]): string[] {
@@ -367,11 +436,70 @@ export function compileMeasurementDraft(
     return { providers, models, locations: locations.length ? locations : [null] }
   }
 
+  /**
+   * A draft seeded from a v2 revision carries the exact node contexts that
+   * revision froze. Do not run these through the draft defaults: doing so
+   * turns heterogeneous providers/models/locations into a Cartesian product
+   * and changes which provider work the revision represents.
+   */
+  const resolveExactContext = (
+    exact: NonNullable<MeasurementDraftAuthoring['assignments'][number]['executionContexts']>[number],
+    path: (string | number)[],
+  ): ResolvedExecutionContext | null => {
+    const providers = normalizeProviders(exact.providers)
+    if (providers.length === 0) {
+      sink.fail('execution-context-no-provider', 'An execution context must name at least one provider.', [...path, 'providers'])
+      return null
+    }
+    const models: Record<string, string> = {}
+    for (const [provider, model] of Object.entries(exact.models)) {
+      const normalized = provider.trim().toLowerCase()
+      if (!providers.includes(normalized)) {
+        sink.fail('invalid-provider-model', `Model "${model}" names provider "${provider}", which this execution context does not run.`, [...path, 'models', provider])
+        continue
+      }
+      // An exact context intentionally does not inherit the current default
+      // model. An empty map is a frozen request for the provider default.
+      models[normalized] = model
+    }
+    const identity = exact.executionNodeKey === undefined ? {} : { executionNodeKey: exact.executionNodeKey }
+    if (exact.location === null) return { ...identity, providers, models, location: null }
+    const configured = locationsByLabel.get(exact.location.label)
+    if (!configured) {
+      sink.fail('invalid-location', `Execution context names a location the project does not configure: ${exact.location.label}`, [...path, 'location', 'label'])
+      return null
+    }
+    // A matching label with different location facts is still a changed
+    // provider context. Refuse instead of silently swapping it for the live
+    // config and claiming a no-op republish.
+    if (canonicalJson(configured) !== canonicalJson(exact.location)) {
+      sink.fail('execution-context-location-mismatch', `Execution context no longer matches the configured location: ${exact.location.label}`, [...path, 'location'])
+      return null
+    }
+    return { ...identity, providers, models, location: exact.location }
+  }
+
   const nodesByKey = new Map<string, MeasurementV2ExecutionNode>()
   const assignments: MeasurementV2Assignment[] = []
   const usageEdges = new Map<string, MeasurementV2UsageEdge>()
   const usedQueryIds = new Set<string>()
   const claimedPairs = new Set<string>()
+  const frozenProvenanceByQuery = new Map<string, MeasurementV2QuerySnapshot['provenance']>()
+  // An added Target can reuse an imported execution. Resolve these identities
+  // before walking assignments so reuse does not depend on Target ordering.
+  const frozenKeysBySignature = new Map<string, string>()
+  for (const assignment of authoring.assignments) {
+    for (const exact of assignment.executionContexts ?? []) {
+      if (exact.executionNodeKey === undefined) continue
+      const signature = canonicalJson({
+        queryId: assignment.queryId,
+        location: exact.location,
+        providers: normalizeProviders(exact.providers),
+        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
+      })
+      frozenKeysBySignature.set(signature, exact.executionNodeKey)
+    }
+  }
 
   authoring.assignments.forEach((assignment, index) => {
     const path: (string | number)[] = ['assignments', index]
@@ -401,34 +529,81 @@ export function compileMeasurementDraft(
       sink.fail('assignment-unclassified', 'Every assignment must be classified as Branded or Non-brand before publishing.', [...path, 'queryClass'])
       return
     }
+    if (assignment.queryProvenance !== undefined) {
+      const existing = frozenProvenanceByQuery.get(assignment.queryId)
+      if (existing !== undefined && canonicalJson(existing) !== canonicalJson(assignment.queryProvenance)) {
+        sink.fail('assignment-query-provenance-conflict', `Assignments for query "${assignment.queryId}" disagree about its frozen provenance.`, [...path, 'queryProvenance'])
+        return
+      }
+      frozenProvenanceByQuery.set(assignment.queryId, assignment.queryProvenance)
+    }
     usedQueryIds.add(assignment.queryId)
-    const resolved = resolveContext(assignment.contextOverride, [...path, 'contextOverride'])
-    if (resolved.providers.length === 0) return
+    const executionContexts: ResolvedExecutionContext[] = assignment.executionContexts === undefined
+      ? (() => {
+          const resolved = resolveContext(assignment.contextOverride, [...path, 'contextOverride'])
+          return resolved.providers.length === 0
+            ? []
+            : resolved.locations.map(location => ({ providers: resolved.providers, models: resolved.models, location }))
+        })()
+      : assignment.executionContexts.map((exact, exactIndex) => resolveExactContext(exact, [...path, 'executionContexts', exactIndex]))
+        .filter((exact): exact is ResolvedExecutionContext => exact !== null)
+    const seenExactContexts = new Set<string>()
 
-    for (const location of resolved.locations) {
+    for (const execution of executionContexts) {
+      const contextIdentity = canonicalJson({
+        location: execution.location,
+        providers: execution.providers,
+        models: execution.models,
+      })
+      if (assignment.executionContexts !== undefined && seenExactContexts.has(contextIdentity)) {
+        sink.fail('duplicate-execution-context', 'An assignment repeats the same exact execution context.', [...path, 'executionContexts'])
+        continue
+      }
+      seenExactContexts.add(contextIdentity)
       // The dedup identity of §11: one provider request per unique question,
       // location and provider/model map. Hashing the canonical form is what
       // keeps two machines agreeing on the key.
       const signature = canonicalJson({
         queryId: assignment.queryId,
-        location: locationKey(location),
-        providers: resolved.providers,
-        models: resolved.models,
+        location: locationKey(execution.location),
+        providers: execution.providers,
+        models: execution.models,
       })
-      const stableKey = `execution-${sha256Hex(signature)}`
+      // Frozen identity includes every location field sent to a provider,
+      // including timezone. Keep legacy default hashes stable separately.
+      const exactSignature = canonicalJson({
+        queryId: assignment.queryId,
+        location: execution.location,
+        providers: execution.providers,
+        models: execution.models,
+      })
+      const stableKey = execution.executionNodeKey
+        ?? frozenKeysBySignature.get(exactSignature)
+        ?? `execution-${sha256Hex(assignment.executionContexts === undefined ? signature : exactSignature)}`
+      const existingNode = nodesByKey.get(stableKey)
+      if (existingNode && (
+        existingNode.queryId !== assignment.queryId
+        || canonicalJson(existingNode.context) !== canonicalJson({
+          providers: execution.providers, models: execution.models, location: execution.location,
+        })
+      )) {
+        sink.fail('execution-key-conflict', 'A frozen execution key cannot identify different queries or contexts.', [...path, 'executionContexts'])
+        continue
+      }
       if (!nodesByKey.has(stableKey)) {
         nodesByKey.set(stableKey, {
           stableKey,
           queryId: assignment.queryId,
           queryText,
-          context: { providers: resolved.providers, models: resolved.models, location },
-          expectedSnapshots: resolved.providers.length,
+          context: { providers: execution.providers, models: execution.models, location: execution.location },
+          expectedSnapshots: execution.providers.length,
         })
       }
       assignments.push({
         targetKey: assignment.targetKey,
         queryId: assignment.queryId,
         queryClass: assignment.queryClass,
+        classificationSource: assignment.classificationSource === 'rule' ? 'server' : 'operator',
         executionNodeKey: stableKey,
       })
       const edge: MeasurementV2UsageEdge = { executionNodeKey: stableKey, targetKey: assignment.targetKey, queryId: assignment.queryId }
@@ -454,8 +629,13 @@ export function compileMeasurementDraft(
     // Provenance is frozen at publish time so a later reader can explain the
     // basket without the live authoring assets. `capturedAt` is deliberately
     // absent from the checksum input, which excludes timestamps.
-    provenance: { source: 'manual' as const, sourceId: null, capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH },
+    provenance: frozenProvenanceByQuery.get(queryId)
+      ?? { source: 'manual' as const, sourceId: null, capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH },
   }))
+
+  const compiledUsageEdges = [...usageEdges.values()]
+  const reportingScopes = rebuildReportingScopes(authoring.reportingScopes, compiledUsageEdges, sink)
+  if (failed()) return { ok: false, checks }
 
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,
@@ -471,7 +651,8 @@ export function compileMeasurementDraft(
     querySnapshots,
     assignments,
     executionNodes: [...nodesByKey.values()],
-    usageEdges: [...usageEdges.values()],
+    usageEdges: compiledUsageEdges,
+    ...(reportingScopes === undefined ? {} : { reportingScopes }),
     compiledChecksum: CHECKSUM_PLACEHOLDER,
   }
   const compiledChecksum = sha256Hex(measurementPlanV2ChecksumJson(draft))

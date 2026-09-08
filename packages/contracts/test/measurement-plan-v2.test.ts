@@ -115,6 +115,54 @@ describe('published measurement plan v2', () => {
     expect(() => measurementPlanV2Schema.parse(withoutChecksum)).toThrow()
   })
 
+  it('keeps an omitted reporting scope absent for historic v2 plans', () => {
+    const plan = planV2()
+    expect(plan.reportingScopes).toBeUndefined()
+    expect(canonicalMeasurementPlanV2Json(plan)).not.toContain('reportingScopes')
+  })
+
+  it('accepts a market only when every frozen tuple is an actual usage edge', () => {
+    const plan = planV2()
+    const scoped = measurementPlanV2Schema.parse({
+      ...plan,
+      reportingScopes: [{
+        stableKey: 'alpha',
+        label: 'Alpha',
+        kind: 'market',
+        usageEdges: [{ executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }],
+      }],
+    })
+    expect(scoped.reportingScopes?.[0]?.usageEdges).toHaveLength(1)
+    expect(measurementPlanV2Schema.safeParse({
+      ...scoped,
+      reportingScopes: [{
+        stableKey: 'alpha', label: 'Alpha', kind: 'market',
+        usageEdges: [{ executionNodeKey: 'exec-best', targetKey: 'sail-loft', queryId: 'q-northstar' }],
+      }],
+    }).success).toBe(false)
+  })
+
+  it('keeps a new assignment classification basis frozen without breaking historic rows', () => {
+    const plan = planV2()
+    expect(plan.assignments[0]?.classificationSource).toBeUndefined()
+    const classified = measurementPlanV2Schema.parse({
+      ...plan,
+      assignments: plan.assignments.map(assignment => ({ ...assignment, classificationSource: 'server' })),
+    })
+    expect(classified.assignments[0]?.classificationSource).toBe('server')
+  })
+
+  it('rejects duplicate scope keys and repeated frozen edge membership', () => {
+    const edge = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
+    expect(measurementPlanV2Schema.safeParse({
+      ...planV2(),
+      reportingScopes: [
+        { stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [edge, edge] },
+        { stableKey: 'alpha', label: 'Alpha again', kind: 'market', usageEdges: [edge] },
+      ],
+    }).success).toBe(false)
+  })
+
   it('accepts the v2 stable key vocabulary exactly where v1 does', () => {
     const cases = ['harbor-point', 'Harbor.Point~1', 'a', '9lives', '-leading-dash', '', 'has space', 'x'.repeat(129)]
     for (const value of cases) {
@@ -150,6 +198,22 @@ describe('measurement plan v2 canonical ordering', () => {
     }
 
     expect(canonicalMeasurementPlanV2Json(shuffled)).toBe(canonicalMeasurementPlanV2Json(plan))
+  })
+
+  it('orders reporting scopes and their exact edge tuples canonically', () => {
+    const plan = planV2()
+    const first = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
+    const second = { executionNodeKey: 'exec-best', targetKey: 'sail-loft', queryId: 'q-best' }
+    const ordered = measurementPlanV2Schema.parse({
+      ...plan,
+      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [first, second] }],
+    })
+    const shuffled = measurementPlanV2Schema.parse({
+      ...plan,
+      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [second, first] }],
+    })
+    expect(canonicalMeasurementPlanV2Json(shuffled)).toBe(canonicalMeasurementPlanV2Json(ordered))
+    expect(measurementPlanV2ChecksumJson(shuffled)).toBe(measurementPlanV2ChecksumJson(ordered))
   })
 
   it('excludes the checksum field from the bytes the checksum is taken over', () => {

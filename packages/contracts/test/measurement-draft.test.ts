@@ -56,6 +56,22 @@ const AUTHORING: MeasurementDraftAuthoring = measurementDraftAuthoringSchema.par
 })
 
 describe('measurement plan draft', () => {
+  it('accepts exact frozen contexts but refuses a simultaneous mutable override', () => {
+    const assignment = {
+      ...AUTHORING.assignments[0],
+      executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'imported-node' }],
+      queryProvenance: { source: 'manual', sourceId: null, capturedAt: '2026-08-01T00:00:00.000Z' },
+    }
+    const frozen = measurementDraftAuthoringSchema.parse({ ...AUTHORING, assignments: [assignment] })
+    expect(frozen.assignments[0]!.executionContexts![0]!.executionNodeKey).toBe('imported-node')
+    expect(measurementDraftAuthoringSchema.safeParse({
+      ...AUTHORING, assignments: [{ ...assignment, contextOverride: { providers: ['gemini'] } }],
+    }).success).toBe(false)
+    expect(measurementDraftAuthoringSchema.safeParse({
+      ...AUTHORING, assignments: [{ ...assignment, executionContexts: [] }],
+    }).success).toBe(false)
+  })
+
   it('stores authoring intent and the active revision it was created from', () => {
     const draft = measurementPlanDraftSchema.parse({
       id: 'mpd-1',
