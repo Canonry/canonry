@@ -591,6 +591,60 @@ describe('executeAdsSync', () => {
     expect(db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()).toBeTruthy()
   })
 
+  it('leaves a PARTIAL sync detectable: preserved rows keep the older syncRunId', async () => {
+    const db = createTempDb()
+    seed(db)
+    const CAMPAIGN_TWO = { ...CAMPAIGN, id: 'cmpn_ccc', name: 'Commercial Reroof' }
+
+    // Both campaigns sync cleanly on run_1.
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns/cmpn_bbb/insights')) return respond(list(CAMPAIGN_INSIGHTS))
+      if (u.includes('/campaigns/cmpn_ccc/insights')) return respond(list(CAMPAIGN_INSIGHTS))
+      if (u.includes('/campaigns')) return respond(list([CAMPAIGN, CAMPAIGN_TWO]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_bbb')) return respond(list([AD_GROUP]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_ccc')) return respond(list([]))
+      if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(AD_GROUP_INSIGHTS))
+      if (u.includes('/ads?ad_group_id=adgrp_ddd')) return respond(list([AD]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+    expect(db.select().from(adsCampaigns).all().length).toBe(2)
+
+    // run_2: cmpn_bbb refreshes, cmpn_ccc 503s and is therefore preserved.
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns/cmpn_ccc/insights')) return new Response('upstream connect error', { status: 503 })
+      if (u.includes('/campaigns/cmpn_bbb/insights')) return respond(list(CAMPAIGN_INSIGHTS))
+      if (u.includes('/campaigns')) return respond(list([CAMPAIGN, CAMPAIGN_TWO]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_bbb')) return respond(list([AD_GROUP]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_ccc')) return respond(list([]))
+      if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(AD_GROUP_INSIGHTS))
+      if (u.includes('/ads?ad_group_id=adgrp_ddd')) return respond(list([AD]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    db.insert(runs).values({
+      id: 'run_2', projectId: 'proj_1', kind: 'ads-sync', status: 'queued', trigger: 'manual', createdAt: NOW,
+    }).run()
+    await executeAdsSync(db, 'run_2', 'proj_1', { config: testConfig() })
+
+    // Both survive, and they span two sync runs. That span is what the
+    // delivery diagnostics keys on (entity_rows_span_multiple_sync_runs) to
+    // report the snapshot as partial. A partial cycle advances lastSyncedAt,
+    // so this provenance split is the ONLY thing marking it as not-current:
+    // preserved rows must never be re-stamped with the current runId.
+    const refreshed = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
+    const preserved = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_ccc')).get()
+    expect(refreshed?.syncRunId).toBe('run_2')
+    expect(preserved?.syncRunId).toBe('run_1')
+    expect(new Set([refreshed?.syncRunId, preserved?.syncRunId]).size).toBe(2)
+    expect(db.select().from(runs).where(eq(runs.id, 'run_2')).get()?.status).toBe('partial')
+  })
+
   it('does NOT advance lastSyncedAt when the cycle refreshed nothing', async () => {
     const db = createTempDb()
     seed(db)
