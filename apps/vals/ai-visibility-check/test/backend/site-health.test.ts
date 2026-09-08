@@ -1,4 +1,4 @@
-import { runSiteCrawl } from 'npm:@canonry/aeo-audit@7.1.0'
+import { runSiteCrawl } from 'npm:@canonry/aeo-audit@7.2.0'
 import { createSiteHealthRunner, VAL_TOWN_SITE_HEALTH_LIMITS } from '../../src/site-health/runner.ts'
 
 function equal<T>(actual: T, expected: T, message = 'values differ'): void {

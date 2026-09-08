@@ -144,10 +144,10 @@ The kit's `visibility/share.ts` ranks every domain the engine attributed as a so
 ## The engine pin lives in source, so the bump sweeps source
 
 Val Town ignores an import map, so every import is fully qualified inline:
-`npm:@canonry/aeo-audit@7.1.0`, repeated in each file that imports the engine. That is N places to drift instead of
+`npm:@canonry/aeo-audit@<version>`, repeated in each file that imports the engine. That is N places to drift instead of
 one `deno.json` key.
 
-`scripts/bump-aeo-audit.mjs` therefore SWEEPS `apps/vals/ai-visibility-check/src` and `main.http.tsx` rather than editing a manifest
+`scripts/bump-aeo-audit.mjs` therefore SWEEPS `apps/vals/ai-visibility-check/src`, `test`, and `main.http.tsx` rather than editing a manifest
 key, and `aeo-audit-dependency-contract.test.ts` asserts the set of inline specifiers collapses to exactly one version
 that equals Canonry's pin. Both were written against the import map the val briefly had; the bump would have thrown on
 every engine release and the val would have sat on an old engine while Canonry moved.

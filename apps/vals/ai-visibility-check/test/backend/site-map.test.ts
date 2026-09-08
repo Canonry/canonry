@@ -1,4 +1,4 @@
-import type { CrawlEdgeObservation, CrawlPageObservation } from 'npm:@canonry/aeo-audit@7.1.0'
+import type { CrawlEdgeObservation, CrawlPageObservation } from 'npm:@canonry/aeo-audit@7.2.0'
 import { buildSiteMap, SITE_MAP_MAX_NODES } from '../../src/site-health/site-map.ts'
 
 declare const Deno: {

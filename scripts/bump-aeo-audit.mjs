@@ -51,7 +51,15 @@ const DEP_TARGETS = [
 // the engine. That is N places to drift instead of one, so the bump SWEEPS the
 // tree rather than editing a manifest key. A new file that imports the engine
 // is picked up with no change here, which is the point.
-const VAL_SOURCE_ROOTS = ['apps/vals/ai-visibility-check/src', 'apps/vals/ai-visibility-check/main.http.tsx']
+// `test` is in the list because deno.dev.lock resolves the DEV graph, which
+// includes the val's tests. Sweeping only src leaves a test importing the old
+// version, the dev lock then disagrees with the pin, and CI fails in the Val
+// job alone: the dependency-contract test scans src and stays green.
+const VAL_SOURCE_ROOTS = [
+  'apps/vals/ai-visibility-check/src',
+  'apps/vals/ai-visibility-check/test',
+  'apps/vals/ai-visibility-check/main.http.tsx',
+]
 const VAL_SPECIFIER = new RegExp(`npm:${DEP.replace('/', '\\/')}@\\d+\\.\\d+\\.\\d+`, 'g')
 
 /** Every `.ts`/`.tsx` file under the Val roots. */
