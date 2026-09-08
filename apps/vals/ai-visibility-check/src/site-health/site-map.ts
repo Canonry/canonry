@@ -15,7 +15,7 @@
  * always produces the same picture, and a cached result never disagrees with
  * the run that produced it.
  */
-import type { CrawlEdgeObservation, CrawlPageObservation } from 'npm:@canonry/aeo-audit@7.1.0'
+import type { CrawlEdgeObservation, CrawlPageObservation } from 'npm:@canonry/aeo-audit@7.2.0'
 import type { SiteMapEdge, SiteMapNode, SiteMapSample } from './types.ts'
 
 /**

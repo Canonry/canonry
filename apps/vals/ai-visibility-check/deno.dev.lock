@@ -1,14 +1,14 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@canonry/aeo-audit@7.1.0": "7.1.0",
+    "npm:@canonry/aeo-audit@7.2.0": "7.2.0",
     "npm:@canonry/val-kit@0.2.0": "0.2.0",
     "npm:@libsql/client@0.17.2": "0.17.2",
     "npm:hono@4.12.25": "4.12.25"
   },
   "npm": {
-    "@canonry/aeo-audit@7.1.0": {
-      "integrity": "sha512-XwWEfzVqrzBkaCCAe4ficJW52LUhpxzsNF3uB3v3u2RsUHD3nRhv03jSgyTpj7hILTUNJTt8Xqn5HNMgDqX19w==",
+    "@canonry/aeo-audit@7.2.0": {
+      "integrity": "sha512-ka4+Ik9VxFcxBacSkf9hbdUdfbLqt4c96143mzbDsCsrvbaIIfyw9pBN9ZgldYVE1p7BfpjGg9515lJ8vF//rQ==",
       "dependencies": [
         "cheerio",
         "ipaddr.js",

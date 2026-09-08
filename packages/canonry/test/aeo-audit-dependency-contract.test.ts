@@ -96,7 +96,17 @@ describe('AEO audit dependency boundary', () => {
     // The bump has to reach the Val, and it can only do that by sweeping source.
     const bumpScript = readText('scripts/bump-aeo-audit.mjs')
     expect(bumpScript).toContain("const DEP = '@canonry/aeo-audit'")
-    expect(bumpScript).toContain("const VAL_SOURCE_ROOTS = ['apps/vals/ai-visibility-check/src', 'apps/vals/ai-visibility-check/main.http.tsx']")
+    // Assert the roots the sweep must cover, not the literal formatting of the
+    // array. `test` is load-bearing: deno.dev.lock resolves the DEV graph, so a
+    // test left on the old specifier fails the Val job while this file, which
+    // only scans src, stays green.
+    for (const root of [
+      'apps/vals/ai-visibility-check/src',
+      'apps/vals/ai-visibility-check/test',
+      'apps/vals/ai-visibility-check/main.http.tsx',
+    ]) {
+      expect(bumpScript).toContain(`'${root}'`)
+    }
     expect(bumpScript).toContain('function rewriteValSpecifiers(')
     // A manifest key it can no longer find would throw on every bump.
     expect(bumpScript).not.toContain("'apps/vals/ai-visibility-check/deno.json'")
