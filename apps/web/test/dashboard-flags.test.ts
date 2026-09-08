@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { getViewerResearchConfig, shouldShowDashboardAgentBar } from '../src/api.js'
+import { viewerRoleLabel, getViewerResearchConfig, shouldShowDashboardAgentBar } from '../src/api.js'
 
 /**
  * The agent kill-switch removes the server routes. Before this flag reached the
@@ -36,5 +36,22 @@ describe('agent bar visibility', () => {
       research: { allowViewers: true, viewerDailyRunLimit: 7 },
     }
     expect(getViewerResearchConfig()).toEqual({ allowViewers: true, viewerDailyRunLimit: 7 })
+  })
+})
+
+describe('viewerRoleLabel', () => {
+  afterEach(() => { delete window.__CANONRY_CONFIG__ })
+
+  it('says View only when the account really can only read', () => {
+    expect(viewerRoleLabel()).toBe('View only')
+    window.__CANONRY_CONFIG__ = { research: { allowViewers: false } }
+    expect(viewerRoleLabel()).toBe('View only')
+  })
+
+  it('says Analyst once the deployment grants viewer research', () => {
+    // The person can run real queries against an answer engine, so calling
+    // them view-only contradicts the surface in front of them.
+    window.__CANONRY_CONFIG__ = { research: { allowViewers: true, viewerDailyRunLimit: 20 } }
+    expect(viewerRoleLabel()).toBe('Analyst')
   })
 })

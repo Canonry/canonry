@@ -25,7 +25,7 @@ import { CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
-import {
+import { viewerRoleLabel,
   getEmbedConfig,
   heyClient,
   shouldShowDashboardAgentBar,
@@ -683,7 +683,7 @@ export function RootLayout() {
             <div className="sidebar-account-identity">
               <span className="sidebar-account-name">{account.name}</span>
               {account.role === 'viewer' ? (
-                <span className="sidebar-account-role">View only</span>
+                <span className="sidebar-account-role">{viewerRoleLabel()}</span>
               ) : null}
             </div>
             <Button
@@ -852,7 +852,7 @@ export function RootLayout() {
                 <div className="sidebar-account-identity">
                   <span className="sidebar-account-name">{account.name}</span>
                   {account.role === 'viewer' ? (
-                    <span className="sidebar-account-role">View only</span>
+                    <span className="sidebar-account-role">{viewerRoleLabel()}</span>
                   ) : null}
                 </div>
                 <Button

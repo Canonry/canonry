@@ -335,6 +335,23 @@ export function getViewerResearchConfig(): ViewerResearchConfig | null {
 }
 
 /**
+ * What to call a viewer account in the sidebar.
+ *
+ * "View only" is accurate when the account can genuinely only read. Once a
+ * deployment grants viewer research the account can run real queries against
+ * an answer engine, and telling that person they are view-only contradicts the
+ * surface in front of them. The label follows the CAPABILITY rather than the
+ * role, so it stays true on both kinds of deployment without a second role.
+ *
+ * The disabled-control tooltip (VIEW_ONLY_LABEL) does NOT change: sweeps,
+ * scans and settings really are unavailable, and that message is about one
+ * control rather than about the account.
+ */
+export function viewerRoleLabel(): string {
+  return getViewerResearchConfig() ? 'Analyst' : 'View only'
+}
+
+/**
  * True in the read-only embed render. embed presence == read-only for v1 (the
  * embed key is the read-only project-scoped key), so operator/write controls hide
  * while every read-only view still renders. NOT a security boundary (the API key
