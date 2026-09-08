@@ -550,6 +550,70 @@ describe('executeAdsSync', () => {
     expect(row?.conversions).toBe(5)
   })
 
+  it('KEEPS a still-listed campaign whose sub-fetch fails, rather than dropping it', async () => {
+    const db = createTempDb()
+    seed(db)
+
+    // First sync succeeds and snapshots the campaign.
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+    const first = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
+    expect(first?.name).toBe('Homeowners Free Estimate')
+    const firstSyncedAt = first?.syncedAt
+
+    // Second sync: the provider still LISTS the campaign, but its insight
+    // fetch 503s. Observed live 2026-09-08: OpenAI returned a run of 503s and
+    // the whole workspace read as having zero campaigns.
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns/cmpn_bbb/insights')) {
+        return new Response('upstream connect error', { status: 503 })
+      }
+      if (u.includes('/campaigns')) return respond(list([CAMPAIGN]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_bbb')) return respond(list([AD_GROUP]))
+      if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(AD_GROUP_INSIGHTS))
+      if (u.includes('/ads?ad_group_id=adgrp_ddd')) return respond(list([AD]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    db.insert(runs).values({
+      id: 'run_2', projectId: 'proj_1', kind: 'ads-sync', status: 'queued', trigger: 'manual', createdAt: NOW,
+    }).run()
+    await executeAdsSync(db, 'run_2', 'proj_1', { config: testConfig() })
+
+    // The row survives, still carrying its previous syncedAt as the staleness
+    // signal, and its children survive with it.
+    const kept = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
+    expect(kept).toBeTruthy()
+    expect(kept?.name).toBe('Homeowners Free Estimate')
+    expect(kept?.syncedAt).toBe(firstSyncedAt)
+    expect(db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()).toBeTruthy()
+    expect(db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()).toBeTruthy()
+  })
+
+  it('DELETES a campaign the provider no longer lists', async () => {
+    const db = createTempDb()
+    seed(db)
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+    expect(db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()).toBeTruthy()
+
+    // The campaign is gone upstream: listCampaigns returns an empty set.
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns')) return respond(list([]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    db.insert(runs).values({
+      id: 'run_2', projectId: 'proj_1', kind: 'ads-sync', status: 'queued', trigger: 'manual', createdAt: NOW,
+    }).run()
+    await executeAdsSync(db, 'run_2', 'proj_1', { config: testConfig() })
+
+    expect(db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()).toBeUndefined()
+    expect(db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()).toBeUndefined()
+  })
+
   it('fails the run when no config credential exists for the project', async () => {
     const db = createTempDb()
     seed(db)
