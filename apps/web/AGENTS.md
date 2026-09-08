@@ -103,6 +103,7 @@ export function fetchMyNewThing(name: string): Promise<MyNewDto> {
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.
 Research retains ICP discovery and bounded tests. Promotion must use query-tracking preview and commit.
+After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
 `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts.
 Scope changes must preserve unrelated URL state. `measurementRunId` must never write the global `runId` drawer parameter.

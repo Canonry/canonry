@@ -3,6 +3,13 @@ import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+import {
+  getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameMeasurementSetupQueryKey,
+  getApiV1ProjectsByNameQueriesQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
+import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -1020,4 +1027,66 @@ test('keeps simple measurements classifier-only and never submits an operator ov
     additions: [{ input: { source: 'manual', text: 'How does Acme compare?' } }],
     removals: [],
   })
+})
+
+
+test('refreshes cached measurement and query state for the published project', async () => {
+  installWorkspaceApi((path) => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview())
+    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active: { ...active, revision: 5 }, diff: preview().diff, workload: preview().workload })
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 300_000 } } })
+  const options = { client: heyClient, path: { name: 'demo' } }
+  const changedKeys = [
+    getApiV1ProjectsByNameVisibilityReportQueryKey({ ...options, query: { scope: 'property', scopeKey: 'acme' } }),
+    getApiV1ProjectsByNameMeasurementPlanQueryKey(options),
+    getApiV1ProjectsByNameMeasurementSetupQueryKey(options),
+    getApiV1ProjectsByNameQueriesQueryKey(options),
+  ]
+  const unrelatedKey = getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name: 'another-project' } })
+  for (const key of [...changedKeys, unrelatedKey]) queryClient.setQueryData(key, { cached: true })
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => {
+    for (const key of changedKeys) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+  expect(queryClient.getQueryState(unrelatedKey)?.isInvalidated).toBe(false)
+})
+
+test.each(['preview', 'commit'] as const)('refreshes a stale workspace after %s fails so the same draft can be reviewed again', async failedOperation => {
+  const refreshedVersion = `qtw_${'d'.repeat(64)}`
+  let stale = false
+  let refused = false
+  const reviewedVersions: unknown[] = []
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path.endsWith('/query-tracking')) return jsonResponse({ ...workspace(), workspaceVersion: stale ? refreshedVersion : workspaceVersion })
+    if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    if (path.endsWith('/query-tracking/preview')) {
+      reviewedVersions.push(JSON.parse(String(init?.body)).expectedWorkspaceVersion)
+      if (failedOperation !== 'preview' || refused) return jsonResponse(preview({ workspaceVersion: stale ? refreshedVersion : workspaceVersion }))
+    }
+    if (path.endsWith(`/query-tracking/${failedOperation}`)) {
+      stale = true
+      refused = true
+      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 300_000 } } })
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  if (failedOperation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(refused).toBe(true))
+  await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  await screen.findByRole('button', { name: 'Confirm changes' })
+  expect(reviewedVersions).toEqual([workspaceVersion, refreshedVersion])
 })

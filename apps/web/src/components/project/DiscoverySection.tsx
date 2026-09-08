@@ -30,7 +30,7 @@ import {
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
-import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
@@ -1265,8 +1265,12 @@ function TrackedQueriesSection({
   const previewMutation = useMutation({
     ...postApiV1ProjectsByNameQueryTrackingPreviewMutation(),
     onSuccess: (result) => setPreview(result),
-    onError: (error) => {
+    onError: async (error) => {
       setPreview(null)
+      // Refresh the optimistic version while keeping the user's draft intact.
+      await queryClient.invalidateQueries({
+        queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }),
+      })
       addToast({
         title: 'Could not review tracking changes',
         detail: error instanceof Error ? error.message : 'Update the draft and review it again.',
@@ -1279,9 +1283,7 @@ function TrackedQueriesSection({
     onSuccess: async (result) => {
       setPreview(null)
       onTrackingQueryIdChange?.(undefined)
-      await queryClient.invalidateQueries({
-        queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }),
-      })
+      await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
         detail: result.active ? `Measurement revision ${result.active.revision}.` : 'No measurement revision is published yet.',
@@ -1290,8 +1292,10 @@ function TrackedQueriesSection({
         dedupeMode: 'replace',
       })
     },
-    onError: (error) => {
+    onError: async (error) => {
       setPreview(null)
+      // A concurrent publication can make both the review and the report stale.
+      await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: 'Could not confirm tracking changes',
         detail: error instanceof Error ? error.message : 'The review may be stale. Review the changes again.',
