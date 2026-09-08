@@ -111,6 +111,20 @@ function trigger(db: ReturnType<typeof createClient>, projectId: string, runnabl
   return created
 }
 
+test('a scheduled plan sweep overlaps a site audit but a second sweep is skipped', () => {
+  const runnable = ['openai', 'gemini']
+  const { db, projectId } = harness([], runnable)
+  db.insert(runs).values({
+    id: 'audit', projectId, kind: 'site-audit', status: 'running', createdAt: new Date().toISOString(),
+  }).run()
+
+  const created = trigger(db, projectId, runnable)
+  expect(created).toHaveLength(1)
+  expect(trigger(db, projectId, runnable)).toEqual([])
+  expect(db.select().from(runs).all()).toHaveLength(2)
+  expect(db.select().from(runs).where(eq(runs.id, 'audit')).get()?.status).toBe('running')
+})
+
 test('a scheduled plan sweep resolves an empty project provider list to every configured provider', () => {
   const runnable = ['openai', 'gemini']
   const { db, projectId } = harness([], runnable)

@@ -84,6 +84,14 @@ WordPress backfill is forbidden while either continuation field is set.
 
 ## Patterns
 
+### Run admission
+
+Visibility admission is locked by `(projectId, kind)` in `queueRunIfProjectIdle`
+and the all-locations transaction. Unrelated run kinds may overlap. A location
+fan-out remains one atomic admission; a second visibility sweep is refused until
+all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
+run ID. Keep existing per-kind deduplication and shared provider limits.
+
 ### Simple measurement provenance
 
 `captureSimpleMeasurementDefinition` stores resolved inputs before a simple run calls providers.

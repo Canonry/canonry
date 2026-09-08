@@ -3,6 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { eq } from 'drizzle-orm'
 import { createClient, migrate, apiKeys, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
@@ -71,13 +72,14 @@ describe('cancelRun command', () => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  async function insertQueuedRun(): Promise<string> {
+  async function insertQueuedRun(kind = 'answer-visibility', status = 'queued'): Promise<string> {
     const project = await client.getProject('test-proj') as { id: string }
     const runId = crypto.randomUUID()
     db.insert(runs).values({
       id: runId,
       projectId: project.id,
-      status: 'queued',
+      kind,
+      status,
       createdAt: new Date().toISOString(),
     }).run()
     return runId
@@ -85,6 +87,7 @@ describe('cancelRun command', () => {
 
   it('cancels a run by explicit run ID and outputs confirmation', async () => {
     const runId = await insertQueuedRun()
+    const auditId = await insertQueuedRun('site-audit', 'running')
 
     const { cancelRun } = await import('../src/commands/run.js')
     const logs: string[] = []
@@ -99,6 +102,31 @@ describe('cancelRun command', () => {
     const output = logs.join('\n')
     expect(output).toContain(runId)
     expect(output).toContain('cancelled')
+    expect(db.select().from(runs).where(eq(runs.id, runId)).get()?.status).toBe('cancelled')
+    expect(db.select().from(runs).where(eq(runs.id, auditId)).get()?.status).toBe('running')
+  })
+
+  it.each(['site-audit', 'answer-visibility'])('requires a run ID when a sweep and another %s are active', async (kind) => {
+    const sweepId = await insertQueuedRun()
+    const otherId = await insertQueuedRun(kind, 'running')
+    await insertQueuedRun('ads-sync', 'completed')
+    const { cancelRun } = await import('../src/commands/run.js')
+
+    await expect(cancelRun('test-proj')).rejects.toMatchObject({
+      code: 'MULTIPLE_ACTIVE_RUNS',
+      message: expect.stringContaining('Specify a run ID'),
+      displayMessage: expect.stringContaining(otherId),
+      details: {
+        project: 'test-proj',
+        activeRuns: [
+          { id: sweepId, kind: 'answer-visibility', status: 'queued' },
+          { id: otherId, kind, status: 'running' },
+        ],
+        suggestedCommands: ['canonry run cancel test-proj <run-id>'],
+      },
+    })
+    expect(db.select().from(runs).where(eq(runs.id, sweepId)).get()?.status).toBe('queued')
+    expect(db.select().from(runs).where(eq(runs.id, otherId)).get()?.status).toBe('running')
   })
 
   it('auto-detects and cancels the active run when no run ID given', async () => {

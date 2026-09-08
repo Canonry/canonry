@@ -123,8 +123,13 @@ export function noQueries(projectName: string): AppError {
   )
 }
 
-export function runInProgress(projectName: string): AppError {
-  return new AppError('RUN_IN_PROGRESS', `A run is already in progress for '${projectName}'`, 409)
+export function runInProgress(projectName: string, kind = 'answer-visibility', activeRunId?: string): AppError {
+  return new AppError(
+    'RUN_IN_PROGRESS',
+    `A '${kind}' run is already in progress for '${projectName}'`,
+    409,
+    { projectName, kind, ...(activeRunId ? { activeRunId } : {}) },
+  )
 }
 
 export function operationInProgress(

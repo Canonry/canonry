@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 describe('site-audit crash recovery', () => {
-  it('fails a stale site-audit run and its active attempt at server boot', async () => {
+  it.each([RunStatuses.queued, RunStatuses.running])('recovers a %s crawl and a batch of other active run kinds at server boot', async (status) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-site-audit-recovery-'))
     cleanup.push(dir)
     const dbPath = path.join(dir, 'data.db')
@@ -27,12 +27,26 @@ describe('site-audit crash recovery', () => {
     }).run()
     db.insert(runs).values({
       id: 'stale-run', projectId: 'project', kind: RunKinds['site-audit'],
-      status: RunStatuses.running, trigger: 'manual', startedAt: now, createdAt: now,
+      status, trigger: 'manual', startedAt: now, createdAt: now,
     }).run()
     db.insert(siteCrawlAttempts).values({
       id: 'stale-attempt', projectId: 'project', runId: 'stale-run', attemptNumber: 1,
-      state: 'running', startedAt: now, lastEventSequence: 7, createdAt: now, updatedAt: now,
+      state: status, startedAt: now, lastEventSequence: 7, createdAt: now, updatedAt: now,
     }).run()
+
+    const otherStaleRuns = Object.values(RunKinds).filter(kind => kind !== RunKinds['site-audit'])
+      .map((kind, index) => ({
+        id: `stale-${kind}`, projectId: 'project', kind,
+        status: index % 2 === 0 ? RunStatuses.queued : RunStatuses.running,
+        createdAt: now,
+      }))
+    db.insert(runs).values(otherStaleRuns).run()
+    const terminalRuns = [RunStatuses.completed, RunStatuses.partial, RunStatuses.failed, RunStatuses.cancelled]
+      .map(status => ({
+        id: `terminal-${status}`, projectId: 'project', kind: RunKinds['answer-visibility'],
+        status, finishedAt: now, createdAt: now,
+      }))
+    db.insert(runs).values(terminalRuns).run()
 
     // An active-looking attempt on a terminal parent must not be reaped just
     // because it shares the site-audit table; the parent transition is the CAS.
@@ -65,6 +79,19 @@ describe('site-audit crash recovery', () => {
       })
       expect(staleAttempt?.finishedAt).toBeTruthy()
 
+      for (const run of otherStaleRuns) {
+        expect(db.select().from(runs).where(eq(runs.id, run.id)).get()).toMatchObject({
+          status: RunStatuses.failed,
+          error: 'Server restarted while run was in progress',
+          finishedAt: expect.any(String),
+        })
+      }
+      for (const run of terminalRuns) {
+        expect(db.select().from(runs).where(eq(runs.id, run.id)).get()).toMatchObject({
+          status: run.status, finishedAt: now, error: null,
+        })
+      }
+      expect(db.select().from(runs).where(eq(runs.id, 'terminal-run')).get()?.status).toBe(RunStatuses.completed)
       expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.id, 'terminal-attempt')).get()?.state).toBe('running')
     } finally {
       await app.close()

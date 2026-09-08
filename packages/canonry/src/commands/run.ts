@@ -252,11 +252,28 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
 export async function cancelRun(project: string, runId?: string, format?: string): Promise<void> {
   const client = getClient()
 
-  // If no run ID given, find the active run for the project
+  // Infer a target only when exactly one run is active, across all kinds.
   let targetId = runId
   if (!targetId) {
-    const runs = await client.listRuns(project) as Array<{ id: string; status: string }>
-    const active = runs.find(r => r.status === 'queued' || r.status === 'running')
+    const runs = await client.listRuns(project)
+    const activeRuns = runs.filter(r => r.status === 'queued' || r.status === 'running')
+    if (activeRuns.length > 1) {
+      const candidates = activeRuns.map(({ id, kind, status }) => ({ id, kind, status }))
+      throw new CliError({
+        code: 'MULTIPLE_ACTIVE_RUNS',
+        message: `Multiple active runs found for project "${project}". Specify a run ID.`,
+        displayMessage:
+          `Error: Multiple active runs found for project "${project}". Specify a run ID.\n`
+          + candidates.map(r => `  ${r.id}  ${r.kind}  ${r.status}`).join('\n')
+          + `\nTo cancel by ID: canonry run cancel ${project} <run-id>`,
+        details: {
+          project,
+          activeRuns: candidates,
+          suggestedCommands: [`canonry run cancel ${project} <run-id>`],
+        },
+      })
+    }
+    const active = activeRuns[0]
     if (!active) {
       throw new CliError({
         code: 'NO_ACTIVE_RUN',

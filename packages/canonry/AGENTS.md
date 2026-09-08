@@ -170,6 +170,12 @@ The CLI also keeps interactive chrome (the "new version available" banner) off a
 
 ### Run completion pipeline
 
+Different run kinds may overlap on one project. Preserve shared provider gates
+and same-kind admission guards. Project-only cancellation requires exactly one
+active run; otherwise the CLI lists the candidates and requires a run ID.
+Boot recovery fails every queued/running run and its active crawl attempts;
+it does not resume interrupted work.
+
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
 The frozen definition records exact query text, identity, classification, location, and requested models.
 Capture failure prevents provider calls. Probe and advanced runs retain their existing paths.

@@ -150,7 +150,7 @@ export function assertNoActivePlanlessSweep(
     inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
     isNull(runs.measurementPlanVersionId),
   )).get()
-  if (activeRun) throw runInProgress(scope.projectName)
+  if (activeRun) throw runInProgress(scope.projectName, RunKinds['answer-visibility'], activeRun.id)
 }
 
 /** Check the legacy replacement inside the same transaction as its writes. */

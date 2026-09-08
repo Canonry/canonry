@@ -563,6 +563,7 @@ export type QueueRunResult =
   | { conflict: true; activeRunId: string }
   | { conflict: false; runId: string }
 
+/** Queue only when this project has no active run of the requested kind. */
 export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams): QueueRunResult {
   const createdAt = params.createdAt ?? new Date().toISOString()
   const kind = params.kind ?? 'answer-visibility'
@@ -576,6 +577,7 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       .where(
         and(
           eq(runs.projectId, params.projectId),
+          eq(runs.kind, kind),
           or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
         ),
       )

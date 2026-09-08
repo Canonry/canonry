@@ -170,8 +170,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Handle --all-locations: create one run per configured location.
     //
-    // The fan-out is atomic with respect to the project-level idle lock:
-    // a single transaction checks for any active run and, only if none
+    // The fan-out is atomic with respect to the (project, kind) idle lock:
+    // a single transaction checks for an active run of this kind and, if none
     // exists, inserts the per-location runs. Two concurrent --all-locations
     // calls (manual + scheduled, two CLI shells, etc.) can no longer stack
     // duplicate sweeps on the same project, double-billing provider calls
@@ -187,11 +187,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           .from(runs)
           .where(and(
             eq(runs.projectId, project.id),
+            eq(runs.kind, kind),
             or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
           ))
           .get()
         if (activeRun) {
-          return { conflict: true as const }
+          return { conflict: true as const, activeRunId: activeRun.id }
         }
 
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
@@ -213,7 +214,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       })
 
       if (result.conflict) {
-        throw runInProgress(project.name)
+        throw runInProgress(project.name, kind, result.activeRunId)
       }
 
       const results = []
@@ -248,7 +249,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       measurementScope: body.measurementScope ?? null,
     })
 
-    if (queueResult.conflict) throw runInProgress(project.name)
+    if (queueResult.conflict) throw runInProgress(project.name, kind, queueResult.activeRunId)
 
     const runId = queueResult.runId
 

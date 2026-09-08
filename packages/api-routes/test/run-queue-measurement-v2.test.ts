@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import {
@@ -24,6 +25,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { assertMeasurementRunStampable, queueRunIfProjectIdle } from '../src/run-queue.js'
+import { apiRoutes } from '../src/index.js'
 
 const NOW = '2026-08-01T00:00:00.000Z'
 const NORTH: LocationContext = { label: 'north-city', city: 'North City', region: 'NC', country: 'US' }
@@ -160,6 +162,67 @@ function queue(db: DatabaseClient, projectId: string, params: Parameters<typeof 
 }
 
 describe('a published v2 revision at queue time', () => {
+  it.each(['simple', 'advanced'].flatMap(portfolio =>
+    ['manual', 'batch'].flatMap(entry => ['queued', 'running'].map(status => ({ portfolio, entry, status }))),
+  ))('$portfolio $entry sweeps coexist with a $status audit and still reject duplicate sweeps', async ({ portfolio, entry, status }) => {
+    const { db, projectId } = seed({ projectProviders: ['openai'] })
+    const versionId = portfolio === 'advanced'
+      ? publishV2(db, projectId, v2Plan({
+        targets: ['north-branch', 'south-branch'],
+        groups: [{ key: 'region', targetKeys: ['north-branch', 'south-branch'] }],
+        nodes: [
+          { key: 'exec-north', queryId: 'q-1', queryText: 'widget question 0', providers: ['openai'], location: NORTH },
+          { key: 'exec-south', queryId: 'q-1', queryText: 'widget question 0', providers: ['openai'], location: SOUTH },
+        ],
+        assignments: [
+          { targetKey: 'north-branch', nodeKey: 'exec-north' },
+          { targetKey: 'south-branch', nodeKey: 'exec-south' },
+        ],
+      }), 1)
+      : null
+    db.insert(runs).values({ id: 'audit', projectId, kind: 'site-audit', status, createdAt: NOW }).run()
+
+    const app = Fastify()
+    onTestFinished(() => app.close())
+    const dispatched: string[] = []
+    app.register(apiRoutes, {
+      db, skipAuth: true, getRunnableProviderNames: () => ['openai'],
+      onRunCreated: (id) => { dispatched.push(id) },
+    })
+    const url = entry === 'manual' ? '/api/v1/projects/planned/runs' : '/api/v1/runs'
+    const first = await app.inject({ method: 'POST', url })
+    expect(first.statusCode).toBe(entry === 'manual' ? 201 : 207)
+    const created = entry === 'manual' ? first.json() : first.json()[0]
+    const row = queuedRun(db, created.id)
+    expect(row).toMatchObject({ kind: 'answer-visibility', status: 'queued', measurementPlanVersionId: versionId })
+    expect(row.queryBasketRevision).toBe(1)
+    if (versionId) {
+      const slots = parseMeasurementRunManifestV1(row.measurementManifest).expectedSlots
+      expect(slots).toHaveLength(2)
+      expect(slots.map(slot => slot.executionId).sort()).toEqual(['exec-north', 'exec-south'])
+      expect(slots.map(slot => slot.context?.label).sort()).toEqual(['north-city', 'south-city'])
+      expect(slots.every(slot => slot.provider === 'openai')).toBe(true)
+    } else {
+      expect(row.measurementManifest).toBeNull()
+    }
+
+    const second = await app.inject({ method: 'POST', url })
+    if (entry === 'manual') {
+      expect(second.statusCode).toBe(409)
+      expect(second.json()).toMatchObject({ error: {
+        code: 'RUN_IN_PROGRESS',
+        message: expect.stringContaining('answer-visibility'),
+        details: { projectName: 'planned', kind: 'answer-visibility', activeRunId: row.id },
+      } })
+    } else {
+      expect(second.statusCode).toBe(207)
+      expect(second.json()[0]).toMatchObject({ status: 'conflict', error: 'run_in_progress' })
+    }
+    expect(dispatched).toEqual([row.id])
+    expect(db.select().from(runs).all()).toHaveLength(2)
+    expect(queuedRun(db, 'audit').status).toBe(status)
+  })
+
   it('materializes the manifest from the revision\'s own execution nodes and frozen engines', () => {
     // The project row names an engine the revision does not run. A v2 revision
     // freezes provider configuration, so the plan wins.
