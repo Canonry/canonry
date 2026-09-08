@@ -23,10 +23,14 @@ This runs `pnpm install`, builds all packages, and installs `canonry` globally v
 Individual commands:
 
 ```bash
-pnpm verify                 # Required before every push
-pnpm run typecheck          # Type-check all packages
-pnpm run test               # Run test suite
-pnpm run lint               # Lint all packages
+pnpm check                  # Fast lint of changed JS/TS files
+pnpm lint:staged            # Fast lint of staged JS/TS content
+pnpm --filter @ainyc/canonry-contracts typecheck  # Type-check one affected package
+pnpm exec vitest run --project contracts        # Run one affected test project
+pnpm verify                 # Optional full workspace check
+pnpm build:cli              # CLI/server bundle only
+pnpm build:web              # Cached dashboard build and asset copy
+pnpm build                  # Complete publishable package
 pnpm run dev:web            # Run web dashboard in dev mode
 ```
 
@@ -58,13 +62,22 @@ Use [`docs/README.md`](docs/README.md) as the entrypoint for the current referen
 ## Before Submitting a PR
 
 ```bash
-pnpm verify
+pnpm check
 ```
 
-Run this command from the repository root before every push, after all changes are integrated.
-It includes generated API, plugin, and Val Town mirror checks, plus workspace typecheck, lint, and tests.
-Package suites are intermediate checks. They do not replace this gate.
+Run relevant tests and package typechecks for behavior changes. After another edit or rebase, rerun only the affected checks.
+CI runs full typechecks, lint, tests, generated-file checks, builds, and release guards.
+`pnpm verify` remains available for a full local check. It is not required before each commit or push.
 
-`pnpm install` installs the Husky hooks. The `pre-push` hook blocks the push if `pnpm verify` fails.
-On failure, the hook prints the last log lines and the full log path.
-After a fix, regeneration, or rebase, rerun the full gate.
+`pnpm install` installs the Git hooks. Ordinary code commits lint staged JS/TS content, including partially staged files.
+It runs syntax rules and repository guards without loading TypeScript projects. It never changes files or the index.
+Staged checks and `pnpm check` share cached clean results across Git worktrees. Use `--no-cache` to force a fresh check.
+Documentation-only commits skip ESLint. The commit-message hook checks Conventional Commits. Pushes run the three drift gates below.
+
+See [the testing guide](docs/testing.md) for the local and CI commands.
+
+API changes need `pnpm gen`. Review and stage the generated files before `pnpm gen:check`.
+The check compares temporary output and the Git index without changing either.
+Pre-push runs the three drift gates and requires their inputs and output to match the pushed commit.
+ESLint configuration or local rule changes trigger full typed lint. Ordinary commits keep the cached staged-file check.
+Codegen and dashboard builds reuse cached results only when their inputs and output contents match.

@@ -67,7 +67,7 @@ ADR index, or canonical roadmap. For file-level navigation use `docs/CODEMAP.md`
 3. **Use `docs/CODEMAP.md` for file lookup** — one-line role per file + recipe table (`change first-run → App.tsx → SetupPage.tsx → execute-site-audit.ts`). Regenerated file list, not stale prose.
 4. **Search with `muse.search` (ripgrep, bounded)** — `muse.bash` fan-out (`find /`, `ls -R`) saturates the host. `muse.read_file` caps at 500 lines; chunk `SetupPage.tsx` (1260), `ProjectPage.tsx` (2728), `server.ts` (2969).
 5. **Web API calls MUST use `@ainyc/canonry-api-client`** (`heyClient` in `apps/web/src/api.ts`) — raw `fetch` is ESLint-banned. New route = `contracts` Zod → `api-routes` handler → `openapi.ts` → `pnpm gen` → web query.
-6. **Run `pnpm verify` from the repository root before every push.** Package suites are intermediate checks. The lead agent must run the full gate after integrating sub-agent changes.
+6. **Keep local checks focused.** Run `pnpm check` for changed-file lint and relevant tests or package typechecks for behavior changes. CI owns full workspace validation. Do not run `pnpm verify` before each commit or push unless requested or needed to reproduce a CI failure.
 7. **Use architecture diagrams when they clarify complicated topics.** New ideas and discussions warrant a back-and-forth.
 
 **Recipes:** `add API route` → `packages/contracts/src/*.ts` Zod → `packages/api-routes/src/<domain>.ts` → `openapi.ts` → `pnpm gen` → `apps/web/src/queries/*.ts`; `add CLI command` → `packages/canonry/src/cli-commands/<cmd>.ts` → `src/mcp/tool-registry.ts` tier + `openapi-classification.ts` → test; `add web section` → `PRODUCT.md` + `apps/web/src/pages/ProjectPage.tsx` tab → `apps/web/src/components/project/*` → update per-package `AGENTS.md`.
@@ -99,7 +99,12 @@ When proposing work, requesting feedback, or showcasing changes:
 ./canonry-install.sh
 
 pnpm install
-pnpm verify                     # required before every push: drift checks + all workspace checks
+pnpm check                      # fast lint of staged, unstaged, and untracked JS/TS files
+pnpm lint:staged                 # fast lint of the exact staged JS/TS content
+pnpm verify                     # optional full check: drift checks + all workspace checks
+pnpm build:cli                  # CLI/server bundle only; skips the dashboard
+pnpm build:web                  # build or reuse dashboard output and copy changed assets
+pnpm build                      # complete publishable package
 pnpm run typecheck
 pnpm run test
 pnpm run lint
@@ -1020,7 +1025,7 @@ This is not optional. If you add a table to the schema but omit the migration, t
 
 - [ ] Table/column added to `schema.ts`
 - [ ] Matching migration added to `MIGRATIONS` in `migrate.ts`
-- [ ] `pnpm verify` passes before pushing
+- [ ] Relevant schema and migration tests pass locally. Full workspace checks pass in CI.
 
 ## Third-party HTTP calls (Critical)
 
@@ -1183,7 +1188,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 **Every non-trivial change must include tests.** If you are adding a feature, fixing a bug, or refactoring logic, ship tests alongside the code. Trivial changes (typo fixes, comment updates, config-only changes) are exempt.
 
-- Use **Vitest** as the test runner. Configured via `vitest.workspace.ts` at the root with per-package `vitest.config.ts` files.
+- Use **Vitest** as the test runner. `vitest.config.ts` defines the workspace projects. `vitest.package.config.ts` supports package tests.
 - Import test utilities from `vitest`: `import { test, expect, describe, it, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'`.
 - Use `expect()` for assertions (e.g. `expect(value).toBe(expected)`, `expect(obj).toEqual(expected)`, `expect(fn).toThrow()`).
 - Tests live in `test/` directories colocated with the package (e.g. `packages/canonry/test/`).
@@ -1191,7 +1196,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 - Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
-- Run focused tests during development. Run `pnpm verify` before pushing.
+- Run focused tests during development. CI runs the full suite. Hooks must never run tests or builds. Pre-push runs non-mutating drift checks.
 - **Test boundary matchers with data as STORED, not idealized.** Before writing a filter/normalizer/matcher over a stored column, check how that column is actually populated (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and sample real values when a database is available. Use the canonical helpers (`hostOf`, `normalizeQueryText`) from contracts instead of inline normalization: a clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a feature stores a default (e.g., `defaultLocation` on a project) that another feature consumes (e.g., run creation), write a test that exercises the full path with no explicit override. Don't just test that the default is stored and that the consumer accepts a value — test that they connect.
 
@@ -1208,18 +1213,24 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
 - Keep explicit job permissions.
-- **Run `pnpm verify` from the repository root before every push.** It runs
-  `gen:check`, `plugin:check`, `val:skills:check`, `typecheck`, `lint`, and `test`.
-  Package suites omit generated mirrors and workspace guards, including documentation assertions.
-- **The lead agent owns the final gate.** After integrating sub-agent changes,
-  run `pnpm verify` in the checkout you will push. A sub-agent's result is only
-  evidence for its reported checks. Record the checkout, commit, command, and result.
-  After any further edit, regeneration, or rebase, rerun the full gate.
+- **CI owns full workspace validation.** Local commits and pushes do not require `pnpm verify`.
+  Use the full command only when requested or needed to reproduce a CI failure.
+- **The lead agent checks the integrated change.** Run `pnpm check` and tests or package typechecks relevant to the changed behavior.
+  After another edit or rebase, rerun only the affected checks. Report local results and CI status separately.
+- **Keep Git hooks fast.** Ordinary commits run syntax lint and repository guards on staged JS/TS blobs only.
+  Staged and changed-file checks share content-based caches across worktrees. Use `--no-cache` when diagnosing cache behavior.
+  It skips TypeScript project loading and leaves the index and working files unchanged. Documentation-only commits skip ESLint.
+  ESLint configuration or local rule changes trigger full repository type-aware lint without the fast cache.
+  For this fallback, code and configuration must match the index. Do not hide staged errors with unstaged fixes.
+  Ordinary fast checks defer type-aware rules to CI. Hooks never run tests, builds, or workspace typechecks.
+  The commit-message hook checks Conventional Commits. Pre-push runs `gen:check --committed`, `plugin:check`, and `val:skills:check` only.
+  Drift inputs must match each pushed commit. Uncommitted package, script, or skill changes cannot mask missing committed artifacts.
+- **Build only the affected surface.** Use `pnpm build:cli` for CLI/server changes and `pnpm build:web` for dashboard changes.
+  Full package builds reuse current dashboard output. Recursive builds order the dashboard before Canonry.
 - **Fix drift at its source.** Use `pnpm gen`, `pnpm plugin:sync`, or
   `pnpm val:skills` for the corresponding generated files. Review the generated
-  changes, then rerun `pnpm verify`. Do not weaken assertions to obtain a pass.
-- The Husky `pre-push` hook runs this gate and blocks the push on failure.
-  `pnpm install` installs the hooks. Do not bypass them to avoid a failed gate.
+  changes and run the corresponding drift check. Stage generated SDK changes before `gen:check`; pre-push also requires them in the commit.
+  Do not weaken assertions to obtain a pass.
 
 ### Vals and the kit
 

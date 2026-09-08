@@ -441,6 +441,9 @@ importers:
       '@ainyc/canonry-provider-perplexity':
         specifier: workspace:*
         version: link:../provider-perplexity
+      '@ainyc/canonry-web':
+        specifier: workspace:*
+        version: link:../../apps/web
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13

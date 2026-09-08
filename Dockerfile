@@ -24,6 +24,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json eslint.config.js ./
 COPY apps ./apps
 COPY packages ./packages
+COPY scripts ./scripts
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @canonry/canonry build

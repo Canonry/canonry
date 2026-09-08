@@ -6,19 +6,23 @@
  * Run via `pnpm gen` from inside this package, or from the workspace root:
  *   pnpm --filter @ainyc/canonry-api-client gen
  *
- * The drift check is `pnpm gen:check` which runs this script then
- * `git diff --exit-code -- src/generated`. CI invokes it.
+ * `pnpm gen:check` compares temporary output without changing the SDK or Git.
  */
-import { createClient } from '@hey-api/openapi-ts'
 import { buildOpenApiDocument } from '@ainyc/canonry-api-routes'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { fingerprint, runArtifactTask } from '../../scripts/artifact-cache.js'
+import { assertGeneratedFilesIncluded } from '../../scripts/generated-git-check.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 async function main() {
+  const args = process.argv.slice(2)
+  if (args.some(arg => !['--check', '--force', '--committed'].includes(arg)) || (args.includes('--committed') && !args.includes('--check'))) {
+    throw new Error('Usage: codegen.ts [--check [--committed]] [--force]')
+  }
   const spec = buildOpenApiDocument({
     title: 'canonry HTTP API',
     description: 'Generated from packages/api-routes — do not hand-edit clients.',
@@ -31,40 +35,57 @@ async function main() {
   })
   stripSseRoutes(spec)
 
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canonry-codegen-'))
-  const specPath = path.join(tmpDir, 'openapi.json')
-  await fs.writeFile(specPath, JSON.stringify(spec, null, 2), 'utf8')
-
+  const repoRoot = path.resolve(__dirname, '../..')
   const outputDir = path.join(__dirname, 'src', 'generated')
-  await fs.rm(outputDir, { recursive: true, force: true })
-
-  await createClient({
-    input: specPath,
-    output: {
-      path: outputDir,
-      format: 'prettier',
-      lint: false,
+  const specJson = JSON.stringify(spec, null, 2)
+  const inputHash = fingerprint([
+    fileURLToPath(import.meta.url),
+    path.join(repoRoot, 'scripts/artifact-cache.ts'),
+    path.join(repoRoot, 'pnpm-lock.yaml'),
+    path.join(__dirname, 'package.json'),
+  ], { spec: specJson, node: process.version })
+  const result = await runArtifactTask({
+    inputHash,
+    outputDir,
+    cacheFile: path.join(repoRoot, '.tmp/codegen/cache.json'),
+    check: args.includes('--check'),
+    force: args.includes('--force'),
+    generate: async (tempOutput) => {
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canonry-codegen-'))
+      try {
+        const specPath = path.join(tmpDir, 'openapi.json')
+        await fs.writeFile(specPath, specJson, 'utf8')
+        const { createClient } = await import('@hey-api/openapi-ts')
+        await createClient({
+          input: specPath,
+          output: {
+            path: tempOutput,
+            format: 'prettier',
+            lint: false,
+          },
+          plugins: [
+            {
+              name: '@hey-api/client-fetch',
+              runtimeConfigPath: undefined,
+            },
+            '@hey-api/sdk',
+            '@hey-api/typescript',
+            // Generates `<operation>Options` / `<operation>QueryKey` /
+            // `<operation>Mutation` helpers for TanStack Query v5. Consumed by
+            // apps/web in components via `useQuery(getApiV1ProjectsOptions({ client }))`.
+            // Cache keys are derived from path + query params — no hand-curated
+            // key registry needed.
+            '@tanstack/react-query',
+          ],
+        })
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true })
+      }
     },
-    plugins: [
-      {
-        name: '@hey-api/client-fetch',
-        runtimeConfigPath: undefined,
-      },
-      '@hey-api/sdk',
-      '@hey-api/typescript',
-      // Generates `<operation>Options` / `<operation>QueryKey` /
-      // `<operation>Mutation` helpers for TanStack Query v5. Consumed by
-      // apps/web in components via `useQuery(getApiV1ProjectsOptions({ client }))`.
-      // Cache keys are derived from path + query params — no hand-curated
-      // key registry needed.
-      '@tanstack/react-query',
-    ],
   })
 
-  await fs.rm(tmpDir, { recursive: true, force: true })
-
-  // eslint-disable-next-line no-console
-  console.log(`Generated client written to ${path.relative(process.cwd(), outputDir)}`)
+  if (args.includes('--check')) assertGeneratedFilesIncluded(outputDir, args.includes('--committed'))
+  console.log(`Generated client ${result.cached ? 'unchanged (cached)' : args.includes('--check') ? 'matches' : `updated (${result.changedFiles.length} files)`}`)
 }
 
 /**
@@ -98,7 +119,7 @@ function stripSseRoutes(spec: { paths?: Record<string, Record<string, unknown>> 
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error('Codegen failed:', err)
+  if (process.argv.includes('--check')) console.error('Run pnpm gen to update the SDK.')
   process.exit(1)
 })

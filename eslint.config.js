@@ -302,11 +302,11 @@ export default tseslint.config(
     rules: { 'canonry-guards/no-inline-ai-hostname': 'error' },
   },
   {
-    files: ['**/*.js', '**/*.ts', '**/*.tsx'],
+    files: ['**/*.js', '**/*.mjs', '**/*.cjs', '**/*.ts', '**/*.tsx'],
     extends: [regexpPlugin.configs['flat/recommended']],
   },
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
     extends: [js.configs.recommended],
     languageOptions: {
       globals: {

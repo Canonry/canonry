@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check that every package/app has an AGENTS.md and CLAUDE.md.
-# Run in CI or pre-push to catch missing documentation.
+# Run in CI to catch missing documentation.
 set -euo pipefail
 
 errors=0

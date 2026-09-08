@@ -1,18 +1,2 @@
-# Package suites omit drift checks and workspace guards. Run the full merge gate.
-# Tests create their own repositories. Do not pass the pushing repository's
-# Git environment to them, or their Git commands can alter this checkout.
-git_env=$(git rev-parse --local-env-vars) || exit 1
-for git_var in $git_env; do
-  unset "$git_var"
-done
-log="$(mktemp "${TMPDIR:-/tmp}/canonry-prepush-verify.XXXXXX")" || exit 1
-echo "pre-push: running pnpm verify (log: $log)" >&2
-if pnpm verify > "$log" 2>&1; then
-  rm -f "$log"
-  echo "pre-push: pnpm verify passed" >&2
-else
-  echo "pre-push: pnpm verify FAILED" >&2
-  tail -40 "$log" >&2
-  echo "pre-push: full verification output -> $log" >&2
-  exit 1
-fi
+# Check generated artifacts before publication. Full validation runs in CI.
+node scripts/pre-push.mjs

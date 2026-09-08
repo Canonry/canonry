@@ -6,10 +6,10 @@
   "license": "FSL-1.1-ALv2",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 4173",
-    "build": "vite build",
+    "build": "node --import tsx build.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --config vitest.config.ts",
-    "lint": "eslint src/ test/ vite.config.ts",
+    "lint": "eslint src/ test/ vite.config.ts build.ts",
     "scan:colors": "node scripts/scan-raw-colors.mjs"
   },
   "dependencies": {

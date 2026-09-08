@@ -2,63 +2,90 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, test } from 'vitest'
 
-const tempDirs: string[] = []
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
-})
+const script = fileURLToPath(new URL('../scripts/pre-push.mjs', import.meta.url))
+const hook = fs.readFileSync(new URL('../.husky/pre-push', import.meta.url), 'utf8')
+const dirs: string[] = []
+afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }) })
 
-test.each([0, 1])('push reaches the remote only when verification succeeds (exit %i)', (verifyExit) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-push-'))
-  tempDirs.push(dir)
-  const repo = path.join(dir, 'repo')
-  const remote = path.join(dir, 'remote.git')
-  const bin = path.join(dir, 'bin')
-  const hooks = path.join(dir, 'hooks')
-  for (const folder of [repo, bin, hooks]) fs.mkdirSync(folder)
+function fixture() {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-push-test-'))
+  dirs.push(cwd)
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-    PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
-    TMPDIR: dir,
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
+    PATH: `${path.join(cwd, '.tmp/bin')}${path.delimiter}${process.env.PATH}`,
   }
-  const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
-  git(['init', '--initial-branch=main'])
-  git(['init', '--bare', remote])
-  git(['config', 'core.hooksPath', hooks])
-  git(['-c', 'user.name=Hook Test', '-c', 'user.email=hook@example.com', 'commit', '--allow-empty', '-m', 'fixture'])
-  const hook = fs.readFileSync(new URL('../.husky/pre-push', import.meta.url), 'utf8')
-  fs.writeFileSync(path.join(hooks, 'pre-push'), `#!/bin/sh\n${hook}`, { mode: 0o755 })
-  // Substitute only the expensive verifier; exercise a real Git push and hook.
-  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh
-pwd > gate-cwd
-printf '%s\\n' "$*" >> gate-args
-git init --quiet nested-repo || exit 90
-git -C nested-repo -c user.name=Test -c user.email=test@example.com commit --quiet --allow-empty -m fixture || exit 91
-echo 'verification output'
-exit ${verifyExit}
-`, { mode: 0o755 })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
+  const write = (file: string, value: string) => {
+    fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true })
+    fs.writeFileSync(path.join(cwd, file), value)
+  }
+  git('init', '--initial-branch=main')
+  git('config', 'user.name', 'Test')
+  git('config', 'user.email', 'test@example.com')
+  write('.gitignore', '.tmp/\n')
+  write('packages/api-routes/src/openapi.ts', 'old API')
+  write('packages/api-client-generated/src/generated/sdk.ts', 'old SDK')
+  write('README.md', 'docs')
+  write('scripts/pre-push.mjs', fs.readFileSync(script, 'utf8'))
+  write('.husky/pre-push', hook)
+  git('add', '.')
+  git('-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test: fixture')
+  const log = path.join(cwd, '.tmp/calls')
+  write('.tmp/bin/pnpm', '#!/bin/sh\nprintf "%s\\n" "$*" >> .tmp/calls\n[ "$1" != "$FAIL_GATE" ]\n')
+  fs.chmodSync(path.join(cwd, '.tmp/bin/pnpm'), 0o755)
+  const update = (sha = git('rev-parse', 'HEAD')) => `refs/heads/main ${sha} refs/heads/main ${'0'.repeat(40)}\n`
+  const run = (input = update(), extraEnv = {}) => spawnSync('sh', ['.husky/pre-push'], { cwd, env: { ...env, ...extraEnv }, input, encoding: 'utf8' })
+  const calls = () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []
+  return { cwd, git, write, update, run, calls }
+}
 
-  const before = git(['rev-parse', 'HEAD'])
-  const pushed = spawnSync('git', ['push', remote, 'HEAD:refs/heads/main'], {
-    cwd: repo,
-    env: { ...env, GIT_DIR: path.join(repo, '.git'), GIT_WORK_TREE: repo },
-    encoding: 'utf8',
-  })
-  expect(fs.readFileSync(path.join(repo, 'gate-args'), 'utf8').trim()).toBe('verify')
-  expect(fs.realpathSync(fs.readFileSync(path.join(repo, 'gate-cwd'), 'utf8').trim())).toBe(fs.realpathSync(repo))
-  const remoteHead = git(['for-each-ref', '--format=%(objectname)', 'refs/heads/main'], remote)
-  expect(pushed.status).toBe(verifyExit)
-  expect(remoteHead).toBe(verifyExit === 0 ? git(['rev-parse', 'HEAD']) : '')
-  expect(git(['rev-parse', 'HEAD'])).toBe(before)
-  expect(fs.realpathSync(git(['rev-parse', '--show-toplevel'], path.join(repo, 'nested-repo')))).toBe(fs.realpathSync(path.join(repo, 'nested-repo')))
-  const logs = fs.readdirSync(dir).filter((name) => name.startsWith('canonry-prepush-verify.'))
-  expect(logs).toHaveLength(verifyExit === 0 ? 0 : 1)
-  if (verifyExit !== 0) {
-    expect(pushed.stderr).toContain('pnpm verify FAILED')
-    expect(pushed.stderr).toContain('verification output')
-    expect(fs.readFileSync(path.join(dir, logs[0]), 'utf8')).toContain('verification output')
-  }
+test('push runs only the three drift gates and permits unrelated documentation WIP', () => {
+  const f = fixture()
+  f.write('README.md', 'unstaged docs')
+  const result = f.run()
+  expect(result.status, result.stderr).toBe(0)
+  expect(f.calls()).toEqual(['gen:check --committed', 'plugin:check', 'val:skills:check'])
+  expect(f.git('diff', '--name-only')).toBe('README.md')
+})
+
+test.each(['gen:check', 'plugin:check', 'val:skills:check'])('a failed %s blocks the push and stops subsequent checks', (gate) => {
+  const f = fixture()
+  expect(f.run(undefined, { FAIL_GATE: gate }).status).toBe(1)
+  expect(f.calls().at(-1)?.split(' ')[0]).toBe(gate)
+})
+
+test.each([false, true])('SDK fixes omitted from the pushed commit fail even when staged=%s', (staged) => {
+  const f = fixture()
+  f.write('packages/api-client-generated/src/generated/sdk.ts', 'regenerated SDK')
+  if (staged) f.git('add', 'packages')
+  const result = f.run()
+  expect(result.status).toBe(1)
+  expect(result.stderr).toContain('differ from pushed commit')
+  expect(f.calls()).toEqual([])
+})
+
+test('working API edits cannot mask a bad commit, and other pushed refs are checked', () => {
+  const f = fixture()
+  const original = f.git('rev-parse', 'HEAD')
+  f.write('packages/api-routes/src/openapi.ts', 'new API')
+  f.git('add', 'packages')
+  f.git('-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test: new API')
+  f.write('packages/api-routes/src/openapi.ts', 'old API')
+  expect(f.run().status).toBe(1)
+  f.git('restore', 'packages')
+  expect(f.run(f.update() + f.update(original)).status).toBe(1)
+  expect(f.calls()).toEqual([])
+})
+
+test('deletion-only pushes skip gates and untracked inputs cannot hide in checks', () => {
+  const f = fixture()
+  expect(f.run(f.update('0'.repeat(40))).status).toBe(0)
+  expect(f.calls()).toEqual([])
+  f.write('skills/new/SKILL.md', 'uncommitted skill')
+  expect(f.run().status).toBe(1)
+  expect(f.calls()).toEqual([])
 })

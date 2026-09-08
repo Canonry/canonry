@@ -7,8 +7,13 @@
   "scripts": {
     "preinstall": "test ! -f scripts/check-node.mjs || node scripts/check-node.mjs",
     "build": "pnpm --filter @canonry/canonry run build",
+    "build:cli": "pnpm --filter @canonry/canonry run build:cli",
+    "build:web": "pnpm --filter @canonry/canonry run build:web",
     "typecheck": "pnpm -r --no-bail run typecheck && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
     "test": "vitest run",
+    "check": "node scripts/lint-changed.mjs",
+    "lint:changed": "node scripts/lint-changed.mjs",
+    "lint:staged": "node scripts/lint-changed.mjs --staged",
     "lint": "pnpm -r run lint",
     "gen": "pnpm --filter @ainyc/canonry-api-client gen",
     "gen:check": "pnpm --filter @ainyc/canonry-api-client gen:check",
