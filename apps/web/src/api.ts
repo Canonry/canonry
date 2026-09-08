@@ -1,4 +1,5 @@
 import type { ApiKeyDto, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
+import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -179,6 +180,11 @@ declare global {
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
       }
+      /** Present only when this deployment grants viewer accounts paid research. */
+      research?: {
+        allowViewers?: boolean
+        viewerDailyRunLimit?: number
+      }
       /** @deprecated Accept the early flat rollout shape during the transition. */
       onboardingMode?: OnboardingMode
       /**
@@ -301,6 +307,23 @@ export function shouldShowDashboardUpdateNotification(): boolean {
 export function isDashboardManagedSweeps(): boolean {
   if (typeof window === 'undefined') return false
   return window.__CANONRY_CONFIG__?.dashboard?.managedSweeps === true
+}
+
+export interface ViewerResearchConfig {
+  allowViewers: true
+  viewerDailyRunLimit: number
+}
+
+/** Paid viewer research is fail-closed unless the server injects the grant. */
+export function getViewerResearchConfig(): ViewerResearchConfig | null {
+  if (typeof window === 'undefined') return null
+  const research = window.__CANONRY_CONFIG__?.research
+  if (research?.allowViewers !== true) return null
+  const limit = research.viewerDailyRunLimit
+  return {
+    allowViewers: true,
+    viewerDailyRunLimit: Number.isInteger(limit) && (limit ?? 0) > 0 ? limit! : DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
+  }
 }
 
 /**

@@ -91,7 +91,7 @@ erDiagram
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
 | **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
 | **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. | FK: runId → runs, queryId → queries |
-| **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
+| **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring; `initiatedBy` records the account or API key that started new runs. Historical rows can be null. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
@@ -100,7 +100,8 @@ erDiagram
 `research_runs` and `research_run_queries` are the durable ad-hoc research
 history. They are deliberately not linked to `queries`, `runs`, or
 `query_snapshots`: a research request never changes the tracked basket or any
-monitoring metric. Deleting a project cascades to its research runs, and
+monitoring metric. New run headers preserve initiating-principal attribution;
+rows created before that field was introduced remain unattributed. Deleting a project cascades to its research runs, and
 deleting a research run cascades to its query results.
 
 Measurement planning is additive. Existing projects and ordinary

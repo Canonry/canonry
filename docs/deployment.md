@@ -81,12 +81,33 @@ Simple and Advanced Measurement dashboards replace sweep launch controls with
 the enabled answer-visibility schedule's actual `nextRunAt`, displayed in UTC.
 Without a usable next-run time, they show “Sweeps are run by your Canonry team”.
 Site Health scans and other run kinds keep their controls.
-Discovery and Research runs remain available to clients with write access.
-They use provider quota separately from scheduled visibility sweeps. Existing
-viewer and read-only restrictions still apply.
+Discovery remains available to clients with write access. Research uses
+provider quota separately from scheduled visibility sweeps; viewer access is
+controlled independently below. Read-only API keys remain unable to start it.
 Running sweeps, baseline results, and failure details remain visible. Project
 Settings shows the schedule without controls to change it. Dashboard Aero uses
 read-only tools and disables its sweep shortcut and write-scope toggle.
+
+### Viewer research
+
+An operator can let signed-in viewer accounts run isolated research queries:
+
+```yaml
+research:
+  allowViewers: true
+  viewerDailyRunLimit: 20
+```
+
+`CANONRY_RESEARCH_ALLOW_VIEWERS` and
+`CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT` override these values for container
+deployments. The opt-in defaults to false; the daily per-project cap defaults
+to 20 and resets at 00:00 UTC.
+
+This grant covers only `POST /projects/:name/research/runs`. It does not grant
+access to provider settings, tracked-query changes, discovery, or visibility
+sweeps. Administrators and wildcard API keys keep their existing access;
+read-only and narrowly scoped API keys cannot spend provider quota. Each new
+research run records the initiating account or API key.
 
 This hides sweep controls for **all dashboard roles, including admins**.
 Operators retain `canonry run <project>` against the managed instance as the

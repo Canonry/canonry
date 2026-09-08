@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
-import { and, desc, eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, isBrowserProvider, missingDependency, notFound, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
+import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
+import { requireResearchGrant } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import type { ProviderAdapterInfo } from './settings.js'
 
@@ -10,13 +11,23 @@ export interface ResearchRoutesOptions {
   providerAdapters?: ProviderAdapterInfo[]
   configuredProviderNames?: readonly string[]
   onResearchRunRequested?: (runId: string, projectId: string) => void
+  allowViewers?: boolean
+  viewerDailyRunLimit?: number
 }
 
 const sameLocation = (a: LocationContext, b: LocationContext) =>
   a.label === b.label && a.city === b.city && a.region === b.region && a.country === b.country && a.timezone === b.timezone
 
 export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesOptions) {
-  app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/research/runs', async (request, reply) => {
+  const viewerDailyRunLimit = opts.viewerDailyRunLimit ?? DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT
+  if (!Number.isInteger(viewerDailyRunLimit) || viewerDailyRunLimit <= 0) {
+    throw new Error('viewerDailyRunLimit must be a positive integer')
+  }
+
+  app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/research/runs', {
+    config: { paidRead: true },
+  }, async (request, reply) => {
+    requireResearchGrant(request, opts.allowViewers ?? false)
     const project = resolveProject(app.db, request.params.name)
     if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const parsed = researchRunCreateSchema.safeParse(request.body ?? {})
@@ -38,6 +49,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const normalized = { queries: input.queries, provider: providerName, model: requestedModel, location: location ?? null }
     const requestHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
     const now = new Date().toISOString()
+    const initiatedBy = researchPrincipal(request)
     const decision = app.db.transaction((tx) => {
       if (input.idempotencyKey) {
         const existing = tx.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
@@ -46,10 +58,22 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
           return { reused: true as const, id: existing.id, shouldDispatch: existing.status === ResearchRunStatuses.queued }
         }
       }
+      if (initiatedBy?.kind === 'user' && initiatedBy.role === UserRoles.viewer) {
+        const { start, end, date } = utcDayBounds(now)
+        const used = tx.select({ value: count() }).from(researchRuns).where(and(
+          eq(researchRuns.projectId, project.id),
+          gte(researchRuns.createdAt, start),
+          lt(researchRuns.createdAt, end),
+          sql`json_extract(${researchRuns.initiatedBy}, '$.role') = ${UserRoles.viewer}`,
+        )).get()?.value ?? 0
+        if (used >= viewerDailyRunLimit) {
+          throw researchDailyLimitExceeded(project.name, viewerDailyRunLimit, date)
+        }
+      }
       const id = crypto.randomUUID()
-      tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, createdAt: now }).run()
+      tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, initiatedBy, createdAt: now }).run()
       for (const [position, query] of input.queries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, status: ResearchQueryStatuses.queued, requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
-      writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'research.created', entityType: 'research_run', entityId: id })
+      writeAuditLog(tx, { projectId: project.id, actor: initiatedBy ? `${initiatedBy.kind}:${initiatedBy.id}` : 'api', action: 'research.created', entityType: 'research_run', entityId: id })
       return { reused: false as const, id, shouldDispatch: true }
     })
     const result = getDetail(app, project.id, decision.id)
@@ -79,8 +103,26 @@ function getDetail(app: FastifyInstance, projectId: string, id: string): Researc
   return { ...serializeRun(row), queries }
 }
 function serializeRun(row: typeof researchRuns.$inferSelect): ResearchRunSummaryDto {
-  return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
+  return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, initiatedBy: row.initiatedBy ?? null, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
 }
 function serializeQuery(row: typeof researchRunQueries.$inferSelect): ResearchRunQueryDto {
   return { id: row.id, position: row.position, query: row.queryText, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
+}
+
+function researchPrincipal(request: FastifyRequest): ResearchRunPrincipal | null {
+  const principal = request.principal
+  if (!principal) return null
+  return {
+    kind: principal.kind,
+    id: principal.id,
+    name: principal.name,
+    role: principal.kind === 'user' ? principal.role ?? null : null,
+  }
+}
+
+function utcDayBounds(now: string): { start: string; end: string; date: string } {
+  const date = now.slice(0, 10)
+  const start = `${date}T00:00:00.000Z`
+  const end = new Date(Date.parse(start) + 24 * 60 * 60 * 1000).toISOString()
+  return { start, end, date }
 }

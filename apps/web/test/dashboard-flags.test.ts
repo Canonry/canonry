@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { shouldShowDashboardAgentBar } from '../src/api.js'
+import { getViewerResearchConfig, shouldShowDashboardAgentBar } from '../src/api.js'
 
 /**
  * The agent kill-switch removes the server routes. Before this flag reached the
@@ -28,5 +28,13 @@ describe('agent bar visibility', () => {
       dashboard: { showResourceLinks: false, showUpdateNotification: false },
     }
     expect(shouldShowDashboardAgentBar()).toBe(true)
+  })
+
+  it('keeps viewer research off unless the server injects the paid capability', () => {
+    expect(getViewerResearchConfig()).toBeNull()
+    ;(window as unknown as { __CANONRY_CONFIG__: unknown }).__CANONRY_CONFIG__ = {
+      research: { allowViewers: true, viewerDailyRunLimit: 7 },
+    }
+    expect(getViewerResearchConfig()).toEqual({ allowViewers: true, viewerDailyRunLimit: 7 })
   })
 })

@@ -21,6 +21,8 @@ const EMBED_ENV = [
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
   'CANONRY_DASHBOARD_MANAGED_SWEEPS',
+  'CANONRY_RESEARCH_ALLOW_VIEWERS',
+  'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
   'CANONRY_ONBOARDING_MODE',
 ] as const
 
@@ -125,6 +127,43 @@ describe('server embed mode (#716)', () => {
       expect(res.body).not.toContain('embed')
     } finally {
       await cleanup()
+    }
+  })
+
+  it('injects viewer research only when config opts in', async () => {
+    const { app, cleanup } = await buildServer(undefined, true, {
+      research: { allowViewers: true, viewerDailyRunLimit: 7 },
+    })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/' })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={"research":{"allowViewers":true,"viewerDailyRunLimit":7}}</script>')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('environment overrides viewer research config in both directions', async () => {
+    process.env.CANONRY_RESEARCH_ALLOW_VIEWERS = 'true'
+    process.env.CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT = '9'
+    const enabled = await buildServer(undefined, true, {
+      research: { allowViewers: false, viewerDailyRunLimit: 3 },
+    })
+    try {
+      const res = await enabled.app.inject({ method: 'GET', url: '/' })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={"research":{"allowViewers":true,"viewerDailyRunLimit":9}}</script>')
+    } finally {
+      await enabled.cleanup()
+    }
+
+    process.env.CANONRY_RESEARCH_ALLOW_VIEWERS = 'false'
+    const disabled = await buildServer(undefined, true, {
+      research: { allowViewers: true, viewerDailyRunLimit: 3 },
+    })
+    try {
+      const res = await disabled.app.inject({ method: 'GET', url: '/' })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+    } finally {
+      await disabled.cleanup()
     }
   })
 

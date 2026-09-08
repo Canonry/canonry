@@ -967,6 +967,13 @@ describe('MCP tool registry', () => {
     expect([...referencedOperations].sort()).toEqual(includedOperations.sort())
   })
 
+  it('routes paid research through the write client path', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_research_run_start')!
+    expect(tool.access).toBe('write')
+    expect(tool.openApiOperations).toEqual(['POST /api/v1/projects/{name}/research/runs'])
+    expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS['POST /api/v1/projects/{name}/research/runs']).toBe('included')
+  })
+
   it('maps Canonry client errors to isError tool results', async () => {
     const result = await withToolErrors(async () => {
       throw new CliError({

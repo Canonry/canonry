@@ -288,6 +288,12 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
   presentation only: all dashboard roles lose manual sweep controls, while
   `canonry run <project>` remains the operator lever. See `docs/deployment.md`.
 
+- `CANONRY_RESEARCH_ALLOW_VIEWERS` overrides `research.allowViewers` and
+  defaults to false. Inject the client research block only when true, including
+  the resolved positive `viewerDailyRunLimit` (default 20). This grant applies
+  only to signed-in viewer research; it does not widen sweeps, settings, or API
+  key scopes.
+
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.

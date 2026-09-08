@@ -113,6 +113,7 @@ export function fetchMyNewThing(name: string): Promise<MyNewDto> {
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.
 Research retains ICP discovery and bounded tests. Promotion must use query-tracking preview and commit.
+For a signed-in viewer, omit Research unless the injected `research.allowViewers` grant is true. When granted, show the direct query test only: do not load `/settings`, expose provider/model controls, or offer ICP discovery and tracked-query promotion. The server remains the authorization and daily-cap boundary.
 After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
 `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts.

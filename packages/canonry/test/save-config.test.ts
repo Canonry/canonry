@@ -258,6 +258,20 @@ test('loadConfig preserves managed sweeps from config.yaml and validates its boo
   expect(loadConfig).toThrow(/managedSweeps/)
 })
 
+test('loadConfig preserves viewer research policy and validates both fields', () => {
+  const configured = baseConfig({ research: { allowViewers: true, viewerDailyRunLimit: 7 } })
+  const original = stringify(configured)
+  fs.writeFileSync(getConfigPath(), original)
+  expect(loadConfig().research).toEqual(configured.research)
+  saveConfigPatch(loadConfig())
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+
+  fs.writeFileSync(getConfigPath(), stringify({ ...configured, research: { allowViewers: 'true' } }))
+  expect(loadConfig).toThrow(/research\.allowViewers/)
+  fs.writeFileSync(getConfigPath(), stringify({ ...configured, research: { viewerDailyRunLimit: 0 } }))
+  expect(loadConfig).toThrow(/research\.viewerDailyRunLimit/)
+})
+
 test('loadConfig accepts a legacy blank showUpdateNotification value', () => {
   const original = `${stringify(baseConfig())}dashboard:\n  showUpdateNotification:\n`
   fs.writeFileSync(getConfigPath(), original)

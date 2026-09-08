@@ -168,6 +168,8 @@ export function buildApp(env: PlatformEnv) {
     getEffectiveProviderModels: effectiveProviderModels,
     googleStateSecret: env.googleStateSecret,
     trustProxyConfigured: trustProxy !== false,
+    researchAllowViewers: env.research.allowViewers,
+    researchViewerDailyRunLimit: env.research.viewerDailyRunLimit,
   })
 
   // NO MCP TRANSPORT AND NO OAUTH HERE, deliberately.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AppError, describeError, notFound, queryTrackingPreviewStale, validationError } from '../src/errors.js'
+import { AppError, describeError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
 
 describe('describeError', () => {
   it('returns the message of an Error', () => {
@@ -108,6 +108,16 @@ describe('query tracking errors', () => {
       code: 'QUERY_TRACKING_PREVIEW_STALE',
       statusCode: 409,
       details: { expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' },
+    })
+  })
+})
+
+describe('research errors', () => {
+  it('returns a typed daily-limit error with operator-readable details', () => {
+    expect(researchDailyLimitExceeded('demo', 20, '2026-09-08')).toMatchObject({
+      code: 'RESEARCH_DAILY_LIMIT_EXCEEDED',
+      statusCode: 429,
+      details: { projectName: 'demo', limit: 20, date: '2026-09-08' },
     })
   })
 })

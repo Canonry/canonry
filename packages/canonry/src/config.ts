@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { dashboardManagedSweepsSchema } from '@ainyc/canonry-config'
+import { dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
 import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
 
@@ -357,6 +357,13 @@ export interface DashboardConfigEntry {
   managedSweeps?: boolean | null
 }
 
+export interface ResearchConfigEntry {
+  /** Allow signed-in viewers to run paid research queries. Defaults to false. */
+  allowViewers?: boolean | null
+  /** Viewer-created research runs allowed per project and UTC day. Defaults to 20. */
+  viewerDailyRunLimit?: number | null
+}
+
 /**
  * Google Places API config — supplemental rendered-listing data for GBP
  * lodging locations (#648). The API key authenticates Place Details calls
@@ -405,6 +412,8 @@ export interface CanonryConfig {
   // Browser dashboard auth gate. `dashboard.requirePassword=false` trusts an
   // upstream auth layer while keeping API bearer-key auth intact.
   dashboard?: DashboardConfigEntry
+  /** Paid research access and budget controls. */
+  research?: ResearchConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
@@ -545,6 +554,18 @@ export function loadConfig(): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
+    })
+  }
+  if (!researchAllowViewersSchema.safeParse(parsed.research?.allowViewers).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: research.allowViewers must be true, false, or left blank.`,
+    })
+  }
+  if (!researchViewerDailyRunLimitSchema.safeParse(parsed.research?.viewerDailyRunLimit).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: research.viewerDailyRunLimit must be a positive integer or left blank.`,
     })
   }
 

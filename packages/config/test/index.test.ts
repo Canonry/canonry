@@ -11,6 +11,17 @@ test('getPlatformEnv returns defaults when no env vars set', () => {
   expect(env.bootstrapSecret).toBe('change-me')
   // No providers configured by default
   expect(env.providers).toEqual({})
+  expect(env.research).toEqual({ allowViewers: false, viewerDailyRunLimit: 20 })
+})
+
+test('getPlatformEnv resolves viewer research opt-in and daily limit', () => {
+  expect(getPlatformEnv({
+    CANONRY_RESEARCH_ALLOW_VIEWERS: 'yes',
+    CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT: '7',
+  }).research).toEqual({ allowViewers: true, viewerDailyRunLimit: 7 })
+
+  expect(getPlatformEnv({ CANONRY_RESEARCH_ALLOW_VIEWERS: '0' }).research)
+    .toEqual({ allowViewers: false, viewerDailyRunLimit: 20 })
 })
 
 test('getPlatformEnv configures Gemini provider from env vars', () => {
@@ -134,5 +145,21 @@ test('managed-sweeps validation accepts booleans and blank values without inject
   }
   for (const value of ['true', 'false', 1, 0, {}, []]) {
     expect(dashboardManagedSweepsSchema.safeParse(value).success).toBe(false)
+  }
+})
+
+test('viewer research config validation accepts only nullable booleans and positive integers', async () => {
+  const { researchAllowViewersSchema, researchViewerDailyRunLimitSchema } = await import('../src/index.js')
+  for (const value of [true, false, undefined, null]) {
+    expect(researchAllowViewersSchema.parse(value)).toBe(value)
+  }
+  for (const value of ['true', 1, {}, []]) {
+    expect(researchAllowViewersSchema.safeParse(value).success).toBe(false)
+  }
+  for (const value of [1, 20, undefined, null]) {
+    expect(researchViewerDailyRunLimitSchema.parse(value)).toBe(value)
+  }
+  for (const value of [0, -1, 1.5, '20']) {
+    expect(researchViewerDailyRunLimitSchema.safeParse(value).success).toBe(false)
   }
 })

@@ -1,8 +1,10 @@
-import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
 export const dashboardManagedSweepsSchema = z.boolean().nullish()
+export const researchAllowViewersSchema = z.boolean().nullish()
+export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
@@ -45,6 +47,8 @@ const envSchema = z.object({
   // cloud deployments that mount googleRoutes; the plugin refuses to register
   // without it (see packages/api-routes/src/google.ts).
   GOOGLE_STATE_SECRET: z.string().optional(),
+  CANONRY_RESEARCH_ALLOW_VIEWERS: z.string().optional(),
+  CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT: z.coerce.number().int().positive().default(DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT),
 })
 
 export interface ProviderEnvConfig {
@@ -98,6 +102,10 @@ export interface PlatformEnv {
    * default.
    */
   googleStateSecret?: string
+  research: {
+    allowViewers: boolean
+    viewerDailyRunLimit: number
+  }
   providers: {
     gemini?: ProviderEnvConfig
     openai?: ProviderEnvConfig
@@ -196,8 +204,20 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
     googleStateSecret: parsed.GOOGLE_STATE_SECRET,
+    research: {
+      allowViewers: parseBooleanEnv(parsed.CANONRY_RESEARCH_ALLOW_VIEWERS) ?? false,
+      viewerDailyRunLimit: parsed.CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT,
+    },
     providers,
   }
+}
+
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return undefined
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes') return true
+  if (normalized === '0' || normalized === 'false' || normalized === 'no') return false
+  return undefined
 }
 
 export function getBootstrapEnv(
