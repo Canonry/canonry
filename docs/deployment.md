@@ -70,13 +70,12 @@ notices active.
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
 
-### Managed sweeps
+### Managed run kinds
 
-Set `CANONRY_DASHBOARD_MANAGED_SWEEPS=1` or `dashboard.managedSweeps: true`
-for a deployment where your team runs AI Visibility sweeps for clients.
-The environment variable overrides config.yaml; `0` restores the controls.
-Restart the server with the updated environment after deploying this version.
+Use `dashboard.managedRunKinds` for a deployment where your team runs work for
+clients:
 
+<<<<<<< HEAD
 Simple and Advanced Measurement dashboards replace sweep launch controls with
 the enabled answer-visibility schedule's actual `nextRunAt`, displayed in UTC.
 Without a usable next-run time, they show “Sweeps are run by your Canonry team”.
@@ -115,6 +114,58 @@ manual lever. CLI, API, MCP, scheduling, and authorization are unchanged.
 Viewer sessions and read-only keys still cannot start sweeps, regardless of
 this presentation flag. Unset or false preserves the existing dashboard and
 injects no additional client config.
+=======
+```yaml
+dashboard:
+  managedRunKinds:
+    - answer-visibility
+    - site-audit
+```
+
+For containers, set
+`CANONRY_DASHBOARD_MANAGED_RUN_KINDS=answer-visibility,site-audit` and restart.
+Values must belong to `schedulableRunKindSchema`; an unknown kind refuses boot
+with the setting name. The list is deduplicated. Other schedulable kinds are
+accepted for configuration, but this release changes only sweep and scan UI.
+
+Resolution order is the new environment list, the legacy environment boolean,
+the new YAML list, then the legacy YAML boolean. Blank environment values fall
+through. An empty YAML list disables management. Within each source, the new
+list replaces the legacy setting; it does not add to it.
+`CANONRY_DASHBOARD_MANAGED_SWEEPS=1` and `dashboard.managedSweeps: true` remain
+compatible aliases for `['answer-visibility']` only. The legacy environment
+value `0` still disables management unless the new environment list is set.
+
+Simple and Advanced Measurement dashboards use the same presentation policy:
+
+- `answer-visibility` hides launch controls for **all dashboard roles, including
+  admins**. This preserves the original managed-sweeps deployment behavior.
+  Operators retain `canonry run <project>` as their manual lever. Settings keeps
+  schedule reads but hides schedule changes. Dashboard Aero uses read-only tools
+  and disables its sweep shortcut and write-scope toggle.
+- `site-audit` hides scan launch and retry controls, plus next-scan settings, for
+  **viewers only**. Admins retain scan controls so they can investigate failures
+  from Site Health. Both scan dispatchers also suppress managed viewer launches.
+  This role-aware scan policy deliberately differs from the legacy sweep policy.
+
+Managed status reads the corresponding schedule's actual `nextRunAt` in UTC.
+Site Health shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
+team” when that is the enabled schedule's time. Without a usable schedule time,
+it shows “Scans are run by your Canonry team”, with no invented date. Sweeps
+retain their existing “Next sync” and “Sweeps are run by your Canonry team” copy.
+Queued/running states, scores, factor scorecards, page lists, maps, failure and
+partial-scan explanations, and dead-link results remain available.
+
+The admin-only project-creation scan in `OnboardingSetupPage` is outside this
+client presentation policy. Discovery and Research runs retain their existing
+access rules and use provider quota separately from scheduled visibility sweeps.
+
+These settings are **presentation only**. CLI, API, MCP, scheduling, and
+server authorization are unchanged. Viewer sessions and read-only keys cannot
+start scans or sweeps regardless of these settings. With neither setting, the
+injected client config is byte-identical; `managedRunKinds` is injected only
+when non-empty.
+>>>>>>> f51e193d (feat: configure managed run kinds and viewer scans)
 
 ### Embed fonts
 

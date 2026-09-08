@@ -23,6 +23,7 @@ const EMBED_ENV = [
   'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_RESEARCH_ALLOW_VIEWERS',
   'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
+  'CANONRY_DASHBOARD_MANAGED_RUN_KINDS',
   'CANONRY_ONBOARDING_MODE',
 ] as const
 
@@ -282,7 +283,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const expectedConfig = JSON.stringify({ basePath: '/console/', dashboard: {
-        showResourceLinks: false, ...(expected ? { managedSweeps: true } : {}),
+        showResourceLinks: false, ...(expected ? { managedRunKinds: ['answer-visibility'] } : {}),
       } })
       for (const url of ['/console/', '/console/projects/example']) {
         const response = await app.inject({ method: 'GET', url })
@@ -291,6 +292,61 @@ describe('server embed mode (#716)', () => {
       }
     } finally {
       await cleanup()
+    }
+  })
+
+  it.each([
+    { configured: undefined, expected: [] },
+    { configured: null, expected: [] },
+    { configured: [], expected: [] },
+    { configured: ['site-audit'], expected: ['site-audit'] },
+    { configured: ['site-audit', 'site-audit'], expected: ['site-audit'] },
+    { configured: ['answer-visibility', 'site-audit'], expected: ['answer-visibility', 'site-audit'] },
+    { configured: [], legacyConfig: true, expected: [] },
+    { configured: ['site-audit'], legacyConfig: true, expected: ['site-audit'] },
+    { env: ' answer-visibility, site-audit ', configured: [], expected: ['answer-visibility', 'site-audit'] },
+    { env: 'site-audit', legacyEnv: '1', configured: ['answer-visibility'], expected: ['site-audit'] },
+    { env: ' ', configured: ['site-audit'], expected: ['site-audit'] },
+    { legacyEnv: '1', configured: ['site-audit'], expected: ['answer-visibility'] },
+    { legacyEnv: '0', configured: ['site-audit'], expected: [] },
+  ])('managed run kinds resolve env over config without changing unset injection: %j', async ({ env, legacyEnv, configured, legacyConfig, expected }) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_MANAGED_RUN_KINDS = env
+    if (legacyEnv !== undefined) process.env.CANONRY_DASHBOARD_MANAGED_SWEEPS = legacyEnv
+    const { app, cleanup } = await buildServer(undefined, true, {
+      basePath: '/console',
+      dashboard: {
+        showResourceLinks: false,
+        managedSweeps: legacyConfig,
+        managedRunKinds: configured as NonNullable<CanonryConfig['dashboard']>['managedRunKinds'],
+      },
+    })
+    try {
+      const expectedConfig = JSON.stringify({ basePath: '/console/', dashboard: {
+        showResourceLinks: false, ...(expected.length ? { managedRunKinds: expected } : {}),
+      } })
+      for (const url of ['/console/', '/console/projects/example']) {
+        const response = await app.inject({ method: 'GET', url })
+        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+      }
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each(['config', 'env'] as const)('unknown managed run kind in %s refuses server boot with the key name', async source => {
+    if (source === 'env') process.env.CANONRY_DASHBOARD_MANAGED_RUN_KINDS = 'site-audti'
+    const db = createClient(':memory:')
+    try {
+      await expect(createServer({
+        db, logger: false,
+        config: { apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'test',
+          dashboard: source === 'config'
+            ? { managedRunKinds: ['site-audti'] as unknown as NonNullable<CanonryConfig['dashboard']>['managedRunKinds'] }
+            : {},
+        },
+      })).rejects.toThrow(source === 'config' ? /dashboard.managedRunKinds/ : /CANONRY_DASHBOARD_MANAGED_RUN_KINDS/)
+    } finally {
+      db.$client.close()
     }
   })
 
@@ -671,8 +727,8 @@ describe('server embed mode (#716)', () => {
     }
   })
 
-  it.each([false, true])('managedSweeps=%s preserves viewer and read-only sweep authorization', async managedSweeps => {
-    const { app, db, cleanup } = await buildServer(undefined, true, { dashboard: { managedSweeps } })
+  it.each([{ managedSweeps: false }, { managedSweeps: true }, { managedRunKinds: [RunKinds['site-audit'], RunKinds['answer-visibility']] }])('managed config %j preserves viewer and read-only run authorization', async dashboard => {
+    const { app, db, cleanup } = await buildServer(undefined, true, { dashboard })
     try {
       seedProject(db, 'managed_project', 'managed-project')
       const rawReadKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
@@ -691,9 +747,11 @@ describe('server embed mode (#716)', () => {
       expect(login.statusCode).toBe(200)
       const cookie = login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ')
       for (const headers of [{ authorization: `Bearer ${rawReadKey}` }, { ...browserHeaders, cookie }]) {
-        const response = await app.inject({ method: 'POST', url: '/api/v1/projects/managed-project/runs', headers, payload: {} })
-        expect(response.statusCode).toBe(403)
-        expect(db.select().from(runs).all()).toHaveLength(0)
+        for (const action of ['runs', 'technical-aeo/runs']) {
+          const response = await app.inject({ method: 'POST', url: `/api/v1/projects/managed-project/${action}`, headers, payload: {} })
+          expect(response.statusCode).toBe(403)
+          expect(db.select().from(runs).all()).toHaveLength(0)
+        }
       }
     } finally {
       await cleanup()

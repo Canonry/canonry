@@ -3,8 +3,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
-import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import type { EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
@@ -353,8 +353,10 @@ export interface DashboardConfigEntry {
    */
   showUpdateNotification?: boolean
 
-  /** Hide dashboard sweep controls; operators can still use `canonry run`. Defaults to false. */
+  /** Legacy alias for managedRunKinds: ['answer-visibility']. */
   managedSweeps?: boolean | null
+  /** Presentation only. Managed sweeps hide all launches; managed scans hide viewer launches. */
+  managedRunKinds?: SchedulableRunKind[] | null
 }
 
 export interface ResearchConfigEntry {
@@ -548,7 +550,7 @@ export function loadConfig(): CanonryConfig {
     )
   }
 
-  // Validate only the new field, without cloning/reordering the dashboard or
+  // Validate only the managed fields, without cloning/reordering the dashboard or
   // tightening validation of legacy fields (including blank YAML values).
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
     throw new CliError({
@@ -560,6 +562,12 @@ export function loadConfig(): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: research.allowViewers must be true, false, or left blank.`,
+    })
+  }
+  if (!dashboardManagedRunKindsSchema.safeParse(parsed.dashboard?.managedRunKinds).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: dashboard.managedRunKinds must be a list of schedulable run kinds.`,
     })
   }
   if (!researchViewerDailyRunLimitSchema.safeParse(parsed.research?.viewerDailyRunLimit).success) {

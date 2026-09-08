@@ -34,6 +34,7 @@ import {
   type LivePageHealthPreviewView,
 } from '../src/components/project/SiteHealthSection.js'
 import { heyClient } from '../src/api.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 
 const mutationMock = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -444,10 +445,13 @@ function makeClient() {
 function renderSection(
   queryClient = makeClient(),
   props: Partial<React.ComponentProps<typeof SiteHealthSection>> = {},
+  role?: 'admin' | 'viewer',
 ) {
   render(
     <QueryClientProvider client={queryClient}>
-      <SiteHealthSection projectName={projectName} projectId={projectId} {...props} />
+      <AccountProvider account={role ? { name: 'Test account', role } : null}>
+        <SiteHealthSection projectName={projectName} projectId={projectId} {...props} />
+      </AccountProvider>
     </QueryClientProvider>,
   )
   return queryClient
@@ -466,6 +470,26 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+test('managed scans hide the plain recovery button on a cold failed-run handoff for a viewer', () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_failed', 'failed', false), scan('run_1')))
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
+    client: heyClient, path: { name: projectName, runId: 'run_failed' },
+  }), {
+    project: projectName, runId: 'run_failed', status: 'failed', phase: 'failed',
+    attempt: null, layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
+    error: 'The crawl could not reach the sitemap.',
+  })
+  renderSection(queryClient, { initialRunId: 'run_failed' }, 'viewer')
+  const recovery = screen.getByRole('alert', { name: 'Site scan recovery' })
+  expect(recovery.textContent).toContain('The crawl could not reach the sitemap.')
+  expect(within(recovery).queryByRole('button', { name: 'Run scan again' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Run scan/ })).toBeNull()
+  expect(screen.queryByText('Scan settings')).toBeNull()
+  expect(mutationMock.mutate).not.toHaveBeenCalled()
 })
 
 test('keeps three fixed live-finding slots while examples grow from zero to one to three', async () => {
@@ -3146,4 +3170,128 @@ test('the tile tooltips are keyboard reachable and follow the menu and footer to
   expect(screen.queryByRole('button', { name: siteHealthMetricHelp('linksIn', true) })).toBeNull()
   expect(screen.getByRole('button', { name: siteHealthMetricHelp('clicksFromHome', false) })).toBeTruthy()
   expect(screen.getByRole('button', { name: siteHealthMetricHelp('linkImportance', false) })).toBeTruthy()
+})
+
+
+function seedExactProgress(queryClient: QueryClient, phase: 'failed' | 'cancelled' | 'queued' | 'checking') {
+  const status = phase === 'checking' ? 'running' : phase
+  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_selected', status, false), scan('run_1')))
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
+    client: heyClient, path: { name: projectName, runId: 'run_selected' },
+  }), {
+    project: projectName, runId: 'run_selected', status, phase,
+    attempt: null, layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
+    error: status === 'failed' ? 'The crawl could not reach the sitemap.' : null,
+  })
+}
+
+test.each(['failed', 'cancelled'] as const)('managed scans hide %s recovery in regular, embedded and onboarding views', phase => {
+  for (const surface of ['regular', 'embed', 'onboarding'] as const) {
+    window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] },
+      ...(surface === 'embed' ? { embed: { enabled: true } } : {}),
+    }
+    const queryClient = makeClient()
+    seedExactProgress(queryClient, phase)
+    renderSection(queryClient, { initialRunId: 'run_selected', showOnboardingActions: surface === 'onboarding' }, 'viewer')
+    expect(screen.getByRole('alert', { name: 'Site scan recovery' }).textContent).toContain(phase === 'failed' ? 'Scan failed' : 'Scan cancelled')
+    expect(screen.queryByRole('button', { name: /Run scan|Run site audit/ })).toBeNull()
+    cleanup()
+    queryClient.clear()
+  }
+})
+
+test('managed scans guard the dispatcher before releasing a pinned run', () => {
+  const queryClient = makeClient()
+  seedExactProgress(queryClient, 'failed')
+  const onReleaseInitialRun = vi.fn()
+  renderSection(queryClient, { initialRunId: 'run_selected', onReleaseInitialRun }, 'viewer')
+  // Exercise an already-rendered plain Button: dispatch must not trust its visibility.
+  const button = screen.getByRole('button', { name: 'Run scan again' })
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  fireEvent.click(button)
+  expect(mutationMock.mutate).not.toHaveBeenCalled()
+  expect(onReleaseInitialRun).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert', { name: 'Site scan recovery' })).not.toBeNull()
+})
+
+test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('managed scans preserve admin launches and remove viewer launches: %s', state => {
+  for (const role of ['admin', 'viewer'] as const) {
+    window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+    const queryClient = makeClient()
+    let props: Partial<React.ComponentProps<typeof SiteHealthSection>> = {}
+    if (state === 'failed') {
+      seedExactProgress(queryClient, 'failed')
+      props = { initialRunId: 'run_selected' }
+    } else if (state !== 'header') {
+      props = { showOnboardingActions: true }
+      if (state === 'no crawl') {
+        seedRun(queryClient, 'run_1', { ...summary('run_1', 0), hasCrawlData: false })
+      } else {
+        technicalAeoMock.state = 'unavailable'
+        seedRun(queryClient, 'run_1', { ...summary('run_1', 42), detailsAvailable: state !== 'no details' })
+      }
+    }
+    renderSection(queryClient, props, role)
+    const buttons = screen.queryAllByRole('button', { name: /Run scan|Run site audit/ })
+    if (role === 'viewer') {
+      expect(buttons).toHaveLength(0)
+      expect(screen.queryByText('Scan settings')).toBeNull()
+      expect(screen.queryByRole('checkbox', { name: 'Check dead links' })).toBeNull()
+    } else {
+      expect(buttons.length).toBeGreaterThan(0)
+      fireEvent.click(buttons.at(-1)!)
+      expect(mutationMock.mutate).toHaveBeenCalledWith({ projectName, projectId, body: { checkDeadLinks: Boolean(props.showOnboardingActions) } })
+    }
+    cleanup()
+    queryClient.clear()
+    mutationMock.mutate.mockReset()
+  }
+})
+
+test.each(['queued', 'checking'] as const)('managed viewer retains operator-started %s progress', phase => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  seedExactProgress(queryClient, phase)
+  renderSection(queryClient, { initialRunId: 'run_selected' }, 'viewer')
+  const progress = screen.getByRole('status', { name: 'Current scan progress' })
+  expect(progress.textContent).toContain(phase === 'queued' ? 'Waiting to start' : 'Checking pages')
+  expect(screen.queryByRole('button', { name: /Run scan/ })).toBeNull()
+})
+
+test.each(['running', 'failed', 'partial'] as const)('managed viewer retains map, pages, page evidence and %s explanation', state => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  if (state === 'partial') {
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1', 'partial')))
+    seedRun(queryClient, 'run_1', summary('run_1', 42, false))
+  } else {
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_new', state, false), scan('run_1')))
+  }
+  renderSection(queryClient, {}, 'viewer')
+  expect(screen.getByText(state === 'running'
+    ? 'A newer scan is running. The latest published result remains available until it finishes.'
+    : state === 'failed'
+      ? 'The latest scan failed. The previous completed results remain available.'
+      : 'This scan stopped at the page limit, so some pages were not checked.')).not.toBeNull()
+  expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+  expect(screen.getByRole('table')).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
+  expect(screen.getByText('Page health for run_1')).not.toBeNull()
+})
+
+test('managed viewer retains dead-link results', () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  seedRun(queryClient, 'run_1', { ...summary('run_1', 42),
+    deadLinks: { state: 'complete', checked: 41, found: 3, unverified: 0 },
+  })
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoDeadLinksQueryKey({
+    client: heyClient, path: { name: projectName }, query: { runId: 'run_1', limit: 50 },
+  }), { project: projectName, runId: 'run_1', state: 'complete', checkDeadLinks: true,
+    checked: 41, found: 3, unverified: 0, total: 3, nextCursor: null, deadLinks: [],
+  })
+  renderSection(queryClient, {}, 'viewer')
+  expect(screen.getByText('Broken links: 3 found')).not.toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Check dead links' })).toBeNull()
 })

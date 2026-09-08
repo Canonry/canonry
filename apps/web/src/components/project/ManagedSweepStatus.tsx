@@ -1,16 +1,23 @@
 import { useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameScheduleOptions } from '@ainyc/canonry-api-client/react-query'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds, type SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { heyClient } from '../../api.js'
 
 export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'
 
-export function ManagedSweepStatus({ projectName, running = false }: { projectName: string; running?: boolean }) {
+export const MANAGED_SCANS_COPY = 'Scans are run by your Canonry team'
+
+export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibility'], running = false }: {
+  projectName: string
+  kind?: SchedulableRunKind
+  running?: boolean
+}) {
+  const scan = kind === RunKinds['site-audit']
   const scheduleQuery = useQuery({
     ...getApiV1ProjectsByNameScheduleOptions({
       client: heyClient,
       path: { name: projectName },
-      query: { kind: RunKinds['answer-visibility'] },
+      query: { kind },
     }),
     retry: false,
     refetchInterval: 60_000,
@@ -26,10 +33,10 @@ export function ManagedSweepStatus({ projectName, running = false }: { projectNa
 
   return (
     <p className="text-sm text-secondary" role="status">
-      {running && <span className="text-neutral">AI sweep running… · </span>}
+      {running && <span className="text-neutral">{scan ? 'Scan running…' : 'AI sweep running…'} · </span>}
       {nextSync && nextRun ? <>
-        Next sync <time dateTime={nextRun.toISOString()}>{nextSync} UTC</time> · managed by your Canonry team
-      </> : MANAGED_SWEEPS_COPY}
+        Next {scan ? 'scan' : 'sync'} <time dateTime={nextRun.toISOString()}>{nextSync} UTC</time> · managed by your Canonry team
+      </> : scan ? MANAGED_SCANS_COPY : MANAGED_SWEEPS_COPY}
     </p>
   )
 }

@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw
 import type { MetricTone } from '../../view-models.js'
 import { RunKinds, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
 
-import { heyClient, isEmbed } from '../../api.js'
+import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions,
   getApiV1ProjectsByNameTechnicalAeoOptions,
@@ -29,6 +29,8 @@ import {
   formatObservedInstantTick,
   observedInstant,
 } from '../shared/ChartPrimitives.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { addToast } from '../../lib/toast-store.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
@@ -113,6 +115,8 @@ export function TechnicalAeoSection({
   /** Rendered after an unavailable/error state so a parent flow can recover. */
   unavailableFooter?: ReactNode
 }) {
+  const { isAdmin } = useAccount()
+  const managedScanForViewer = isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [expandedFactor, setExpandedFactor] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -228,7 +232,10 @@ export function TechnicalAeoSection({
     }
   }
 
-  const startAudit = () => runMutation.mutate({ projectName, projectId })
+  const startAudit = () => {
+    if (isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin) return
+    runMutation.mutate({ projectName, projectId })
+  }
   const auditStatusLabel = auditStatus === 'running'
     ? 'Audit running'
     : auditStatus === 'queued'
@@ -332,7 +339,7 @@ export function TechnicalAeoSection({
             <ScanSearch className="mx-auto size-7 text-muted" aria-hidden="true" />
             <h2 className="mt-3 text-base font-semibold text-heading">Page health unavailable</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-secondary">
-              Run a new Site Health scan to calculate page-level technical findings.
+              {managedScanForViewer ? MANAGED_SCANS_COPY : 'Run a new Site Health scan to calculate page-level technical findings.'}
             </p>
           </section>
           {unavailableFooter}
@@ -347,7 +354,7 @@ export function TechnicalAeoSection({
           A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one site score.
         </p>
-        {!isEmbed() && (
+        {!isEmbed() && !managedScanForViewer && (
           <div className="mt-5 flex items-center justify-center gap-3">
             <WriteButton type="button" onClick={startAudit} disabled={auditBusy}>
               {auditBusy ? (
@@ -482,7 +489,7 @@ export function TechnicalAeoSection({
             <RefreshCw className={`mr-1.5 h-4 w-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
             {isManualRefreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
-          {!isEmbed() && (
+          {!isEmbed() && !managedScanForViewer && (
             <WriteButton type="button" size="sm" onClick={startAudit} disabled={auditBusy}>
               {auditBusy ? (
                 <LoaderCircle className="mr-1.5 h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />

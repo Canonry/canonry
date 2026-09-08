@@ -18,6 +18,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import {
+  RunKinds,
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
   SiteCrawlIndexabilityReasons,
@@ -50,7 +51,9 @@ import {
   getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient, isEmbed } from '../../api.js'
+import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
+import { useAccount } from '../../contexts/account-context.js'
+import { ManagedSweepStatus, MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { cn } from '../../lib/utils.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import type { MetricTone } from '../../view-models.js'
@@ -1510,7 +1513,7 @@ function TerminalScanRecoveryState({
 }: {
   phase: 'failed' | 'cancelled'
   progress?: SiteAuditProgressSnapshot | null
-  onRunAgain: () => void
+  onRunAgain?: () => void
   pageHealthDestination?: boolean
 }) {
   const cancelled = phase === 'cancelled'
@@ -1533,7 +1536,7 @@ function TerminalScanRecoveryState({
             : 'The scan did not complete, so there is no site map for this run.'}
       </p>
       {error && <p className="mt-3 text-sm text-negative">{error}</p>}
-      <Button type="button" className="mt-4" onClick={onRunAgain}>Run scan again</Button>
+      {onRunAgain && <Button type="button" className="mt-4" onClick={onRunAgain}>Run scan again</Button>}
     </section>
   )
 }
@@ -1575,6 +1578,8 @@ export function SiteHealthSection({
   */
   const [showTemplateLinks, setShowTemplateLinks] = useState(false)
   const embedded = isEmbed()
+  const { isAdmin } = useAccount()
+  const managedScanForViewer = isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin
   const explicitOnboarding = showOnboardingActions && !embedded
   const runMutation = useTriggerSiteAudit()
 
@@ -1947,6 +1952,9 @@ export function SiteHealthSection({
     setSelectedNodeKey(null)
   }
   const startScan = () => {
+    // Gate the dispatcher too: recovery actions also use plain Buttons.
+    // This is presentation only; the server independently refuses viewer writes.
+    if (isDashboardManagedRunKind(RunKinds['site-audit']) && !isAdmin) return
     // Release any pinned scan before dispatching its replacement.
     // Otherwise the durable URL handoff keeps the old run selected while the
     // newly queued scan progresses invisibly in the background.
@@ -2013,7 +2021,7 @@ export function SiteHealthSection({
             </select>
           </label>
 
-          {!embedded && (
+          {!embedded && !managedScanForViewer && (
             <div className="flex items-end gap-2 pt-5">
               <details className="group relative">
                 <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-sm font-medium text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400">
@@ -2045,6 +2053,7 @@ export function SiteHealthSection({
           )}
         </div>
       </header>}
+      {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} />}
 
       {crawl?.hasCrawlData && currentView !== 'technical' && (
         <div className="grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
@@ -2140,7 +2149,7 @@ export function SiteHealthSection({
           <TerminalScanRecoveryState
             phase={recoveryPhase}
             progress={activeProgressQuery.data}
-            onRunAgain={startScan}
+            onRunAgain={managedScanForViewer ? undefined : startScan}
             pageHealthDestination={explicitOnboarding}
           />
         </TransientSiteHealthPanel>
@@ -2193,7 +2202,7 @@ export function SiteHealthSection({
                 </div>
               </section>
             ) : undefined}
-            unavailableFooter={explicitOnboarding && siteAuditReady ? (
+            unavailableFooter={explicitOnboarding && siteAuditReady && !managedScanForViewer ? (
               <section aria-label="Page health recovery" className="mt-4">
                 <Button
                   type="button"
@@ -2231,7 +2240,9 @@ export function SiteHealthSection({
               {explicitOnboarding ? 'Page health results unavailable' : 'Full-site map not available'}
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm text-secondary">
-              {explicitOnboarding
+              {managedScanForViewer
+                ? MANAGED_SCANS_COPY
+                : explicitOnboarding
                 ? 'This scan did not produce page health results. Run it again to continue setup.'
                 : crawl?.legacyAuditAvailable
                 ? 'Existing page health results are preserved. Run a new scan to build the page and internal-link map.'
@@ -2244,7 +2255,7 @@ export function SiteHealthSection({
                 {crawl?.legacyAuditAvailable && !explicitOnboarding && (
                   <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View page health</Button>
                 )}
-                {explicitOnboarding && (
+                {explicitOnboarding && !managedScanForViewer && (
                   <Button type="button" size="sm" onClick={startScan}>Run scan again</Button>
                 )}
               </div>
@@ -2258,11 +2269,13 @@ export function SiteHealthSection({
               {explicitOnboarding ? 'Page health results unavailable' : 'Page details unavailable'}
             </h2>
             <p className="mt-1 text-sm text-caution">
-              {explicitOnboarding
+              {managedScanForViewer && explicitOnboarding
+                ? 'This scan did not publish page-level results.'
+                : explicitOnboarding
                 ? 'This scan did not publish page-level results. Run it again to continue setup.'
                 : 'Summary metrics are preserved for this scan, but its page graph cannot be opened.'}
             </p>
-            {explicitOnboarding ? (
+            {explicitOnboarding && !managedScanForViewer ? (
               <Button type="button" size="sm" className="mt-4" onClick={startScan}>Run scan again</Button>
             ) : null}
           </section>
