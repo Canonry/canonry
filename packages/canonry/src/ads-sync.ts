@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, projects, adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily } from '@ainyc/canonry-db'
 import {
@@ -264,7 +264,9 @@ function toDailyUpserts(
 
 /**
  * Sync the project's connected OpenAI ad account: entity snapshots
- * (campaigns / ad groups / ads, range-replaced per project) plus daily
+ * (campaigns / ad groups / ads; refreshed campaigns are replaced and campaigns
+ * the provider no longer lists are deleted, while a still-listed campaign whose
+ * sub-fetch failed keeps its prior row) plus daily
  * paid-performance rollups at campaign and ad-group level (upserted, so
  * re-syncing an in-progress day replaces instead of duplicating).
  *
@@ -362,15 +364,35 @@ export async function executeAdsSync(
     )
 
     const insertNow = new Date().toISOString()
+    // `listCampaigns` is the authority on which campaigns still exist: it runs
+    // outside the per-campaign try, so reaching here means the provider
+    // answered it. A campaign missing from that list is genuinely gone
+    // upstream; a campaign present in it whose sub-fetch threw is merely
+    // unrefreshed this cycle.
+    const upstreamIds = campaigns.map((c) => c.id)
+    const refreshedIds = syncedCampaigns.map((c) => c.id)
     db.transaction((tx) => {
-      // Range-replace entity snapshots for the project. Deleting campaigns
-      // cascades through ad groups and ads, so upstream-deleted entities
-      // disappear locally too. Insights rows are NOT wiped — history must
-      // survive entity churn; they upsert on (project, level, entity, date).
-      // On a partial sync (some campaigns failed) the failed campaigns'
-      // snapshots are intentionally dropped this cycle rather than kept
-      // stale — the next successful sync restores them.
-      tx.delete(adsCampaigns).where(eq(adsCampaigns.projectId, projectId)).run()
+      // Replace the snapshots we refreshed, and drop the ones the provider no
+      // longer lists. Deleting a campaign cascades through its ad groups and
+      // ads, so upstream-deleted entities disappear locally too. Insights rows
+      // are NOT wiped — history must survive entity churn; they upsert on
+      // (project, level, entity, date).
+      //
+      // A campaign the provider still lists but whose insight or ad-group
+      // fetch failed KEEPS its existing row. Dropping it would turn one
+      // transient provider error into "this workspace has no campaigns" on
+      // every read until the next successful sync, which is a worse lie than
+      // one stale row. Its untouched `syncedAt` is the staleness signal.
+      tx.delete(adsCampaigns)
+        .where(upstreamIds.length === 0
+          ? eq(adsCampaigns.projectId, projectId)
+          : and(eq(adsCampaigns.projectId, projectId), notInArray(adsCampaigns.id, upstreamIds)))
+        .run()
+      if (refreshedIds.length > 0) {
+        tx.delete(adsCampaigns)
+          .where(and(eq(adsCampaigns.projectId, projectId), inArray(adsCampaigns.id, refreshedIds)))
+          .run()
+      }
 
       for (const campaign of syncedCampaigns) {
         tx.insert(adsCampaigns).values({
@@ -457,6 +479,14 @@ export async function executeAdsSync(
         }).run()
       }
 
+      // Account metadata came from calls that succeeded, so it always lands.
+      // `lastSyncedAt` is different: it dates the ENTITY snapshot, and since a
+      // wholly failed refresh now leaves the previous rows in place, advancing
+      // it would date stale rows to the failed attempt and let the delivery
+      // diagnostics read them as complete and current. Hold it back when the
+      // cycle refreshed nothing. An account with genuinely no campaigns
+      // records no errors and still advances.
+      const entitySnapshotRefreshed = errors.size === 0 || syncedCampaigns.length > 0
       tx.update(adsConnections).set({
         adAccountId: account.id,
         displayName: account.name,
@@ -467,7 +497,7 @@ export async function executeAdsSync(
         integrityReviewStatus: account.account_integrity_review?.review?.status ?? null,
         integrityDecision: account.account_integrity_review?.details?.decision ?? null,
         conversionTrackingConfigured,
-        lastSyncedAt: insertNow,
+        ...(entitySnapshotRefreshed ? { lastSyncedAt: insertNow } : {}),
         updatedAt: insertNow,
       }).where(eq(adsConnections.projectId, projectId)).run()
     })
