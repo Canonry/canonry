@@ -34,6 +34,9 @@ constraints; `DESIGN.md` owns hierarchy, copy, typography, and control choices.
 `pnpm --filter @ainyc/canonry-web build` builds into a temporary directory before updating `dist/`.
 It reuses output only when source, workspace dependencies, configuration, build environment, and output contents match the cache.
 The cache lives under `.tmp/web-build/`. `build --force` bypasses it. `pnpm build:web` also copies the SPA into Canonry.
+The cache includes Vite's resolved environment, including variable expansion and symlinked environment files.
+The web package's `build` command caches `--mode` (`-m`), `--base`, and `--sourcemap` options.
+Other Vite options use the native CLI without caching, preserving custom output paths, watch mode, and SSR behavior.
 `pnpm dev:web` remains the dashboard development server.
 
 ### Simple query evidence

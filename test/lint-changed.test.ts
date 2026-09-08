@@ -10,6 +10,9 @@ const script = fileURLToPath(new URL('../scripts/lint-changed.mjs', import.meta.
 const hook = fs.readFileSync(new URL('../.husky/pre-commit', import.meta.url), 'utf8')
 const repoConfig = fileURLToPath(new URL('../eslint.config.js', import.meta.url))
 const tempDirs: string[] = []
+// Cache scenarios launch several real Git/ESLint processes. Allow CPU
+// contention on CI runners without imposing a hook performance assertion.
+const cacheScenarioTimeout = 20_000
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
@@ -178,7 +181,7 @@ test('worktrees share clean content across staged and working checks, with concu
   // A different path cannot inherit a clean result from the same source text.
   f.write('different.js', 'export const value = 2\n')
   expect(f.lint().stdout).toContain('3 files, 2 cached')
-})
+}, cacheScenarioTimeout)
 
 test('configuration, lockfile, and local rule edits invalidate clean results', () => {
   const f = fixture("import rule from './eslint-rules/custom.mjs'\nexport default [{ files: ['**/*.js'], plugins: { local: { rules: { custom: rule } } }, rules: { 'local/custom': 'error' } }]\n")
@@ -198,7 +201,7 @@ test('configuration, lockfile, and local rule edits invalidate clean results', (
   const updated = f.lint('--staged')
   expect(updated.status).toBe(1)
   expect(updated.stdout).toContain('Updated guard')
-})
+}, cacheScenarioTimeout)
 
 test('effective configuration changes invalidate results without a config file edit', () => {
   const f = fixture("export default [{ files: ['**/*.js'], rules: { 'no-debugger': process.env.LINT_TEST_STRICT === '1' ? 'error' : 'off' } }]\n")
@@ -231,7 +234,7 @@ test('cache bypass, corrupt entries, and unavailable storage still run the linte
   const broken = spawnSync(process.execPath, [script], { cwd: f.cwd, env, encoding: 'utf8' })
   expect(broken.status).toBe(1)
   expect(broken.stdout).toContain('no-debugger')
-})
+}, cacheScenarioTimeout)
 
 test('cached runs retain warning diagnostics', () => {
   const f = fixture("export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'warn' } }]\n")

@@ -75,7 +75,15 @@ pnpm -r run build           # All packages, with one SPA compilation
 ```
 
 Dashboard builds include source, workspace dependencies, configuration, environment, and output contents in the cache check.
-Failed builds leave the previous output intact. Asset copies retain agent files and do not rewrite identical SPA files.
+Vite resolves environment values before the cache check. Variable expansion and symlinked environment files participate in invalidation.
+The web package supports standard Vite build flags:
+
+```bash
+pnpm --filter @ainyc/canonry-web build --mode staging --base /preview/ --sourcemap
+```
+
+These options participate in cache identity. Other Vite flags pass through to the native CLI without caching.
+Cached builds leave previous output intact if compilation fails. Asset copies retain agent files and do not rewrite identical SPA files.
 Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
