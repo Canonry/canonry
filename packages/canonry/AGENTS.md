@@ -283,10 +283,14 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 
 ## Common Mistakes
 
-- `CANONRY_DASHBOARD_MANAGED_SWEEPS` overrides `dashboard.managedSweeps` and
-  defaults to false. Inject `dashboard.managedSweeps` only when true. This is
-  presentation only: all dashboard roles lose manual sweep controls, while
-  `canonry run <project>` remains the operator lever. See `docs/deployment.md`.
+- Resolve managed run kinds at boot: new environment list, legacy environment
+  boolean, new YAML list, legacy YAML boolean. Validate `managedRunKinds` against
+  `schedulableRunKindSchema`; an unknown kind names the key and refuses boot.
+  The legacy boolean maps to answer-visibility only. Inject `managedRunKinds`
+  only when non-empty so an unset deployment's client config stays identical.
+  This is presentation only: managed sweeps hide all dashboard launches; managed
+  scans hide viewer launches and keep admin controls. Never use this setting in
+  authorization. See `docs/deployment.md`.
 
 - `CANONRY_RESEARCH_ALLOW_VIEWERS` overrides `research.allowViewers` and
   defaults to false. Inject the client research block only when true, including

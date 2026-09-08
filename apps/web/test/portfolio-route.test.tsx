@@ -16,6 +16,7 @@ import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
   getApiV1CdpStatusQueryKey,
+  getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -69,6 +70,9 @@ async function renderAt(
     cdpStatus?: { connected: boolean; endpoint: string; browserVersion?: string; targets: [] }
     schedule?: unknown
     managedSweeps?: boolean
+    managedRunKinds?: NonNullable<NonNullable<Window['__CANONRY_CONFIG__']>['dashboard']>['managedRunKinds']
+    scanSchedule?: unknown
+    failedScanHandoff?: boolean
     accountRole?: 'admin' | 'viewer'
     seedPlan?: boolean
     seedVisibilityReport?: boolean
@@ -82,8 +86,8 @@ async function renderAt(
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
   else delete window.__CANONRY_CONFIG__
-  if (options.managedSweeps !== undefined) {
-    window.__CANONRY_CONFIG__ = { ...window.__CANONRY_CONFIG__, dashboard: { managedSweeps: options.managedSweeps } }
+  if (options.managedSweeps !== undefined || options.managedRunKinds !== undefined) {
+    window.__CANONRY_CONFIG__ = { ...window.__CANONRY_CONFIG__, dashboard: { managedSweeps: options.managedSweeps, managedRunKinds: options.managedRunKinds } }
   }
 
   const fixture = createDashboardFixture({})
@@ -109,6 +113,20 @@ async function renderAt(
       getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
       [options.schedule],
     )
+  }
+  if (options.scanSchedule !== undefined) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameScheduleQueryKey({ client: heyClient, path: { name: projectName }, query: { kind: 'site-audit' } }),
+      options.scanSchedule,
+    )
+  }
+  if (options.failedScanHandoff) {
+    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
+      client: heyClient, path: { name: projectName, runId: 'run_failed' },
+    }), { project: projectName, runId: 'run_failed', status: 'failed', phase: 'failed', attempt: null,
+      layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
+      error: 'The crawl could not reach the sitemap.',
+    })
   }
   if (options.seedPlan !== false) {
     queryClient.setQueryData(
@@ -2453,7 +2471,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
   expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep/)
 })
 
-test('managed sweeps leaves Site Health scan controls available', async () => {
+test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
   expect(projectHeader(html).textContent).toContain('Sweeps are run by your Canonry team')
@@ -2465,4 +2483,52 @@ test('managed sweeps replaces the global batch sweep control', async () => {
   const managed = await renderAt('/runs', undefined, undefined, { managedSweeps: true })
   expect(managed).not.toContain('Run all projects')
   expect(managed).toContain('Sweeps are run by your Canonry team')
+})
+
+
+// Reverses #1108's deliberate Site Health exclusion when site-audit is opted in.
+// The legacy boolean alone remains answer-visibility-only (asserted above).
+test.each(['simple', 'advanced'] as const)('managed run kinds remove %s Site Health viewer launches and show the actual schedule', async mode => {
+  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined,
+    mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+    { managedRunKinds: ['answer-visibility', 'site-audit'], accountRole: 'viewer',
+      scanSchedule: { ...managedSchedule, kind: 'site-audit', nextRunAt: '2026-10-01T06:00:00.000Z' },
+    },
+  )
+  expect(html).not.toMatch(/Run scan|Checking scan|Scan settings|Check dead links/)
+  expect(html).toContain('Next scan')
+  expect(html).toContain('Thursday 1 Oct, 06:00 UTC')
+  const container = document.createElement('div')
+  container.innerHTML = html
+  expect(container.querySelector('time[datetime="2026-10-01T06:00:00.000Z"]')).not.toBeNull()
+})
+
+test.each(['simple', 'advanced'] as const)('managed %s Site Health hides the cold URL recovery button without losing failure copy', async mode => {
+  const html = await renderAt('/projects/project_citypoint/technical-aeo?siteHealthRunId=run_failed', undefined,
+    mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+    { managedRunKinds: ['site-audit'], accountRole: 'viewer', failedScanHandoff: true },
+  )
+  expect(html).toContain('Scan failed')
+  expect(html).toContain('The crawl could not reach the sitemap.')
+  expect(html).not.toMatch(/Run scan|Scan settings|Check dead links/)
+  expect(html).toContain('Scans are run by your Canonry team')
+})
+
+test.each(['simple', 'advanced'] as const)('managed %s Site Health keeps admin scan controls', async mode => {
+  const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined,
+    mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+    { managedRunKinds: ['site-audit'], accountRole: 'admin' },
+  )
+  expect(html).toContain('Run scan')
+  expect(html).toContain('Scan settings')
+  expect(html).not.toContain('Scans are run by your Canonry team')
+})
+
+test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run kinds preserve serialized Simple and Advanced route markup (%s)', async suffix => {
+  for (const mode of ['simple', 'advanced'] as const) {
+    const measurement = mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
+    const original = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer' })
+    const empty = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer', managedRunKinds: [] })
+    expect(empty).toBe(original)
+  }
 })

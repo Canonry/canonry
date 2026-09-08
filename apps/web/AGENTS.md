@@ -164,14 +164,22 @@ ship with a registered Zod schema.
 
 Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/v1`.
 
-### Managed sweeps
+### Managed run kinds
 
-`isDashboardManagedSweeps()` reads the optional deployment flag. When true,
+`isDashboardManagedRunKind(kind)` reads the optional deployment list, with
+`managedSweeps: true` as the legacy answer-visibility-only fallback.
+`isDashboardManagedSweeps()` delegates to it. When true,
 replace answer-visibility launch controls and empty-state launch instructions
 for every dashboard role, including admins. `ManagedSweepStatus` reads
 `GET /projects/:name/schedule?kind=answer-visibility`; only an enabled schedule
-with a valid `nextRunAt` gets a UTC date. Keep Site Health and other run kinds
-unchanged. The operator's manual lever is `canonry run <project>`, and the flag
+with a valid `nextRunAt` gets a UTC date. The component accepts a schedule kind.
+Managed `site-audit` hides viewer scan controls and next-scan settings; admins
+retain them. Gate `startScan` and `startAudit` themselves, including recovery
+callbacks, and keep all progress, score, map, page, failure, partial and dead-link
+evidence visible. Site Health reads the site-audit schedule and falls back to
+“Scans are run by your Canonry team” without a date. The admin-only creation
+scan in `OnboardingSetupPage` is outside this client policy. Other kinds keep
+their existing controls. The operator's manual lever is `canonry run <project>`, and the flag
 must never enter authorization checks. Unset/false preserves existing markup.
 Keep queued/running signals, baseline results, and failure details visible.
 Settings keeps schedule reads but hides create/edit/pause/resume/delete controls.

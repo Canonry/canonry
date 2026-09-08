@@ -329,3 +329,20 @@ test.each(['text', 'json', 'jsonl'])('invalid managed sweeps is a path-qualified
   if (format !== 'text') expect(JSON.parse(output).error.code).toBe('CONFIG_INVALID')
   expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
 })
+
+
+test.each([undefined, null, [], ['site-audit'], ['answer-visibility', 'site-audit']])('managedRunKinds=%j preserves dashboard fields and serialized key order', managedRunKinds => {
+  const dashboard = { extension: { label: 'preserve' }, showResourceLinks: null, managedRunKinds, managedSweeps: true }
+  const original = stringify({ ...baseConfig(), dashboard })
+  fs.writeFileSync(getConfigPath(), original)
+  expect(loadConfig().dashboard?.managedRunKinds).toEqual(managedRunKinds)
+  saveConfigPatch(loadConfig())
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})
+
+test.each([['site-audti'], ['research'], 'site-audit', true, [1]])('invalid managedRunKinds=%j names the key without modifying YAML', managedRunKinds => {
+  const original = stringify({ ...baseConfig(), dashboard: { managedRunKinds } })
+  fs.writeFileSync(getConfigPath(), original)
+  expect(loadConfig).toThrow(/dashboard.managedRunKinds/)
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})

@@ -12,9 +12,27 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 
 import { TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { heyClient } from '../src/api.js'
 import { resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { resetToasts } from '../src/lib/toast-store.js'
+
+const launchProbe = vi.hoisted(() => ({ capture: false, mutate: vi.fn(), dispatch: undefined as (() => void) | undefined }))
+vi.mock('../src/components/shared/AccessControls.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/components/shared/AccessControls.js')>()
+  return { ...actual, WriteButton: (props: React.ComponentProps<typeof actual.WriteButton>) => {
+    if (launchProbe.capture) launchProbe.dispatch = props.onClick as () => void
+    return <actual.WriteButton {...props} />
+  } }
+})
+
+vi.mock('../src/queries/mutations.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/queries/mutations.js')>()
+  return { ...actual, useTriggerSiteAudit: () => {
+    const mutation = actual.useTriggerSiteAudit()
+    return launchProbe.capture ? { ...mutation, mutate: launchProbe.mutate } : mutation
+  } }
+})
 
 const projectName = 'citypoint'
 const projectId = 'proj_1'
@@ -124,11 +142,15 @@ function jsonResponse(body: unknown) {
 beforeEach(() => {
   resetRunTracker()
   resetToasts()
+  launchProbe.capture = false
+  launchProbe.mutate.mockReset()
+  launchProbe.dispatch = undefined
   window.sessionStorage.clear()
 })
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
   resetRunTracker()
   resetToasts()
   vi.restoreAllMocks()
@@ -606,4 +628,54 @@ test('keeps recommendation-free integrated findings truthful and single-column',
   fireEvent.click(factorButton)
   expect(factorButton.getAttribute('aria-expanded')).toBe('false')
   expect(factorButton.hasAttribute('aria-controls')).toBe(false)
+})
+
+
+test.each([false, true])('managed standalone audit controls are role-aware (hasData=%s)', hasData => {
+  for (const role of ['viewer', 'admin'] as const) {
+    window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+    const queryClient = makeClient()
+    queryClient.setQueryData(scoreKey, { ...scoreWithFinding(), hasData })
+    render(<QueryClientProvider client={queryClient}>
+      <AccountProvider account={{ name: 'Test account', role }}>
+        <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+      </AccountProvider>
+    </QueryClientProvider>)
+    const button = screen.queryByRole('button', { name: hasData ? 'Re-run audit' : 'Run first audit' })
+    expect(Boolean(button)).toBe(role === 'admin')
+    cleanup()
+    queryClient.clear()
+  }
+})
+
+test('managed standalone audit dispatcher refuses an already-rendered viewer launch', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(auditRunsKey, [])
+  launchProbe.capture = true
+  render(<QueryClientProvider client={queryClient}>
+    <AccountProvider account={{ name: 'Test account', role: 'viewer' }}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </AccountProvider>
+  </QueryClientProvider>)
+  // Capture the real dispatcher independently of WriteButton's disabled state.
+  expect(launchProbe.dispatch).toBeTypeOf('function')
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  launchProbe.dispatch!()
+  expect(launchProbe.mutate).not.toHaveBeenCalled()
+})
+
+test.each(['running', 'failed'] as const)('managed viewer keeps the scorecard and %s scan state', status => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, scoreWithFinding())
+  queryClient.setQueryData(auditRunsKey, [{ ...run('audit_new', status), error: status === 'failed' ? 'The scan timed out.' : null }])
+  render(<QueryClientProvider client={queryClient}>
+    <AccountProvider account={{ name: 'Test account', role: 'viewer' }}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </AccountProvider>
+  </QueryClientProvider>)
+  expect(screen.getByText('52')).not.toBeNull()
+  expect(screen.getAllByText('AI Crawler Access').length).toBeGreaterThan(0)
+  if (status === 'running') expect(screen.getByText('Results refresh automatically when this audit finishes.')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: /Re-run audit|Audit running/ })).toBeNull()
 })

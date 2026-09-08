@@ -1,8 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { isDashboardManagedSweeps } from '../src/api.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
+import { isDashboardManagedRunKind, isDashboardManagedSweeps } from '../src/api.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_COPY, MANAGED_SCANS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 
 afterEach(() => {
   cleanup()
@@ -26,11 +26,11 @@ const schedule = {
   nextRunAt: '2026-09-08T06:00:00.000Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
 }
 
-function renderSchedule(response: unknown, status = 200) {
+function renderSchedule(response: unknown, status = 200, kind: 'answer-visibility' | 'site-audit' = 'answer-visibility') {
   const request = vi.fn(async () => new Response(JSON.stringify(response), { status, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" /></QueryClientProvider>)
+  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" kind={kind} /></QueryClientProvider>)
   return { ...page, request, client }
 }
 
@@ -56,4 +56,44 @@ test.each([
   expect(screen.getByRole('status').textContent).toBe(MANAGED_SWEEPS_COPY)
   expect(container.querySelector('time')).toBeNull()
   expect(container.textContent).not.toMatch(/Next sync|2026|UTC|Invalid Date/)
+})
+
+
+test('managed kinds replace the legacy sweep alias and are safe without a browser', () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  expect(isDashboardManagedRunKind('answer-visibility')).toBe(true)
+  expect(isDashboardManagedRunKind('site-audit')).toBe(false)
+  window.__CANONRY_CONFIG__.dashboard!.managedRunKinds = ['site-audit']
+  expect(isDashboardManagedRunKind('site-audit')).toBe(true)
+  expect(isDashboardManagedSweeps()).toBe(false)
+  window.__CANONRY_CONFIG__.dashboard!.managedRunKinds = ['answer-visibility']
+  expect(isDashboardManagedSweeps()).toBe(true)
+  window.__CANONRY_CONFIG__.dashboard!.managedRunKinds = []
+  expect(isDashboardManagedSweeps()).toBe(false)
+  vi.stubGlobal('window', undefined)
+  expect(isDashboardManagedRunKind('site-audit')).toBe(false)
+})
+
+test('managed scans read the site-audit schedule and show its actual nextRunAt in UTC', async () => {
+  const nextRunAt = '2026-10-01T06:00:00.000Z'
+  const { request, container } = renderSchedule({ ...schedule, kind: 'site-audit', nextRunAt }, 200, 'site-audit')
+  await screen.findByText(/Next scan/)
+  const url = new URL((request.mock.calls[0] as unknown as [Request])[0].url)
+  expect(url.searchParams.get('kind')).toBe('site-audit')
+  expect(screen.getByRole('status').textContent).toBe('Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry team')
+  expect(container.querySelector('time')?.dateTime).toBe(nextRunAt)
+})
+
+test.each([
+  [{ error: { code: 'NOT_FOUND' } }, 404],
+  [{ ...schedule, nextRunAt: null }, 200],
+  [{ ...schedule, enabled: false }, 200],
+  [{ ...schedule, nextRunAt: 'invalid' }, 200],
+  [{ error: { code: 'INTERNAL_ERROR' } }, 500],
+] as const)('managed scans show fallback with no invented date: %j', async (response, status) => {
+  const { container, client } = renderSchedule(response, status, 'site-audit')
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  expect(screen.getByRole('status').textContent).toBe(MANAGED_SCANS_COPY)
+  expect(container.querySelector('time')).toBeNull()
+  expect(container.textContent).not.toMatch(/Next scan|UTC|\d|Invalid Date/)
 })

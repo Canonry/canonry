@@ -1,5 +1,5 @@
-import type { ApiKeyDto, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
-import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT } from '@ainyc/canonry-contracts'
+import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -176,6 +176,7 @@ declare global {
         showResourceLinks?: boolean
         showUpdateNotification?: boolean
         managedSweeps?: boolean
+        managedRunKinds?: SchedulableRunKind[]
         showAgentBar?: boolean
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
@@ -305,8 +306,15 @@ export function shouldShowDashboardUpdateNotification(): boolean {
 
 /** Presentation only; manual operator sweeps remain available through the CLI. */
 export function isDashboardManagedSweeps(): boolean {
+  return isDashboardManagedRunKind(RunKinds['answer-visibility'])
+}
+
+/** Presentation only; API permissions never depend on this deployment setting. */
+export function isDashboardManagedRunKind(kind: SchedulableRunKind): boolean {
   if (typeof window === 'undefined') return false
-  return window.__CANONRY_CONFIG__?.dashboard?.managedSweeps === true
+  const dashboard = window.__CANONRY_CONFIG__?.dashboard
+  if (dashboard?.managedRunKinds !== undefined) return dashboard.managedRunKinds.includes(kind)
+  return kind === RunKinds['answer-visibility'] && dashboard?.managedSweeps === true
 }
 
 export interface ViewerResearchConfig {

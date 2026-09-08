@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
+import { dashboardManagedRunKindsSchema } from "@ainyc/canonry-config";
+import { CliError } from "./cli-error.js";
 
 const _require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = _require("../package.json") as {
@@ -49,6 +51,7 @@ import {
   CcReleaseSyncStatuses,
   RunKinds,
   SchedulableRunKinds,
+  type SchedulableRunKind,
   RunStatuses,
   RunTriggers,
   ResearchRunStatuses,
@@ -321,10 +324,24 @@ function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: Canon
     ?? true;
 }
 
-function resolveDashboardManagedSweeps(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
-  return parseBooleanEnv(env.CANONRY_DASHBOARD_MANAGED_SWEEPS)
-    ?? config.dashboard?.managedSweeps
-    ?? false;
+function resolveDashboardManagedRunKinds(env: NodeJS.ProcessEnv, config: CanonryConfig): SchedulableRunKind[] {
+  const configured = dashboardManagedRunKindsSchema.safeParse(config.dashboard?.managedRunKinds);
+  if (!configured.success) {
+    throw new CliError({ code: 'CONFIG_INVALID', message: 'dashboard.managedRunKinds must be a list of schedulable run kinds.' });
+  }
+  const envValue = env.CANONRY_DASHBOARD_MANAGED_RUN_KINDS?.trim();
+  if (envValue) {
+    const parsed = dashboardManagedRunKindsSchema.safeParse(envValue.split(',').map(kind => kind.trim()));
+    if (!parsed.success) {
+      throw new CliError({ code: 'CONFIG_INVALID', message: 'CANONRY_DASHBOARD_MANAGED_RUN_KINDS must be a comma-separated list of schedulable run kinds.' });
+    }
+    return [...new Set(parsed.data)];
+  }
+  // Environment overrides YAML, including the deployed legacy switch. Within
+  // each source the explicit list wins; an empty YAML list disables management.
+  const legacyEnv = parseBooleanEnv(env.CANONRY_DASHBOARD_MANAGED_SWEEPS);
+  if (legacyEnv !== undefined) return legacyEnv ? [SchedulableRunKinds['answer-visibility']] : [];
+  return [...new Set(configured.data ?? (config.dashboard?.managedSweeps ? [SchedulableRunKinds['answer-visibility']] : []))];
 }
 
 function resolveResearchAllowViewers(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
@@ -810,6 +827,7 @@ export async function createServer(opts: {
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
+  const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
   const logger =
     opts.logger === false
       ? false
@@ -2118,7 +2136,6 @@ export async function createServer(opts: {
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
-  const dashboardManagedSweeps = resolveDashboardManagedSweeps(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
   const researchViewerDailyRunLimit = resolveResearchViewerDailyRunLimit(process.env, opts.config);
@@ -3288,7 +3305,7 @@ export async function createServer(opts: {
       if (basePath) clientConfig.basePath = basePath;
       // Keep the default client config byte-for-byte unchanged. Only inject the
       // dashboard block when the operator changes dashboard presentation.
-      const dashboardConfig: Record<string, boolean | string> = {};
+      const dashboardConfig: Record<string, boolean | string | string[]> = {};
       if (dashboardOnboardingMode) {
         dashboardConfig.onboardingMode = dashboardOnboardingMode;
       }
@@ -3298,8 +3315,8 @@ export async function createServer(opts: {
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
       }
-      if (dashboardManagedSweeps) {
-        dashboardConfig.managedSweeps = true;
+      if (dashboardManagedRunKinds.length > 0) {
+        dashboardConfig.managedRunKinds = dashboardManagedRunKinds;
       }
       // The agent kill-switch removes the routes; without telling the browser,
       // the command bar still rendered and every request 404'd in front of the
