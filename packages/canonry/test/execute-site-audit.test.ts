@@ -710,6 +710,35 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, partialRun)).get()?.state).toBe('partial')
   })
 
+  it('still counts a broken image as attempted, so found never exceeds checked', async () => {
+    // Excluding media from the graph must not exclude it from the record of
+    // what the crawl attempted. Draining observedPages made a 404 image report
+    // "1 found from 0 checked", inverting deadLinksFound <= deadLinksChecked.
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      const root = 'https://example.com/'
+      const broken = page('page:broken-image', 'https://example.com/i/gone.jpg', {
+        state: 'fetch-error', statusCode: 404, contentType: 'text/html', audit: null,
+        indexability: { state: 'unknown', reasons: ['fetch-error'], rulesetVersion: '1.0.0' },
+      })
+      await options.onEvent?.({
+        type: 'pages', sequence: 1, batchId: 'pages-1', checksum: 'pages-1',
+        rows: [page('page:root', root), broken],
+      })
+      const endSummary = summary({ rootUrl: root, finalRootUrl: root })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary-1', checksum: 'summary-ok', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    // The broken image is counted as errored even though it is not a graph node.
+    const snapshot = db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()
+    expect(snapshot?.pagesErrored).toBe(1)
+    const urls = db.select({ url: siteCrawlPages.url }).from(siteCrawlPages)
+      .where(eq(siteCrawlPages.runId, runId)).all().map(row => row.url)
+    expect(urls.some(url => url.endsWith('/gone.jpg'))).toBe(false)
+  })
+
   it('keeps image observations out of the persisted graph, but keeps a PDF', async () => {
     // Guards the WIRING. A unit test of isNonPageMedia still passes with the
     // filter removed from registerPageNode, which is the state that shipped
@@ -1003,7 +1032,7 @@ describe('isNonPageMedia', () => {
     expect(isNonPageMedia(at('https://example.com/gallery?utm_content=hero.png'))).toBe(false)
   })
 
-  it('still excludes media that carries a query string', () => {
+  it('excludes media whose URL carries a query string', () => {
     expect(isNonPageMedia(at('https://example.com/assets/images/hero.jpg?v=2'))).toBe(true)
   })
 
