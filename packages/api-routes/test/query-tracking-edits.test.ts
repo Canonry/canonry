@@ -267,6 +267,64 @@ afterEach(async () => {
 })
 
 describe('query-tracking edits', () => {
+  it.each([
+    ['simple', 'queued'], ['simple', 'running'],
+    ['advanced', 'queued'], ['advanced', 'running'],
+  ] as const)('refuses a %s catalog edit when a planless sweep becomes %s after preview', async (mode, status) => {
+    if (mode === 'advanced') seedTwoPropertiesTwoContextsTwoMarkets()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', text: 'a different query' }],
+    }
+    const review = await preview(mutation)
+    db.insert(runs).values({
+      id: 'in-flight', projectId: PROJECT_ID, kind: 'answer-visibility', status,
+      trigger: 'manual', measurementPlanVersionId: null, createdAt: NOW,
+    }).run()
+
+    const response = await request('POST', '/query-tracking/commit', {
+      ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt,
+    })
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json().error.code).toBe('RUN_IN_PROGRESS')
+    expect(db.select().from(queries).where(eq(queries.projectId, PROJECT_ID)).all().map(row => [row.id, row.query]))
+      .toEqual([['q-existing', OLD_TEXT]])
+    if (mode === 'advanced') expect(activePlan().version.revision).toBe(1)
+
+    // The same reviewed change may be retried once the sweep releases its inputs.
+    db.update(runs).set({ status: 'completed', finishedAt: NOW }).where(eq(runs.id, 'in-flight')).run()
+    expect((await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })).committed).toBe(true)
+  })
+
+  it('allows a plan-only classification edit while a planless sweep is running', async () => {
+    seedTwoPropertiesTwoContextsTwoMarkets()
+    const current = await workspace()
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', audience: { targetKeys: ['harbor-point'] }, queryClass: 'branded' }],
+    }
+    const review = await preview(mutation)
+    db.insert(runs).values({
+      id: 'in-flight', projectId: PROJECT_ID, kind: 'answer-visibility', status: 'running',
+      trigger: 'manual', createdAt: NOW,
+    }).run()
+    expect((await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })).committed).toBe(true)
+    expect(activePlan().plan.assignments.filter(row => row.targetKey === 'harbor-point').every(row => row.queryClass === 'branded')).toBe(true)
+    expect(db.select().from(queries).where(eq(queries.id, 'q-existing')).get()?.query).toBe(OLD_TEXT)
+  })
+
+  it('keeps a no-op confirmation available during a planless sweep', async () => {
+    const current = await workspace()
+    const mutation = { expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [] }
+    const review = await preview(mutation)
+    db.insert(runs).values({
+      id: 'in-flight', projectId: PROJECT_ID, kind: 'answer-visibility', status: 'running',
+      trigger: 'manual', createdAt: NOW,
+    }).run()
+    expect((await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })).committed).toBe(false)
+  })
+
   it('splits a Property text edit while retaining sibling history, contexts, and market memberships', async () => {
     seedTwoPropertiesTwoContextsTwoMarkets()
     insertHistoricalSnapshot()

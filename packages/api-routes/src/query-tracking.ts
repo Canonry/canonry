@@ -85,7 +85,7 @@ import {
   measurementRunExpectedSlots,
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
-import { preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
+import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -2088,6 +2088,9 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       const candidate = buildCandidate(tx, state, parsed.data, opts, reviewedAt)
       if (parsed.data.previewToken !== mutationPreviewToken(candidate, parsed.data, reviewedAt)) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
+      }
+      if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
+        assertNoActivePlanlessSweep(tx, { projectId: project.id, projectName: project.name })
       }
       const now = new Date()
       let active = state.active

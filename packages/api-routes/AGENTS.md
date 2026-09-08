@@ -98,6 +98,7 @@ Historical runs receive no inferred definition. `visibility-report` reads this s
 
 `query-tracking` owns workspace, preview, and commit for simple sites and v2 portfolios.
 Commit requires the exact workspace version and preview token. A no-op must not publish a revision.
+Before changing catalog rows, commit calls `assertNoActivePlanlessSweep` inside its write transaction, including when an Advanced plan was published after a simple sweep queued. Plan-only edits and no-ops remain available.
 Query identity uses normalized text and prefers the ID already bound by the active plan.
 Publication starts zero provider calls. Existing drafts become stale through their normal base-version guard.
 `visibility-report` owns metrics, denominators, scope, provenance, trends, and paginated evidence.

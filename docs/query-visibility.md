@@ -116,6 +116,8 @@ The server retains the exact execution contexts. An edit cannot replace those co
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
+A catalog change returns `409 RUN_IN_PROGRESS` while a queued or running sweep still uses the live query catalog.
+Retry the reviewed change after that sweep finishes. No-op confirmations and plan-only edits remain available.
 Preview and commit require write access. Stored workspace and visibility reads do not.
 
 The project API prefix is `/api/v1/projects/:name`.

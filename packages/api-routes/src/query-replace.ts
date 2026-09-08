@@ -134,22 +134,23 @@ export function assertQueryCatalogMutationAllowed(
     )
   }
 
-  // A plan-backed run executes the revision pinned on that run, so cleanup of
-  // a catalog row outside that revision is safe. A planless run reads the live
-  // catalog even if an active plan was published after it queued; reject an
-  // actual change while such a run is queued or running, but leave a true
-  // declarative no-op idempotent.
-  const activeRuns = tx.select({ measurementPlanVersionId: runs.measurementPlanVersionId })
-    .from(runs)
-    .where(and(
-      eq(runs.projectId, scope.projectId),
-      eq(runs.kind, RunKinds['answer-visibility']),
-      inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
-    ))
-    .all()
-  if (activeRuns.some(run => run.measurementPlanVersionId === null)) {
-    throw runInProgress(scope.projectName)
-  }
+  assertNoActivePlanlessSweep(tx, scope)
+}
+
+/** Catalog changes must not delete or replace inputs held by a planless sweep. */
+export function assertNoActivePlanlessSweep(
+  tx: Pick<DatabaseClient, 'select'>,
+  scope: QueryCatalogMutationScope,
+): void {
+  // A run keeps its queue-time execution mode even if a plan was published
+  // later. Check the run itself, inside the catalog mutation transaction.
+  const activeRun = tx.select({ id: runs.id }).from(runs).where(and(
+    eq(runs.projectId, scope.projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+    isNull(runs.measurementPlanVersionId),
+  )).get()
+  if (activeRun) throw runInProgress(scope.projectName)
 }
 
 /** Check the legacy replacement inside the same transaction as its writes. */
