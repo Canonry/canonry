@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 
 import { ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 afterEach(cleanup)
@@ -92,4 +93,29 @@ test('a background project refetch does not clobber in-progress edits', async ()
   // The in-progress "Choose engines" selection must survive the refetch.
   expect((screen.getByLabelText('Choose engines') as HTMLInputElement).checked).toBe(true)
   expect((screen.getByLabelText('Gemini') as HTMLInputElement).checked).toBe(true)
+})
+
+test.each([
+  { label: 'project-scoped writer', apiKey: { id: 'project-writer', scopes: ['*'], projectId: 'project-1', readOnly: false }, embed: false },
+  { label: 'embed', apiKey: undefined, embed: true },
+])('does not render or request the administrator provider catalogue for $label', async ({ apiKey, embed }) => {
+  const requests: string[] = []
+  const restore = mockFetch(url => {
+    requests.push(url)
+    throw new Error(`The provider catalogue must not be requested: ${url}`)
+  })
+  onTestFinished(restore)
+  if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+  onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <AccountProvider account={null} apiKey={apiKey}>
+        <ProjectEngineSettingsSection project={{ name: 'demo', providers: [], providerModels: {} }} onSave={vi.fn().mockResolvedValue(undefined)} />
+      </AccountProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(screen.queryByRole('heading', { name: 'Answer engines' })).toBeNull()
+  expect(requests).toEqual([])
 })

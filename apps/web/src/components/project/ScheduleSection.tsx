@@ -289,7 +289,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               {managedSweeps && <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
               <p className="text-sm font-medium text-strong">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
               <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
-              {schedule.nextRunAt && (
+              {schedule.enabled && schedule.nextRunAt && (
                 <p className="text-xs text-muted">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
               )}
               {schedule.lastRunAt && (

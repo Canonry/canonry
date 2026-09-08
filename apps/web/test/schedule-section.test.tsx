@@ -84,6 +84,20 @@ test('discovers an existing schedule through the zero-noise collection read', as
   expect(scheduleReads).toBe(1)
 })
 
+test('does not present a persisted next run for a paused schedule', async () => {
+  const restore = mockFetch(() => jsonResponse([makeSchedule({ enabled: false })]))
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ScheduleSection projectName="citypoint" />
+    </QueryClientProvider>,
+  )
+
+  expect(await screen.findByText('Paused')).toBeTruthy()
+  expect(screen.queryByText(/Next run:/)).toBeNull()
+})
+
 test('refreshes a stale cached absence before schedule editing is available', async () => {
   let resolveScheduleRead!: (response: Response) => void
   const scheduleRead = new Promise<Response>((resolve) => {

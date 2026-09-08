@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchSettings, isEmbed, type ApiProject } from '../../api.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { describeError } from '@ainyc/canonry-contracts'
 
@@ -34,7 +35,15 @@ export function ProjectEngineSettingsSection({
   project: EngineProject
   onSave: (next: EngineSave) => Promise<void>
 }) {
-  const settings = useQuery({ queryKey: ['settings'], queryFn: fetchSettings, staleTime: 60_000 })
+  const { isAdmin } = useAccount()
+  // Do not request settings when this section is hidden for non-admins or embeds.
+  // Bookmarked Settings tabs must not trigger an unseen 403.
+  const settings = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+    staleTime: 60_000,
+    enabled: isAdmin && !isEmbed(),
+  })
   const [automatic, setAutomatic] = useState(project.providers.length === 0)
   const [selected, setSelected] = useState<string[]>(project.providers)
   const [models, setModels] = useState<Record<string, string>>(() => copyModels(project.providerModels))
@@ -150,7 +159,7 @@ export function ProjectEngineSettingsSection({
     }
   }
 
-  if (isEmbed()) return null
+  if (isEmbed() || !isAdmin) return null
   if (settings.isLoading) {
     return <section className="project-engine-settings" aria-busy="true"><p role="status" className="text-sm text-secondary">Loading engine settings…</p></section>
   }

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { buildModelChangeNotice, describeError } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
-import type { VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation } from '@ainyc/canonry-contracts'
+import type { VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
@@ -82,6 +82,28 @@ function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope'])
 function ReportRate({ value, unit }: { value: VisibilityReportRate; unit?: 'answers' | 'properties' }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'}</span>
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{unit ? ` ${unit}` : ''}</span></span>
+}
+
+export interface VisibilityQueryGroup {
+  queryKey: string
+  query: string
+  rows: VisibilityReportQueryRow[]
+}
+
+/**
+ * The report API publishes one row for every observed engine context. Keep
+ * those rows intact, but nest them below their one tracked-query identity on
+ * the current page so model, location, denominator, and property scope never become an invented
+ * query-level aggregate.
+ */
+export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow[]): VisibilityQueryGroup[] {
+  const groups = new Map<string, VisibilityQueryGroup>()
+  for (const row of rows) {
+    const group = groups.get(row.queryKey)
+    if (group) group.rows.push(row)
+    else groups.set(row.queryKey, { queryKey: row.queryKey, query: row.query, rows: [row] })
+  }
+  return [...groups.values()]
 }
 
 function ReportTrend({ population }: { population: VisibilityReportPopulation }) {
@@ -245,7 +267,10 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {filterSelect('AI model', 'measurementModel', selection.model ?? '', [{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(model => !selection.provider || model.provider === selection.provider).map(model => model.model))).map(model => ({ value: model, label: model }))], 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
       {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...report.populations[0]!.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
     </div></details>
-    {report.populations.map(population => <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
+    {report.populations.map(population => {
+      const queryGroups = groupVisibilityQueryRows(population.queries.items)
+      const queryColumnCount = selection.mode === 'advanced' ? 7 : 6
+      return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'The measured definition could not establish a query class. These answers are not included in branded or non-brand rates.'} /></div>
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-default py-4">
         <div><div className="mb-2 flex items-center gap-1 text-sm text-secondary"><span>{selection.mode === 'advanced' && selection.scope.kind !== 'property' ? 'Answers mentioning a property' : 'Mentioned answers'}</span>{selection.mode === 'advanced' ? <InfoTooltip text="An answer counts when it mentions any assigned property. This does not mean every property was mentioned." /> : null}</div><ReportRate value={population.summary.mentionCoverage} unit="answers" /></div>
@@ -261,27 +286,32 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       <details className="border-t border-default" data-query-results={population.queryClass} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} query results`}>
         <summary className="min-h-11 cursor-pointer py-5 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"><span className="font-semibold">Query results</span><span className="ml-3 text-sm font-normal text-secondary">{population.queries.total} {population.queries.total === 1 ? 'result' : 'results'} · {scopeLabel}</span></summary>
         <div className="pb-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">{onSearch ? <input type="search" aria-label={`Search ${REPORT_CLASS_LABEL[population.queryClass]}`} placeholder="Search queries" className={`${REPORT_CONTROL} max-w-sm`} value={search} onChange={event => onSearch(event.target.value)} /> : null}<InfoTooltip text={selection.mode === 'advanced' ? 'Each result is one query, answer engine, model, and search location. Mentioned and Cited count answers matching any of its assigned properties, not the percentage of properties found.' : 'Each result is one query, answer engine, model, and search location. Mentioned counts answers naming your brand. Cited counts answers linking to your site.'} /></div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">{onSearch ? <input type="search" aria-label={`Search ${REPORT_CLASS_LABEL[population.queryClass]}`} placeholder="Search queries" className={`${REPORT_CONTROL} max-w-sm`} value={search} onChange={event => onSearch(event.target.value)} /> : null}<InfoTooltip text={selection.mode === 'advanced' ? 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, property scope, and answer counts. Mentioned and Cited count answers matching any assigned property, not the percentage of properties found.' : 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, and answer counts. Mentioned counts answers naming your brand. Cited counts answers linking to your site.'} /></div>
         <div className="overflow-x-auto">
           <table className="evidence-table measurement-responsive-table">
             <thead><tr><th>Query</th>{selection.mode === 'advanced' ? <th>Properties</th> : null}<th>Answer engine</th><th>Search location</th><th>Mentioned</th><th>Cited</th><th className="measurement-table-actions"><span className="sr-only">Evidence</span></th></tr></thead>
-            <tbody>{population.queries.items.map(row => <tr key={JSON.stringify([row.queryKey, row.provider, row.model, row.location])}>
-              <td className="measurement-query-cell font-medium text-heading">{row.query}</td>
-              {selection.mode === 'advanced' ? <td className="measurement-target-cell">
-                {row.targetKeys.length === 1 ? targetLabels.get(row.targetKeys[0]!) ?? row.targetKeys[0] : row.targetKeys.length > 1 ? <details>
-                  <summary className="min-h-11 cursor-pointer py-2 text-secondary">{row.targetKeys.length} properties</summary>
-                  <ul className="max-h-48 space-y-2 overflow-y-auto py-2 text-sm text-secondary">{row.targetKeys.map(key => <li key={key}>{targetLabels.get(key) ?? key}</li>)}</ul>
-                </details> : 'No properties'}
-              </td> : null}
-              <td>{row.provider}{row.model ? <span className="block text-sm text-secondary">{row.model}</span> : null}</td>
-              <td>{row.location ?? 'No location'}</td>
-              <td><ReportRate value={row.mentionCoverage} /></td>
-              <td><ReportRate value={row.citationCoverage} /></td>
-              <td className="measurement-table-actions"><Button variant="ghost" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={() => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })}>View answers</Button></td>
-            </tr>)}</tbody>
+            {queryGroups.map(group => <tbody key={group.queryKey} data-query-key={group.queryKey}>
+              <tr className="bg-surface-subtle">
+                <th scope="rowgroup" colSpan={queryColumnCount} className="measurement-query-cell text-sm font-medium normal-case tracking-normal text-heading">{group.query}</th>
+              </tr>
+              {group.rows.map(row => <tr key={JSON.stringify([row.provider, row.model, row.location])}>
+                <td aria-label={`Query: ${group.query}`} className="measurement-query-cell text-secondary"><span aria-hidden="true">↳</span></td>
+                {selection.mode === 'advanced' ? <td className="measurement-target-cell">
+                  {row.targetKeys.length === 1 ? targetLabels.get(row.targetKeys[0]!) ?? row.targetKeys[0] : row.targetKeys.length > 1 ? <details>
+                    <summary className="min-h-11 cursor-pointer py-2 text-secondary">{row.targetKeys.length} properties</summary>
+                    <ul className="max-h-48 space-y-2 overflow-y-auto py-2 text-sm text-secondary">{row.targetKeys.map(key => <li key={key}>{targetLabels.get(key) ?? key}</li>)}</ul>
+                  </details> : 'No properties'}
+                </td> : null}
+                <td>{row.provider}{row.model ? <span className="block text-sm text-secondary">{row.model}</span> : null}</td>
+                <td>{row.location ?? 'No location'}</td>
+                <td><ReportRate value={row.mentionCoverage} /></td>
+                <td><ReportRate value={row.citationCoverage} /></td>
+                <td className="measurement-table-actions"><Button variant="ghost" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={() => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })}>View answers</Button></td>
+              </tr>)}
+            </tbody>)}
           </table>
         </div>
-        {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{population.queries.items.length} shown of {population.queries.total}</p>}
+        {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
         {population.queries.nextCursor && onPage ? <Button variant="outline" onClick={() => onPage(population.queries.nextCursor!)}>Next queries</Button> : null}
       {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label="Measured answers" aria-busy={isEvidenceLoading}><div className="section-head"><h3>Answers</h3><Button variant="ghost" onClick={event => { focusedQueryKey.current = undefined; event.currentTarget.closest('details[data-query-results]')?.querySelector('summary')?.focus(); onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined }) }}>Close answers</Button></div>
         {isEvidenceLoading ? <p role="status" className="py-4 text-sm text-secondary">Loading saved answers…</p> : evidenceError ? <div role="alert" className="py-4 text-sm text-secondary"><p>Saved answers unavailable: {evidenceError}</p>{onRetryEvidence ? <Button variant="outline" onClick={onRetryEvidence}>Retry answers</Button> : null}</div> : <>
@@ -296,7 +326,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         {population.competitorAvailability.state === 'unavailable' ? <p className="text-sm text-secondary">Competitor rates unavailable for this historical definition.</p> : population.competitors.length === 0 ? <p className="text-sm text-secondary">No measured competitors in this selection.</p> : <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Competitor</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{population.competitors.map(row => <tr key={row.domain}><td>{row.domain}</td><td><ReportRate value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} /></td></tr>)}</tbody></table></div>}
         {population.observedCompetitors.length > 0 ? <details className="mt-4 text-sm"><summary className="min-h-11 cursor-pointer py-3 text-heading">Other names in answers</summary><ul className="divide-y divide-default">{population.observedCompetitors.map(row => <li key={row.name} className="flex items-center justify-between gap-4 py-3"><span>{row.name}</span><span className="tabular-nums text-secondary">{row.answerCount} {row.answerCount === 1 ? 'answer' : 'answers'}</span></li>)}</ul><p className="py-2 text-secondary">Observed names, not additions to your tracked competitors.</p></details> : null}
       </div></details>
-    </section>)}
+    </section>})}
   </section>
 }
 

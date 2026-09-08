@@ -5,6 +5,14 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
+  canonicalMeasurementPlanJson,
+  canonicalMeasurementPlanV2Json,
+  compileMeasurementPlan,
+  type MeasurementPlan,
+  type MeasurementPlanV2,
+  type ProjectReportDto,
+} from '@ainyc/canonry-contracts'
+import {
   createClient,
   migrate,
   projects,
@@ -24,9 +32,11 @@ import {
   trafficSources,
   crawlerEventsHourly,
   aiReferralEventsHourly,
+  measurementPlans,
+  measurementPlanVersions,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import type { ProjectReportDto } from '@ainyc/canonry-contracts'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-report-'))
@@ -523,13 +533,112 @@ describe('GET /api/v1/projects/:name/report', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/az-actions/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
-    expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'both')).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'agency')).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'content' && a.title.includes('best industrial coatings'))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.some(e => e.includes('20% indexed')))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'provider' && a.evidence.some(e => e.includes('openai: 0/2')))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'search-demand' && a.evidence.some(e => e.includes('epoxy floor coatings contractors')))).toBe(true)
     expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
+    expect(body.clientSummary.actionItems.some(a => a.category === 'competitors')).toBe(false)
+    expect(body.agencyDiagnostics.priorities.some(a => a.category === 'competitors')).toBe(true)
     expect(body.agencyDiagnostics.priorities.some(a => a.category === 'provider')).toBe(true)
+  })
+
+  test('does not recommend competitors already configured by the active measurement plan', async () => {
+    const projectId = insertProject(ctx.db, 'plan-competitors')
+    const queryId = insertQuery(ctx.db, projectId, 'homes near harbor')
+    const runId = insertRun(ctx.db, projectId)
+    insertSnapshot(ctx.db, runId, queryId, {
+      citationState: 'not-cited',
+      answerMentioned: false,
+      citedDomains: ['external-directory.example'],
+    })
+
+    const activePlan: MeasurementPlanV2 = measurementPlanV2Fixture()
+    const versionId = crypto.randomUUID()
+    ctx.db.insert(measurementPlanVersions).values({
+      id: versionId,
+      projectId,
+      revision: 1,
+      canonicalJson: canonicalMeasurementPlanV2Json(activePlan),
+      checksum: 'a'.repeat(64),
+      schemaVersion: 2,
+      compiledChecksum: activePlan.compiledChecksum,
+      createdAt: new Date().toISOString(),
+    }).run()
+    ctx.db.insert(measurementPlans).values({
+      projectId,
+      activeVersionId: versionId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/plan-competitors/report' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.actionPlan.some(action => action.category === 'competitors')).toBe(false)
+    expect(body.agencyDiagnostics.priorities.some(action => action.category === 'competitors')).toBe(false)
+  })
+
+  test('does not recommend competitors already configured by an active v1 measurement plan', async () => {
+    const projectId = insertProject(ctx.db, 'v1-plan-competitors')
+    const queryId = insertQuery(ctx.db, projectId, 'homes near harbor')
+    const runId = insertRun(ctx.db, projectId)
+    insertSnapshot(ctx.db, runId, queryId, {
+      citationState: 'not-cited',
+      answerMentioned: false,
+      citedDomains: ['external-directory.example'],
+    })
+
+    const activePlan: MeasurementPlan = compileMeasurementPlan({
+      schemaVersion: 1,
+      targets: [{
+        stableKey: 'harbor',
+        label: 'Harbor Homes',
+        urls: [{ kind: 'host', host: 'v1-plan-competitors.example.com' }],
+        aliases: ['Harbor Homes'],
+      }],
+      groups: [{
+        stableKey: 'regional',
+        label: 'Regional comparison',
+        targetKeys: ['harbor'],
+        competitors: ['challenger.example'],
+      }],
+      targetQuerySelections: [{ targetKey: 'harbor', queryIds: [queryId] }],
+    }, {
+      canonicalDomain: 'v1-plan-competitors.example.com',
+      ownedDomains: [],
+      brandNames: ['V1 Plan Competitors'],
+      trackedQueries: [{ id: queryId, query: 'homes near harbor' }],
+      locations: [],
+      defaultContext: null,
+      expectedSnapshots: 1,
+    })
+    const versionId = crypto.randomUUID()
+    ctx.db.insert(measurementPlanVersions).values({
+      id: versionId,
+      projectId,
+      revision: 1,
+      canonicalJson: canonicalMeasurementPlanJson(activePlan),
+      checksum: 'b'.repeat(64),
+      schemaVersion: 1,
+      createdAt: new Date().toISOString(),
+    }).run()
+    ctx.db.insert(measurementPlans).values({
+      projectId,
+      activeVersionId: versionId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/v1-plan-competitors/report' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.actionPlan.some(action => action.category === 'competitors')).toBe(false)
   })
 
   test('GSC section returns top queries, totals, category breakdown', async () => {

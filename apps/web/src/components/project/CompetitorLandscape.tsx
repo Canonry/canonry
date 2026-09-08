@@ -36,6 +36,21 @@ function formatShare(share: number | null): string {
   return share === null ? 'Not measured' : `${share.toFixed(1)}%`
 }
 
+type MetricAvailability = 'measured' | 'not-measured' | 'unavailable'
+
+function metricAvailability(landscape: CompetitorLandscapeData | undefined): MetricAvailability {
+  if (!landscape) return 'unavailable'
+  // A zero count is meaningful only after the selected window contains stored
+  // answer or source evidence. A completely empty window has no denominator.
+  return landscape.evidence.answeredResults > 0 || landscape.evidence.sourceResults > 0
+    ? 'measured'
+    : 'not-measured'
+}
+
+function unavailableMetricLabel(availability: MetricAvailability): string {
+  return availability === 'unavailable' ? 'Unavailable' : 'Not measured'
+}
+
 function sourceClassLabel(sourceClass: CompetitorLandscapeRow['surfaceClass']): string {
   switch (sourceClass) {
     case 'own': return 'Your domain'
@@ -101,14 +116,14 @@ function WindowControl({
 function LandscapeRow({
   row,
   isProject = false,
-  metricsAvailable = true,
+  metricState = 'measured',
   canManage,
   onPin,
   onUnpin,
 }: {
   row: CompetitorLandscapeRow
   isProject?: boolean
-  metricsAvailable?: boolean
+  metricState?: MetricAvailability
   canManage: boolean
   onPin?: CompetitorMutation
   onUnpin?: CompetitorMutation
@@ -118,6 +133,7 @@ function LandscapeRow({
   // look like current evidence. Pinning is the only truthful row action here.
   const canPin = !isProject && canManage && !row.pinned && Boolean(onPin)
   const canUnpin = !isProject && canManage && row.pinned && Boolean(onUnpin)
+  const metricsAvailable = metricState === 'measured'
   const hasWindowSources = metricsAvailable && row.sampleUrls.length > 0
   const [mutationPending, setMutationPending] = useState(false)
   const [mutationError, setMutationError] = useState<string | null>(null)
@@ -144,9 +160,9 @@ function LandscapeRow({
         {isProject ? <span className="ml-1 text-secondary">(you)</span> : null}
       </th>
       <td className="text-secondary">{isProject ? 'Your brand' : sourceClassLabel(row.surfaceClass)}</td>
-      <td className="tabular-nums text-strong">{metricsAvailable ? formatShare(row.shareOfVoice) : 'Unavailable'}</td>
-      <td className="tabular-nums text-secondary">{metricsAvailable ? row.mentionCount : 'Unavailable'}</td>
-      <td className="tabular-nums text-secondary">{metricsAvailable ? row.citationCount : 'Unavailable'}</td>
+      <td className="tabular-nums text-strong">{metricsAvailable ? formatShare(row.shareOfVoice) : unavailableMetricLabel(metricState)}</td>
+      <td className="tabular-nums text-secondary">{metricsAvailable ? row.mentionCount : unavailableMetricLabel(metricState)}</td>
+      <td className="tabular-nums text-secondary">{metricsAvailable ? row.citationCount : unavailableMetricLabel(metricState)}</td>
       <td className="text-right">
         {canPin || canUnpin || hasWindowSources ? (
           <div className="flex min-w-max items-start justify-end gap-2">
@@ -321,6 +337,7 @@ export function CompetitorLandscape({
   const observed = landscape?.observed ?? []
   const otherSources = landscape?.otherSources ?? []
   const evidence = landscape?.evidence
+  const metricState = metricAvailability(landscape)
   const pendingDraftCompetitorCount = landscape?.marketState?.draft?.pendingCompetitorDomains.length ?? 0
 
   return (
@@ -365,12 +382,12 @@ export function CompetitorLandscape({
                 {landscape ? (
                   <>
                     <GroupHeading>You</GroupHeading>
-                    <LandscapeRow row={landscape.project} isProject canManage={false} />
+                    <LandscapeRow row={landscape.project} isProject metricState={metricState} canManage={false} />
                   </>
                 ) : null}
                 <GroupHeading>Pinned</GroupHeading>
                 {pinned.length > 0 ? pinned.map(row => (
-                  <LandscapeRow key={row.domain} row={{ ...row, pinned: true }} metricsAvailable={Boolean(landscape)} canManage={canManage} onUnpin={onUnpin} />
+                  <LandscapeRow key={row.domain} row={{ ...row, pinned: true }} metricState={metricState} canManage={canManage} onUnpin={onUnpin} />
                 )) : (
                   <tr><td colSpan={6} className="text-secondary">No pinned competitors.</td></tr>
                 )}

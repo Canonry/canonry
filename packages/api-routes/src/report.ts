@@ -73,6 +73,7 @@ import {
 import { loadDismissedTargetRefs } from './content.js'
 import { mergeGscDailyTotalsWithFallback, mergeGscQueryTotalsWithFallback, readGscDailyTotals, readGscQueryDailyRows } from './gsc-totals.js'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { activeMeasurementPlan } from './measurement-overview.js'
 import { renderReportHtml } from './report-renderer.js'
 import { pickWinningAttributionDimension } from './ga-ai-referral-aggregation.js'
 import {
@@ -1640,6 +1641,21 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
   return action.audience === 'both' || action.audience === audience
 }
 
+/** Active plan competitors suppress only the setup action; report metrics keep their existing source. */
+function configuredCompetitorDomainsForActionPlan(
+  db: DatabaseClient,
+  projectId: string,
+  projectCompetitorDomains: readonly string[],
+): string[] {
+  const active = activeMeasurementPlan(db, projectId)
+  if (!active) return [...projectCompetitorDomains]
+
+  const planCompetitorDomains = active.plan.schemaVersion === 2
+    ? active.plan.groups.flatMap(group => group.competitors.map(competitor => competitor.domain))
+    : active.plan.groups.flatMap(group => group.competitors ?? [])
+  return [...new Set([...projectCompetitorDomains, ...planCompetitorDomains])]
+}
+
 interface ReportActionPlanInput {
   canonicalDomain: string
   competitorDomains: string[]
@@ -1659,7 +1675,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
   if (input.competitorDomains.length === 0 && input.aiSourceOrigin.topDomains.length > 0) {
     const topDomains = input.aiSourceOrigin.topDomains.slice(0, 5)
     actions.push({
-      audience: 'both',
+      audience: 'agency',
       priority: 10,
       horizon: 'immediate',
       category: 'competitors',
@@ -2254,6 +2270,11 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
 
   const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
   const competitorDomains = competitorRows.map(c => c.domain)
+  const actionPlanCompetitorDomains = configuredCompetitorDomainsForActionPlan(
+    db,
+    project.id,
+    competitorDomains,
+  )
 
   // Treat ownedDomains the same way determineCitationState does — anything
   // matching the canonical domain or an owned subdomain counts as "ours".
@@ -2439,7 +2460,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
 
   const actionPlan = buildReportActionPlan({
     canonicalDomain: project.canonicalDomain,
-    competitorDomains,
+    competitorDomains: actionPlanCompetitorDomains,
     citationScorecard,
     aiSourceOrigin,
     gsc: gscSection,

@@ -1,16 +1,25 @@
 import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { DiscoverySection } from '../src/components/project/DiscoverySection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  delete window.__CANONRY_CONFIG__
+})
 
-function installApiMock() {
-  const restoreFetch = mockFetch((url) => {
+function installApiMock(posts?: string[]) {
+  const restoreFetch = mockFetch((url, init) => {
     const path = new URL(url).pathname
+
+    if (init?.method === 'POST' && posts) {
+      posts.push(path)
+      return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test provider unavailable' } }, 503)
+    }
 
     if (path === '/api/v1/projects/demo/discover/sessions') return jsonResponse([])
     if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
@@ -38,6 +47,30 @@ function installApiMock() {
   })
   onTestFinished(restoreFetch)
 }
+
+test.each([false, true])('managedSweeps=%s preserves client Discovery and Research run access', async (managedSweeps) => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
+  const posts: string[] = []
+  installApiMock(posts)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(
+    <AccountProvider account={null} apiKey={{ id: 'client-key', scopes: ['*'], projectId: 'project_demo', readOnly: false }}>
+      <QueryClientProvider client={queryClient}><DiscoverySection projectName="demo" /></QueryClientProvider>
+    </AccountProvider>,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: /Find queries/ }))
+  await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/discover/run'))
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
+  await screen.findByRole('option', { name: 'OpenAI' })
+  fireEvent.change(screen.getByPlaceholderText(/one query per line/i), { target: { value: 'How do I measure AI citations?' } })
+  const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+  await waitFor(() => expect(run.disabled).toBe(false))
+  fireEvent.click(run)
+  await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/runs'))
+})
 
 test('switches to research, deduplicates query lines, gates exact model choice, and states that research is not tracked', async () => {
   installApiMock()

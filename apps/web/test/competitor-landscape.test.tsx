@@ -207,6 +207,36 @@ describe('CompetitorLandscape', () => {
     expect(text.indexOf('Pinned zero')).toBeLessThan(text.indexOf('Observed rival'))
   })
 
+  test.each([
+    { kind: 'project' },
+    { kind: 'group', groupKey: 'north' },
+    { kind: 'all-markets' },
+  ] as const)('marks an empty $kind history window as unmeasured while retaining measured zeroes', (scope) => {
+    const emptyEvidence = {
+      answeredResults: 0,
+      sourceResults: 0,
+      missingAnswerTextResults: 0,
+      mentionCredits: 0,
+      incompleteSourceResults: 0,
+      excludedProbeResults: 0,
+      excludedNonCompletedResults: 0,
+    }
+    const { rerender, props } = renderLandscape({ landscape: landscape({ scope, evidence: emptyEvidence }) })
+
+    const brandRow = screen.getByRole('rowheader', { name: /Canonry/ }).closest('tr')!
+    expect(within(brandRow).getAllByText('Not measured')).toHaveLength(3)
+    expect(brandRow.textContent).not.toContain('0.0%')
+
+    rerender(<CompetitorLandscape {...props} landscape={landscape({
+      scope,
+      project: row({ domain: 'canonry.example', label: 'Canonry', surfaceClass: 'own', shareOfVoice: 0, mentionCount: 0, citationCount: 0 }),
+      evidence: { ...emptyEvidence, answeredResults: 1 },
+    })} />)
+    const measuredZeroRow = screen.getByRole('rowheader', { name: /Canonry/ }).closest('tr')!
+    expect(within(measuredZeroRow).getByText('0.0%')).toBeTruthy()
+    expect(within(measuredZeroRow).getAllByText('0')).toHaveLength(2)
+  })
+
   test('does not link historical rows to the latest-only evidence table', () => {
     renderLandscape()
 
