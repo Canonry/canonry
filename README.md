@@ -6,7 +6,7 @@ Canonry is an **agent-first, open-source AEO operating platform.** Track AI visi
 
 **Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
 
-[Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation)
+[Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
@@ -245,6 +245,10 @@ See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode,
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 
 </details>
+
+## Support
+
+Join the [Canonry Discord](https://discord.gg/8K9yY7GywJ) for support and questions about Canonry.
 
 ## Contributing
 
