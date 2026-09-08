@@ -23,6 +23,7 @@ This runs `pnpm install`, builds all packages, and installs `canonry` globally v
 Individual commands:
 
 ```bash
+pnpm verify                 # Required before every push
 pnpm run typecheck          # Type-check all packages
 pnpm run test               # Run test suite
 pnpm run lint               # Lint all packages
@@ -57,7 +58,13 @@ Use [`docs/README.md`](docs/README.md) as the entrypoint for the current referen
 ## Before Submitting a PR
 
 ```bash
-pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm verify
 ```
 
-All three must pass.
+Run this command from the repository root before every push, after all changes are integrated.
+It includes generated API, plugin, and Val Town mirror checks, plus workspace typecheck, lint, and tests.
+Package suites are intermediate checks. They do not replace this gate.
+
+`pnpm install` installs the Husky hooks. The `pre-push` hook blocks the push if `pnpm verify` fails.
+On failure, the hook prints the last log lines and the full log path.
+After a fix, regeneration, or rebase, rerun the full gate.

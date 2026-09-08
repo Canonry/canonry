@@ -9,6 +9,7 @@ on:
       # while only `ci.yml` was listed.
       - '.github/workflows/**'
       - '.github/actions/setup/action.yml'
+      - '.husky/**'
       - '.dockerignore'
       - 'Dockerfile'
       - 'docker/**'
@@ -43,6 +44,7 @@ on:
       # while only `ci.yml` was listed.
       - '.github/workflows/**'
       - '.github/actions/setup/action.yml'
+      - '.husky/**'
       - '.dockerignore'
       - 'Dockerfile'
       - 'docker/**'
