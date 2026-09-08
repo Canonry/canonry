@@ -161,6 +161,43 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-node@v4
+        if: steps.check-token.outputs.configured == 'true'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # npm can accept a scoped publish while its public metadata and tarball
+      # remain unavailable for several minutes. Do not dispatch the tap until
+      # the exact artifact it will hash is publicly readable.
+      - name: Wait for published Canonry tarball
+        if: steps.check-token.outputs.configured == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          NPM_CONFIG_FETCH_RETRIES: 0
+          NPM_CONFIG_FETCH_TIMEOUT: 10000
+        run: |
+          set -euo pipefail
+          package="@canonry/canonry@$VERSION"
+
+          for attempt in {1..60}; do
+            tarball_url="$(npm view "$package" dist.tarball 2>/dev/null || true)"
+            if [[ "$tarball_url" == https://registry.npmjs.org/* ]] && \
+              curl -fsSIL --connect-timeout 5 --max-time 10 "$tarball_url" >/dev/null; then
+              echo "$package is publicly available"
+              exit 0
+            fi
+
+            echo "$package is still processing (attempt $attempt/60)"
+            if [[ "$attempt" -lt 60 ]]; then
+              sleep 10
+            fi
+          done
+
+          echo "::error::$package was not publicly available after 10 minutes"
+          exit 1
+
       - name: Notify Homebrew tap
         if: steps.check-token.outputs.configured == 'true'
         uses: peter-evans/repository-dispatch@v3

@@ -1,6 +1,6 @@
 {
   "_source": "https://index.commoncrawl.org/ccbot.json",
-  "creationTime": "2026-08-04T12:40:20Z",
+  "creationTime": "2026-08-11T13:40:00Z",
   "prefixes": [
     {
       "ipv4Prefix": "18.97.14.80/29"
@@ -13,9 +13,6 @@
     },
     {
       "ipv4Prefix": "3.41.188.32/29"
-    },
-    {
-      "ipv4Prefix": "98.85.178.216/32"
     },
     {
       "ipv6Prefix": "2600:1f28:365:8000::/56"
