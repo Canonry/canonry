@@ -1,5 +1,5 @@
-import { runSiteCrawl } from 'npm:@canonry/aeo-audit@7.1.0'
-import type { CrawlPageObservation, SiteCrawlOptions, SiteCrawlReport } from 'npm:@canonry/aeo-audit@7.1.0'
+import { runSiteCrawl } from 'npm:@canonry/aeo-audit@7.2.0'
+import type { CrawlPageObservation, SiteCrawlOptions, SiteCrawlReport } from 'npm:@canonry/aeo-audit@7.2.0'
 import { wwwAlternate } from 'npm:@canonry/val-kit@0.2.0/security'
 import { buildSiteMap } from './site-map.ts'
 import type { FactorSample, SiteHealthPageSample, SiteHealthRunner, SiteHealthSample } from './types.ts'
