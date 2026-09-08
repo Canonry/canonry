@@ -4,6 +4,7 @@ import path from 'node:path'
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { parse, stringify } from 'yaml'
 
+import { runCli } from '../src/cli.js'
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, getConfigPath } from '../src/config.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -304,7 +305,6 @@ test.each(['text', 'json', 'jsonl'])('invalid managed sweeps is a path-qualified
   const original = stringify({ ...baseConfig(), dashboard: { managedSweeps: invalidValue } })
   fs.writeFileSync(getConfigPath(), original)
   const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
-  const { runCli } = await import('../src/cli.js')
 
   expect(await runCli(['telemetry', 'enable', '--format', format])).toBe(1)
   const output = stderr.mock.calls.map(args => args.join(' ')).join('\n')

@@ -137,6 +137,49 @@ describe('shared production visibility view', () => {
     expect(html).not.toContain('Run AI sweep')
   })
 
+  it.each([
+    { mode: 'simple' as const, showsProperties: false },
+    { mode: 'advanced' as const, showsProperties: true },
+  ])('groups each tracked query once while preserving every $mode engine context and its rates', ({ mode, showsProperties }) => {
+    const report = reportFixture()
+    report.selection.mode = mode
+    const population = report.populations[0]!
+    population.queries.items.push({
+      ...population.queries.items[0]!,
+      provider: 'openai',
+      model: 'gpt-5.6',
+      location: 'Detroit',
+      targetKeys: ['p2'],
+      answerCount: 1,
+      mentionCoverage: { numerator: 0, denominator: 1, rate: 0 },
+      citationCoverage: { numerator: 1, denominator: 1, rate: 1 },
+    })
+    population.queries.total = 2
+    if (showsProperties) report.scopeOptions.push(
+      { id: 'p1', label: 'Northstar Alpha 01', kind: 'property', targetCount: 1 },
+      { id: 'p2', label: 'Harbor House', kind: 'property', targetCount: 1 },
+    )
+
+    const { container } = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+
+    const table = container.querySelector('table.measurement-responsive-table')!
+    expect(table.querySelectorAll('[data-query-key="query-context"]')).toHaveLength(1)
+    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
+    expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
+    expect(within(table).getByText('gpt-5.6')).toBeTruthy()
+    expect(within(table).getByText('Detroit')).toBeTruthy()
+    if (showsProperties) {
+      expect(within(table).getByText('Northstar Alpha 01')).toBeTruthy()
+      expect(within(table).getByText('Harbor House')).toBeTruthy()
+    } else {
+      expect(within(table).queryByRole('columnheader', { name: 'Properties' })).toBeNull()
+    }
+    expect(within(table).getByText('1 of 3')).toBeTruthy()
+    expect(within(table).getByText('0 of 1')).toBeTruthy()
+    expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
+  })
+
   it('explains frozen prior measurement without claiming new assignments have answers', () => {
     const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
     expect(html).toContain('Measured under revision 2')

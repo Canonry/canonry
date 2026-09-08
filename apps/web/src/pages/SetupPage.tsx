@@ -1511,9 +1511,9 @@ function ReadySetupPage({
             : runStatus === 'cancelled'
               ? 'The sweep was cancelled before it produced a baseline.'
               : (runStatus === 'completed' || runStatus === 'partial') && snapshots.length === 0
-                ? 'The sweep finished without producing any snapshots. Confirm the query set and provider configuration, then retry.'
+                ? 'The sweep finished without producing any snapshots.'
                 : latestPersistedRun?.statusDetail
-                  || 'The sweep did not produce a baseline. Review provider configuration, then retry.')
+                  || 'The sweep did not produce a baseline.')
 
         let stepBadge: ReactNode = null
         if (persistedSetupComplete || successfulRun) {
@@ -1622,13 +1622,19 @@ function ReadySetupPage({
               <div className="compact-stack">
                 <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
                   <p>{runFailureDetail}</p>
-                  <p className="mt-1 text-xs text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Fix provider or query configuration if needed, then retry without leaving setup.'}</p>
+                  <p className="mt-1 text-xs text-secondary">{isDashboardManagedSweeps()
+                    ? MANAGED_SWEEPS_COPY
+                    : isAdmin
+                      ? 'Fix provider or query configuration if needed, then retry without leaving setup.'
+                      : 'Ask an administrator to review the provider and query configuration.'}</p>
                 </div>
                 <div className="setup-nav">
-                  <Button type="button" variant="outline" asChild>
-                    <Link to="/settings">Configure providers</Link>
-                  </Button>
-                  {isDashboardManagedSweeps() ? (
+                  {isAdmin && !isDashboardManagedSweeps() ? (
+                    <Button type="button" variant="outline" asChild>
+                      <Link to="/settings">Configure providers</Link>
+                    </Button>
+                  ) : <span />}
+                  {isDashboardManagedSweeps() || !isAdmin ? (
                     <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
                   ) : <Button type="button" disabled={runSaving || !!launchBlockedReason} onClick={asyncHandler(handleLaunchRun)}>
                     {runSaving ? 'Retrying...' : 'Retry visibility sweep'}

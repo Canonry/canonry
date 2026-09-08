@@ -360,6 +360,22 @@ test('keeps a confirmed missing provider blocked for scoped writers without cred
   expect(screen.queryByRole('link', { name: 'Open provider settings' })).toBeNull()
 })
 
+test.each([
+  { status: 'completed' as const, snapshots: [], expected: 'The sweep finished without producing any snapshots.' },
+  { status: 'failed' as const, snapshots: [], error: { message: 'Provider quota exceeded' }, expected: 'Provider quota exceeded' },
+].flatMap(scenario => [false, true].map(managedSweeps => ({ ...scenario, managedSweeps }))))('gives a scoped writer coherent guidance after a $status sweep (managed=$managedSweeps)', async ({ status, snapshots, error, expected, managedSweeps }) => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
+  renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), { status, snapshots, ...(error ? { error } : {}) })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+  expect(await screen.findByText(expected)).toBeTruthy()
+  expect(screen.getByText(managedSweeps ? 'Sweeps are run by your Canonry team' : 'Ask an administrator to review the provider and query configuration.')).toBeTruthy()
+  expect(screen.queryByText('Fix provider or query configuration if needed, then retry without leaving setup.')).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Configure providers' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Retry visibility sweep' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Open project dashboard →' })).toBeTruthy()
+})
+
 test('keeps a stale project-list handoff scoped to the exact onboarding project', async () => {
   const fixture = createDashboardFixture()
   fixture.dashboard.projects = []

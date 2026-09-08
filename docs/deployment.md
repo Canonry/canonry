@@ -81,6 +81,9 @@ Simple and Advanced Measurement dashboards replace sweep launch controls with
 the enabled answer-visibility schedule's actual `nextRunAt`, displayed in UTC.
 Without a usable next-run time, they show “Sweeps are run by your Canonry team”.
 Site Health scans and other run kinds keep their controls.
+Discovery and Research runs remain available to clients with write access.
+They use provider quota separately from scheduled visibility sweeps. Existing
+viewer and read-only restrictions still apply.
 Running sweeps, baseline results, and failure details remain visible. Project
 Settings shows the schedule without controls to change it. Dashboard Aero uses
 read-only tools and disables its sweep shortcut and write-scope toggle.
