@@ -67,7 +67,7 @@ ADR index, or canonical roadmap. For file-level navigation use `docs/CODEMAP.md`
 3. **Use `docs/CODEMAP.md` for file lookup** — one-line role per file + recipe table (`change first-run → App.tsx → SetupPage.tsx → execute-site-audit.ts`). Regenerated file list, not stale prose.
 4. **Search with `muse.search` (ripgrep, bounded)** — `muse.bash` fan-out (`find /`, `ls -R`) saturates the host. `muse.read_file` caps at 500 lines; chunk `SetupPage.tsx` (1260), `ProjectPage.tsx` (2728), `server.ts` (2969).
 5. **Web API calls MUST use `@ainyc/canonry-api-client`** (`heyClient` in `apps/web/src/api.ts`) — raw `fetch` is ESLint-banned. New route = `contracts` Zod → `api-routes` handler → `openapi.ts` → `pnpm gen` → web query.
-6. **Verify with `pnpm run typecheck && pnpm run test && pnpm run lint`** and `pnpm plugin:check` if you touched `plugins/` or `skills/`.
+6. **Run `pnpm verify` from the repository root before every push.** Package suites are intermediate checks. The lead agent must run the full gate after integrating sub-agent changes.
 7. **Use architecture diagrams when they clarify complicated topics.** New ideas and discussions warrant a back-and-forth.
 
 **Recipes:** `add API route` → `packages/contracts/src/*.ts` Zod → `packages/api-routes/src/<domain>.ts` → `openapi.ts` → `pnpm gen` → `apps/web/src/queries/*.ts`; `add CLI command` → `packages/canonry/src/cli-commands/<cmd>.ts` → `src/mcp/tool-registry.ts` tier + `openapi-classification.ts` → test; `add web section` → `PRODUCT.md` + `apps/web/src/pages/ProjectPage.tsx` tab → `apps/web/src/components/project/*` → update per-package `AGENTS.md`.
@@ -99,6 +99,7 @@ When proposing work, requesting feedback, or showcasing changes:
 ./canonry-install.sh
 
 pnpm install
+pnpm verify                     # required before every push: drift checks + all workspace checks
 pnpm run typecheck
 pnpm run test
 pnpm run lint
@@ -1019,7 +1020,7 @@ This is not optional. If you add a table to the schema but omit the migration, t
 
 - [ ] Table/column added to `schema.ts`
 - [ ] Matching migration added to `MIGRATIONS` in `migrate.ts`
-- [ ] `pnpm typecheck && pnpm lint && pnpm test` all pass before committing
+- [ ] `pnpm verify` passes before pushing
 
 ## Third-party HTTP calls (Critical)
 
@@ -1190,7 +1191,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 - Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
-- Run `pnpm run test` to verify before committing.
+- Run focused tests during development. Run `pnpm verify` before pushing.
 - **Test boundary matchers with data as STORED, not idealized.** Before writing a filter/normalizer/matcher over a stored column, check how that column is actually populated (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and sample real values when a database is available. Use the canonical helpers (`hostOf`, `normalizeQueryText`) from contracts instead of inline normalization: a clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a feature stores a default (e.g., `defaultLocation` on a project) that another feature consumes (e.g., run creation), write a test that exercises the full path with no explicit override. Don't just test that the default is stored and that the consumer accepts a value — test that they connect.
 
@@ -1207,10 +1208,18 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
 - Keep explicit job permissions.
-- **Run `pnpm verify` before pushing.** It is the merge gate in one command:
-  `gen:check`, `plugin:check`, `typecheck`, `lint`, `test`, cheapest first. The
-  two drift checks fail in seconds and are the ones most often forgotten, since
-  nothing local reminds you that editing a route means regenerating the SDK.
+- **Run `pnpm verify` from the repository root before every push.** It runs
+  `gen:check`, `plugin:check`, `val:skills:check`, `typecheck`, `lint`, and `test`.
+  Package suites omit generated mirrors and workspace guards, including documentation assertions.
+- **The lead agent owns the final gate.** After integrating sub-agent changes,
+  run `pnpm verify` in the checkout you will push. A sub-agent's result is only
+  evidence for its reported checks. Record the checkout, commit, command, and result.
+  After any further edit, regeneration, or rebase, rerun the full gate.
+- **Fix drift at its source.** Use `pnpm gen`, `pnpm plugin:sync`, or
+  `pnpm val:skills` for the corresponding generated files. Review the generated
+  changes, then rerun `pnpm verify`. Do not weaken assertions to obtain a pass.
+- The Husky `pre-push` hook runs this gate and blocks the push on failure.
+  `pnpm install` installs the hooks. Do not bypass them to avoid a failed gate.
 
 ### Vals and the kit
 

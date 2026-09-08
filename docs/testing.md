@@ -12,23 +12,31 @@ Tests live in `test/` directories colocated with each package (e.g. `packages/ca
 
 ## Workspace Checks
 
-Run before opening a PR:
+Run from the repository root before every push:
 
 ```bash
-pnpm run typecheck
-pnpm run test
-pnpm run lint
+pnpm verify
 ```
+
+This is the merge gate, including generated-file drift and documentation assertions.
+Package suites are intermediate checks. The lead agent must run the full gate after integrating sub-agent changes.
+After any edit, regeneration, or rebase, rerun it in the checkout you will push.
+
+The Husky `pre-push` hook runs the same command and blocks the push on failure.
+`pnpm install` installs the hooks. Failed runs retain a log and print its path.
 
 ## CI Mapping
 
-The validation job in `ci.yml` runs:
+Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
+- `pnpm gen:check`
+- `pnpm plugin:check` (CI also supplies `--base-ref`)
+- `pnpm val:skills:check`
 - `pnpm run typecheck`
-- `pnpm run test`
 - `pnpm run lint`
+- `pnpm run test`
 
-across the full workspace on every PR.
+CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
 
 ## Package Verification
 
