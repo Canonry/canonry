@@ -29,6 +29,13 @@ constraints; `DESIGN.md` owns hierarchy, copy, typography, and control choices.
 
 ## Patterns
 
+### Build workflow
+
+`pnpm --filter @ainyc/canonry-web build` builds into a temporary directory before updating `dist/`.
+It reuses output only when source, workspace dependencies, configuration, build environment, and output contents match the cache.
+The cache lives under `.tmp/web-build/`. `build --force` bypasses it. `pnpm build:web` also copies the SPA into Canonry.
+`pnpm dev:web` remains the dashboard development server.
+
 ### Simple query evidence
 
 Keep the Latest signals block and suggested queries out of the Simple overview.

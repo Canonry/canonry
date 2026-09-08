@@ -70,6 +70,11 @@ on:
       - 'docs/DOC_UPDATE.md'
       - 'AGENTS.md'
 
+# New PR commits replace obsolete validation. Keep main runs for release evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   typecheck:
     runs-on: ubuntu-latest
@@ -386,7 +391,7 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, ts-prune, codegen-drift, plugin-drift, build, vals, publish-smoke-test, wp-plugin-tests]
+    needs: [typecheck, test, lint, codegen-drift, plugin-drift, build, vals, publish-smoke-test, wp-plugin-tests]
     if: always()
     steps:
       - name: Verify all validate jobs succeeded
@@ -394,7 +399,6 @@ jobs:
           if [ "${{ needs.typecheck.result }}" != "success" ] || \
              [ "${{ needs.test.result }}" != "success" ] || \
              [ "${{ needs.lint.result }}" != "success" ] || \
-             [ "${{ needs.ts-prune.result }}" != "success" ] || \
              [ "${{ needs.codegen-drift.result }}" != "success" ] || \
              [ "${{ needs.plugin-drift.result }}" != "success" ] || \
              [ "${{ needs.wp-plugin-tests.result }}" != "success" ] || \

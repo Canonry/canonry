@@ -2,7 +2,7 @@
 
 ## Test Runner
 
-Canonry uses **Vitest**. Configured via `vitest.workspace.ts` at the repo root with per-package `vitest.config.ts` files.
+Canonry uses **Vitest**. `vitest.config.ts` defines the workspace projects. `vitest.package.config.ts` supports package tests.
 
 ```typescript
 import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
@@ -10,20 +10,78 @@ import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
 
 Tests live in `test/` directories colocated with each package (e.g. `packages/canonry/test/`).
 
-## Workspace Checks
+## Fast Local Checks
 
-Run from the repository root before every push:
+Run changed-file lint from the repository root:
 
 ```bash
-pnpm verify
+pnpm check
 ```
 
-This is the merge gate, including generated-file drift and documentation assertions.
-Package suites are intermediate checks. The lead agent must run the full gate after integrating sub-agent changes.
-After any edit, regeneration, or rebase, rerun it in the checkout you will push.
+`pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
+They skip deleted files, symlinks, and ESLint-ignored files.
+They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
+They cover local changes, not every committed change on the branch. CI checks the full workspace.
 
-The Husky `pre-push` hook runs the same command and blocks the push on failure.
-`pnpm install` installs the hooks. Failed runs retain a log and print its path.
+### Shared lint cache
+
+Changed-file and staged checks share clean results across this repository's Git worktrees.
+Cache keys include source content, relative file paths, effective ESLint configuration, local rules, the lockfile, and installed tool versions.
+Timestamps and branch names do not affect reuse. Warnings and errors are checked again and remain visible.
+
+Entries live under `${TMPDIR}/canonry-lint-cache-<uid>/`, grouped by the repository's common Git directory.
+Each result has a separate file, written atomically. Concurrent worktrees do not rewrite a shared ESLint cache file.
+Set `CANONRY_LINT_CACHE_DIR` to change the cache root. Cache storage failures do not prevent linting or commits.
+Use `pnpm check --no-cache` or `pnpm lint:staged --no-cache` to bypass the cache.
+
+Full type-aware lint remains uncached: edits to imported types can change diagnostics in an otherwise unchanged file.
+
+For behavior changes, run the relevant tests and package typechecks:
+
+```bash
+pnpm exec vitest run --project contracts
+pnpm exec vitest run packages/contracts/test/citations.test.ts
+pnpm --filter @ainyc/canonry-contracts typecheck
+```
+
+Replace the project, test path, and package with the affected scope.
+After another edit or rebase, rerun only the affected checks.
+
+## Git Hooks
+
+Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnpm startup or dependency scan.
+`pnpm lint:staged` runs the same check manually. It reads the exact staged blobs, including partially staged files.
+It never fixes files, stages changes, or stashes work. Errors block the commit. Warnings remain visible.
+Documentation-only commits skip ESLint and do not need installed npm dependencies.
+
+The commit-message hook checks Conventional Commits. There is no pre-push hook.
+Git hooks never run tests, builds, code generation, or workspace typechecks.
+
+## Codegen and Build Checks
+
+`pnpm gen:check` generates into a temporary directory and compares it with the SDK in the working tree.
+It does not change generated files or the Git index. After generation, the cache records input and output content hashes.
+Unchanged checks skip the generator. Missing or edited output files invalidate the cache.
+For a fresh generator run, use `pnpm gen:check --force`. To update the SDK, use `pnpm gen`.
+
+Use the build command for the affected surface:
+
+```bash
+pnpm build:cli              # CLI/server bundle, without the SPA
+pnpm build:web              # SPA build and package asset copy
+pnpm build                  # Complete publishable package
+pnpm build:web --force      # Fresh SPA build
+pnpm -r run build           # All packages, with one SPA compilation
+```
+
+Dashboard builds include source, workspace dependencies, configuration, environment, and output contents in the cache check.
+Failed builds leave the previous output intact. Asset copies retain agent files and do not rewrite identical SPA files.
+Recursive builds order the dashboard before Canonry, which reuses its output.
+
+## Full Workspace Checks
+
+CI owns full workspace validation. For a requested full local check or a CI failure reproduction, run `pnpm verify`.
+This command includes generated-file drift and documentation assertions. It is not required before each commit or push.
 
 ## CI Mapping
 
@@ -51,7 +109,7 @@ canonry serve
 
 ## Dependency Verification Checklist
 
-1. Run workspace checks.
+1. Run tests and typechecks for the affected packages.
 2. Confirm `apps/worker/src/audit-client.ts` still imports from `@ainyc/aeo-audit`.
 3. Confirm worker adapter tests still pass against the published package.
 4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.

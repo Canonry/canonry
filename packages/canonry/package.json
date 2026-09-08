@@ -40,8 +40,9 @@
     "node": ">=22.14.0 <27"
   },
   "scripts": {
-    "build": "tsx scripts/copy-agent-assets.ts && tsup && tsx build-web.ts",
-    "build:web": "tsx build-web.ts",
+    "build": "pnpm run build:cli && pnpm run build:web",
+    "build:cli": "node --import tsx scripts/copy-agent-assets.ts && tsup",
+    "build:web": "node --import tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
@@ -74,6 +75,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@ainyc/canonry-web": "workspace:*",
     "@ainyc/canonry-api-client": "workspace:*",
     "@ainyc/canonry-api-routes": "workspace:*",
     "@ainyc/canonry-config": "workspace:*",
