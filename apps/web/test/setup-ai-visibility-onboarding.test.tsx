@@ -242,17 +242,21 @@ test('keeps provider-switch keyboard focus while resetting credentials and advan
   expect(requests.filter(request => request.method === 'PUT')).toEqual([])
 })
 
-function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>) {
+function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: {
+  status: 'queued' | 'running' | 'failed' | 'completed'
+  error?: { message: string }
+  snapshots?: Array<{ query: string; citationState: string; answerMentioned: boolean }>
+}) {
   const project = { ...createDashboardFixture().dashboard.projects[0]!.project, name: 'scoped-project', providers: ['gemini'] }
   const requests: string[] = []
   const telemetryEvents: Array<{ event: string }> = []
-  const run = { id: 'scoped-run', projectId: project.id, projectName: project.name, kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z' }
+  const run = { id: 'scoped-run', projectId: project.id, projectName: project.name, kind: 'answer-visibility', status: 'queued', createdAt: '2026-09-05T12:00:00Z', ...existingRun }
   let queries = [{ id: 'saved-query', query: 'best local dentist' }]
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
     requests.push(path)
     if (path === '/api/v1/projects') return jsonResponse([project])
-    if (path.split('?')[0] === '/api/v1/runs') return jsonResponse([])
+    if (path.split('?')[0] === '/api/v1/runs') return jsonResponse(existingRun ? [run] : [])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [{ name: 'gemini', configured: true }] })
     if (path.endsWith('/measurement-setup')) return readinessResponse()
     if (path === '/api/v1/projects/scoped-project/runs' && init?.method === 'POST') return jsonResponse(run, 202)
@@ -657,5 +661,28 @@ test('managed sweeps finishes setup without offering to launch or retry a sweep'
   expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
   expect(screen.queryByText(/Run a first sweep/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Open project dashboard →' }))
+  expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup preserves the %s sweep state', async status => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), {
+    status,
+    ...(status === 'failed' ? { error: { message: 'Provider quota exceeded' } } : {}),
+    snapshots: status === 'completed' ? [{ query: 'best local dentist', citationState: 'cited', answerMentioned: true }] : [],
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  if (status === 'completed') {
+    expect(await screen.findByText('Mentioned')).toBeTruthy()
+    expect(screen.getByText('Cited')).toBeTruthy()
+    expect(screen.getByText('Results')).toBeTruthy()
+  } else if (status === 'failed') {
+    expect(await screen.findByText('Provider quota exceeded')).toBeTruthy()
+  } else {
+    expect(await screen.findByText('Sweep running. This usually takes 30 to 60 seconds.')).toBeTruthy()
+    expect(screen.getByText(status)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Setup complete' })).toBeNull()
+  }
+  expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
 })

@@ -68,6 +68,7 @@ async function renderAt(
     apiKey?: { id: string; scopes: string[]; projectId: string | null; readOnly: boolean }
     queries?: Array<{ id: string; query: string; createdAt: string }>
     settleReadiness?: boolean
+    settleSchedule?: boolean
     readiness?: boolean
     configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
   } = {},
@@ -185,7 +186,7 @@ async function renderAt(
       </QueryClientProvider>
     </AccountProvider>
   )
-  if (!options.settleReadiness || !settledSetup) return renderToStaticMarkup(tree)
+  if ((!options.settleReadiness || !settledSetup) && !options.settleSchedule) return renderToStaticMarkup(tree)
 
   // Header-readiness assertions need the authoritative refetch to settle. Most
   // route snapshots intentionally stay synchronous; this opt-in branch mounts
@@ -195,15 +196,22 @@ async function renderAt(
     const raw = input instanceof Request ? input.url : String(input)
     const url = new URL(raw, window.location.origin)
     if (decodeURIComponent(url.pathname).endsWith('/measurement-setup')) {
-      return jsonResponse(settledSetup)
+      return jsonResponse(settledSetup ?? simpleMeasurementSetupResponse())
     }
+    if (url.pathname.endsWith('/schedules')) return jsonResponse(options.schedule ? [options.schedule] : [])
+    if (url.pathname.endsWith('/schedule') && options.schedule) return jsonResponse(options.schedule)
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   try {
     const page = render(tree)
-    await waitFor(() => {
+    if (options.settleReadiness) await waitFor(() => {
       expect(queryClient.getQueryState(
         getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
+      )?.fetchStatus).toBe('idle')
+    })
+    if (options.settleSchedule) await waitFor(() => {
+      expect(queryClient.getQueryState(
+        getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
       )?.fetchStatus).toBe('idle')
     })
     const html = page.container.innerHTML
@@ -1973,12 +1981,55 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { managedSweeps: true })
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    managedSweeps: true, configureFixture(dashboard) {
+      dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
+    },
+  })
   const status = projectHeader(html).querySelector('[role="status"]')!
   expect(status.textContent).toBe('Sweeps are run by your Canonry team')
   expect(status.querySelector('time')).toBeNull()
   expect(projectHeader(html).querySelector('button')).toBeNull()
   expect(status.textContent).not.toMatch(/Next sync|UTC|\d/)
+})
+
+test.each(['simple', 'advanced'] as const)('managed %s project header retains queued and running sweep signals', async mode => {
+  for (const status of ['queued', 'running'] as const) {
+    const html = await renderAt('/projects/project_citypoint', undefined,
+      mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+      { managedSweeps: true, schedule: managedSchedule, configureFixture(dashboard) {
+        const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+        project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'answer-visibility', status }]
+      } },
+    )
+    const header = projectHeader(html)
+    expect(header.querySelector('[role="status"]')?.textContent).toContain('AI sweep running…')
+    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
+    expect(header.querySelector('button')).toBeNull()
+  }
+})
+
+test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule details without controls', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined,
+    mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
+    { managedSweeps: true, schedule: managedSchedule, accountRole: 'admin', settleSchedule: true },
+  )
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const section = within(container).getByRole('heading', { name: 'Scheduled runs' }).closest('section')!
+  expect(section.textContent).toContain('Sweeps are run by your Canonry team')
+  expect(section.textContent).toContain('0 6 * * *')
+  expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
+})
+
+test('managed header does not label an active Site Health scan as a sweep', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    managedSweeps: true, configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'site-audit', status: 'running' }]
+    },
+  })
+  expect(projectHeader(html).textContent).not.toContain('AI sweep running')
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {

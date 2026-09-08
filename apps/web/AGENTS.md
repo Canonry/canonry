@@ -150,6 +150,12 @@ for every dashboard role, including admins. `ManagedSweepStatus` reads
 with a valid `nextRunAt` gets a UTC date. Keep Site Health and other run kinds
 unchanged. The operator's manual lever is `canonry run <project>`, and the flag
 must never enter authorization checks. Unset/false preserves existing markup.
+Keep queued/running signals, baseline results, and failure details visible.
+Settings keeps schedule reads but hides create/edit/pause/resume/delete controls.
+Aero blocks typed `/run-sweep` at submission and uses `read-only` scope in
+managed mode, regardless of a saved write preference; hide its scope toggle.
+Test Simple and Advanced behavior through `ProjectPage`: it does not supply
+`AdvancedMeasurementOverview.onRunMeasurement`.
 
 ### Read-only embed mode (#716)
 

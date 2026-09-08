@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -14,11 +14,14 @@ import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@ainyc/canonry-api
 import { heyClient } from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import * as aero from '../src/api-aero.js'
 
 const PROJECT_NAME = 'citypoint'
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   delete window.__CANONRY_CONFIG__
   try {
     window.localStorage.clear()
@@ -135,4 +138,53 @@ test('managed sweeps hides the Aero sweep shortcut while retaining read shortcut
   expect(screen.getByText('/status')).toBeTruthy()
   expect(screen.queryByText('/run-sweep')).toBeNull()
   expect(screen.queryByText('Run sweep now')).toBeNull()
+})
+
+async function openAeroWithSavedWriteScope(managedSweeps: boolean) {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
+  vi.stubGlobal('localStorage', { getItem: (key: string) => key.includes(':scope:') ? 'all' : null, setItem: vi.fn(), clear: vi.fn() })
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  const prompt = vi.spyOn(aero, 'promptAero').mockResolvedValue(undefined)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  await waitFor(() => expect(transcript).toHaveBeenCalled())
+  return { prompt, input: screen.getByPlaceholderText('Ask Aero, or / for commands…') }
+}
+
+test.each([
+  ['enter', '/run-sweep'], ['submit', '/run-sweep'],
+  ['enter', '  /RUN-SWEEP now'], ['submit', '/run-sweep '],
+] as const)('managed Aero blocks the typed sweep command through %s (%s)', async (method, draft) => {
+  const { prompt, input } = await openAeroWithSavedWriteScope(true)
+  fireEvent.change(input, { target: { value: draft } })
+  if (method === 'enter') fireEvent.keyDown(input, { key: 'Enter' })
+  else fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  expect(prompt).not.toHaveBeenCalled()
+})
+
+test.each([false, true])('managed=%s uses the effective Aero scope even with a saved write preference', async managed => {
+  const { prompt, input } = await openAeroWithSavedWriteScope(managed)
+  if (managed) {
+    expect(screen.getByText('Read only')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Can make changes|Read only/ })).toBeNull()
+    expect(screen.queryByTitle(/run sweep|allow writes/i)).toBeNull()
+  } else {
+    expect(screen.getByRole('button', { name: 'Can make changes' })).toBeTruthy()
+  }
+  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
+})
+
+test('operator mode retains the exact Aero sweep shortcut and saved write scope', async () => {
+  const { prompt, input } = await openAeroWithSavedWriteScope(false)
+  fireEvent.change(input, { target: { value: '/run-sweep' } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+    prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.', scope: 'all',
+  })))
 })

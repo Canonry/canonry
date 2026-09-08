@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { MetricTone } from '../../../view-models.js'
-import { isDashboardManagedSweeps } from '../../../api.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
@@ -757,7 +756,7 @@ export function AdvancedMeasurementOverview({
               {progressLabel ? <span className="text-sm text-secondary tabular-nums">{progressLabel}</span> : null}
               {measurementDate ? <span className="text-sm text-secondary">{measurementDate}</span> : null}
               {statusMessage ? <span className="text-sm text-secondary">{statusMessage}</span> : null}
-              {!isDashboardManagedSweeps() && canEdit && classReportingAvailable && onRunMeasurement ? (
+              {canEdit && classReportingAvailable && onRunMeasurement ? (
                 <Button className="ml-auto" size="sm" onClick={() => { void onRunMeasurement() }} disabled={isRunningMeasurement}>
                   {isRunningMeasurement ? 'Starting measurement…' : 'Run measurement'}
                 </Button>

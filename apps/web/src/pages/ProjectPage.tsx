@@ -2317,7 +2317,7 @@ function ProjectPageContent({
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
           {!isEmbed() && (isDashboardManagedSweeps() ? (
-            <ManagedSweepStatus projectName={projectName} />
+            <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}

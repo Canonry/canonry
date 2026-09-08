@@ -5,7 +5,7 @@ import { heyClient } from '../../api.js'
 
 export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'
 
-export function ManagedSweepStatus({ projectName }: { projectName: string }) {
+export function ManagedSweepStatus({ projectName, running = false }: { projectName: string; running?: boolean }) {
   const scheduleQuery = useQuery({
     ...getApiV1ProjectsByNameScheduleOptions({
       client: heyClient,
@@ -26,6 +26,7 @@ export function ManagedSweepStatus({ projectName }: { projectName: string }) {
 
   return (
     <p className="text-sm text-secondary" role="status">
+      {running && <span className="text-neutral">AI sweep running… · </span>}
       {nextSync && nextRun ? <>
         Next sync <time dateTime={nextRun.toISOString()}>{nextSync} UTC</time> · managed by your Canonry team
       </> : MANAGED_SWEEPS_COPY}
