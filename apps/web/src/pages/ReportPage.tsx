@@ -1,3 +1,4 @@
+import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
 import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
@@ -141,12 +142,23 @@ export function ReportPage({ projectName }: { projectName: string }) {
       </div>
 
       <ClientSummarySection report={report} />
+      <ReportShareOfVoice report={report} />
       <WhatsChangedSection report={report} audience="client" />
       <ServerActivityClientView report={report} />
       <ActionPlanSection report={report} audience="client" projectName={projectName} />
       <ClientEvidenceSection report={report} />
     </div>
   )
+}
+
+export function ReportShareOfVoice({ report }: { report: Pick<ProjectReportDto, 'mentionLandscape'> }) {
+  const shares = [report.mentionLandscape.nonBrand?.shareOfVoice, report.mentionLandscape.branded?.shareOfVoice?.queryClass === 'branded' ? report.mentionLandscape.branded.shareOfVoice : undefined]
+  return <div className="space-y-2 text-sm text-secondary" aria-label="Share of voice">
+    {shares.map(share => share ? <div key={share.queryClass}>
+      <p>{shareOfVoiceSummary(share.percent, share.queryClass, share)}</p>
+      {share.reason ? <p>{shareOfVoiceReason(share.reason)}</p> : null}
+    </div> : null)}
+  </div>
 }
 
 // Time-window selector. Re-fetches the report scoped to the chosen window.

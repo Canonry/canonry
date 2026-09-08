@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { visibilityStatsShareOfVoiceSchema } from './visibility-stats.js'
 
 import {
   contentTargetRowDtoSchema,
@@ -280,6 +281,7 @@ export const mentionRowSchema = z.object({
 export type MentionRow = z.infer<typeof mentionRowSchema>
 
 export const mentionLandscapeSectionSchema = z.object({
+  shareOfVoice: visibilityStatsShareOfVoiceSchema.optional(),
   /** Project's own mention count (for the bar chart comparing project vs competitors). */
   projectMentionCount: z.number(),
   /** Snapshots considered — those with non-empty answerText. Drives the totalCount denominator. */

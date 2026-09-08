@@ -1,3 +1,5 @@
+import { readCompetitorLandscape } from './competitor-landscape.js'
+import { projectQueryClassifier, shareOfVoiceFromLandscape, readObservedCompetitorDomains } from './mention-share-inputs.js'
 import { countableReferralCondition, nonSubresourceReferralPathCondition } from './ai-referral-status.js'
 import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -2289,13 +2291,38 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     projectDomains,
     queryLookup,
   )
+  const observedDomains = readObservedCompetitorDomains(db, project.id)
   const mentionLandscape = buildMentionLandscape(
     latestSnapshots,
-    competitorDomains,
+    competitorDomains.length > 0 ? competitorDomains : observedDomains,
     projectBrandNames,
     projectDomains,
     queryLookup,
   )
+  const advancedShare = activeMeasurementPlan(db, project.id)?.plan.schemaVersion === 2
+  for (const queryClass of ['non-brand', 'branded'] as const) {
+    const selectedClass = advancedShare || projectQueryClassifier(project) ? queryClass : 'all'
+    const landscape = readCompetitorLandscape({ db }, project.name, { window: 'all', queryClass: selectedClass }, {
+      runIds: latestVisRunGroup.map(run => run.id),
+      ...(advancedShare ? {} : { snapshotIds: latestSnapshots.map(snapshot => snapshot.id) }),
+      autoAdvanced: true,
+    })
+    const share = shareOfVoiceFromLandscape(landscape, selectedClass === 'all' ? 'pooled' : queryClass)
+    const section = queryClass === 'non-brand' ? mentionLandscape.nonBrand : mentionLandscape.branded
+    section.shareOfVoice = share
+    section.projectMentionCount = share.projectMentions
+    section.totalAnswerSnapshots = share.snapshotsWithAnswerText
+    const counts = new Map(share.perCompetitor.map(row => [row.domain, row.mentions]))
+    const priorRows = new Map(section.competitors.map(row => [row.domain, row]))
+    section.competitors = (landscape.comparison ?? []).map(row => ({
+      domain: row.domain, mentionedQueries: priorRows.get(row.domain)?.mentionedQueries ?? [],
+      pressureLabel: row.mentions === 0 ? 'None' : row.mentions / share.snapshotsWithAnswerText >= 0.5 ? 'High' : row.mentions / share.snapshotsWithAnswerText >= 0.2 ? 'Moderate' : 'Low',
+      mentionCount: counts.get(row.domain) ?? 0, totalCount: share.snapshotsWithAnswerText,
+      sharePct: share.availability === 'measured'
+        ? Math.round((counts.get(row.domain) ?? 0) / (share.projectMentions + share.competitorMentions) * 1000) / 10 : null,
+    }))
+  }
+  Object.assign(mentionLandscape, mentionLandscape.nonBrand)
   const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
   const trackedQueries = [...queryLookup.byId.values()]
   const gscSection = buildGscSection(

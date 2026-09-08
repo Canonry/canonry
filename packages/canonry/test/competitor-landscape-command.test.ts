@@ -80,6 +80,21 @@ function comparisonFixture(): CompetitorLandscapeResponse {
 }
 
 describe('showCompetitorLandscape', () => {
+  it('prints the basis beside the ratio and explains an unmeasured comparison', async () => {
+    const response = fixture()
+    response.filters.queryClass = 'non-brand'
+    Object.assign(response, { basis: 'tracked', availability: 'measured', reason: null })
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    let output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).toContain('SOV 50.0% · tracked competitors · non-brand queries')
+    Object.assign(response, { basis: null, availability: 'not-measured', reason: 'no-competitors', pinned: [] })
+    response.project.shareOfVoice = null
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).toContain('SOV Not measured · non-brand queries')
+    expect(output).toContain('No competitors configured.')
+    expect(output).not.toContain('100.0%')
+  })
+
   beforeEach(() => vi.clearAllMocks())
 
   it('forwards explicit Advanced all-markets filters and prints the whole response for machine formats', async () => {
@@ -130,7 +145,7 @@ describe('showCompetitorLandscape', () => {
     expect(output).toContain('Served model evidence: Unknown (not disclosed)')
     expect(output).toContain('Served model evidence: gpt-a, gpt-b, Unknown (not disclosed)')
     expect(output).toContain('Samples: 4 snapshot(s), 4 answer-text result(s), 4 source result(s).')
-    expect(output).toContain('rival.example  mention 2 · citation 2 · SOV 50.0% · answers 4')
+    expect(output).toContain('rival.example  mention 2 · citation 2 · SOV 50.0% · all queries · answers 4')
     expect(output).toContain('not form a matched-query or equal-weight comparison')
     expect(output).toContain('Additional groups are omitted')
     expect(output).toContain('Pinned competitors are complete')

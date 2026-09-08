@@ -1,3 +1,4 @@
+import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
 import type {
   AiSourceCategoryBucket,
   CitationsTrendPoint,
@@ -1458,6 +1459,11 @@ const MENTION_SCOPE_LABEL: Record<ProjectReportDto['mentionLandscape']['scope'],
   pooled: 'pooled queries · classification unavailable',
 }
 
+function renderReportShareOfVoice(report: ProjectReportDto): string {
+  return [report.mentionLandscape.nonBrand?.shareOfVoice, report.mentionLandscape.branded?.shareOfVoice?.queryClass === 'branded' ? report.mentionLandscape.branded.shareOfVoice : undefined]
+    .map(share => share ? `<div class="chart-note"><p>${escapeHtml(shareOfVoiceSummary(share.percent, share.queryClass, share))}</p>${share.reason ? `<p>${escapeHtml(shareOfVoiceReason(share.reason))}</p>` : ''}</div>` : '').join('')
+}
+
 function renderCompetitorLandscape(report: ProjectReportDto): string {
   const competitors = report.competitorLandscape.competitors
   const mentionLandscape = report.mentionLandscape
@@ -1519,7 +1525,8 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   const charts = citationBars && mentionBars
     ? `<div class="chart-grid">${citationBars}${mentionBars}</div>`
     : `${citationBars}${mentionBars}`
-  const mentionShareUnavailable = mentionLandscape.projectMentionCount === 0
+  const mentionShareUnavailable = !mentionLandscape.nonBrand?.shareOfVoice
+    && mentionLandscape.projectMentionCount === 0
     && mentionLandscape.competitors.length > 0
     && mentionLandscape.competitors.every(row => row.sharePct === null)
   const mentionShareNote = mentionShareUnavailable
@@ -2655,6 +2662,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   const sections = audience === 'client'
     ? [
         renderClientSummary(report),
+        renderReportShareOfVoice(report),
         renderWhatsChanged(report, 'client'),
         // Server-side AI visibility runs between WhatsChanged and the action
         // plan in BOTH the SPA and HTML so clients see the same ordered set
@@ -2665,6 +2673,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
       ].join('\n')
     : [
         renderExecutiveSummary(report),
+        renderReportShareOfVoice(report),
         renderWhatsChanged(report, 'agency'),
         renderAudienceActionPlan(report, 'agency'),
         renderAgencyDiagnostics(report),

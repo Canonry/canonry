@@ -6,10 +6,15 @@ import {
   effectiveBrandNames,
   effectiveDomains,
   hostOf,
+  surfaceClassFromCompetitorType,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
   type QueryClass,
+  type VisibilityStatsShareOfVoice,
+  type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
-import { usableBrandAliases, type MentionShareCompetitor, type MentionShareSnapshot } from '@ainyc/canonry-intelligence'
+import { storedDirectCompetitorDomains, usableBrandAliases, type MentionShareCompetitor, type MentionShareSnapshot, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
+import { domainClassifications, type DatabaseClient } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
 
 /**
  * The one place mention-share inputs are assembled.
@@ -65,6 +70,31 @@ export function mentionShareCompetitorsFromDomains(domains: readonly string[]): 
       ]),
     }
   })
+}
+
+/** Reuse discovery's stored domain taxonomy; a read never starts classification. */
+export function readObservedCompetitorDomains(db: DatabaseClient, projectId: string): string[] {
+  const rows = db.select({ domain: domainClassifications.domain, type: domainClassifications.competitorType })
+    .from(domainClassifications).where(eq(domainClassifications.projectId, projectId)).all()
+  return storedDirectCompetitorDomains(new Map(rows.map(row => [
+    row.domain, (surfaceClassFromCompetitorType(row.type) ?? 'unknown') as CompetitorLandscapeSurfaceClass,
+  ])))
+}
+
+/** Descriptive names stay listed, deduplicated per answer, outside every rate. */
+export function observedCompetitorNames(snapshots: readonly { id?: string; recommendedCompetitors?: readonly string[] }[]): Array<{ name: string; answerCount: number }> {
+  const answers = new Map<string, Set<string | number>>()
+  snapshots.forEach((snapshot, i) => {
+    for (const name of snapshot.recommendedCompetitors ?? []) {
+      const trimmed = name.trim()
+      if (!trimmed) continue
+      const ids = answers.get(trimmed) ?? new Set<string | number>()
+      ids.add(snapshot.id ?? i)
+      answers.set(trimmed, ids)
+    }
+  })
+  return [...answers].map(([name, ids]) => ({ name, answerCount: ids.size }))
+    .sort((a, b) => b.answerCount - a.answerCount || a.name.localeCompare(b.name))
 }
 
 /**
@@ -126,5 +156,20 @@ export function buildMentionShareInputs(opts: {
         queryClass: classify ? classify(queryText) : null,
       }
     }),
+  }
+}
+
+/** Adapt the full, uncapped comparison set; presentation rows may be truncated. */
+export function shareOfVoiceFromLandscape(landscape: CompetitorLandscapeResponse, queryClass: QueryClass | 'pooled'): VisibilityStatsShareOfVoice {
+  const comparison = landscape.comparison ?? []
+  return {
+    basis: landscape.basis, availability: landscape.availability, reason: landscape.reason,
+    measurementScope: landscape.scope.kind === 'all-markets' ? 'all-markets' : 'project',
+    queryClass, percent: landscape.project.shareOfVoice,
+    competitorCount: comparison.length,
+    projectMentions: landscape.project.mentionCount,
+    competitorMentions: landscape.evidence.mentionCredits - landscape.project.mentionCount,
+    snapshotsWithAnswerText: landscape.evidence.answeredResults,
+    perCompetitor: comparison.filter(row => row.mentions > 0).sort((a, b) => b.mentions - a.mentions || a.domain.localeCompare(b.domain)),
   }
 }

@@ -77,3 +77,5 @@ export * from './embed.js'
 export * from './provider-errors.js'
 export * from './telemetry.js'
 export * from './trend-stability.js'
+
+export * from './share-of-voice.js'

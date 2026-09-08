@@ -393,3 +393,20 @@ describe('CompetitorLandscape', () => {
     expect(screen.getByText('1 competitor is pending publication for this market.')).not.toBeNull()
   })
 })
+
+test('renders the server basis and explains unmeasured share without hiding counts', () => {
+  const data = landscape({ basis: null, availability: 'not-measured', reason: 'no-competitors', pinned: [], observed: [], project: row({ surfaceClass: 'own', mentionCount: 34, shareOfVoice: null }) })
+  renderLandscape({ landscape: data })
+  expect(screen.getByText('No competitors configured.')).toBeTruthy()
+  expect(screen.getByText('Not measured')).toBeTruthy()
+  expect(screen.getByText('34')).toBeTruthy()
+  expect(screen.queryByText('100.0%')).toBeNull()
+})
+test('renders the observed basis beside the supplied value', () => {
+  renderLandscape({ landscape: landscape({ basis: 'observed', availability: 'measured', reason: null }) })
+  expect(screen.getByText('50.0% · observed competitors')).toBeTruthy()
+})
+test('explains why a class must be selected', () => {
+  renderLandscape({ landscape: landscape({ availability: 'not-measured', reason: 'select-query-class', project: row({ shareOfVoice: null }), pinned: [], observed: [] }) })
+  expect(screen.getByText('Select a query class.')).toBeTruthy()
+})

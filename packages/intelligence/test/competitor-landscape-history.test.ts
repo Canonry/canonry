@@ -103,12 +103,12 @@ describe('buildCompetitorLandscapeHistory', () => {
       answeredResults: 2,
       sourceResults: 3,
       missingAnswerTextResults: 1,
-      mentionCredits: 3,
+      mentionCredits: 2,
     })
     expect(result.project).toMatchObject({
       domain: 'acme.example',
       mentionCount: 1,
-      shareOfVoice: 33.3,
+      shareOfVoice: 50,
       citationCount: 0,
     })
     expect(result.pinned).toEqual([
@@ -116,7 +116,7 @@ describe('buildCompetitorLandscapeHistory', () => {
         domain: 'pinned.example',
         pinned: true,
         mentionCount: 1,
-        shareOfVoice: 33.3,
+        shareOfVoice: 50,
         citationCount: 1,
         sampleUrls: ['https://pinned.example/'],
       }),
@@ -126,7 +126,7 @@ describe('buildCompetitorLandscapeHistory', () => {
         domain: 'rival.example',
         pinned: false,
         mentionCount: 1,
-        shareOfVoice: 33.3,
+        shareOfVoice: null,
         citationCount: 2,
         sampleUrls: ['https://rival.example/guide'],
       }),
@@ -164,9 +164,9 @@ describe('buildCompetitorLandscapeHistory', () => {
       ],
     })
 
-    expect(result.evidence.mentionCredits).toBe(3)
+    expect(result.evidence.mentionCredits).toBe(2)
     expect(result.pinned.map(row => [row.domain, row.mentionCount, row.shareOfVoice])).toEqual([
-      ['pinned.example', 1, 33.3],
+      ['pinned.example', 1, 50],
       ['zero.example', 0, 0],
     ])
     expect(result.observed).toEqual([
@@ -174,7 +174,7 @@ describe('buildCompetitorLandscapeHistory', () => {
         domain: 'rival.example',
         mentionCount: 1,
         citationCount: 1,
-        shareOfVoice: 33.3,
+        shareOfVoice: null,
       }),
     ])
   })
@@ -233,9 +233,10 @@ describe('buildCompetitorLandscapeHistory', () => {
     })
 
     expect(result.observed).toEqual([expect.objectContaining({
-      domain: 'car.com', mentionCount: 0, citationCount: 1, shareOfVoice: 0,
+      domain: 'car.com', mentionCount: 0, citationCount: 1, shareOfVoice: null,
     })])
-    expect(result.project.shareOfVoice).toBe(100)
+    expect(result.project.shareOfVoice).toBeNull()
+    expect(result.reason).toBe('insufficient-observed')
   })
 
   it('preserves explicitly curated short labels and aliases across merged identities', () => {
