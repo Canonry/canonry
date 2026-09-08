@@ -14869,7 +14869,7 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
      */
     404: ErrorEnvelope;
     /**
-     * Workspace changed; preview again.
+     * Workspace changed or a sweep is using the live query catalog.
      */
     409: ErrorEnvelope;
 };

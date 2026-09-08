@@ -1624,7 +1624,7 @@ const routeCatalog: OpenApiOperation[] = [
     description: 'Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/QueryTrackingCommitRequest' } } } },
-    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed; preview again.') },
+    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed or a sweep is using the live query catalog.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/research/runs', summary: 'List saved research query batches', tags: ['research'],

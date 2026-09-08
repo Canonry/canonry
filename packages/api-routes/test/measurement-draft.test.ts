@@ -1074,9 +1074,22 @@ describe('measurement draft publish', () => {
     const explicitDraft = await action('create', { payload: { expectedActiveRevision: 1 } })
     expect(explicitDraft.statusCode, explicitDraft.body).toBe(200)
     const assignments = (await request('GET', '/measurement-plan/draft/assignments')).json().items
+    const frozenLocation = { label: 'nyc', city: 'New York', region: 'NY', country: 'US' }
     expect(assignments).toEqual(expect.arrayContaining([
-      expect.objectContaining({ contextOverride: expect.objectContaining({ locations: ['nyc'] }) }),
+      expect.objectContaining({ executionContexts: expect.arrayContaining([
+        expect.objectContaining({ location: frozenLocation }),
+      ]) }),
     ]))
+    const refused = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(refused.statusCode, refused.body).toBe(200)
+    expect(refused.json()).toMatchObject({ ok: false, checks: expect.arrayContaining([
+      expect.objectContaining({ ruleId: change === 'removed' ? 'invalid-location' : 'execution-context-location-mismatch' }),
+    ]) })
+    db.update(projects).set({ locations: [frozenLocation] }).where(eq(projects.id, 'prj_northwind')).run()
+    const compiled = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(compiled.statusCode, compiled.body).toBe(200)
+    expect(compiled.json()).toMatchObject({ ok: true })
+    for (const node of compiled.json().plan.executionNodes) expect(node.context.location).toEqual(frozenLocation)
   })
 
   it.each(['create', 'pin-competitor'])('preserves frozen per-Target models and location fan-out when %s seeds an active v2 draft', async operation => {
