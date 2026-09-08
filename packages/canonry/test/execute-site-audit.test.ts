@@ -36,7 +36,7 @@ vi.mock('../src/site-audit-root.js', () => ({
   }),
 }))
 import { runSiteCrawl } from '@canonry/aeo-audit'
-import {
+import { isNonPageMedia,
   clampSiteAuditEdgeLimit,
   clampSiteAuditLimit,
   computeFactorAverages,
@@ -710,6 +710,36 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, partialRun)).get()?.state).toBe('partial')
   })
 
+  it('keeps image observations out of the persisted graph, but keeps a PDF', async () => {
+    // Guards the WIRING. A unit test of isNonPageMedia still passes with the
+    // filter removed from registerPageNode, which is the state that shipped
+    // 1,518 JPEGs into a real graph.
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      const root = 'https://example.com/'
+      const image = page('page:image', 'https://example.com/assets/images/hero.jpg', {
+        state: 'non-html', contentType: 'image/jpeg', audit: null,
+      })
+      const pdf = page('page:pdf', 'https://example.com/brochure.pdf', {
+        state: 'non-html', contentType: 'application/pdf', audit: null,
+      })
+      await options.onEvent?.({
+        type: 'pages', sequence: 1, batchId: 'pages-1', checksum: 'pages-1',
+        rows: [page('page:root', root), image, pdf],
+      })
+      const endSummary = summary({ rootUrl: root, finalRootUrl: root })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary-1', checksum: 'summary-ok', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    const urls = db.select({ url: siteCrawlPages.url }).from(siteCrawlPages)
+      .where(eq(siteCrawlPages.runId, runId)).all().map(row => row.url)
+    expect(urls.some(url => url.endsWith('/hero.jpg'))).toBe(false)
+    expect(urls.some(url => url.endsWith('/brochure.pdf'))).toBe(true)
+    expect(urls.some(url => url === 'https://example.com/')).toBe(true)
+  })
+
   it('publishes a zero-audit terminated crawl as an inspectable partial graph', async () => {
     vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
       const failedPage = page('page:failed', 'https://example.com/unreachable', {
@@ -941,5 +971,44 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, runId)).get()?.state).toBe('cancelled')
     expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).all()).toEqual([])
     expect(db.select().from(siteCrawlGraphLayouts).where(eq(siteCrawlGraphLayouts.runId, runId)).all()).toEqual([])
+  })
+})
+
+describe('isNonPageMedia', () => {
+  const at = (requestedUrl: string, contentType: string | null = null) => ({ requestedUrl, contentType })
+
+  it('excludes the image tree that flooded a real crawl', () => {
+    // 1,518 of these came from one /assets/images/ directory: 13% of the nodes.
+    expect(isNonPageMedia(at('https://example.com/assets/images/004-Model-LR.jpg'))).toBe(true)
+    expect(isNonPageMedia(at('https://example.com/assets/images/006_dsc01166-new_993.JPG'))).toBe(true)
+  })
+
+  it('keeps a PDF and a text file, which an answer engine can read', () => {
+    expect(isNonPageMedia(at('https://example.com/brochure.pdf'))).toBe(false)
+    expect(isNonPageMedia(at('https://example.com/robots.txt'))).toBe(false)
+  })
+
+  it('keeps ordinary pages, including deep and trailing-slash paths', () => {
+    expect(isNonPageMedia(at('https://example.com/'))).toBe(false)
+    expect(isNonPageMedia(at('https://example.com/apartments/atlanta-metro/dunwoody-apts/'))).toBe(false)
+  })
+
+  it('catches an extensionless media URL by content type', () => {
+    expect(isNonPageMedia(at('https://cdn.example.com/media/12345', 'image/webp'))).toBe(true)
+    expect(isNonPageMedia(at('https://example.com/video/9', 'video/mp4; codecs=avc1'))).toBe(true)
+  })
+
+  it('does not let a query value masquerade as an extension', () => {
+    // The PATH decides. A page tagged with an image-looking param is a page.
+    expect(isNonPageMedia(at('https://example.com/gallery?utm_content=hero.png'))).toBe(false)
+  })
+
+  it('still excludes media that carries a query string', () => {
+    expect(isNonPageMedia(at('https://example.com/assets/images/hero.jpg?v=2'))).toBe(true)
+  })
+
+  it('falls back to the raw string when the URL will not parse', () => {
+    expect(isNonPageMedia(at('not-a-url/logo.svg'))).toBe(true)
+    expect(isNonPageMedia(at('not-a-url/page'))).toBe(false)
   })
 })

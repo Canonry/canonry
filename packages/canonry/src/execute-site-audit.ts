@@ -76,6 +76,33 @@ class SiteAuditCancelledError extends Error {
   override name = 'SiteAuditCancelledError'
 }
 
+/**
+ * Media extensions that can never be a page.
+ *
+ * Deliberately narrow, and deliberately NOT "everything non-HTML": a PDF and a
+ * text file are readable by an answer engine and stay in the graph. These
+ * carry no answer text and no outbound links.
+ */
+const NON_PAGE_MEDIA_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|avif|bmp|ico|tiff?|svg|mp4|webm|mov|avi|mp3|wav|ogg|woff2?|ttf|otf|eot)(?:$|\?)/i
+
+/** Media content types, for a server that serves an image from an extensionless URL. */
+const NON_PAGE_MEDIA_CONTENT_TYPE = /^(?:image|video|audio|font)\//i
+
+/**
+ * Both signals are checked because neither is sufficient alone: a CDN can serve
+ * `/media/12345` with no extension, and a misconfigured host can return
+ * `application/octet-stream` for a plain `.jpg`.
+ */
+export function isNonPageMedia(page: Pick<CrawlPageObservation, 'requestedUrl' | 'contentType'>): boolean {
+  if (page.contentType && NON_PAGE_MEDIA_CONTENT_TYPE.test(page.contentType.trim())) return true
+  try {
+    // Test the PATH, so a `?utm_source=x.png` query value cannot mask a page.
+    return NON_PAGE_MEDIA_EXTENSIONS.test(new URL(page.requestedUrl).pathname)
+  } catch {
+    return NON_PAGE_MEDIA_EXTENSIONS.test(page.requestedUrl)
+  }
+}
+
 function toHomepageUrl(canonicalDomain: string): string {
   const trimmed = canonicalDomain.trim().replace(/\/+$/, '')
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
@@ -484,10 +511,14 @@ export async function executeSiteAudit(
 
   const persistPages = (tx: DatabaseTransaction, pages: CrawlPageObservation[], now: string): void => {
     const changedUrls = new Set<string>()
+    // Filtered ONCE, here, because registration and persistence are two passes
+    // over the same list: filtering only the first leaves the row written and
+    // merely unreferenced, which is not what excluding a node means.
+    const pageNodes = pages.filter(page => !isNonPageMedia(page))
     // Register a whole event before writing references: the final HTML node
     // wins even when it sorts before or after its redirect alias.
-    for (const page of pages) registerPageNode(page, changedUrls)
-    for (const page of pages) persistPage(tx, page, now)
+    for (const page of pageNodes) registerPageNode(page, changedUrls)
+    for (const page of pageNodes) persistPage(tx, page, now)
     bindReferences(tx, changedUrls, now)
   }
 
