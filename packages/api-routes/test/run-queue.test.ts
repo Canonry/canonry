@@ -30,6 +30,27 @@ function seedProject(db: ReturnType<typeof createClient>, id: string, name: stri
 }
 
 describe('queueRunIfProjectIdle', () => {
+  it.each(Object.values(RunKinds).filter(kind => kind !== RunKinds['answer-visibility']).flatMap(kind =>
+    [RunStatuses.queued, RunStatuses.running].map(status => ({ kind, status })),
+  ))('allows a visibility sweep alongside $status $kind, but still blocks a duplicate sweep', ({ kind, status }) => {
+    const { db, tmpDir } = createTempDb()
+    onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, 'proj_1', 'test-project')
+    db.insert(runs).values({
+      id: 'other-run', projectId: 'proj_1', kind, status, createdAt: new Date().toISOString(),
+    }).run()
+
+    const sweep = queueRunIfProjectIdle(db, { projectId: 'proj_1' })
+    expect(sweep.conflict).toBe(false)
+    if (sweep.conflict) throw new Error('visibility should not be blocked by another kind')
+    expect(queueRunIfProjectIdle(db, { projectId: 'proj_1' }))
+      .toEqual({ conflict: true, activeRunId: sweep.runId })
+    expect(queueRunIfProjectIdle(db, { projectId: 'proj_1', kind }))
+      .toEqual({ conflict: true, activeRunId: 'other-run' })
+    expect(db.select().from(runs).all()).toHaveLength(2)
+    expect(db.select().from(runs).where(eq(runs.id, 'other-run')).get()?.status).toBe(status)
+  })
+
   it('queues a run when project has no active runs', () => {
     const { db, tmpDir } = createTempDb()
     onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))

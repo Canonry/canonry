@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq, or } from 'drizzle-orm'
-import { createClient, migrate, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -66,6 +66,34 @@ describe('POST /api/v1/projects/:name/runs with allLocations respects the idle l
     // setup is correct.
     return name
   }
+
+  it.each(['queued', 'running'])('admits a location fan-out alongside a %s audit and refuses a second sweep', async (status) => {
+    const project = db.select().from(projects).get()!
+    db.insert(runs).values({
+      id: 'audit', projectId: project.id, kind: 'site-audit', status, createdAt: new Date().toISOString(),
+    }).run()
+
+    const first = await app.inject({
+      method: 'POST', url: '/api/v1/projects/multi-loc/runs', payload: { allLocations: true },
+    })
+    expect(first.statusCode).toBe(207)
+    const fanout = first.json<Array<{ id: string; kind: string; location: string }>>()
+    expect(fanout.map(run => run.location).sort()).toEqual(['east', 'south', 'west'])
+    expect(fanout.every(run => run.kind === 'answer-visibility')).toBe(true)
+
+    const second = await app.inject({
+      method: 'POST', url: '/api/v1/projects/multi-loc/runs', payload: { allLocations: true },
+    })
+    expect(second.statusCode).toBe(409)
+    expect(second.json()).toMatchObject({ error: {
+      code: 'RUN_IN_PROGRESS',
+      message: expect.stringContaining('answer-visibility'),
+      details: { projectName: 'multi-loc', kind: 'answer-visibility', activeRunId: expect.any(String) },
+    } })
+    expect(fanout.map(run => run.id)).toContain(second.json().error.details.activeRunId)
+    expect(db.select().from(runs).all()).toHaveLength(4)
+    expect(db.select().from(runs).where(eq(runs.id, 'audit')).get()?.status).toBe(status)
+  })
 
   it('returns 409 RUN_IN_PROGRESS when a queued run already exists for the project', async () => {
     // First, kick off a single-location run to learn the project_id (read
