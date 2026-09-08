@@ -20,7 +20,9 @@ Canonry is an **agent-first, open-source AEO operating platform.** Track AI visi
 
 ### Start with your agent
 
-Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your agent. When enabled, built-in [Aero](skills/aero/SKILL.md) reviews evidence and wakes after completed runs.
+Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
+
+Or use [Aero](skills/aero/SKILL.md), Canonry's optional built-in agent. Aero works without an external agent. When enabled, Aero wakes after completed runs to review the evidence.
 
 For a new installation, give your agent this setup request:
 
