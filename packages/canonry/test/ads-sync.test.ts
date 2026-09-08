@@ -591,6 +591,57 @@ describe('executeAdsSync', () => {
     expect(db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()).toBeTruthy()
   })
 
+  it('does NOT advance lastSyncedAt when the cycle refreshed nothing', async () => {
+    const db = createTempDb()
+    seed(db)
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+    const afterFirst = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
+    const firstLastSynced = afterFirst?.lastSyncedAt
+    expect(firstLastSynced).toBeTruthy()
+
+    // Every campaign sub-fetch fails. The rows are preserved (see above), so
+    // the snapshot's timestamp must NOT move: dating stale rows to a failed
+    // attempt makes the delivery diagnostics read them as complete + current.
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns/cmpn_bbb/insights')) return new Response('upstream connect error', { status: 503 })
+      if (u.includes('/campaigns')) return respond(list([CAMPAIGN]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_bbb')) return respond(list([AD_GROUP]))
+      if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(AD_GROUP_INSIGHTS))
+      if (u.includes('/ads?ad_group_id=adgrp_ddd')) return respond(list([AD]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    db.insert(runs).values({
+      id: 'run_2', projectId: 'proj_1', kind: 'ads-sync', status: 'queued', trigger: 'manual', createdAt: NOW,
+    }).run()
+    await executeAdsSync(db, 'run_2', 'proj_1', { config: testConfig() })
+
+    const afterFailed = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
+    expect(afterFailed?.lastSyncedAt).toBe(firstLastSynced)
+    // Account metadata from the calls that DID succeed still lands.
+    expect(afterFailed?.displayName).toBe('Acme Exteriors, Inc')
+    expect(db.select().from(runs).where(eq(runs.id, 'run_2')).get()?.status).toBe('failed')
+  })
+
+  it('advances lastSyncedAt for an account that genuinely has no campaigns', async () => {
+    const db = createTempDb()
+    seed(db)
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns')) return respond(list([]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+
+    const conn = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
+    expect(conn?.lastSyncedAt).toBeTruthy()
+    expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()?.status).toBe('completed')
+  })
+
   it('DELETES a campaign the provider no longer lists', async () => {
     const db = createTempDb()
     seed(db)

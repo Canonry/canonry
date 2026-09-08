@@ -264,7 +264,9 @@ function toDailyUpserts(
 
 /**
  * Sync the project's connected OpenAI ad account: entity snapshots
- * (campaigns / ad groups / ads, range-replaced per project) plus daily
+ * (campaigns / ad groups / ads; refreshed campaigns are replaced and campaigns
+ * the provider no longer lists are deleted, while a still-listed campaign whose
+ * sub-fetch failed keeps its prior row) plus daily
  * paid-performance rollups at campaign and ad-group level (upserted, so
  * re-syncing an in-progress day replaces instead of duplicating).
  *
@@ -477,6 +479,14 @@ export async function executeAdsSync(
         }).run()
       }
 
+      // Account metadata came from calls that succeeded, so it always lands.
+      // `lastSyncedAt` is different: it dates the ENTITY snapshot, and since a
+      // wholly failed refresh now leaves the previous rows in place, advancing
+      // it would date stale rows to the failed attempt and let the delivery
+      // diagnostics read them as complete and current. Hold it back when the
+      // cycle refreshed nothing. An account with genuinely no campaigns
+      // records no errors and still advances.
+      const entitySnapshotRefreshed = errors.size === 0 || syncedCampaigns.length > 0
       tx.update(adsConnections).set({
         adAccountId: account.id,
         displayName: account.name,
@@ -487,7 +497,7 @@ export async function executeAdsSync(
         integrityReviewStatus: account.account_integrity_review?.review?.status ?? null,
         integrityDecision: account.account_integrity_review?.details?.decision ?? null,
         conversionTrackingConfigured,
-        lastSyncedAt: insertNow,
+        ...(entitySnapshotRefreshed ? { lastSyncedAt: insertNow } : {}),
         updatedAt: insertNow,
       }).where(eq(adsConnections.projectId, projectId)).run()
     })
