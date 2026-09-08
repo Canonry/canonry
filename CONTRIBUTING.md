@@ -69,12 +69,15 @@ Run relevant tests and package typechecks for behavior changes. After another ed
 CI runs full typechecks, lint, tests, generated-file checks, builds, and release guards.
 `pnpm verify` remains available for a full local check. It is not required before each commit or push.
 
-`pnpm install` installs the Git hooks. Pre-commit lints only staged JS/TS content, including partially staged files.
+`pnpm install` installs the Git hooks. Ordinary code commits lint staged JS/TS content, including partially staged files.
 It runs syntax rules and repository guards without loading TypeScript projects. It never changes files or the index.
 Staged checks and `pnpm check` share cached clean results across Git worktrees. Use `--no-cache` to force a fresh check.
-Documentation-only commits skip ESLint. The commit-message hook checks Conventional Commits. Pushes run no local checks.
+Documentation-only commits skip ESLint. The commit-message hook checks Conventional Commits. Pushes run the three drift gates below.
 
 See [the testing guide](docs/testing.md) for the local and CI commands.
 
-API changes need `pnpm gen`. `pnpm gen:check` compares temporary output without changing files or requiring Git staging.
+API changes need `pnpm gen`. Review and stage the generated files before `pnpm gen:check`.
+The check compares temporary output and the Git index without changing either.
+Pre-push runs the three drift gates and requires their inputs and output to match the pushed commit.
+ESLint configuration or local rule changes trigger full typed lint. Ordinary commits keep the cached staged-file check.
 Codegen and dashboard builds reuse cached results only when their inputs and output contents match.

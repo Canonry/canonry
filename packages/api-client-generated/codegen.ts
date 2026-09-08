@@ -14,12 +14,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fingerprint, runArtifactTask } from '../../scripts/artifact-cache.js'
+import { assertGeneratedFilesIncluded } from '../../scripts/generated-git-check.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 async function main() {
   const args = process.argv.slice(2)
-  if (args.some(arg => arg !== '--check' && arg !== '--force')) throw new Error('Usage: codegen.ts [--check] [--force]')
+  if (args.some(arg => !['--check', '--force', '--committed'].includes(arg)) || (args.includes('--committed') && !args.includes('--check'))) {
+    throw new Error('Usage: codegen.ts [--check [--committed]] [--force]')
+  }
   const spec = buildOpenApiDocument({
     title: 'canonry HTTP API',
     description: 'Generated from packages/api-routes — do not hand-edit clients.',
@@ -81,6 +84,7 @@ async function main() {
     },
   })
 
+  if (args.includes('--check')) assertGeneratedFilesIncluded(outputDir, args.includes('--committed'))
   console.log(`Generated client ${result.cached ? 'unchanged (cached)' : args.includes('--check') ? 'matches' : `updated (${result.changedFiles.length} files)`}`)
 }
 

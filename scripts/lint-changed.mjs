@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -18,6 +18,15 @@ async function main() {
   if (args.some(arg => !['--staged', '--no-cache'].includes(arg))) throw new Error('Usage: node scripts/lint-changed.mjs [--staged] [--no-cache]')
   const cwd = git(['rev-parse', '--show-toplevel']).trim()
   const isCode = file => /\.(?:[cm]?js|tsx?)$/.test(file)
+  const isLintConfig = file => /(?:^|\/)eslint\.config\.[^/]+$/.test(file) || file.startsWith('eslint-rules/')
+  // Include deleted configuration/rules: removing a guard can change the whole tree.
+  const changedPaths = staged
+    ? git(['diff', '--cached', '--name-only', '--no-renames', '-z', '--'], cwd).split('\0')
+    : [
+        git(['diff', '--name-only', '--no-renames', '-z', '--'], cwd),
+        git(['diff', '--cached', '--name-only', '--no-renames', '-z', '--'], cwd),
+        git(['ls-files', '--others', '--exclude-standard', '-z'], cwd),
+      ].flatMap(output => output.split('\0'))
   const blobs = new Map()
   let files
 
@@ -41,7 +50,21 @@ async function main() {
   }
 
   // Documentation-only commits need neither installed dependencies nor ESLint startup.
-  if (files.length === 0) return
+  if (files.length === 0 && !changedPaths.some(isLintConfig)) return
+  const unstagedPaths = git(['diff', '--name-only', '--no-renames', '-z', '--'], cwd).split('\0').filter(Boolean)
+  const untrackedPaths = staged ? git(['ls-files', '--others', '--exclude-standard', '-z'], cwd).split('\0') : []
+  if ([...changedPaths, ...unstagedPaths, ...untrackedPaths].some(isLintConfig)) {
+    // Typed lint reads the project from disk. Refuse a different staged program
+    // instead of reporting a green result for source/config that is not committed.
+    if (staged && [...unstagedPaths, ...untrackedPaths].some(file => isCode(file) || /\.json$/.test(file) || isLintConfig(file))) {
+      throw new Error('Full typed lint needs source and configuration to match the Git index. Stage the intended code/configuration changes first.')
+    }
+    console.log('lint: configuration or rules changed; running full repository type-aware lint')
+    const result = spawnSync('pnpm', ['run', 'lint'], { cwd, stdio: 'inherit' })
+    if (result.error) throw result.error
+    process.exitCode = result.status ?? 1
+    return
+  }
   console.log(`lint: checking ${files.length} ${staged ? 'staged' : 'changed'} file(s)`)
   const [{ ESLint }, { default: tseslint }] = await Promise.all([import('eslint'), import('typescript-eslint')])
   const eslint = new ESLint({

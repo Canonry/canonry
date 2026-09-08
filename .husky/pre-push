@@ -1,0 +1,2 @@
+# Check generated artifacts before publication. Full validation runs in CI.
+node scripts/pre-push.mjs

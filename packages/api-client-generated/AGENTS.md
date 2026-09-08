@@ -52,7 +52,9 @@ The `createClient` helper applies Bearer auth and a base URL; everything else is
 
 ## When to regenerate
 
-`gen:check` never changes generated files or the Git index. Generated changes do not need staging before this check.
+`gen:check` never changes generated files or the Git index. Review and stage generated changes before this check.
+Every check compares the SDK with the index, including cache hits. Unstaged or untracked generated files fail.
+`gen:check --committed` compares with `HEAD` instead. Pre-push uses this mode to catch generated files missing from the commit.
 The cache under `.tmp/codegen/` includes the emitted spec, generator, lockfile, Node version, and generated file contents.
 Missing, added, or edited output files invalidate the cache. Use `gen:check --force` to run the generator again.
 `gen` also generates into a temporary directory first. It updates only changed files after generation succeeds.

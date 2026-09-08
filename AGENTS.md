@@ -1196,7 +1196,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 - Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
-- Run focused tests during development. CI runs the full suite. Commit and push hooks must never run tests, builds, or code generation.
+- Run focused tests during development. CI runs the full suite. Hooks must never run tests or builds. Pre-push runs non-mutating drift checks.
 - **Test boundary matchers with data as STORED, not idealized.** Before writing a filter/normalizer/matcher over a stored column, check how that column is actually populated (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and sample real values when a database is available. Use the canonical helpers (`hostOf`, `normalizeQueryText`) from contracts instead of inline normalization: a clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a feature stores a default (e.g., `defaultLocation` on a project) that another feature consumes (e.g., run creation), write a test that exercises the full path with no explicit override. Don't just test that the default is stored and that the consumer accepts a value — test that they connect.
 
@@ -1217,16 +1217,20 @@ Several rules in this file are true only because a lint guard enforces them — 
   Use the full command only when requested or needed to reproduce a CI failure.
 - **The lead agent checks the integrated change.** Run `pnpm check` and tests or package typechecks relevant to the changed behavior.
   After another edit or rebase, rerun only the affected checks. Report local results and CI status separately.
-- **Keep Git hooks fast.** Pre-commit runs syntax lint and repository guards on staged JS/TS blobs only.
+- **Keep Git hooks fast.** Ordinary commits run syntax lint and repository guards on staged JS/TS blobs only.
   Staged and changed-file checks share content-based caches across worktrees. Use `--no-cache` when diagnosing cache behavior.
   It skips TypeScript project loading and leaves the index and working files unchanged. Documentation-only commits skip ESLint.
-  Full lint retains type-aware rules in CI. Tests, builds, code generation, and workspace typechecks never run in hooks.
-  The commit-message hook checks Conventional Commits. There is no pre-push hook.
+  ESLint configuration or local rule changes trigger full repository type-aware lint without the fast cache.
+  For this fallback, code and configuration must match the index. Do not hide staged errors with unstaged fixes.
+  Ordinary fast checks defer type-aware rules to CI. Hooks never run tests, builds, or workspace typechecks.
+  The commit-message hook checks Conventional Commits. Pre-push runs `gen:check --committed`, `plugin:check`, and `val:skills:check` only.
+  Drift inputs must match each pushed commit. Uncommitted package, script, or skill changes cannot mask missing committed artifacts.
 - **Build only the affected surface.** Use `pnpm build:cli` for CLI/server changes and `pnpm build:web` for dashboard changes.
   Full package builds reuse current dashboard output. Recursive builds order the dashboard before Canonry.
 - **Fix drift at its source.** Use `pnpm gen`, `pnpm plugin:sync`, or
   `pnpm val:skills` for the corresponding generated files. Review the generated
-  changes and run the corresponding drift check. Do not weaken assertions to obtain a pass.
+  changes and run the corresponding drift check. Stage generated SDK changes before `gen:check`; pre-push also requires them in the commit.
+  Do not weaken assertions to obtain a pass.
 
 ### Vals and the kit
 

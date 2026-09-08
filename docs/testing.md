@@ -54,14 +54,29 @@ Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnp
 It never fixes files, stages changes, or stashes work. Errors block the commit. Warnings remain visible.
 Documentation-only commits skip ESLint and do not need installed npm dependencies.
 
-The commit-message hook checks Conventional Commits. There is no pre-push hook.
-Git hooks never run tests, builds, code generation, or workspace typechecks.
+Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
+This fallback does not use the fast cache. It can find new violations in unchanged files.
+For staged checks, code and configuration must match the index before the fallback runs.
+The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
+Ordinary code commits retain the fast path. Type-aware findings in those commits remain CI's responsibility.
+
+The commit-message hook checks Conventional Commits.
+Pre-push runs `pnpm gen:check --committed`, `pnpm plugin:check`, and `pnpm val:skills:check`, in that order.
+A failed gate stops the push. These checks can generate temporary comparison files but never rewrite tracked artifacts.
+Git hooks never run tests, builds, or workspace typechecks.
+
+Drift inputs must match each commit being pushed. They include packages, scripts, skill/plugin files, manifests, and the checked codemap documents.
+Uncommitted changes in those paths cannot supply a missing fix to the checks. Other work, such as a README edit, can remain uncommitted.
+Deletion-only pushes skip these gates. For another branch with different inputs, run the push from a checkout of that branch.
 
 ## Codegen and Build Checks
 
 `pnpm gen:check` generates into a temporary directory and compares it with the SDK in the working tree.
 It does not change generated files or the Git index. After generation, the cache records input and output content hashes.
 Unchanged checks skip the generator. Missing or edited output files invalidate the cache.
+Every check also compares generated files with the Git index, including cache hits. Unstaged or untracked generated files fail the check.
+After `pnpm gen`, review and stage the generated changes before running `pnpm gen:check` or `pnpm verify`.
+Use `pnpm gen:check --committed` to compare with `HEAD` instead. Pre-push uses this mode to catch generated changes missing from the commit.
 For a fresh generator run, use `pnpm gen:check --force`. To update the SDK, use `pnpm gen`.
 
 Use the build command for the affected surface:

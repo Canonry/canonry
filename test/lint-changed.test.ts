@@ -18,7 +18,7 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
 
-function fixture(config = "export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'error' } }]\n") {
+function fixture(config = "export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'error' } }]\n", files: Record<string, string> = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-lint-'))
   tempDirs.push(cwd)
   const env = {
@@ -39,13 +39,16 @@ function fixture(config = "export default [{ files: ['**/*.js'], rules: { 'no-de
   write('tracked.js', 'export const value = 1\n')
   write('deleted.js', 'debugger\n')
   write('README.md', 'fixture\n')
-  write('.gitignore', '.tmp/\nhooks/\nscripts/\n')
+  write('.gitignore', '.tmp/\nhooks/\nscripts/\nnode_modules/\n')
+  write('package.json', JSON.stringify({ type: 'module', scripts: { lint: 'eslint .' } }))
+  for (const [file, content] of Object.entries(files)) write(file, content)
   git('add', '.')
   git('commit', '--no-verify', '-m', 'test: fixture')
   write('hooks/pre-commit', `#!/bin/sh\n${hook}`)
   fs.chmodSync(path.join(cwd, 'hooks/pre-commit'), 0o755)
   fs.mkdirSync(path.join(cwd, 'scripts'))
   fs.symlinkSync(script, path.join(cwd, 'scripts/lint-changed.mjs'))
+  fs.symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), path.join(cwd, 'node_modules'))
   git('config', 'core.hooksPath', path.join(cwd, 'hooks'))
   const lint = (...args: string[]) => spawnSync(process.execPath, [script, ...args], { cwd, env, encoding: 'utf8' })
   const commit = (...args: string[]) => spawnSync('git', ['commit', '-m', 'test: changed files', ...args], { cwd, env, encoding: 'utf8' })
@@ -183,9 +186,8 @@ test('worktrees share clean content across staged and working checks, with concu
   expect(f.lint().stdout).toContain('3 files, 2 cached')
 }, cacheScenarioTimeout)
 
-test('configuration, lockfile, and local rule edits invalidate clean results', () => {
-  const f = fixture("import rule from './eslint-rules/custom.mjs'\nexport default [{ files: ['**/*.js'], plugins: { local: { rules: { custom: rule } } }, rules: { 'local/custom': 'error' } }]\n")
-  f.write('eslint-rules/custom.mjs', 'export default { create() { return {} } }\n')
+test('lockfile edits invalidate clean results', () => {
+  const f = fixture()
   f.write('tracked.js', 'export const value = 2\n')
   f.git('add', 'tracked.js')
   expect(f.lint('--staged').stdout).toContain('0 cached')
@@ -193,15 +195,59 @@ test('configuration, lockfile, and local rule edits invalidate clean results', (
   f.write('pnpm-lock.yaml', 'lockfileVersion: 9\n')
   expect(f.lint('--staged').stdout).toContain('0 cached')
   expect(f.lint('--staged').stdout).toContain('1 cached')
-  fs.appendFileSync(path.join(f.cwd, 'eslint.config.mjs'), '// config revision\n')
-  expect(f.lint('--staged').stdout).toContain('0 cached')
-  expect(f.lint('--staged').stdout).toContain('1 cached')
-  // Plugin serialization is unchanged, but its implementation is different.
-  f.write('eslint-rules/custom.mjs', "export default { create(context) { return { Program(node) { context.report({ node, message: 'Updated guard' }) } } } }\n")
-  const updated = f.lint('--staged')
-  expect(updated.status).toBe(1)
-  expect(updated.stdout).toContain('Updated guard')
 }, cacheScenarioTimeout)
+
+test.each([false, true])('config ratchets inspect unchanged files with staged=%s', (staged) => {
+  const f = fixture("export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'off' } }]\n")
+  f.write('eslint.config.mjs', "export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'error' } }]\n")
+  f.git('add', 'eslint.config.mjs')
+  const result = f.lint(...(staged ? ['--staged'] : []))
+  expect(result.status).toBe(1)
+  expect(result.stdout).toContain('full repository type-aware lint')
+  expect(result.stdout).toContain('deleted.js')
+  expect(result.stdout).toContain('no-debugger')
+}, cacheScenarioTimeout)
+
+test('a custom rule edit checks unchanged files even when serialization is identical', () => {
+  const f = fixture("import rule from './eslint-rules/custom.mjs'\nexport default [{ files: ['**/*.js'], plugins: { local: { rules: { custom: rule } } }, rules: { 'local/custom': 'error' } }]\n", {
+    'eslint-rules/custom.mjs': 'export default { create() { return {} } }\n',
+  })
+  f.write('eslint-rules/custom.mjs', "export default { create(context) { return { Program(node) { context.report({ node, message: 'Updated guard' }) } } } }\n")
+  f.git('add', 'eslint-rules')
+  const result = f.lint('--staged')
+  expect(result.status).toBe(1)
+  expect(result.stdout).toContain('tracked.js')
+  expect(result.stdout).toContain('Updated guard')
+}, cacheScenarioTimeout)
+
+test('the full fallback enables type-aware rules instead of caching a syntax-only result', () => {
+  const tseslint = pathToFileURL(fileURLToPath(import.meta.resolve('typescript-eslint'))).href
+  const config = (severity: string) => `import tseslint from ${JSON.stringify(tseslint)}\nexport default [{ files: ['**/*.ts'], languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json', tsconfigRootDir: import.meta.dirname } }, plugins: { '@typescript-eslint': tseslint.plugin }, rules: { '@typescript-eslint/no-floating-promises': '${severity}' } }]\n`
+  const f = fixture(config('off'), {
+    'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['*.ts'] }),
+    'unchanged.ts': 'Promise.resolve(1)\n',
+  })
+  f.write('eslint.config.mjs', config('error'))
+  f.git('add', 'eslint.config.mjs')
+  const result = f.lint('--staged')
+  expect(result.status).toBe(1)
+  expect(result.stdout).toContain('unchanged.ts')
+  expect(result.stdout).toContain('@typescript-eslint/no-floating-promises')
+}, cacheScenarioTimeout)
+
+test('partially staged config or source cannot produce a false green in full lint', () => {
+  const loose = "export default [{ files: ['**/*.js'], rules: { 'no-debugger': 'off' } }]\n"
+  const f = fixture(loose)
+  f.write('eslint.config.mjs', loose.replace("'off'", "'error'"))
+  f.git('add', 'eslint.config.mjs')
+  f.write('eslint.config.mjs', loose)
+  expect(f.lint('--staged').stderr).toContain('match the Git index')
+  f.git('restore', 'eslint.config.mjs')
+  f.write('deleted.js', 'export const fixed = true\n')
+  const before = [f.git('diff', '--binary'), f.git('diff', '--cached', '--binary')]
+  expect(f.lint('--staged').status).toBe(1)
+  expect([f.git('diff', '--binary'), f.git('diff', '--cached', '--binary')]).toEqual(before)
+})
 
 test('effective configuration changes invalidate results without a config file edit', () => {
   const f = fixture("export default [{ files: ['**/*.js'], rules: { 'no-debugger': process.env.LINT_TEST_STRICT === '1' ? 'error' : 'off' } }]\n")
