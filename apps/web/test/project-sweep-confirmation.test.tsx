@@ -29,3 +29,18 @@ test('a viewer or unavailable readiness cannot confirm a sweep', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Run project-wide sweep' }))
   expect(confirm).not.toHaveBeenCalled()
 })
+
+
+test('managed sweeps cannot expose an already-open confirmation dialog', () => {
+  const original = window.__CANONRY_CONFIG__
+  try {
+    window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+    const confirm = vi.fn()
+    render(<ProjectSweepConfirmation open projectLabel="Northstar Demo" onOpenChange={vi.fn()} onConfirm={confirm} disabled={false} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Run project-wide sweep' })).toBeNull()
+    expect(confirm).not.toHaveBeenCalled()
+  } finally {
+    window.__CANONRY_CONFIG__ = original
+  }
+})

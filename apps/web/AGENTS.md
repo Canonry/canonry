@@ -108,6 +108,7 @@ After query publication, invalidate the project's query and measurement reads to
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts.
 Scope changes must preserve unrelated URL state. `measurementRunId` must never write the global `runId` drawer parameter.
 Keep `Run AI sweep` project-wide and admin-gated. Do not offer scoped sweeps or expose query administration in embeds.
+Managed deployments also suppress the sweep confirmation and guard its submit handler. The separate competitor-history disclosure retains pinning, follows the shared project/group and query-class selection, and uses its own explicit history window; it stays absent for unsupported Property, Market, and unclassified scopes.
 
 ### Invalidation strategy
 

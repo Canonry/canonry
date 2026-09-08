@@ -167,7 +167,7 @@ async function renderAt(
       // Simple projects have no class control, so the card always asks for the
       // one class a share of voice can be built on.
       queryClass: measurement.plan.active?.plan.schemaVersion === 2
-        ? measurement.competitorLandscapeKey?.queryClass ?? 'all'
+        ? measurement.competitorLandscapeKey?.queryClass ?? 'non-brand'
         : 'non-brand',
       ...(measurement.competitorLandscapeKey?.groupKey ? { groupKey: measurement.competitorLandscapeKey.groupKey } : {}),
       ...(measurement.competitorLandscapeKey?.scope ? { scope: measurement.competitorLandscapeKey.scope } : {}),
@@ -725,16 +725,16 @@ test('a Simple project opens the unified non-brand report without advertising ad
   expect(html).not.toContain('Where competitors are winning')
 })
 
-test.each([false, true])('Simple query evidence starts expanded (embed: %s)', async (embed) => {
+test.each([false, true])('Simple query results remain available behind disclosure (embed: %s)', async (embed) => {
   const html = await renderAt(
     '/projects/project_citypoint',
     embed ? { enabled: true } : undefined,
   )
   const document = new DOMParser().parseFromString(html, 'text/html')
-  const section = document.querySelector<HTMLDetailsElement>('#evidence-section')
+  const section = document.querySelector<HTMLDetailsElement>('details[data-query-results="non-brand"]')
 
   expect(section).not.toBeNull()
-  expect(section!.open).toBe(true)
+  expect(section!.open).toBe(false)
   expect(section!.querySelector('.evidence-table')).not.toBeNull()
 })
 
@@ -1399,6 +1399,7 @@ test('cached competitor history remains visible when its background refresh fail
     if (path.endsWith('/queries')) return jsonResponse([])
     if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (url.pathname.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'simple' }))
     if (url.pathname.endsWith('/analytics/competitors')) {
       return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
     }
@@ -2256,6 +2257,10 @@ test('switching query class refetches the competitor landscape under the matchin
     if (path.endsWith('/queries')) return jsonResponse([])
     if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
     if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/visibility-report')) {
+      const queryClass = url.searchParams.get('queryClass') === 'branded' ? 'branded' as const : 'non-brand' as const
+      return jsonResponse(visibilityReportResponse({ mode: 'advanced', queryClass }))
+    }
     if (url.pathname.endsWith('/measurement-overview')) {
       const queryClass = url.searchParams.get('queryClass') === 'branded' ? 'branded' as const : 'all' as const
       return jsonResponse(measurementOverviewResponse({
@@ -2295,19 +2300,19 @@ test('switching query class refetches the competitor landscape under the matchin
   expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
-    && path.includes('queryClass=all')
+    && path.includes('queryClass=non-brand')
   ))).toBe(true)
 
-  fireEvent.click(within(page.getByLabelText('Query type')).getByRole('radio', { name: 'Branded' }))
+  fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'branded' } })
 
-  expect(await page.findByText('Branded Property')).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Branded queries' })).toBeTruthy()
   expect(await page.findByText('Branded rival')).toBeTruthy()
   expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
     && path.includes('queryClass=branded')
   ))).toBe(true)
-  expect(router.state.location.search).toMatchObject({ class: 'branded' })
+  expect(router.state.location.search).toMatchObject({ queryClass: 'branded' })
 })
 
 test('a stale group key fails closed instead of silently broadening to the whole site', async () => {

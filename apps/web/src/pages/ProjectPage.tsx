@@ -10,6 +10,8 @@ import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { CitationBadge } from '../components/shared/CitationBadge.js'
+import { useDrawer } from '../hooks/use-drawer.js'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -131,6 +133,7 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
   onClosed?: () => void
   disabled: boolean
 }) {
+  if (isEmbed() || isDashboardManagedSweeps()) return null
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
@@ -2313,7 +2316,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2619,7 +2622,7 @@ function ProjectPageContent({
         </div>
       </div>
 
-      {!isEmbed() && <ProjectSweepConfirmation
+      {!isEmbed() && !isDashboardManagedSweeps() && <ProjectSweepConfirmation
         open={sweepConfirmationProject === projectName}
         projectLabel={projectLabel}
         onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
@@ -2693,11 +2696,6 @@ function ProjectPageContent({
               </Button>
             </div>
           ) : null}
-          {visibilitySelection.measurementScope === 'project' ? <OverviewSignals
-            insights={model.insights}
-            suggestedQueries={model.suggestedQueries}
-            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
-          /> : null}
           <VisibilityWorkspace
             key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
             projectName={projectName}
@@ -2976,9 +2974,18 @@ function ProjectPageContent({
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
           />} />
+          {visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
+            <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
+            <OverviewSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+            />
+          </details> : null}
           {competitorLandscapeReadEnabled ? (
             <details className="page-section-divider">
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Competitor history</summary>
+              <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
               <CompetitorLandscape
                 window={competitorLandscapeWindow}
                 landscape={competitorLandscapeQuery.data}
