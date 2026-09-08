@@ -229,6 +229,7 @@ describe('server embed mode (#716)', () => {
 
   it.each([
     [undefined, undefined, false],
+    [undefined, null, false],
     [undefined, false, false],
     [undefined, true, true],
     ['1', false, true],

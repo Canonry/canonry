@@ -127,10 +127,12 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   expect(env.googleClientSecret).toBe('google-client-secret')
 })
 
-test('dashboard config accepts the managed-sweeps opt-in without injecting defaults', async () => {
-  const { dashboardConfigSchema } = await import('../src/index.js')
-  expect(dashboardConfigSchema.parse({})).toEqual({})
-  expect(dashboardConfigSchema.parse({ showResourceLinks: false, managedSweeps: true }))
-    .toEqual({ showResourceLinks: false, managedSweeps: true })
-  expect(dashboardConfigSchema.safeParse({ managedSweeps: 'true' }).success).toBe(false)
+test('managed-sweeps validation accepts booleans and blank values without injecting defaults', async () => {
+  const { dashboardManagedSweepsSchema } = await import('../src/index.js')
+  for (const value of [true, false, undefined, null]) {
+    expect(dashboardManagedSweepsSchema.parse(value)).toBe(value)
+  }
+  for (const value of ['true', 'false', 1, 0, {}, []]) {
+    expect(dashboardManagedSweepsSchema.safeParse(value).success).toBe(false)
+  }
 })

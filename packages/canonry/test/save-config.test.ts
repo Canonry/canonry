@@ -256,3 +256,62 @@ test('loadConfig preserves managed sweeps from config.yaml and validates its boo
   fs.writeFileSync(getConfigPath(), stringify({ ...configured, dashboard: { managedSweeps: 'true' } }))
   expect(loadConfig).toThrow(/managedSweeps/)
 })
+
+test('loadConfig accepts a legacy blank showUpdateNotification value', () => {
+  const original = `${stringify(baseConfig())}dashboard:\n  showUpdateNotification:\n`
+  fs.writeFileSync(getConfigPath(), original)
+
+  expect(loadConfig().dashboard?.showUpdateNotification).toBeNull()
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})
+
+test.each([undefined, false, true, null])('managedSweeps=%s leaves nullable legacy dashboard fields untouched', managedSweeps => {
+  const dashboard = {
+    showUpdateNotification: null,
+    showResourceLinks: null,
+    requirePassword: null,
+    onboardingMode: null,
+    extension: { label: 'preserve this' },
+    ...(managedSweeps === undefined ? {} : { managedSweeps }),
+  }
+  const original = stringify({ ...baseConfig(), dashboard })
+  fs.writeFileSync(getConfigPath(), original)
+
+  expect(loadConfig().dashboard).toEqual(dashboard)
+  saveConfigPatch(loadConfig())
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})
+
+test.each([undefined, false, true])('managedSweeps=%s preserves dashboard key order across whole-config saves', managedSweeps => {
+  const dashboard = {
+    showUpdateNotification: false,
+    extension: { label: 'preserve this' },
+    showResourceLinks: false,
+    requirePassword: true,
+    ...(managedSweeps === undefined ? {} : { managedSweeps }),
+  }
+  const original = stringify({ ...baseConfig(), dashboard })
+  fs.writeFileSync(getConfigPath(), original)
+
+  saveConfigPatch(loadConfig())
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})
+
+test.each(['text', 'json', 'jsonl'])('invalid managed sweeps is a path-qualified, non-retryable CLI error (%s)', async format => {
+  // Installed skills on the host must not trigger unrelated background config writes.
+  setEnv('CANONRY_NO_AUTO_SKILLS_SYNC', '1')
+  const invalidValue = 'private-invalid-value'
+  const original = stringify({ ...baseConfig(), dashboard: { managedSweeps: invalidValue } })
+  fs.writeFileSync(getConfigPath(), original)
+  const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const { runCli } = await import('../src/cli.js')
+
+  expect(await runCli(['telemetry', 'enable', '--format', format])).toBe(1)
+  const output = stderr.mock.calls.map(args => args.join(' ')).join('\n')
+  expect(output).toContain(getConfigPath())
+  expect(output).toContain('dashboard.managedSweeps')
+  expect(output).not.toContain(invalidValue)
+  expect(output).not.toContain('cnry_prod_key')
+  if (format !== 'text') expect(JSON.parse(output).error.code).toBe('CONFIG_INVALID')
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})

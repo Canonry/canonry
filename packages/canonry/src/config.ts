@@ -3,8 +3,9 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { dashboardConfigSchema } from '@ainyc/canonry-config'
+import { dashboardManagedSweepsSchema } from '@ainyc/canonry-config'
 import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { CliError } from './cli-error.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
@@ -353,7 +354,7 @@ export interface DashboardConfigEntry {
   showUpdateNotification?: boolean
 
   /** Hide dashboard sweep controls; operators can still use `canonry run`. Defaults to false. */
-  managedSweeps?: boolean
+  managedSweeps?: boolean | null
 }
 
 /**
@@ -538,6 +539,15 @@ export function loadConfig(): CanonryConfig {
     )
   }
 
+  // Validate only the new field, without cloning/reordering the dashboard or
+  // tightening validation of legacy fields (including blank YAML values).
+  if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
+    })
+  }
+
   // Migrate legacy geminiApiKey to providers map
   if (parsed.geminiApiKey && !parsed.providers?.gemini) {
     parsed.providers = {
@@ -551,7 +561,6 @@ export function loadConfig(): CanonryConfig {
   }
 
   normalizeGoogleConfig(parsed)
-  if (parsed.dashboard) parsed.dashboard = dashboardConfigSchema.parse(parsed.dashboard)
   normalizeGoogleMarketingConfig(parsed)
   normalizeWordpressConfig(parsed)
   normalizeCloudflareTrafficConfig(parsed)

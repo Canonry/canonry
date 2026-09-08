@@ -1,14 +1,8 @@
 import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
-export const dashboardConfigSchema = z.object({
-  onboardingMode: z.enum(['legacy', 'platform', 'auto']).optional(),
-  requirePassword: z.boolean().optional(),
-  showResourceLinks: z.boolean().optional(),
-  showUpdateNotification: z.boolean().optional(),
-  /** Presentation only. Operators retain the CLI manual sweep control. */
-  managedSweeps: z.boolean().optional(),
-}).passthrough()
+/** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
+export const dashboardManagedSweepsSchema = z.boolean().nullish()
 
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
