@@ -205,6 +205,41 @@ export function siteGraphLabelBudget(cameraRatio: number): number {
   return SITE_GRAPH_OVERVIEW_LABEL_BUDGET
 }
 
+/**
+ * How wide a rendered label may get, in characters.
+ *
+ * Sigma keeps labels apart with a grid (`labelGridCellSize`), which assumes a
+ * label is roughly as wide as its cell. A deep path is not: on a real site
+ * `/apartments/atlanta-metro/dunwoody-apts/` renders about twice the cell
+ * width, so labels chosen from neighbouring cells overlap and stack into an
+ * unreadable smear. Bounding the TEXT is what makes the grid's assumption true;
+ * widening the grid instead would just drop labels that do fit.
+ */
+const SITE_GRAPH_LABEL_MAX_CHARS = 24
+
+/**
+ * Shorten a path for display, keeping the LAST segment.
+ *
+ * The leaf is what identifies a page to a reader — `dunwoody-apts` says which
+ * node this is, while a shared `/apartments/atlanta-metro/` prefix says only
+ * which neighbourhood of the graph it sits in, something the layout already
+ * shows. The full path stays on the node's `path` attribute for the hover card,
+ * so nothing is lost, only deferred to the moment a reader asks for it.
+ */
+export function siteGraphDisplayPath(path: string, maxChars = SITE_GRAPH_LABEL_MAX_CHARS): string {
+  const value = path || '/'
+  if (value.length <= maxChars) return value
+  const trailingSlash = value.endsWith('/') && value.length > 1
+  const segments = value.split('/').filter(Boolean)
+  const leaf = segments.at(-1)
+  if (!leaf) return value.slice(0, maxChars - 1) + '…'
+  const tail = `/${leaf}${trailingSlash ? '/' : ''}`
+  // A leaf that is itself too long is cut from its END: the start of a slug
+  // ("dunwoody-apts-phase-two") is the identifying part.
+  if (tail.length + 2 > maxChars) return `…${tail.slice(0, maxChars - 2)}…`
+  return `…${tail}`
+}
+
 function lexical(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -344,7 +379,7 @@ export function buildSigmaSiteGraph(
       size: siteGraphNodeSize(node, isRoot, nodesByKey.size),
       color,
       baseColor: color,
-      label: `${glyph} ${node.path || '/'}`,
+      label: `${glyph} ${siteGraphDisplayPath(node.path)}`,
       nodeKey: node.nodeKey,
       url: node.url,
       path: node.path,

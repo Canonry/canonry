@@ -145,6 +145,7 @@ async function emitCompleteGraph(
   options: { onEvent?: (event: unknown) => Promise<void> | void },
   complete = true,
   rootUrl = 'https://example.com/',
+  terminationReason = 'max-pages',
 ) {
   const childUrl = new URL('/a', rootUrl).href
   await options.onEvent?.({
@@ -168,7 +169,7 @@ async function emitCompleteGraph(
   const endSummary = summary({
     rootUrl,
     finalRootUrl: rootUrl,
-    ...(complete ? {} : { complete: false, terminationReason: 'max-pages' }),
+    ...(complete ? {} : { complete: false, terminationReason }),
   })
   await options.onEvent?.({ type: 'summary', sequence: 4, batchId: 'summary-1', checksum: complete ? 'summary-ok' : 'summary-partial', summary: endSummary })
   return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
@@ -708,6 +709,24 @@ describe('executeSiteAudit', () => {
     })
     expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, goodRun)).get()).toBeDefined()
     expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, partialRun)).get()?.state).toBe('partial')
+  })
+
+  it('reports a coverage-neutral stop as completed while still recording the termination', async () => {
+    // A faceted search generates unbounded near-duplicate URLs, so the crawler
+    // declines them and latches `max-query-variants`. Every page the site has
+    // was still fetched, so reporting `partial` would send an operator hunting
+    // for a budget to raise when nothing is missing. The snapshot keeps the
+    // reason either way; only the run STATUS distinguishes bounded from cut short.
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) =>
+      emitCompleteGraph(options, false, 'https://example.com/', 'max-query-variants'))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    expect(db.select().from(runs).where(eq(runs.id, runId)).get()?.status).toBe('completed')
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()).toMatchObject({
+      complete: false,
+      termination: 'max-query-variants',
+    })
   })
 
   it('publishes a zero-audit terminated crawl as an inspectable partial graph', async () => {

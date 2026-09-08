@@ -19,6 +19,7 @@ import type {
   CrawlEvent,
   CrawlPageMetrics,
   CrawlPageObservation,
+  CrawlTerminationReason,
   SiteCrawlReport,
 } from '@canonry/aeo-audit'
 import {
@@ -74,6 +75,54 @@ type DatabaseTransaction = Parameters<Parameters<DatabaseClient['transaction']>[
 
 class SiteAuditCancelledError extends Error {
   override name = 'SiteAuditCancelledError'
+}
+
+/**
+ * Did this stop leave part of the SITE uncrawled, or only decline URLs that
+ * were never going to add coverage?
+ *
+ * Deliberately NOT the engine's hard/soft split. That one answers "should we
+ * keep fetching?" — a resource and politeness question, where `max-pages` is
+ * soft because the crawler stopped admitting rather than ran out. The run
+ * status answers a different question: "was the site covered?" Under that
+ * question `max-pages` is a truncation, because capping a 12,000-page site at
+ * 1,000 leaves 11,000 pages unseen however politely the crawler stopped.
+ *
+ * `bounded` is therefore narrow, and every member has the same property: the
+ * URLs it declined would not have added site coverage.
+ *
+ *   max-query-variants  faceted search (`?field=neighborhood&value=...`)
+ *                       generates unbounded near-duplicates of pages already
+ *                       crawled. Real estate sites latch this every run.
+ *   max-page-bytes      one oversized page's body was truncated; the page
+ *                       itself is in the graph.
+ *   max-links-per-page  one page's link list was capped; the page is crawled
+ *                       and its neighbours are reachable by other paths.
+ *
+ * Everything else — pages, edges, depth, sitemap caps, and all four hard
+ * stops — means URLs the site really has are missing, so `partial` is honest.
+ *
+ * Exhaustive on the engine's own union on purpose: when aeo-audit adds a
+ * termination reason this stops compiling until someone classifies it, rather
+ * than silently defaulting it into whichever class reads better.
+ */
+const CRAWL_STOP_COVERAGE: Record<CrawlTerminationReason, 'truncated' | 'bounded'> = {
+  'max-fetches': 'truncated',
+  'max-duration': 'truncated',
+  'max-bytes': 'truncated',
+  'root-host-redirect': 'truncated',
+  'max-pages': 'truncated',
+  'max-edges': 'truncated',
+  'max-depth': 'truncated',
+  'max-sitemap-fanout': 'truncated',
+  'max-sitemap-urls': 'truncated',
+  'max-query-variants': 'bounded',
+  'max-page-bytes': 'bounded',
+  'max-links-per-page': 'bounded',
+}
+
+function isTruncatingStop(reason: CrawlTerminationReason | null | undefined): boolean {
+  return reason != null && CRAWL_STOP_COVERAGE[reason] === 'truncated'
 }
 
 function toHomepageUrl(canonicalDomain: string): string {
@@ -701,7 +750,9 @@ export async function executeSiteAudit(
     const finishedAt = new Date().toISOString()
     const factors = computeFactorAverages([...observedPages.values()])
     const errorCount = observedErrorCount(observedPages.values())
-    const terminalStatus: RunStatus = crawlSummary.complete ? 'completed' : 'partial'
+    const terminalStatus: RunStatus = crawlSummary.complete || !isTruncatingStop(crawlSummary.terminationReason)
+      ? 'completed'
+      : 'partial'
     const deadLinksChecked = opts.checkDeadLinks ? deadLinkCheckedCount(observedEdges.values(), observedPages.values()) : 0
     // The engine makes the broken-vs-unverified split itself (6.0.0+): a
     // finding always carries a real error status, and a target that never

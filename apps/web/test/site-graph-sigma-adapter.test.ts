@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parseColor } from 'sigma/utils'
 
 import {
+  siteGraphDisplayPath,
   buildSigmaSiteGraph,
   createSigmaSiteGraphReducers,
   findSiteGraphNodes,
@@ -119,6 +120,19 @@ describe('buildSigmaSiteGraph', () => {
       fetchState: 'fetch-error-but-not-a-crawler-state',
       indexabilityState: 'indexable',
     }))).toBe('unchecked')
+  })
+
+  it('renders the node label through the truncator, not the raw path', () => {
+    // Guards the WIRING, not the helper: a unit test of siteGraphDisplayPath
+    // still passes when the label is built from node.path directly, which is
+    // the state that shipped the overlapping labels.
+    const deep = '/apartments/atlanta-metro/dunwoody-apts/'
+    const result = buildSigmaSiteGraph([node('deep', { path: deep })], [], theme)
+    const label = result.graph.getNodeAttribute('deep', 'label')
+
+    expect(label).not.toContain('atlanta-metro')
+    expect(label).toContain('dunwoody-apts')
+    expect(result.graph.getNodeAttribute('deep', 'path')).toBe(deep)
   })
 
   it('adds a distinct status glyph to labels so color is never the only visual cue', () => {
@@ -568,6 +582,40 @@ describe('the customer-facing state vocabulary', () => {
     for (const state of SITE_GRAPH_LEGEND_STATES) {
       expect(siteGraphStatusLegendLabel(state)).not.toBe('')
       expect(siteGraphStatusDescription(state)).not.toBe('')
+    }
+  })
+})
+
+describe('siteGraphDisplayPath', () => {
+  // Sigma keeps labels apart with a fixed-size grid, so a label far wider than
+  // its cell overlaps its neighbours. A real crawl of a property site produced
+  // exactly this: three metro paths drawn on top of each other, unreadable.
+  it('keeps the leaf segment, which is what identifies the page', () => {
+    expect(siteGraphDisplayPath('/apartments/atlanta-metro/dunwoody-apts/')).toBe('…/dunwoody-apts/')
+  })
+
+  it('leaves a path that already fits completely untouched', () => {
+    expect(siteGraphDisplayPath('/apartments/')).toBe('/apartments/')
+    expect(siteGraphDisplayPath('/')).toBe('/')
+  })
+
+  it('treats an empty path as the root rather than rendering nothing', () => {
+    expect(siteGraphDisplayPath('')).toBe('/')
+  })
+
+  it('bounds the result even when the leaf alone is too long', () => {
+    const result = siteGraphDisplayPath('/a/an-extremely-long-single-slug-that-will-not-fit-anywhere')
+    expect(result.length).toBeLessThanOrEqual(24)
+    expect(result.startsWith('…')).toBe(true)
+  })
+
+  it('never renders wider than the grid cell assumes, for any depth', () => {
+    for (const path of [
+      '/apartments/dallas-fort-worth-metro/uptown-apts/',
+      '/apartments/northern-virginia-and-dc-metro/rosslyn-apts/',
+      '/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/',
+    ]) {
+      expect(siteGraphDisplayPath(path).length).toBeLessThanOrEqual(24)
     }
   })
 })
