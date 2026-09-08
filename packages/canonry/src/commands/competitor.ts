@@ -1,3 +1,4 @@
+import { shareOfVoiceLabel, shareOfVoiceReason, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -139,18 +140,23 @@ function printCompetitorLandscape(data: CompetitorLandscapeResponse): void {
       ? 'Share of voice is blank: branded and non-brand queries are pooled here. Add --query-class non-brand for a ratio.'
       : `Counting ${data.filters.queryClass} queries only.`,
   )
+  if (data.reason) console.log(shareOfVoiceReason(data.reason))
   if (data.truncated) console.log('Top 100 observed competitors and top 100 other cited sources shown; pinned competitors are complete.')
   console.log('')
-  printLandscapeRows('Your brand', [data.project])
-  printLandscapeRows('Pinned competitors', data.pinned)
-  printLandscapeRows('Observed competitors', data.observed)
-  printLandscapeRows('Other cited sources', data.otherSources)
+  printLandscapeRows('Your brand', [data.project], false, data, data.filters.queryClass)
+  printLandscapeRows('Pinned competitors', data.pinned, false, data, data.filters.queryClass)
+  printLandscapeRows('Observed competitors', data.observed, false, data, data.filters.queryClass)
+  printLandscapeRows('Other cited sources', data.otherSources, false, data, data.filters.queryClass)
   console.log('')
   console.log(
     `Evidence: ${data.evidence.answeredResults} answer-text result(s), ${data.evidence.sourceResults} source result(s); `
     + `excluded: ${data.evidence.excludedProbeResults} probe, ${data.evidence.excludedNonCompletedResults} non-completed.`,
   )
-  if (data.modelComparison) printModelComparison(data.modelComparison)
+  if (data.observedNames?.length) {
+    console.log('Names observed in answers (not a comparison set):')
+    for (const row of data.observedNames) console.log(`  ${row.name} · ${row.answerCount} answers`)
+  }
+  if (data.modelComparison) printModelComparison(data.modelComparison, data.filters.queryClass)
 }
 
 function describeServedModels(evidence: ModelEvidenceState): string {
@@ -159,7 +165,7 @@ function describeServedModels(evidence: ModelEvidenceState): string {
   return [...evidence.models, ...(evidence.includesUnknown ? ['Unknown (not disclosed)'] : [])].join(', ')
 }
 
-function printModelComparison(comparison: NonNullable<CompetitorLandscapeResponse['modelComparison']>): void {
+function printModelComparison(comparison: NonNullable<CompetitorLandscapeResponse['modelComparison']>, queryClass: string): void {
   console.log('')
   console.log(`Model comparison · requested-model basis · ${comparison.groups.length} of ${comparison.totalGroups} groups`)
   console.log('Groups use stored observations. They do not form a matched-query or equal-weight comparison.')
@@ -169,10 +175,11 @@ function printModelComparison(comparison: NonNullable<CompetitorLandscapeRespons
     console.log(`${group.provider} · requested model: ${group.model ?? 'Unknown (not recorded)'}`)
     console.log(`Served model evidence: ${describeServedModels(group.servedModels)}`)
     console.log(`Samples: ${group.snapshotCount} snapshot(s), ${group.evidence.answeredResults} answer-text result(s), ${group.evidence.sourceResults} source result(s).`)
-    printLandscapeRows('Your brand', [group.project], true)
-    printLandscapeRows('Pinned competitors', group.pinned, true)
-    printLandscapeRows('Observed competitors', group.observed, true)
-    printLandscapeRows('Other cited sources', group.otherSources, true)
+    if (group.reason) console.log(shareOfVoiceReason(group.reason))
+    printLandscapeRows('Your brand', [group.project], true, group, queryClass)
+    printLandscapeRows('Pinned competitors', group.pinned, true, group, queryClass)
+    printLandscapeRows('Observed competitors', group.observed, true, group, queryClass)
+    printLandscapeRows('Other cited sources', group.otherSources, true, group, queryClass)
     if (group.truncated) console.log('Top 100 observed competitors and top 100 other sources shown. Pinned competitors are complete.')
   }
 }
@@ -181,6 +188,8 @@ function printLandscapeRows(
   heading: string,
   rows: readonly CompetitorLandscapeResponse['pinned'][number][],
   showSampleCount = false,
+  context?: Partial<ShareOfVoiceContext>,
+  queryClass = 'all',
 ): void {
   console.log(`${heading}:`)
   if (rows.length === 0) {
@@ -188,7 +197,7 @@ function printLandscapeRows(
     return
   }
   for (const row of rows) {
-    const sov = row.shareOfVoice === null ? '—' : `${row.shareOfVoice.toFixed(1)}%`
+    const sov = `${shareOfVoiceLabel(row.shareOfVoice, context)} · ${queryClass} queries`
     console.log(`  ${row.domain}  mention ${row.mentionCount} · citation ${row.citationCount} · SOV ${sov}${showSampleCount ? ` · answers ${row.answeredResults}` : ''}`)
   }
 }

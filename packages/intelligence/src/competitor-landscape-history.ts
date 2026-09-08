@@ -8,8 +8,10 @@ import {
   MIN_DOMAIN_BRAND_KEY_LENGTH,
   registrableDomain,
   type BrandAliasMatcher,
+  type ShareOfVoiceContext,
 } from '@ainyc/canonry-contracts'
 import { MIN_BRAND_ALIAS_KEY_LENGTH } from './mention-share.js'
+import { buildShareOfVoiceFrame } from './share-of-voice-frame.js'
 
 /** A stored discovery classification, plus the explicit unknown state. */
 export type CompetitorLandscapeSurfaceClass =
@@ -104,7 +106,8 @@ export interface CompetitorLandscapeHistoryEvidence {
   mentionCredits: number
 }
 
-export interface CompetitorLandscapeHistoryResult {
+export interface CompetitorLandscapeHistoryResult extends ShareOfVoiceContext {
+  comparison: Array<{ domain: string; mentions: number }>
   project: CompetitorLandscapeHistoryRow
   pinned: CompetitorLandscapeHistoryRow[]
   observed: CompetitorLandscapeHistoryRow[]
@@ -317,19 +320,30 @@ export function buildCompetitorLandscapeHistory(
     }
   }
 
-  const competitiveRows = [...pinned.values(), ...observed.values()]
+  // Pins are the operator's comparison set. Observed identities are a fallback,
+  // never a supplement. Keep all evidence rows, including excluded candidates.
+  const competitiveRows = [...(pinned.size > 0 ? pinned : observed).values()]
     .map(candidate => candidateRows.get(candidate.domain)!)
-  const mentionCredits = projectRow.mentionCount
-    + competitiveRows.reduce((sum, row) => sum + row.mentionCount, 0)
-
-  const competitive = options.shareOfVoiceEligible
+    .filter(row => pinned.size > 0 || row.mentionCount > 0 || row.citationCount > 0)
+  const frame = buildShareOfVoiceFrame({
+    tracked: pinned.size > 0,
+    classSelected: options.shareOfVoiceEligible,
+    projectMentions: projectRow.mentionCount,
+    answeredResults,
+    competitors: competitiveRows.map(row => ({ domain: row.identity.domain, mentions: row.mentionCount })),
+  })
+  const mentionCredits = frame.denominator
+  const competitive = frame.availability === 'measured'
+  const comparisonDomains = new Set(frame.domains)
   return {
+    basis: frame.basis, availability: frame.availability, reason: frame.reason,
+    comparison: competitiveRows.filter(row => comparisonDomains.has(row.identity.domain)).map(row => ({ domain: row.identity.domain, mentions: row.mentionCount })),
     project: finalizeRow(projectRow, answeredResults, mentionCredits, competitive),
     pinned: [...pinned.values()].map(candidate => (
-      finalizeRow(candidateRows.get(candidate.domain)!, answeredResults, mentionCredits, competitive)
+      finalizeRow(candidateRows.get(candidate.domain)!, answeredResults, mentionCredits, competitive && comparisonDomains.has(candidate.domain))
     )),
     observed: [...observed.values()]
-      .map(candidate => finalizeRow(candidateRows.get(candidate.domain)!, answeredResults, mentionCredits, competitive))
+      .map(candidate => finalizeRow(candidateRows.get(candidate.domain)!, answeredResults, mentionCredits, competitive && comparisonDomains.has(candidate.domain)))
       .filter(row => row.mentionCount > 0 || row.citationCount > 0)
       .sort(compareCompetitiveRows),
     otherSources: [...others.values()]
@@ -412,6 +426,13 @@ function mergeCandidates(primary: Candidate, additional: Candidate): Candidate {
     surfaceClass: preferredSurfaceClass(primary.surfaceClass, additional.surfaceClass),
     pinned: primary.pinned || additional.pinned,
   })
+}
+
+/** The same persisted taxonomy resolution for every comparison surface. */
+export function storedDirectCompetitorDomains(classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass>): string[] {
+  return [...groupClassifications(classifications)]
+    .filter(([, surfaceClass]) => surfaceClass === 'direct-competitor')
+    .map(([domain]) => domain)
 }
 
 function groupClassifications(

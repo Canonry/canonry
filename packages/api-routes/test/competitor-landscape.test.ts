@@ -184,6 +184,21 @@ afterEach(async () => {
 })
 
 describe('GET /projects/:name/analytics/competitors', () => {
+  it('withholds share of voice without a comparison set, including model groups', async () => {
+    db.delete(competitors).run()
+    db.delete(domainClassifications).run()
+    db.update(querySnapshots).set({ queryText: 'best homes', queryId: null }).run()
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&groupBy=model' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.pinned).toEqual([])
+    expect(body.observed).toEqual([])
+    expect(body.project.mentionCount).toBe(1)
+    expect(body.project.shareOfVoice).toBeNull()
+    expect(body).toMatchObject({ basis: null, availability: 'not-measured', reason: 'no-competitors' })
+    expect(body.modelComparison.groups[0].project.shareOfVoice).toBeNull()
+  })
+
   it('returns probe-excluded stored answer and citation evidence with pinned rows first', async () => {
     const response = await app.inject({
       method: 'GET',
@@ -203,7 +218,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
         answeredResults: 1,
         sourceResults: 2,
         missingAnswerTextResults: 1,
-        mentionCredits: 3,
+        mentionCredits: 2,
         incompleteSourceResults: 1,
         excludedProbeResults: 1,
         excludedNonCompletedResults: 1,
@@ -1144,6 +1159,143 @@ describe('GET /projects/:name/analytics/competitors', () => {
       versions: db.select().from(measurementPlanVersions).all(),
       drafts: db.select().from(measurementPlanDrafts).all(),
     }).toEqual(before)
+  })
+})
+
+describe('share of voice comparison policy', () => {
+  const answer = 'Northwind, 1500 Arlington, 1500 Arlington Apartments, 1500arlington.com, Elmpark, Oakgrove, Zillow and Apartments.com.'
+  const names = ['1500 Arlington', '1500 Arlington Apartments', '1500arlington.com', 'Elmpark', 'Oakgrove', 'Zillow', 'Apartments.com', 'Unknown name']
+  function seed(texts = [answer, answer, answer]) {
+    db.delete(competitors).run()
+    db.delete(domainClassifications).run()
+    db.delete(querySnapshots).run()
+    db.update(queries).set({ query: 'best homes' }).run()
+    db.insert(domainClassifications).values([
+      ...['1500arlington.com', 'elmpark.example', 'oakgrove.example'].map(domain => ({ domain, competitorType: 'direct-competitor' as const })),
+      ...['zillow.com', 'apartments.com'].map(domain => ({ domain, competitorType: 'ota-aggregator' as const })),
+    ].map((row, i) => ({ ...row, id: `class_${i}`, projectId: 'project_northwind', hits: 3, updatedAt: NOW }))).run()
+    db.insert(querySnapshots).values(texts.map((text, i) => ({
+      ...marketSnapshot(`sov_${i}`, 'run_normal', null, text, 'northwind.example'),
+      queryText: 'best homes', model: 'model-one', recommendedCompetitors: names,
+    }))).run()
+  }
+  async function read(extra = '', queryClass = 'non-brand') {
+    const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=${queryClass}${extra}` })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(competitorLandscapeResponseSchema.safeParse(response.json()).success).toBe(true)
+    return response.json()
+  }
+  it('counts each resolved observed identity once per answer and excludes platforms', async () => {
+    seed()
+    const body = await read()
+    expect(body).toMatchObject({ basis: 'observed', availability: 'measured', reason: null, project: { mentionCount: 3, shareOfVoice: 25 }, evidence: { mentionCredits: 12 } })
+    expect(body.comparison).toEqual([
+      { domain: '1500arlington.com', mentions: 3 }, { domain: 'elmpark.example', mentions: 3 }, { domain: 'oakgrove.example', mentions: 3 },
+    ])
+    expect(body.observed.map((row: { shareOfVoice: number }) => row.shareOfVoice)).toEqual([25, 25, 25])
+    expect(body.observedNames).toContainEqual({ name: 'Unknown name', answerCount: 3 })
+    expect(body.observedNames).toContainEqual({ name: 'Apartments.com', answerCount: 3 })
+    const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
+    expect(stats.json().shareOfVoice).toMatchObject({ basis: 'observed', availability: 'measured', projectMentions: 3, competitorMentions: 9, competitorCount: 3, percent: 25 })
+    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
+    expect(report.statusCode, report.body).toBe(200)
+    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ basis: 'observed', availability: 'measured', projectMentions: 3, competitorMentions: 9, percent: 25 })
+  })
+  it('uses tracked competitors exclusively without dropping observed evidence', async () => {
+    seed([answer + ' Rival.', answer + ' Rival.', answer + ' Rival.'])
+    db.insert(competitors).values({ id: 'new-pin', projectId: 'project_northwind', domain: 'rival.example', provenance: 'manual', createdAt: NOW }).run()
+    const body = await read()
+    expect(body).toMatchObject({ basis: 'tracked', availability: 'measured', project: { mentionCount: 3, shareOfVoice: 50 }, evidence: { mentionCredits: 6 } })
+    expect(body.comparison).toEqual([{ domain: 'rival.example', mentions: 3 }])
+    expect(body.observed.map((row: { shareOfVoice: number | null }) => row.shareOfVoice)).toEqual([null, null, null])
+    expect(body.pinned[0].shareOfVoice).toBe(50)
+  })
+  it.each([
+    ['competitor count', ['Northwind and Elmpark.', 'Northwind and Elmpark.', 'Northwind and Elmpark.'], 6],
+    ['answers per competitor', [answer, answer, 'Northwind, Elmpark and Oakgrove.'], 9],
+  ])('withholds observed ratios below the %s floor', async (_case, texts, denominator) => {
+    seed(texts)
+    const body = await read()
+    expect(body).toMatchObject({ basis: 'observed', availability: 'not-measured', reason: 'insufficient-observed', project: { mentionCount: 3, shareOfVoice: null }, evidence: { mentionCredits: denominator } })
+  })
+  it('prioritizes selecting a class over the empty comparison set', async () => {
+    seed(['Northwind.'])
+    db.delete(domainClassifications).run()
+    const body = await read('', 'all')
+    expect(body).toMatchObject({ basis: null, availability: 'not-measured', reason: 'select-query-class', project: { mentionCount: 1, shareOfVoice: null } })
+  })
+  it('never promotes unclassified names into a denominator', async () => {
+    seed()
+    db.delete(domainClassifications).run()
+    const body = await read()
+    expect(body).toMatchObject({ basis: null, availability: 'not-measured', reason: 'no-competitors', project: { mentionCount: 3, shareOfVoice: null }, evidence: { mentionCredits: 3 } })
+    expect(body.observed).toEqual([])
+    expect(body.observedNames).toHaveLength(8)
+  })
+  it('applies the floor separately to model groups', async () => {
+    seed()
+    db.update(querySnapshots).set({ model: 'model-two' }).where(eq(querySnapshots.id, 'sov_2')).run()
+    const body = await read('&groupBy=model')
+    expect(body.project.shareOfVoice).toBe(25)
+    expect(body.modelComparison.groups.map((group: { availability: string; project: { shareOfVoice: number | null } }) => [group.availability, group.project.shareOfVoice])).toEqual([['not-measured', null], ['not-measured', null]])
+  })
+  it('keeps branded and non-brand answer floors and denominators separate', async () => {
+    seed([answer, answer, answer, answer, answer])
+    db.insert(queries).values({ id: 'branded-query', projectId: 'project_northwind', query: 'homes from Northwind', createdAt: NOW }).run()
+    for (const id of ['sov_0', 'sov_1', 'sov_2']) db.update(querySnapshots).set({ queryId: 'branded-query', queryText: 'homes from Northwind' }).where(eq(querySnapshots.id, id)).run()
+    const branded = await read('', 'branded')
+    expect(branded).toMatchObject({ availability: 'measured', project: { mentionCount: 3, shareOfVoice: 25 }, evidence: { mentionCredits: 12 } })
+    const nonBrand = await read()
+    expect(nonBrand).toMatchObject({ availability: 'not-measured', reason: 'insufficient-observed', project: { mentionCount: 2, shareOfVoice: null }, evidence: { mentionCredits: 2 } })
+  })
+  it('distinguishes a measured zero from a configured zero denominator', async () => {
+    seed(['Rival.', 'Rival.', 'Rival.'])
+    db.insert(competitors).values({ id: 'zero-pin', projectId: 'project_northwind', domain: 'rival.example', provenance: 'manual', createdAt: NOW }).run()
+    const measured = await read()
+    expect(measured).toMatchObject({ basis: 'tracked', availability: 'measured', project: { mentionCount: 0, shareOfVoice: 0 }, evidence: { mentionCredits: 3 } })
+    db.update(querySnapshots).set({ answerText: 'No named brands.' }).run()
+    const empty = await read()
+    expect(empty).toMatchObject({ basis: 'tracked', availability: 'not-measured', reason: 'no-mentions', project: { mentionCount: 0, shareOfVoice: null }, evidence: { mentionCredits: 0 } })
+  })
+  it.each(['&groupKey=regional', '&scope=all-markets'])('uses the observed fallback within the frozen Advanced scope (%s)', async (scope) => {
+    seed()
+    const plan = marketPlan('sov-node', 'temporary.example', 'Temporary')
+    plan.groups[0]!.competitors = []
+    plan.executionNodes[0]!.context.providers = ['openai', 'gemini', 'claude']
+    plan.executionNodes[0]!.expectedSnapshots = 3
+    seedVersion('sov-plan', 1, plan)
+    db.insert(measurementPlans).values({ projectId: 'project_northwind', activeVersionId: 'sov-plan', createdAt: NOW, updatedAt: NOW }).run()
+    db.update(runs).set({ measurementPlanVersionId: 'sov-plan' }).where(eq(runs.id, 'run_normal')).run()
+    db.update(queries).set({ query: 'homes near northwind' }).run()
+    db.update(querySnapshots).set({ provider: 'gemini' }).where(eq(querySnapshots.id, 'sov_1')).run()
+    db.update(querySnapshots).set({ provider: 'claude' }).where(eq(querySnapshots.id, 'sov_2')).run()
+    db.update(querySnapshots).set({ queryText: 'homes near northwind', measurementExecutionId: 'sov-node' }).run()
+    const body = await read(scope)
+    expect(body).toMatchObject({ basis: 'observed', availability: 'measured', project: { mentionCount: 3, shareOfVoice: 25 }, evidence: { mentionCredits: 12 } })
+    const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
+    expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
+    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
+    expect(report.statusCode, report.body).toBe(200)
+    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
+  })
+  it.each(['&groupKey=regional', '&scope=all-markets'])('preserves the frozen Advanced class and handles an empty set (%s)', async (scope) => {
+    seed(['Northwind.'])
+    db.delete(domainClassifications).run()
+    const plan = marketPlan('sov-node', 'temporary.example', 'Temporary')
+    plan.groups[0]!.competitors = []
+    seedVersion('sov-plan', 1, plan)
+    db.insert(measurementPlans).values({ projectId: 'project_northwind', activeVersionId: 'sov-plan', createdAt: NOW, updatedAt: NOW }).run()
+    db.update(runs).set({ measurementPlanVersionId: 'sov-plan' }).where(eq(runs.id, 'run_normal')).run()
+    // Text is branded, but the frozen assignment explicitly says non-brand.
+    db.update(queries).set({ query: 'homes near northwind' }).run()
+    db.update(querySnapshots).set({ queryText: 'homes near northwind', measurementExecutionId: 'sov-node' }).run()
+    const body = await read(scope)
+    expect(body).toMatchObject({ availability: 'not-measured', reason: 'no-competitors', project: { mentionCount: 1, shareOfVoice: null } })
+    const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
+    expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })
+    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
+    expect(report.statusCode, report.body).toBe(200)
+    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })
   })
 })
 

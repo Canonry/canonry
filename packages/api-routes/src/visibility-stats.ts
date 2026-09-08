@@ -1,7 +1,8 @@
+import { readCompetitorLandscape } from './competitor-landscape.js'
+import { activeMeasurementPlan } from './measurement-overview.js'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import {
   calendarMonthBounds,
   CitationStates,
@@ -19,7 +20,7 @@ import {
   type VisibilityStatsShareOfVoice,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { buildMentionShareInputs, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
+import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
 import { computeVisibilityCompare } from './visibility-compare.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
@@ -338,21 +339,17 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
     const queryAttribution = buildQueryAttribution(projectQueries)
 
     // Share of voice (opt-in) — how often the project's brand is named in answer
-    // text vs tracked competitors, across the SAME window of runs, via the
-    // shared buildMentionShare. Scoped to one query class (non-brand unless the
+    // text vs the selected competitor set, across the SAME window of runs,
+    // through the shared landscape reader. Scoped to one query class (non-brand unless the
     // caller asks otherwise); branded and non-brand never share a denominator.
     // Loads answerText only on this path so the default endpoint stays lean.
     let shareOfVoice: VisibilityStatsShareOfVoice | undefined
     if (wantShareOfVoice) {
-      const competitorRows = app.db
-        .select({ domain: competitors.domain })
-        .from(competitors)
-        .where(eq(competitors.projectId, project.id))
-        .all()
       const sovSnapshots =
         runIds.length > 0
           ? app.db
               .select({
+                id: querySnapshots.id,
                 queryId: querySnapshots.queryId,
                 queryText: querySnapshots.queryText,
                 answerMentioned: querySnapshots.answerMentioned,
@@ -363,42 +360,15 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
               .all()
           : []
       const attributedSovSnapshots = sovSnapshots.filter((s) => resolveCurrentQuery(queryAttribution, s) !== undefined)
-      const inputs = buildMentionShareInputs({
-        project,
-        competitorDomains: competitorRows.map((c) => c.domain),
-        snapshots: attributedSovSnapshots,
-        // Attribution prefers the current query row by id; classification must
-        // use that same text or a rename can put the stats row and its SoV row
-        // in different query classes.
-        queryTextById: new Map(projectQueries.map((q) => [q.id, q.query])),
+      const advanced = activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2
+      const queryClass = advanced || projectQueryClassifier(project) ? requestedQueryClass : 'all'
+      const landscape = readCompetitorLandscape(app, project.name, { window: 'all', queryClass }, {
+        runIds,
+        // Advanced assignment edges own attribution; Simple keeps the stats basket.
+        ...(advanced ? {} : { snapshotIds: attributedSovSnapshots.map(snapshot => snapshot.id) }),
+        autoAdvanced: true,
       })
-      const result = buildMentionShare(inputs.snapshots, {
-        competitors: inputs.competitors,
-        classificationAvailable: inputs.classified,
-      })
-      // An unclassifiable project (no usable brand alias) has no branded and no
-      // non-brand set to serve — it gets the pooled figure LABELLED pooled, for
-      // either request, rather than an empty branded breakdown or a non-brand
-      // claim its data cannot support.
-      const servedQueryClass = result.scope === 'pooled' ? 'pooled' as const : requestedQueryClass
-      // `branded` is the second breakdown the builder always returns, so asking
-      // for it costs one pass over the same snapshots rather than a second query.
-      const b = servedQueryClass === 'branded' ? result.branded : result.breakdown
-      const denom = b.projectMentionSnapshots + b.competitorMentionSnapshots
-      shareOfVoice = {
-        queryClass: servedQueryClass,
-        // `null` (not 0) when there is no competitive frame or nothing in the
-        // requested class was named. Both are undefined 0/0 proportions, not a
-        // competitive loss.
-        percent: competitorRows.length === 0 || denom === 0
-          ? null
-          : Math.round((b.projectMentionSnapshots / denom) * 100),
-        competitorCount: competitorRows.length,
-        projectMentions: b.projectMentionSnapshots,
-        competitorMentions: b.competitorMentionSnapshots,
-        snapshotsWithAnswerText: b.snapshotsWithAnswerText,
-        perCompetitor: b.perCompetitor.map((c) => ({ domain: c.domain, mentions: c.mentionSnapshots })),
-      }
+      shareOfVoice = shareOfVoiceFromLandscape(landscape, queryClass === 'all' ? 'pooled' : queryClass)
     }
 
     const response: VisibilityStatsDto = {

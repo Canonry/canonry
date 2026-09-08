@@ -1,3 +1,4 @@
+import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 
 /**
@@ -109,6 +110,8 @@ export type VisibilityStatsShareCompetitor = z.infer<typeof visibilityStatsShare
  * the missing frame from a configured 0/0 frame.
  */
 export const visibilityStatsShareOfVoiceSchema = z.object({
+  ...shareOfVoiceContextFields,
+  measurementScope: z.enum(['project', 'all-markets']).optional(),
   /**
    * Which class the figures cover. `pooled` appears only when the project has no
    * usable brand alias, so no split was possible — never as a default.

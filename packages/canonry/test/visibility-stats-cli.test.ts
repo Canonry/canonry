@@ -172,6 +172,19 @@ describe('showVisibilityStats', () => {
     expect(cap.text()).toContain('No answer-visibility snapshots')
   })
 
+  it('prints the API basis and availability beside the class-scoped figure', async () => {
+    const share = { basis: 'observed', availability: 'measured', reason: null, queryClass: 'non-brand', percent: 25, competitorCount: 3, projectMentions: 3, competitorMentions: 9, snapshotsWithAnswerText: 3, perCompetitor: [] }
+    mockGetVisibilityStats.mockResolvedValue({ ...data, shareOfVoice: share })
+    let output = captureOutput(() => showVisibilityStats('acme', { shareOfVoice: true }))
+    await output.run
+    expect(output.text()).toContain('Share of voice (non-brand queries): 25.0% · observed competitors')
+    mockGetVisibilityStats.mockResolvedValue({ ...data, shareOfVoice: { ...share, percent: null, availability: 'not-measured', reason: 'insufficient-observed' } })
+    output = captureOutput(() => showVisibilityStats('acme', { shareOfVoice: true }))
+    await output.run
+    expect(output.text()).toContain('Not measured · observed competitors')
+    expect(output.text()).toContain('Requires 3 observed competitors mentioned in at least 3 answers each.')
+  })
+
   it('distinguishes a missing competitor frame from a configured frame with no mentions', async () => {
     const share = {
       queryClass: 'non-brand' as const,

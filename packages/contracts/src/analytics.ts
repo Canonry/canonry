@@ -1,3 +1,4 @@
+import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { validationError } from './errors.js'
 import { measurementExecutionIdentitySchema } from './measurement-plan.js'
@@ -566,6 +567,9 @@ export const COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT = 50
 
 /** A measured provider/requested-model population, not an equal-weight or matched-query comparison. */
 export const competitorLandscapeModelGroupSchema = z.object({
+  ...shareOfVoiceContextFields,
+  comparison: z.array(z.object({ domain: z.string(), mentions: z.number().int().nonnegative() })).optional(),
+  observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
   provider: z.string().trim().min(1),
   /** Null preserves historical observations with unknown requested model identity. */
   model: modelIdSchema.nullable(),
@@ -592,6 +596,9 @@ export const competitorLandscapeModelComparisonSchema = z.object({
 export type CompetitorLandscapeModelComparison = z.infer<typeof competitorLandscapeModelComparisonSchema>
 
 export const competitorLandscapeResponseSchema = z.object({
+  ...shareOfVoiceContextFields,
+  comparison: z.array(z.object({ domain: z.string(), mentions: z.number().int().nonnegative() })).optional(),
+  observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
   window: metricsWindowSchema,
   scope: competitorLandscapeScopeSchema,
   project: competitorLandscapeRowSchema,

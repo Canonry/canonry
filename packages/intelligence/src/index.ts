@@ -43,3 +43,5 @@ export * from './suggested-queries.js'
 export * from './smoothed-delta.js'
 export * from './gbp-analyzer.js'
 export * from './conversion-tracking-integrity.js'
+
+export * from './share-of-voice-frame.js'

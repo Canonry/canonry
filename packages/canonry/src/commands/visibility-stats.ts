@@ -1,5 +1,7 @@
 import {
   formatRatio,
+  shareOfVoiceLabel,
+  shareOfVoiceReason,
   type VisibilityStatsDto,
   type VisibilityStatsCounts,
   type VisibilityCompareDto,
@@ -240,7 +242,7 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
   const sov = data.shareOfVoice
   if (sov) {
     console.log('')
-    const pctStr = sov.percent !== null
+    const pctStr = sov.availability !== undefined ? shareOfVoiceLabel(sov.percent, sov) : sov.percent !== null
       ? `${sov.percent}%`
       : sov.competitorCount === 0
         ? '— (no competitors configured)'
@@ -254,8 +256,9 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
       ? 'pooled queries · classification unavailable'
       : `${sov.queryClass} queries`
     console.log(
-      `Share of voice (${scope}): ${pctStr}  (you ${sov.projectMentions} vs competitors ${sov.competitorMentions} brand mentions across ${sov.snapshotsWithAnswerText} answers)`,
+      `Share of voice (${scope}${sov.measurementScope === 'all-markets' ? ' · all markets' : ''}): ${pctStr}  (you ${sov.projectMentions} vs competitors ${sov.competitorMentions} brand mentions across ${sov.snapshotsWithAnswerText} answers)`,
     )
+    if (sov.reason) console.log(`  ${shareOfVoiceReason(sov.reason)}`)
     if (sov.queryClass === 'non-brand') {
       console.log('  branded queries excluded on purpose — re-run with --query-class branded for brand recall')
     }

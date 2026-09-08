@@ -1533,3 +1533,38 @@ describe('formatLandingPageHtml', () => {
     expect(html).not.toContain('1 tracking params')
   })
 })
+
+test.each(['client', 'agency'] as const)('shows share of voice basis and the unmeasured reason in the %s report', (audience) => {
+  const report = emptyReport()
+  report.mentionLandscape.nonBrand.shareOfVoice = {
+    basis: 'observed', availability: 'measured', reason: null, queryClass: 'non-brand',
+    percent: 25, projectMentions: 3, competitorMentions: 9, competitorCount: 3,
+    snapshotsWithAnswerText: 3, perCompetitor: [],
+  }
+  report.mentionLandscape.branded.shareOfVoice = {
+    basis: null, availability: 'not-measured', reason: 'no-competitors', queryClass: 'branded',
+    percent: null, projectMentions: 34, competitorMentions: 0, competitorCount: 0,
+    snapshotsWithAnswerText: 34, perCompetitor: [],
+  }
+  const html = renderReportHtml(report, { audience })
+  expect(html).toContain('Share of voice · non-brand queries: 25.0% · observed competitors')
+  expect(html).toContain('Share of voice · branded queries: Not measured')
+  expect(html).toContain('No competitors configured.')
+  expect(html).not.toContain('100.0%')
+})
+
+test('does not call an observed comparison below the floor a zero denominator', () => {
+  const report = emptyReport()
+  report.mentionLandscape.competitors = ['rival-one.example', 'rival-two.example'].map(domain => ({
+    domain, mentionCount: 3, totalCount: 3, mentionedQueries: [], pressureLabel: 'High', sharePct: null,
+  }))
+  report.mentionLandscape.nonBrand.shareOfVoice = {
+    basis: 'observed', availability: 'not-measured', reason: 'insufficient-observed', queryClass: 'non-brand',
+    percent: null, projectMentions: 0, competitorMentions: 6, competitorCount: 2,
+    snapshotsWithAnswerText: 3, perCompetitor: report.mentionLandscape.competitors.map(row => ({ domain: row.domain, mentions: 3 })),
+  }
+  Object.assign(report.mentionLandscape, report.mentionLandscape.nonBrand, { competitors: report.mentionLandscape.competitors })
+  const html = renderReportHtml(report, { audience: 'agency' })
+  expect(html).toContain('Requires 3 observed competitors mentioned in at least 3 answers each.')
+  expect(html).not.toContain('denominator is 0')
+})

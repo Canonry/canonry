@@ -1,3 +1,4 @@
+import { shareOfVoiceLabel, shareOfVoiceReason, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 import { useId, useState, type KeyboardEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto } from '@ainyc/canonry-contracts'
@@ -32,9 +33,6 @@ function queryClassNote(queryClass: CompetitorLandscapeResponse['filters']['quer
   }
 }
 
-function formatShare(share: number | null): string {
-  return share === null ? 'Not measured' : `${share.toFixed(1)}%`
-}
 
 type MetricAvailability = 'measured' | 'not-measured' | 'unavailable'
 
@@ -117,6 +115,7 @@ function LandscapeRow({
   row,
   isProject = false,
   metricState = 'measured',
+  shareContext,
   canManage,
   onPin,
   onUnpin,
@@ -124,6 +123,7 @@ function LandscapeRow({
   row: CompetitorLandscapeRow
   isProject?: boolean
   metricState?: MetricAvailability
+  shareContext?: Partial<ShareOfVoiceContext>
   canManage: boolean
   onPin?: CompetitorMutation
   onUnpin?: CompetitorMutation
@@ -160,7 +160,7 @@ function LandscapeRow({
         {isProject ? <span className="ml-1 text-secondary">(you)</span> : null}
       </th>
       <td className="text-secondary">{isProject ? 'Your brand' : sourceClassLabel(row.surfaceClass)}</td>
-      <td className="tabular-nums text-strong">{metricsAvailable ? formatShare(row.shareOfVoice) : unavailableMetricLabel(metricState)}</td>
+      <td className="tabular-nums text-strong">{metricsAvailable ? shareOfVoiceLabel(row.shareOfVoice, shareContext) : unavailableMetricLabel(metricState)}</td>
       <td className="tabular-nums text-secondary">{metricsAvailable ? row.mentionCount : unavailableMetricLabel(metricState)}</td>
       <td className="tabular-nums text-secondary">{metricsAvailable ? row.citationCount : unavailableMetricLabel(metricState)}</td>
       <td className="text-right">
@@ -204,10 +204,12 @@ function GroupHeading({ children }: { children: string }) {
 
 function ObservedCompetitors({
   rows,
+  shareContext,
   canManage,
   onPin,
 }: {
   rows: readonly CompetitorLandscapeRow[]
+  shareContext?: Partial<ShareOfVoiceContext>
   canManage: boolean
   onPin?: CompetitorMutation
 }) {
@@ -218,7 +220,7 @@ function ObservedCompetitors({
     <tbody>
       <GroupHeading>Observed in this window</GroupHeading>
       {visibleRows.map(row => (
-        <LandscapeRow key={row.domain} row={{ ...row, pinned: false }} canManage={canManage} onPin={onPin} />
+        <LandscapeRow key={row.domain} row={{ ...row, pinned: false }} shareContext={shareContext} canManage={canManage} onPin={onPin} />
       ))}
       {rows.length > OBSERVED_PREVIEW_LIMIT ? (
         <tr>
@@ -348,6 +350,7 @@ export function CompetitorLandscape({
           <h2 id="competitor-landscape-title">Competitor landscape</h2>
           {scopeLabel ? <p className="supporting-copy mt-1">{scopeLabel}</p> : null}
           {landscape ? <p className="supporting-copy mt-1">{queryClassNote(landscape.filters?.queryClass)}</p> : null}
+          {landscape?.reason ? <p className="mt-1 text-sm text-secondary">{shareOfVoiceReason(landscape.reason)}</p> : null}
         </div>
         <WindowControl value={window} onChange={onWindowChange} />
       </div>
@@ -382,18 +385,18 @@ export function CompetitorLandscape({
                 {landscape ? (
                   <>
                     <GroupHeading>You</GroupHeading>
-                    <LandscapeRow row={landscape.project} isProject metricState={metricState} canManage={false} />
+                    <LandscapeRow row={landscape.project} shareContext={landscape} isProject metricState={metricState} canManage={false} />
                   </>
                 ) : null}
                 <GroupHeading>Pinned</GroupHeading>
                 {pinned.length > 0 ? pinned.map(row => (
-                  <LandscapeRow key={row.domain} row={{ ...row, pinned: true }} metricState={metricState} canManage={canManage} onUnpin={onUnpin} />
+                  <LandscapeRow key={row.domain} row={{ ...row, pinned: true }} shareContext={landscape} metricState={metricState} canManage={canManage} onUnpin={onUnpin} />
                 )) : (
                   <tr><td colSpan={6} className="text-secondary">No pinned competitors.</td></tr>
                 )}
               </tbody>
               {landscape && observed.length > 0 ? (
-                <ObservedCompetitors
+                <ObservedCompetitors shareContext={landscape}
                   // Refreshes and pin changes keep the operator's choice. A new
                   // project, window, or measurement scope starts compact again.
                   key={JSON.stringify([window, landscape.project.domain, landscape.scope, landscape.filters])}
@@ -445,6 +448,13 @@ export function CompetitorLandscape({
             </p>
           ) : null}
 
+          {(landscape?.observedNames?.length ?? 0) > 0 ? (
+            <details className="inline-disclosure text-sm text-secondary">
+              <summary>Names observed in answers</summary>
+              <p>Names are observations. Only classified competitor domains enter share of voice.</p>
+              <ul>{landscape?.observedNames?.map(row => <li key={row.name}>{row.name} · {row.answerCount} answers</li>)}</ul>
+            </details>
+          ) : null}
           {otherSources.length > 0 ? (
             <details className="inline-disclosure">
               <summary>Other observed sources ({otherSources.length})</summary>

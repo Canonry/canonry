@@ -27,8 +27,8 @@ import {
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
 import { buildCompetitorLandscapeHistory, type CompetitorLandscapeIdentity, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
-import { resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
-import { projectQueryClassifier } from './mention-share-inputs.js'
+import { resolveProject } from './helpers.js'
+import { buildMentionShareInputs, observedCompetitorNames, projectQueryClassifier } from './mention-share-inputs.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 import { classifyModelEvidence } from './model-evidence.js'
@@ -77,13 +77,25 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: RawQuery
-  }>('/projects/:name/analytics/competitors', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
-    const parsed = competitorLandscapeQuerySchema.safeParse(request.query)
+  }>('/projects/:name/analytics/competitors', async (request) => {
+    return readCompetitorLandscape(app, request.params.name, request.query)
+  })
+}
+
+/** Internal readers may pin a run/answer population without changing scope rules. */
+export function readCompetitorLandscape(
+  app: Pick<FastifyInstance, 'db'>,
+  projectName: string,
+  query: RawQuery,
+  selection?: { runIds: readonly string[]; snapshotIds?: readonly string[]; autoAdvanced?: boolean },
+): CompetitorLandscapeResponse {
+    const project = resolveProject(app.db, projectName)
+    const parsed = competitorLandscapeQuerySchema.safeParse(query)
     if (!parsed.success) {
       throw validationError('Invalid competitor landscape query', { issues: parsed.error.issues })
     }
     const filters = parsed.data
+    if (selection?.autoAdvanced && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
     const cutoff = windowCutoff(window)
 
@@ -93,6 +105,7 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
     const candidateRuns = app.db.select().from(runs).where(and(
       eq(runs.projectId, project.id),
       eq(runs.kind, RunKinds['answer-visibility']),
+      selection ? inArray(runs.id, [...selection.runIds]) : undefined,
       filters.runId ? eq(runs.id, filters.runId) : undefined,
       cutoff ? gte(runs.createdAt, cutoff) : undefined,
     )).all()
@@ -127,6 +140,7 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
         servedModel: querySnapshots.servedModel,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
+        recommendedCompetitors: querySnapshots.recommendedCompetitors,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
         captureStatus: querySnapshots.captureStatus,
@@ -136,7 +150,8 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
       }).from(querySnapshots).where(inArray(querySnapshots.runId, candidateRuns.map(run => run.id))).all()
 
     const runById = new Map(candidateRuns.map(run => [run.id, run]))
-    const inScope = allSnapshots.filter(snapshot => snapshotMatchesFilters({
+    const selectedIds = selection?.snapshotIds ? new Set(selection.snapshotIds) : null
+    const inScope = allSnapshots.filter(snapshot => (!selectedIds || selectedIds.has(snapshot.id)) && snapshotMatchesFilters({
       snapshot,
       filters,
       advanced,
@@ -185,28 +200,33 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
         aliases: [],
       }))
     const pinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
-    const buildHistory = (selectedSnapshots: typeof snapshots) => buildCompetitorLandscapeHistory({
-      project: {
-        domain: project.canonicalDomain,
-        label: project.displayName,
-        domains: [project.canonicalDomain, ...(project.ownedDomains ?? [])],
-      },
-      pinned,
-      classifications,
-      // Share of voice needs one query class behind it. `all` pools branded and
-      // non-brand, where a brand wins its own name by definition, so the ratio
-      // is withheld and only the counts are published.
-      shareOfVoiceEligible: filters.queryClass !== undefined && filters.queryClass !== 'all',
-      snapshots: selectedSnapshots.map(snapshot => ({
-        id: snapshot.id,
-        createdAt: snapshot.createdAt,
-        answerText: snapshot.answerText,
-        projectMentioned: resolveSnapshotAnswerMentioned(snapshot, project),
-        citedDomains: snapshot.citedDomains,
-        citedUrls: snapshot.citedUrls,
-        ...(advanced ? { frozenCompetitors: advanced.runScopes.get(snapshot.runId)?.competitors ?? [] } : {}),
-      })),
-    })
+    const buildHistory = (selectedSnapshots: typeof snapshots) => {
+      const inputs = buildMentionShareInputs({ project, competitorDomains: [], snapshots: selectedSnapshots, queryTextById })
+      return {
+        observedNames: observedCompetitorNames(selectedSnapshots),
+        ...buildCompetitorLandscapeHistory({
+          project: {
+            domain: project.canonicalDomain,
+            label: project.displayName,
+            domains: [project.canonicalDomain, ...(project.ownedDomains ?? [])],
+          },
+          pinned,
+          classifications,
+          // Share of voice needs one query class behind it. `all` pools branded
+          // and non-brand, so withhold the ratio and publish the counts instead.
+          shareOfVoiceEligible: filters.queryClass !== undefined && filters.queryClass !== 'all',
+          snapshots: selectedSnapshots.map((snapshot, i) => ({
+            id: snapshot.id,
+            createdAt: snapshot.createdAt,
+            answerText: snapshot.answerText,
+            projectMentioned: inputs.snapshots[i]!.projectMentioned,
+            citedDomains: snapshot.citedDomains,
+            citedUrls: snapshot.citedUrls,
+            ...(advanced ? { frozenCompetitors: advanced.runScopes.get(snapshot.runId)?.competitors ?? [] } : {}),
+          })),
+        }),
+      }
+    }
     const history = buildHistory(snapshots)
     const countIncompleteSources = (selectedSnapshots: typeof snapshots) => selectedSnapshots.filter(snapshot => (
       (snapshot.citedDomains.length > 0 || (snapshot.citedUrls?.length ?? 0) > 0)
@@ -312,12 +332,11 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
       truncated,
       ...(modelComparison ? { modelComparison } : {}),
     }
-    return reply.send(response)
-  })
+    return response
 }
 
 function resolveAdvancedScope(
-  app: FastifyInstance,
+  app: Pick<FastifyInstance, 'db'>,
   projectId: string,
   kind: AdvancedScope['kind'],
   groupKey: string | undefined,

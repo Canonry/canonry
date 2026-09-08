@@ -356,6 +356,13 @@ describe('mentionLandscape', () => {
       projectMentionCount: landscape.projectMentionCount,
       totalAnswerSnapshots: landscape.totalAnswerSnapshots,
       competitors: landscape.competitors,
+      shareOfVoice: {
+        basis: 'tracked', availability: 'measured', reason: null,
+        measurementScope: 'project', queryClass: 'non-brand', percent: 0,
+        competitorCount: 1, projectMentions: 0, competitorMentions: 1,
+        snapshotsWithAnswerText: 1,
+        perCompetitor: [{ domain: 'rival-a.com', mentions: 1 }],
+      },
     })
     const rival = landscape.competitors.find(c => c.domain === 'rival-a.com')!
     expect(rival.mentionCount).toBe(1)
@@ -365,6 +372,12 @@ describe('mentionLandscape', () => {
     expect(landscape.branded.projectMentionCount).toBe(1)
     expect(landscape.branded.totalAnswerSnapshots).toBe(1)
     expect(landscape.branded.competitors.find(c => c.domain === 'rival-a.com')!.mentionCount).toBe(0)
+    expect(landscape.branded.shareOfVoice).toEqual({
+      basis: 'tracked', availability: 'measured', reason: null,
+      measurementScope: 'project', queryClass: 'branded', percent: 100,
+      competitorCount: 1, projectMentions: 1, competitorMentions: 0,
+      snapshotsWithAnswerText: 1, perCompetitor: [],
+    })
 
     // The classes partition: neither section counts the other's snapshot.
     expect(landscape.totalAnswerSnapshots + landscape.branded.totalAnswerSnapshots).toBe(2)

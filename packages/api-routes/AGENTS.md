@@ -201,6 +201,13 @@ Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProvider
 
 ### Historical competitor landscapes
 
+- Share of voice returns `basis`, `availability`, `reason`, and the uncapped
+  `comparison` domain/count set. Pins are exclusive; observed direct identities
+  are a fallback requiring 3 rivals with 3 answer mentions each in the selected
+  scope. Empty sets never produce a percentage. Raw `observedNames` remain
+  descriptive only. Stats and report shares call `readCompetitorLandscape` with
+  their selected run population; Advanced readers retain frozen assignments.
+
 - `GET /projects/:name/analytics/competitors` is a stored-evidence read. It
   must never start discovery, classify a domain live, call a provider, or write.
 - Include only completed/partial answer-visibility snapshots; count excluded

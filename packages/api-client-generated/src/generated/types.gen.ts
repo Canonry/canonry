@@ -2152,6 +2152,17 @@ export type CompetitorDto = {
 };
 
 export type CompetitorLandscapeResponse = {
+    basis?: 'tracked' | 'observed';
+    availability?: 'measured' | 'not-measured' | 'unavailable';
+    reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+    comparison?: Array<{
+        domain: string;
+        mentions: number;
+    }>;
+    observedNames?: Array<{
+        name: string;
+        answerCount: number;
+    }>;
     window: '7d' | '30d' | '90d' | 'all';
     scope: {
         kind: 'project';
@@ -2225,6 +2236,17 @@ export type CompetitorLandscapeResponse = {
     modelComparison?: {
         basis: 'requested-model';
         groups: Array<{
+            basis?: 'tracked' | 'observed';
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+            comparison?: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+            observedNames?: Array<{
+                name: string;
+                answerCount: number;
+            }>;
             provider: string;
             model: string | null;
             servedModels: {
@@ -9009,6 +9031,22 @@ export type ProjectReportDto = {
         }>;
     };
     mentionLandscape: {
+        shareOfVoice?: {
+            basis?: 'tracked' | 'observed';
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
         projectMentionCount: number;
         totalAnswerSnapshots: number;
         competitors: Array<{
@@ -9021,6 +9059,22 @@ export type ProjectReportDto = {
         }>;
         scope: 'non-brand' | 'pooled';
         nonBrand: {
+            shareOfVoice?: {
+                basis?: 'tracked' | 'observed';
+                availability?: 'measured' | 'not-measured' | 'unavailable';
+                reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+                measurementScope?: 'project' | 'all-markets';
+                queryClass: 'branded' | 'non-brand' | 'pooled';
+                percent: number | null;
+                competitorCount: number;
+                projectMentions: number;
+                competitorMentions: number;
+                snapshotsWithAnswerText: number;
+                perCompetitor: Array<{
+                    domain: string;
+                    mentions: number;
+                }>;
+            };
             projectMentionCount: number;
             totalAnswerSnapshots: number;
             competitors: Array<{
@@ -9033,6 +9087,22 @@ export type ProjectReportDto = {
             }>;
         };
         branded: {
+            shareOfVoice?: {
+                basis?: 'tracked' | 'observed';
+                availability?: 'measured' | 'not-measured' | 'unavailable';
+                reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+                measurementScope?: 'project' | 'all-markets';
+                queryClass: 'branded' | 'non-brand' | 'pooled';
+                percent: number | null;
+                competitorCount: number;
+                projectMentions: number;
+                competitorMentions: number;
+                snapshotsWithAnswerText: number;
+                perCompetitor: Array<{
+                    domain: string;
+                    mentions: number;
+                }>;
+            };
             projectMentionCount: number;
             totalAnswerSnapshots: number;
             competitors: Array<{
@@ -11265,6 +11335,10 @@ export type VisibilityStatsDto = {
         }>;
     }>;
     shareOfVoice?: {
+        basis?: 'tracked' | 'observed';
+        availability?: 'measured' | 'not-measured' | 'unavailable';
+        reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+        measurementScope?: 'project' | 'all-markets';
         queryClass: 'branded' | 'non-brand' | 'pooled';
         percent: number | null;
         competitorCount: number;
