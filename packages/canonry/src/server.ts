@@ -52,6 +52,7 @@ import {
   RunStatuses,
   RunTriggers,
   ResearchRunStatuses,
+  DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
   adsAccountDtoSchema,
   adsGeoSearchResponseSchema,
   adsConversionPixelListResponseSchema,
@@ -301,6 +302,13 @@ function parseBooleanEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
+function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized || !/^\d+$/.test(normalized)) return undefined;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function resolveDashboardRequirePassword(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
   return parseBooleanEnv(env.CANONRY_DASHBOARD_REQUIRE_PASSWORD)
     ?? config.dashboard?.requirePassword
@@ -317,6 +325,18 @@ function resolveDashboardManagedSweeps(env: NodeJS.ProcessEnv, config: CanonryCo
   return parseBooleanEnv(env.CANONRY_DASHBOARD_MANAGED_SWEEPS)
     ?? config.dashboard?.managedSweeps
     ?? false;
+}
+
+function resolveResearchAllowViewers(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_RESEARCH_ALLOW_VIEWERS)
+    ?? config.research?.allowViewers
+    ?? false;
+}
+
+function resolveResearchViewerDailyRunLimit(env: NodeJS.ProcessEnv, config: CanonryConfig): number {
+  return parsePositiveIntegerEnv(env.CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT)
+    ?? config.research?.viewerDailyRunLimit
+    ?? DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT;
 }
 
 function resolveDashboardShowUpdateNotification(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
@@ -2100,6 +2120,8 @@ export async function createServer(opts: {
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardManagedSweeps = resolveDashboardManagedSweeps(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
+  const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
+  const researchViewerDailyRunLimit = resolveResearchViewerDailyRunLimit(process.env, opts.config);
   app.log.info(
     { dashboardRequirePassword },
     "Dashboard password gate resolved",
@@ -2534,6 +2556,8 @@ export async function createServer(opts: {
     // was previously reachable only from tests, so a source losing ground could
     // not be rescued without shipping code. Unset keeps the built-in default.
     vercelSyncDeadlineMs: resolveVercelSyncDeadlineMs(process.env),
+    researchAllowViewers,
+    researchViewerDailyRunLimit,
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     credentials: credentialChecker,
@@ -3286,6 +3310,15 @@ export async function createServer(opts: {
       }
       if (Object.keys(dashboardConfig).length > 0) {
         clientConfig.dashboard = dashboardConfig;
+      }
+      // Research is a paid capability for viewers, so advertise only an active
+      // opt-in. With the flag absent or false, the injected config remains
+      // byte-for-byte identical to earlier releases.
+      if (researchAllowViewers) {
+        clientConfig.research = {
+          allowViewers: true,
+          viewerDailyRunLimit: researchViewerDailyRunLimit,
+        };
       }
       // Embed block is appended LAST and only when enabled, so the default
       // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.

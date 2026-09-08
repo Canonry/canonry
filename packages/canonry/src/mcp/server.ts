@@ -66,7 +66,7 @@ Two signals, never interchangeable:
 - cited = the domain appears in the SOURCE links behind the answer.
 A model can do either, both or neither. Never compute one from the other, and never report a number for one under the other's name.
 
-Sweeps and probes spend provider quota and write rows. Get explicit approval before any run, apply, or other mutation.
+Sweeps, probes, and research runs spend provider quota and write rows. Get explicit approval before any run, apply, or other mutation.
 
 Most reads are free. Five ads reads are NOT: canonry_ads_account, canonry_ads_geo_search, canonry_ads_live_delivery, canonry_ads_conversion_pixels and canonry_ads_conversion_event_settings call the provider live and spend against the advertiser account. They are marked read, so nothing in the tool list warns you. Get approval for those exactly as for a mutation.
 

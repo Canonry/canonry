@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 
-import { createClient, migrate, MIGRATION_VERSIONS, projects, researchRunQueries, researchRuns } from '../src/index.js'
+import { createClient, migrate, MIGRATION_VERSIONS, projects, researchRunQueries } from '../src/index.js'
 
 const cleanups: string[] = []
 afterEach(() => cleanups.splice(0).forEach(dir => fs.rmSync(dir, { recursive: true, force: true })))
@@ -16,7 +16,13 @@ test('v110 adds empty named/cited competitor signals without changing existing r
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 109))
   db.insert(projects).values({ id: 'project', name: 'project', displayName: 'Project', canonicalDomain: 'project.example', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
-  db.insert(researchRuns).values({ id: 'run', projectId: 'project', status: 'completed', provider: 'openai', resolvedModel: 'gpt-5-mini', totalQueries: 1, completedQueries: 1, createdAt: now }).run()
+  // Use the historical physical shape because current Drizzle also knows
+  // about fields added after v109 (including v151 principal attribution).
+  db.$client.prepare(`INSERT INTO research_runs (
+    id, project_id, status, provider, resolved_model,
+    total_queries, completed_queries, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run('run', 'project', 'completed', 'openai', 'gpt-5-mini', 1, 1, now)
   // Use the pre-v110 physical shape rather than Drizzle's current schema,
   // which correctly includes the columns that this migration will add.
   db.$client.prepare(`INSERT INTO research_run_queries (

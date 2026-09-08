@@ -2811,6 +2811,12 @@ export type ResearchRunDetailDto = {
     completedQueries: number;
     failedQueries: number;
     error: string | null;
+    initiatedBy: {
+        kind: 'api-key' | 'user';
+        id: string;
+        name: string;
+        role: 'admin' | 'viewer';
+    } | null;
     startedAt: string | null;
     finishedAt: string | null;
     createdAt: string;
@@ -2859,6 +2865,12 @@ export type ResearchRunListDto = {
         completedQueries: number;
         failedQueries: number;
         error: string | null;
+        initiatedBy: {
+            kind: 'api-key' | 'user';
+            id: string;
+            name: string;
+            role: 'admin' | 'viewer';
+        } | null;
         startedAt: string | null;
         finishedAt: string | null;
         createdAt: string;
@@ -14817,6 +14829,10 @@ export type PostApiV1ProjectsByNameResearchRunsErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Paid research was not granted to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -14828,6 +14844,10 @@ export type PostApiV1ProjectsByNameResearchRunsErrors = {
      * Research executor is unavailable on this deployment.
      */
     422: ErrorEnvelope;
+    /**
+     * The viewer reached the per-project UTC-day research limit.
+     */
+    429: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameResearchRunsError = PostApiV1ProjectsByNameResearchRunsErrors[keyof PostApiV1ProjectsByNameResearchRunsErrors];

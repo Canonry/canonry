@@ -9,7 +9,7 @@ import {
   type ResearchRunStatus,
 } from '@ainyc/canonry-contracts'
 
-import { heyClient, isEmbed } from '../../api.js'
+import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
@@ -34,12 +34,15 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
 export function ResearchQueriesSection({
   projectName,
   onReviewForTracking,
+  viewerResearchConfig = null,
 }: {
   projectName: string
   onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+  viewerResearchConfig?: ViewerResearchConfig | null
 }) {
   const queryClient = useQueryClient()
-  const { canWrite } = useAccount()
+  const { account, canWrite } = useAccount()
+  const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
   const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
@@ -54,6 +57,7 @@ export function ResearchQueriesSection({
   })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
+    enabled: !isViewerResearch,
     staleTime: 60_000,
   })
   const runsQuery = useQuery({
@@ -110,16 +114,22 @@ export function ResearchQueriesSection({
   const resolvedModel = (configurableModel ? model.trim() : '')
     || (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '')
     || selectedProvider?.catalog.defaultModel
-  const payload = selectedProvider && selectedLocation !== undefined && resolvedModel ? {
-    queries: submittedQueries,
-    provider: selectedProvider.name,
-    ...(configurableModel ? { model: resolvedModel } : {}),
-    location: selectedLocation,
-  } : null
+  const payload = selectedLocation === undefined
+    ? null
+    : isViewerResearch
+      ? { queries: submittedQueries, location: selectedLocation }
+      : selectedProvider && resolvedModel
+        ? {
+            queries: submittedQueries,
+            provider: selectedProvider.name,
+            ...(configurableModel ? { model: resolvedModel } : {}),
+            location: selectedLocation,
+          }
+        : null
   const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
-  const canSubmit = canWrite && !isEmbed() && payload !== null
+  const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
     && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
-    && !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching
+    && (isViewerResearch || (!settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching))
     && submittedQueries.length > 0 && submittedQueries.length <= 50
 
   useEffect(() => {
@@ -194,19 +204,21 @@ export function ResearchQueriesSection({
               </span>
             </label>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block" htmlFor="research-provider">
-                <span className="text-xs font-medium text-secondary">API provider</span>
-                <select
-                  id="research-provider"
-                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                  value={provider}
-                  onChange={(event) => { setProvider(event.target.value); setModel('') }}
-                >
-                  <option value="" disabled>Choose a provider</option>
-                  {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
-                </select>
-              </label>
+            <div className={`grid gap-3 ${isViewerResearch ? '' : 'sm:grid-cols-2'}`}>
+              {!isViewerResearch ? (
+                <label className="block" htmlFor="research-provider">
+                  <span className="text-xs font-medium text-secondary">API provider</span>
+                  <select
+                    id="research-provider"
+                    className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                    value={provider}
+                    onChange={(event) => { setProvider(event.target.value); setModel('') }}
+                  >
+                    <option value="" disabled>Choose a provider</option>
+                    {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
+                  </select>
+                </label>
+              ) : null}
               <label className="block" htmlFor="research-location">
                 <span className="text-xs font-medium text-secondary">Location</span>
                 <select
@@ -222,7 +234,7 @@ export function ResearchQueriesSection({
               </label>
             </div>
 
-            <label className="block" htmlFor="research-model">
+            {!isViewerResearch ? <label className="block" htmlFor="research-model">
               <span className="text-xs font-medium text-secondary">Exact model <span className="font-normal text-muted">(optional)</span></span>
               <input
                 id="research-model"
@@ -236,26 +248,26 @@ export function ResearchQueriesSection({
               <datalist id="research-known-models">
                 {(selectedProvider?.catalog.knownModels ?? []).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               </datalist>
-            </label>
+            </label> : null}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
-              {!isEmbed() && (
-                <WriteButton
-                  type="button"
-                  size="sm"
-                  disabled={!canSubmit || researchMutation.isPending}
-                  onClick={submitResearch}
-                >
+              {!isEmbed() && (isViewerResearch ? (
+                <Button type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
+                  <Play size={14} />
+                  {researchMutation.isPending ? 'Starting research…' : `Run ${submittedQueries.length || ''} research ${submittedQueries.length === 1 ? 'query' : 'queries'}`}
+                </Button>
+              ) : (
+                <WriteButton type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
                   <Play size={14} />
                   {researchMutation.isPending ? 'Starting research…' : `Run ${submittedQueries.length || ''} research ${submittedQueries.length === 1 ? 'query' : 'queries'}`}
                 </WriteButton>
-              )}
+              ))}
               <p className="text-xs leading-5 text-muted">Saved to research history. Nothing is added to tracked queries.</p>
             </div>
-            {payload ? <p className="text-xs text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p> : null}
-            {settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+            {isViewerResearch ? <p className="text-xs text-secondary">{viewerResearchConfig.viewerDailyRunLimit} research runs per project each day.</p> : payload && 'provider' in payload ? <p className="text-xs text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p> : null}
+            {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
             {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-            {!settingsQuery.isError && noConfiguredApiProviders && (
+            {!isViewerResearch && !settingsQuery.isError && noConfiguredApiProviders && (
               <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
                 Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.
               </p>

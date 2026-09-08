@@ -16,7 +16,7 @@ const { RESEARCH_CLI_COMMANDS } = await import('../src/cli-commands/research.js'
 const detail: ResearchRunDetailDto = {
   id: 'research-1', projectId: 'proj-1', status: 'completed', provider: 'openai', requestedModel: null,
   resolvedModel: 'gpt-test', location: null, totalQueries: 1, completedQueries: 1, failedQueries: 0,
-  error: null, startedAt: null, finishedAt: null, createdAt: '2026-07-23T00:00:00Z',
+  error: null, initiatedBy: null, startedAt: null, finishedAt: null, createdAt: '2026-07-23T00:00:00Z',
   queries: [{
     id: 'query-1', position: 0, query: 'best AEO software', status: 'completed', requestedModel: null,
     resolvedModel: 'gpt-test', servedModel: 'gpt-test', answerText: 'A useful answer.',

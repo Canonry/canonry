@@ -4068,6 +4068,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         END`,
     ],
   },
+  {
+    version: 151,
+    name: 'research-run-principal-attribution',
+    statements: [
+      `ALTER TABLE research_runs ADD COLUMN initiated_by TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

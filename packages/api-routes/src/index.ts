@@ -324,6 +324,10 @@ export interface ApiRoutesOptions {
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
   /** Executes an isolated research batch. Never creates a tracked run or query snapshots. */
   onResearchRunRequested?: ResearchRoutesOptions['onResearchRunRequested']
+  /** Allow signed-in viewers to run paid research queries. Defaults to false. */
+  researchAllowViewers?: boolean
+  /** Viewer-created research runs allowed per project and UTC day. Defaults to 20. */
+  researchViewerDailyRunLimit?: number
   /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
@@ -701,6 +705,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerAdapters: opts.providerAdapters,
       configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
       onResearchRunRequested: opts.onResearchRunRequested,
+      allowViewers: opts.researchAllowViewers,
+      viewerDailyRunLimit: opts.researchViewerDailyRunLimit,
     } satisfies ResearchRoutesOptions)
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
@@ -735,7 +741,7 @@ export type { DatabaseClient } from '@ainyc/canonry-db'
 // auth layer uses, so it is exported rather than reimplemented.
 export { anyUsersExist, createCredentialChecker, createUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
-export { requireAdminSession, requireBroadInstanceKey, requirePaidReadScope } from './auth.js'
+export { requireAdminSession, requireBroadInstanceKey, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
 // How a host decides which proxy hops may be believed about who is calling.
 export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trust-proxy.js'

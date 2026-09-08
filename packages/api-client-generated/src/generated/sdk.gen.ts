@@ -1325,7 +1325,7 @@ export const getApiV1ProjectsByNameResearchRuns = <ThrowOnError extends boolean 
 /**
  * Start an isolated research query batch
  *
- * Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications.
+ * Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.
  */
 export const postApiV1ProjectsByNameResearchRuns = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameResearchRunsData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameResearchRunsResponses, PostApiV1ProjectsByNameResearchRunsErrors, ThrowOnError>({

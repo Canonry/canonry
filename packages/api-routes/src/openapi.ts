@@ -1602,10 +1602,10 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/research/runs',
     summary: 'Start an isolated research query batch',
-    description: 'Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications.',
+    description: 'Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.',
     tags: ['research'], parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchRunCreate' } } } },
-    responses: { 200: jsonResponse('Idempotent request returned its existing research run.', 'ResearchRunDetailDto'), 202: jsonResponse('Research batch queued.', 'ResearchRunDetailDto'), 400: errorResponse('Invalid provider, model, location, or request.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key was reused with a different payload.'), 422: errorResponse('Research executor is unavailable on this deployment.') },
+    responses: { 200: jsonResponse('Idempotent request returned its existing research run.', 'ResearchRunDetailDto'), 202: jsonResponse('Research batch queued.', 'ResearchRunDetailDto'), 400: errorResponse('Invalid provider, model, location, or request.'), 403: errorResponse('Paid research was not granted to this principal.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key was reused with a different payload.'), 422: errorResponse('Research executor is unavailable on this deployment.'), 429: errorResponse('The viewer reached the per-project UTC-day research limit.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/query-tracking', summary: 'Read tracked queries and their assignments', tags: ['queries'],

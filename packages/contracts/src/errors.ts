@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'MEASUREMENT_IDEMPOTENCY_KEY_REQUIRED'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
   | 'QUERY_TRACKING_PREVIEW_STALE'
+  | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -85,6 +86,19 @@ export function forbidden(message = 'Forbidden', details?: Record<string, unknow
 
 export function quotaExceeded(metric: string, details?: Record<string, unknown>): AppError {
   return new AppError('QUOTA_EXCEEDED', `Quota exceeded for ${metric}`, 429, details)
+}
+
+export function researchDailyLimitExceeded(
+  projectName: string,
+  limit: number,
+  date: string,
+): AppError {
+  return new AppError(
+    'RESEARCH_DAILY_LIMIT_EXCEEDED',
+    `The viewer research run limit for this project has been reached today (${limit}). Try again tomorrow or ask an administrator.`,
+    429,
+    { projectName, limit, date },
+  )
 }
 
 export function providerError(message: string, details?: Record<string, unknown>): AppError {

@@ -145,6 +145,16 @@ declare module 'fastify' {
     readSemantic?: boolean
 
     /**
+     * This route performs a paid read for a signed-in person.
+     *
+     * It may call a provider and persist the returned evidence, so it is NOT a
+     * `readSemantic` route. This marker only lets the request reach the route's
+     * explicit paid-read gate; it grants nothing by itself. API keys remain
+     * subject to the method-based read-only gate.
+     */
+    paidRead?: boolean
+
+    /**
      * This route's POST is a PROTOCOL ENVELOPE, not an operation.
      *
      * A JSON-RPC transport (MCP over Streamable HTTP) carries every message —
@@ -173,6 +183,11 @@ function principalScopes(request: FastifyRequest): string[] | undefined {
 /** True when the route this request landed on declared itself a pure read. */
 function isReadSemanticRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.readSemantic === true
+}
+
+/** True when the route has an explicit paid-read authorization gate. */
+function isPaidReadRoute(request: FastifyRequest): boolean {
+  return request.routeOptions.config.paidRead === true
 }
 
 /**
@@ -264,6 +279,32 @@ export function requirePaidReadScope(request: FastifyRequest): void {
   if (!grantsAdsAccess) {
     throw forbidden('This API key was not granted access to OpenAI Ads paid reads.')
   }
+}
+
+/**
+ * Authorize an isolated research run, which reads from an answer provider,
+ * spends the operator's quota, and persists the evidence.
+ *
+ * Signed-in administrators retain their existing access. Signed-in viewers
+ * need an explicit deployment opt-in. API keys are an ALLOW list: only the
+ * wildcard root grant may spend, so `read`, unrelated named scopes, and an
+ * empty scope list all fail closed.
+ */
+export function requireResearchGrant(
+  request: FastifyRequest,
+  allowViewers: boolean,
+): void {
+  const principal = request.principal
+  if (!principal) return
+
+  if (principal.kind === 'api-key') {
+    if (principal.scopes.includes(WILDCARD_SCOPE)) return
+    throw forbidden('This API key was not granted access to paid research queries.')
+  }
+
+  if (principal.role === UserRoles.admin) return
+  if (principal.role === UserRoles.viewer && allowViewers) return
+  throw forbidden('Research queries are not enabled for viewer accounts on this deployment.')
 }
 
 /**
@@ -613,8 +654,9 @@ function resolveSignedInPerson(
  *
  * A viewer is refused every write method, which is the same gate a read-only
  * API key already goes through — there is no second permission model here, only
- * a second way to arrive at the same scope list. The single exception is a route
- * that has declared itself a read (the `readSemantic` route config).
+ * a second way to arrive at the same scope list. A `readSemantic` route is the
+ * ordinary exception. A paid-read marker only reaches the route's own explicit
+ * allow-list; it grants nothing by itself.
  */
 function applyRoleGates(request: FastifyRequest): void {
   const principal = request.principal
@@ -634,6 +676,7 @@ function applyRoleGates(request: FastifyRequest): void {
     isReadOnlyKey(principal.scopes)
     && WRITE_METHODS.has(request.method)
     && !request.readSemanticGrant
+    && !isPaidReadRoute(request)
     && !isTransportEnvelopeRoute(request)
   ) {
     throw forbidden(VIEWER_DENIED_MESSAGE)

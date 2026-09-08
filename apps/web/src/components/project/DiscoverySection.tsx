@@ -15,10 +15,12 @@ import type {
 } from '@ainyc/canonry-contracts'
 
 import {
+  getViewerResearchConfig,
   triggerDiscoveryRun,
   heyClient,
   isEmbed,
 } from '../../api.js'
+import type { ViewerResearchConfig } from '../../api.js'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
@@ -37,6 +39,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { ResearchQueriesSection } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
+import { useAccount } from '../../contexts/account-context.js'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
 
@@ -81,10 +84,14 @@ export function QueriesSection({
   trackingQueryId,
   onTrackingQueryIdChange,
 }: QueriesSectionProps) {
+  const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
   const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>('find')
   const [pendingTrackingSource, setPendingTrackingSource] = useState<PendingTrackingSource | null>(null)
-  const queryWorkspace = controlledWorkspace ?? uncontrolledWorkspace
+  const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
+  const showResearchWorkspace = account?.role !== 'viewer' || viewerResearchConfig !== null
+  const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
+  const queryWorkspace = requestedWorkspace === 'research' && !showResearchWorkspace ? 'tracked' : requestedWorkspace
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
 
   const selectWorkspace = (workspace: QueryWorkspace) => {
@@ -107,7 +114,7 @@ export function QueriesSection({
       </div>
       <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Query workspace">
         <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-        <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} />
+        {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
       </div>
       <div className="mt-4">
         {queryWorkspace === 'tracked' ? (
@@ -127,6 +134,7 @@ export function QueriesSection({
             mode={researchMode}
             onModeChange={selectResearchMode}
             onReviewSavedSource={reviewSavedSource}
+            viewerResearchConfig={viewerResearchConfig}
           />
         )}
       </div>
@@ -154,21 +162,31 @@ function QueryResearchWorkspace({
   mode,
   onModeChange,
   onReviewSavedSource,
+  viewerResearchConfig,
 }: {
   projectName: string
   selection: NonNullable<QueriesSectionProps['selection']>
   mode: ResearchWorkspaceMode
   onModeChange: (mode: ResearchWorkspaceMode) => void
   onReviewSavedSource: (source: SavedTrackingSource) => void
+  viewerResearchConfig: ViewerResearchConfig | null
 }) {
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: selection.measurementScope !== 'project',
+    enabled: viewerResearchConfig === null && selection.measurementScope !== 'project',
   })
   const scopeLabel = workspaceQuery.data
     ? selectionScopeLabel(selection, workspaceQuery.data)
     : selection.measurementScope === 'project' ? 'Whole site' : `${selection.measurementScopeKey ?? 'Selected scope'} · ${selection.measurementScope === 'group' ? 'Group' : selection.measurementScope === 'market' ? 'Market' : 'Property'}`
   const destination = workspaceQuery.data && selection.measurementScope === 'property' ? `${scopeLabel} · Property` : scopeLabel
+  if (viewerResearchConfig) {
+    return (
+      <ResearchQueriesSection
+        projectName={projectName}
+        viewerResearchConfig={viewerResearchConfig}
+      />
+    )
+  }
   return (
     <div>
       <p className="mb-3 text-sm text-secondary">Tracking destination: {destination}</p>

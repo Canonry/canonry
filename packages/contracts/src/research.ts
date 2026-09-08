@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { locationContextSchema } from './provider.js'
 import { citationStateSchema } from './run.js'
 import { groundingSourceSchema } from './run.js'
+import { userRoleSchema } from './users.js'
 
 export const researchRunStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
 export type ResearchRunStatus = z.infer<typeof researchRunStatusSchema>
@@ -10,6 +11,8 @@ export const ResearchRunStatuses = researchRunStatusSchema.enum
 export const researchQueryStatusSchema = z.enum(['queued', 'running', 'completed', 'failed'])
 export type ResearchQueryStatus = z.infer<typeof researchQueryStatusSchema>
 export const ResearchQueryStatuses = researchQueryStatusSchema.enum
+
+export const DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT = 20
 
 export const researchRunCreateSchema = z.object({
   queries: z.array(z.string().trim().min(1).max(4000)).min(1).max(50),
@@ -22,11 +25,20 @@ export const researchRunCreateSchema = z.object({
 })
 export type ResearchRunCreate = z.infer<typeof researchRunCreateSchema>
 
+export const researchRunPrincipalSchema = z.object({
+  kind: z.enum(['api-key', 'user']),
+  id: z.string(),
+  name: z.string(),
+  role: userRoleSchema.nullable(),
+})
+export type ResearchRunPrincipal = z.infer<typeof researchRunPrincipalSchema>
+
 export const researchRunSummarySchema = z.object({
   id: z.string(), projectId: z.string(), status: researchRunStatusSchema,
   provider: z.string(), requestedModel: z.string().nullable(), resolvedModel: z.string(),
   location: locationContextSchema.nullable(), totalQueries: z.number().int(),
   completedQueries: z.number().int(), failedQueries: z.number().int(), error: z.string().nullable(),
+  initiatedBy: researchRunPrincipalSchema.nullable(),
   startedAt: z.string().nullable(), finishedAt: z.string().nullable(), createdAt: z.string(),
 })
 export type ResearchRunSummaryDto = z.infer<typeof researchRunSummarySchema>

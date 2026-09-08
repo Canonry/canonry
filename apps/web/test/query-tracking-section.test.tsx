@@ -11,9 +11,13 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  delete window.__CANONRY_CONFIG__
+})
 
 const workspaceVersion = `qtw_${'a'.repeat(64)}`
 const previewToken = `qtp_${'b'.repeat(64)}`
@@ -98,6 +102,78 @@ function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSecti
   render(<QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>)
   return all
 }
+
+function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const all = {
+    projectName: 'demo',
+    queryWorkspace: 'tracked' as const,
+    researchMode: 'find' as const,
+    selection: { measurementScope: 'project' as const, queryClass: 'all' as const },
+    ...props,
+  }
+  render(
+    <AccountProvider account={{ name: 'viewer', role: 'viewer' }}>
+      <QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>
+    </AccountProvider>,
+  )
+  return all
+}
+
+test('omits the Research workspace for a viewer when paid research is not enabled', async () => {
+  installWorkspaceApi()
+  renderViewerWorkspace()
+
+  await screen.findByText('Acme pricing')
+  expect(screen.queryByRole('tab', { name: 'Research' })).toBeNull()
+})
+
+test('gives an opted-in viewer the direct query test without exposing discovery or settings', async () => {
+  ;(window as unknown as { __CANONRY_CONFIG__: unknown }).__CANONRY_CONFIG__ = {
+    research: { allowViewers: true, viewerDailyRunLimit: 7 },
+  }
+  const requests: Array<{ path: string; method: string; body?: unknown }> = []
+  const project = {
+    id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
+    country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: {},
+    locations: [], defaultLocation: null, autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+  }
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    const method = init?.method ?? 'GET'
+    requests.push({ path, method, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+    if (path === '/api/v1/projects/demo') return jsonResponse(project)
+    if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo/research/runs' && method === 'POST') {
+      return jsonResponse({
+        id: 'research-1', projectId: project.id, status: 'queued', provider: 'openai', requestedModel: null,
+        resolvedModel: 'gpt-5-mini', location: null, totalQueries: 1, completedQueries: 0, failedQueries: 0,
+        error: null, initiatedBy: { kind: 'user', id: 'viewer-user', name: 'viewer', role: 'viewer' },
+        startedAt: null, finishedAt: null, createdAt: '2026-09-08T12:00:00.000Z', queries: [],
+      }, 202)
+    }
+    throw new Error(`Unexpected fetch: ${method} ${path}`)
+  })
+  onTestFinished(restore)
+  renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
+
+  expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
+  expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
+  expect(screen.queryByLabelText('API provider')).toBeNull()
+  expect(screen.getByText('7 research runs per project each day.')).toBeTruthy()
+
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which AEO platform fits an agency?' } })
+  const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+  await waitFor(() => expect(run.disabled).toBe(false))
+  fireEvent.click(run)
+  await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))
+  expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({
+    queries: ['Which AEO platform fits an agency?'],
+    location: null,
+  })
+  expect(requests.find(request => request.method === 'POST')?.body).not.toHaveProperty('provider')
+  expect(requests.some(request => request.path === '/api/v1/settings')).toBe(false)
+})
 
 function installWorkspaceApi(
   onRequest?: (path: string, body: unknown, method: string) => Response | Promise<Response>,

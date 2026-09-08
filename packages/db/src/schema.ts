@@ -2302,6 +2302,7 @@ export const researchRuns = sqliteTable('research_runs', {
   location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
   totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
   idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
+  initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunPrincipal | null>(),
   startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_research_runs_project_created').on(table.projectId, table.createdAt), index('idx_research_runs_status').on(table.status), uniqueIndex('idx_research_runs_project_idempotency').on(table.projectId, table.idempotencyKey)])
 
