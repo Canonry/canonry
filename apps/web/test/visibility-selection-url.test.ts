@@ -47,6 +47,17 @@ describe('shared visibility selection URL', () => {
     expect(parseVisibilitySelection(validateSearch(search))).toMatchObject({ queryClass: 'all', provider: 'openai', queryKey: 'query-1', answer })
   })
 
+  it('retains an exact answer context when class normalization supplies it, while an ordinary class change clears it', () => {
+    const answer = { queryKey: 'query-1', queryClass: 'branded', provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2 }
+    const search = { queryClass: 'all', measurementQueryKey: 'query-1', measurementAnswer: JSON.stringify(answer) }
+    expect(patchVisibilitySelection(search, {
+      queryClass: 'branded', measurementQueryKey: 'query-1', measurementAnswer: JSON.stringify(answer),
+    })).toMatchObject({ queryClass: 'branded', measurementQueryKey: 'query-1', measurementAnswer: JSON.stringify(answer) })
+    expect(patchVisibilitySelection(search, { queryClass: 'non-brand' })).toMatchObject({
+      queryClass: 'non-brand', measurementQueryKey: undefined, measurementAnswer: undefined,
+    })
+  })
+
   it.each([
     '{', 'null', '[]', JSON.stringify({ queryKey: 'other' }),
     ...[

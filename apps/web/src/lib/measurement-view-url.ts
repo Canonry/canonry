@@ -160,8 +160,10 @@ export function patchVisibilitySelection(
     'measurementScope', 'measurementScopeKey', 'queryClass', 'measurementProvider', 'measurementModel',
     'measurementLocation', 'measurementFrom', 'measurementTo', 'measurementRevision', 'measurementRunId',
   ].some(key => key in patch)) {
-    next.measurementQueryKey = undefined
-    next.measurementAnswer = undefined
+    // Filter changes close answers unless the caller explicitly carries an
+    // answer link forward while resolving its query class.
+    next.measurementQueryKey = patch.measurementQueryKey
+    next.measurementAnswer = patch.measurementAnswer
   } else if ('measurementQueryKey' in patch && !('measurementAnswer' in patch)) {
     next.measurementAnswer = undefined
   }
