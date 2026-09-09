@@ -881,7 +881,7 @@ const discoverySessionIdInputSchema = z.object({
 
 const researchRunStartInputSchema = z.object({
   project: projectNameSchema,
-  request: researchRunCreateSchema.describe('One shared provider/model/location context for every free-form query in this saved research batch.'),
+  request: researchRunCreateSchema.describe('One shared provider/model/location context for every free-form query in this saved research batch. An optional market, group, or Property scope is saved with the batch.'),
 })
 
 const researchRunsListInputSchema = z.object({
@@ -2823,7 +2823,7 @@ export const canonryMcpTools = [
     name: 'canonry_research_run_start',
     title: 'Start research query run',
     description:
-      'Run a batch of free-form queries once each against one API provider, with an optional exact model and location. Results are saved as a research run for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
+      'Run a batch of free-form queries once each against one API provider, with an optional exact model, location, or one configured market, group, or Property scope. Results retain that context and are saved for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
     access: 'write',
     tier: 'discovery',
     inputSchema: researchRunStartInputSchema,

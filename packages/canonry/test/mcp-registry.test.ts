@@ -973,6 +973,10 @@ describe('MCP tool registry', () => {
     expect(tool.access).toBe('write')
     expect(tool.openApiOperations).toEqual(['POST /api/v1/projects/{name}/research/runs'])
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS['POST /api/v1/projects/{name}/research/runs']).toBe('included')
+    expect(tool.inputSchema.safeParse({
+      project: 'acme',
+      request: { queries: ['best AEO software'], provider: 'openai', scope: { kind: 'group', key: 'retail' } },
+    }).success).toBe(true)
   })
 
   it('maps Canonry client errors to isError tool results', async () => {

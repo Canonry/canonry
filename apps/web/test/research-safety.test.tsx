@@ -2,12 +2,12 @@ import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
+import { RESEARCH_COPY, ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(cleanup)
 
-function setup() {
+function setup(sectionProps: Omit<Partial<React.ComponentProps<typeof ResearchQueriesSection>>, 'projectName'> = {}) {
   const posts: Record<string, unknown>[] = []
   let settingsError = false
   let projectError = false
@@ -35,14 +35,14 @@ function setup() {
   onTestFinished(restore)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   onTestFinished(() => queryClient.clear())
-  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" {...sectionProps} /></QueryClientProvider>)
   return { posts, queryClient, project, failSettings: () => { settingsError = true }, failProject: () => { projectError = true }, failHistory: () => { historyError = true } }
 }
 
 async function ready() {
   await screen.findByRole('option', { name: 'OpenAI' })
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments near transit' } })
-  const button = screen.getByRole('button', { name: /^Run .*quer/ })
+  const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction })
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
   return button
 }
@@ -52,14 +52,14 @@ test('research binds explicit context and reuses the same key after an uncertain
   const button = await ready()
   fireEvent.click(button)
   await waitFor(() => expect(state.posts).toHaveLength(1))
-  await waitFor(() => expect((screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: /^Run .*quer/ }))
+  await waitFor(() => expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.runAction }))
   await waitFor(() => expect(state.posts).toHaveLength(2))
   expect(state.posts[0]).toMatchObject({ provider: 'openai', model: 'project-model', location: state.project.locations[0], idempotencyKey: expect.any(String) })
   expect(state.posts[1]).toEqual(state.posts[0])
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'pet friendly apartments' } })
-  await waitFor(() => expect((screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: /^Run .*quer/ }))
+  await waitFor(() => expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.runAction }))
   await waitFor(() => expect(state.posts).toHaveLength(3))
   expect(state.posts[2]?.idempotencyKey).not.toEqual(state.posts[0]?.idempotencyKey)
 })
@@ -70,7 +70,7 @@ test.each(['settings', 'project'] as const)('cached %s refresh failure blocks re
   if (kind === 'settings') state.failSettings(); else state.failProject()
   await state.queryClient.refetchQueries()
   await screen.findByRole('alert')
-  expect((screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
   expect(state.posts).toHaveLength(0)
 })
 
@@ -80,5 +80,21 @@ test('history failure is not presented as an empty research history', async () =
   state.failHistory()
   await state.queryClient.refetchQueries()
   expect(await screen.findByText('Could not load research history.')).toBeTruthy()
-  expect(screen.queryByText(/No research batches yet/)).toBeNull()
+  expect(screen.queryByText(RESEARCH_COPY.emptyHistory)).toBeNull()
+})
+
+test('blocks research while a selected scope is stale or cannot be verified', async () => {
+  const state = setup({
+    scopeOptions: [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+      { id: 'regional', label: 'Regional comparison', kind: 'group', targetCount: 1 },
+    ],
+    selectedScope: { kind: 'group', key: 'regional', label: 'Regional comparison', planRevision: 7, expectedPlanRevision: 7 },
+    scopeError: true,
+  })
+  await screen.findByRole('option', { name: 'OpenAI' })
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments near transit' } })
+  expect((await screen.findByRole('alert')).textContent).toContain(RESEARCH_COPY.scopeError)
+  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
+  expect(state.posts).toHaveLength(0)
 })

@@ -12,6 +12,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -144,6 +145,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
     const method = init?.method ?? 'GET'
     requests.push({ path, method, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     if (path === '/api/v1/projects/demo') return jsonResponse(project)
+    if (path === '/api/v1/projects/demo/query-tracking' && method === 'GET') return jsonResponse({ mode: 'simple', workspaceVersion: 'qtw_viewer', active: null, targets: [], groups: [], markets: [], tracked: [], savedSources: { research: [], discovery: [] }, defaultContexts: [] })
     if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: [], providers: [
       { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini' }, { id: 'gpt-5', displayName: 'GPT-5' }] },
       { name: 'gemini', displayName: 'Gemini', modelConfigurable: true, defaultModel: 'gemini-2.5-flash', knownModels: [{ id: 'gemini-2.5-flash', displayName: 'Gemini Flash' }] },
@@ -164,15 +166,14 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
   expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
-  expect(screen.getByText('Up to 7 research batches per project each day. Each batch can contain up to 50 queries.')).toBeTruthy()
-  expect(screen.getByText('Enter at least one query to enable Run.')).toBeTruthy()
-  expect((await screen.findByRole('option', { name: 'Use AI Visibility model · gpt-5-mini' }) as HTMLOptionElement).selected).toBe(true)
+  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
+  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-5-mini` }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
-  expect((await screen.findByRole('option', { name: 'Use AI Visibility model · gemini-2.5-flash' }) as HTMLOptionElement).selected).toBe(true)
+  expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which AEO platform fits an agency?' } })
-  const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))
@@ -182,6 +183,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   })
   expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({ provider: 'gemini', model: 'gemini-2.5-flash' })
   expect(requests.some(request => request.path === '/api/v1/settings')).toBe(false)
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
 })
 
 function installWorkspaceApi(
@@ -976,7 +978,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   })
   const run = {
     id: 'research-run-1', projectId: 'project-demo', status: 'completed', provider: 'openai', requestedModel: 'gpt-5', resolvedModel: 'gpt-5',
-    location: context.location, totalQueries: 2, completedQueries: 2, failedQueries: 0, error: null,
+    scope: source === 'research' ? { kind: 'group', key: 'north-east', label: 'North East', planRevision: 4 } : null, location: context.location, totalQueries: 2, completedQueries: 2, failedQueries: 0, error: null,
     startedAt: '2026-09-04T10:00:00.000Z', finishedAt: '2026-09-04T10:01:00.000Z', createdAt: '2026-09-04T10:00:00.000Z',
   }
   const researchQuery = (id: string, text: string) => ({
@@ -1014,11 +1016,11 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     throw new Error(`Unexpected ${method}: ${path}`)
   }, [], data)
   const selectedProperty = { measurementScope: 'property' as const, measurementScopeKey: 'acme', queryClass: 'all' as const, provider: 'gemini', location: 'Boston' }
-  renderWorkspace({ queryWorkspace: undefined, researchMode: undefined, selection: selectedProperty })
+  const onSelectionChange = vi.fn()
+  renderWorkspace({ queryWorkspace: undefined, researchMode: undefined, selection: selectedProperty, onSelectionChange })
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('tab', { name: 'Research', exact: true }))
-  expect(await screen.findByText('Tracking destination: Acme · Property')).toBeTruthy()
   if (source === 'research') {
     fireEvent.click(screen.getByRole('tab', { name: 'Test queries' }))
     fireEvent.click(await screen.findByRole('button', { name: queryText }))
@@ -1033,7 +1035,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
   expect(screen.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
   expect((screen.getByLabelText(source === 'research' ? 'Saved research query' : 'Discovery query') as HTMLSelectElement).value).toBe(source === 'research' ? 'research-query-1' : 'discovery-probe-1')
-  expect(screen.getByText('Property: Acme')).toBeTruthy()
+  if (source === 'research') expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
   expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
@@ -1042,7 +1044,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   await screen.findByText('1 added')
   expect(writes).toEqual([{
     path: '/api/v1/projects/demo/query-tracking/preview',
-    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }], removals: [] },
+    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: source === 'research' ? { groupKeys: ['north-east'] } : { targetKeys: ['acme'] }, contexts: [selectedContext] }], removals: [] },
   }])
   fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
   await waitFor(() => expect(writes).toHaveLength(2))

@@ -3,8 +3,9 @@ import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
-import { DiscoverySection } from '../src/components/project/DiscoverySection.js'
+import { resolveResearchQueryText } from '@ainyc/canonry-contracts'
+import { RESEARCH_COPY, ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
+import { DiscoverySection, QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -24,6 +25,7 @@ function installApiMock(posts?: string[]) {
 
     if (path === '/api/v1/projects/demo/discover/sessions') return jsonResponse([])
     if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse({ mode: 'simple', workspaceVersion: 'qtw_demo', active: null, targets: [], groups: [], markets: [], tracked: [], savedSources: { research: [], discovery: [] }, defaultContexts: [] })
     if (path === '/api/v1/projects/demo') {
       return jsonResponse({
         id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
@@ -66,11 +68,62 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
   await screen.findByRole('option', { name: 'OpenAI' })
-  fireEvent.change(screen.getByPlaceholderText(/one query per line/i), { target: { value: 'How do I measure AI citations?' } })
-  const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+  fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: 'How do I measure AI citations?' } })
+  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/runs'))
+})
+
+test('runs the original query against a published group with no market or geographic location', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    const method = init?.method ?? 'GET'
+    if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse({
+      mode: 'advanced', workspaceVersion: 'qtw_scope', active: { revision: 7, compiledChecksum: 'c'.repeat(64) },
+      targets: [{ stableKey: 'harbor', label: 'Harbor Homes' }], groups: [{ stableKey: 'regional', label: 'Regional comparison', targetKeys: ['harbor'] }], markets: [], tracked: [], savedSources: { research: [], discovery: [] }, defaultContexts: [],
+    })
+    if (path === '/api/v1/projects/demo/research/runs') {
+      if (method === 'POST') {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test provider unavailable' } }, 503)
+      }
+      return jsonResponse({ runs: [] })
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
+      country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null,
+      autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+    })
+    if (path === '/api/v1/settings') return jsonResponse({
+      providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'gpt-5-mini' }],
+      providerCatalog: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Use an OpenAI model ID.' }],
+    })
+    throw new Error(`Unexpected request: ${method} ${path}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(
+    <AccountProvider account={null} apiKey={{ id: 'client-key', scopes: ['*'], projectId: 'project_demo', readOnly: false }}>
+      <QueryClientProvider client={queryClient}><QueriesSection projectName="demo" queryWorkspace="research" researchMode="test" selection={{ measurementScope: 'group', measurementScopeKey: 'regional', queryClass: 'all' }} /></QueryClientProvider>
+    </AccountProvider>,
+  )
+
+  const originalQuery = 'best homes near transit'
+  await screen.findByRole('option', { name: 'OpenAI' })
+  fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: originalQuery } })
+  fireEvent.click(screen.getByText(RESEARCH_COPY.resolvedQueriesSummary, { selector: 'summary' }))
+  expect(screen.getByText((_, element) => element?.tagName === 'LI' && element.textContent === resolveResearchQueryText(originalQuery, { kind: 'group', key: 'regional', label: 'Regional comparison', planRevision: 7 }))).toBeTruthy()
+  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  await waitFor(() => expect(run.disabled).toBe(false))
+  fireEvent.click(run)
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({
+    queries: [originalQuery], location: null,
+    scope: { kind: 'group', key: 'regional', expectedPlanRevision: 7 },
+  })
 })
 
 test('switches to research, deduplicates query lines, gates exact model choice, and states that research is not tracked', async () => {
@@ -88,10 +141,10 @@ test('switches to research, deduplicates query lines, gates exact model choice, 
 
   const model = await screen.findByLabelText(/Exact model/)
   expect((model as HTMLInputElement).disabled).toBe(true)
-  expect(screen.getByText('Saved to research history. Nothing is added to tracked queries.')).toBeTruthy()
+  expect(screen.getByText(RESEARCH_COPY.savedNote)).toBeTruthy()
 
-  fireEvent.change(screen.getByPlaceholderText(/one query per line/i), { target: { value: 'Best AEO platform\nbest aeo platform\nHow do I measure AI citations?\n' } })
-  expect(screen.getByText(/2 queries, duplicates and blank lines are removed/)).toBeTruthy()
+  fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: 'Best AEO platform\nbest aeo platform\nHow do I measure AI citations?\n' } })
+  expect(screen.getByText(`${2}${RESEARCH_COPY.queryCountLimit}`)).toBeTruthy()
 
   await screen.findByRole('option', { name: 'OpenAI' })
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'openai' } })
@@ -151,7 +204,7 @@ function renderSavedResearch(answerText: string) {
   const run = {
     id: 'saved-run', projectId: 'project_demo', status: 'completed', provider: 'openai',
     requestedModel: 'saved-model', resolvedModel: 'saved-model',
-    location: { label: 'Metro Alpha', city: 'Alpha', region: 'AA', country: 'US' },
+    scope: { kind: 'group', key: 'regional', label: 'Regional comparison', planRevision: 7 }, location: null,
     totalQueries: 1, completedQueries: 1, failedQueries: 0, error: null,
     startedAt: '2026-07-23T10:00:00.000Z', finishedAt: '2026-07-23T10:01:00.000Z', createdAt: '2026-07-23T10:00:00.000Z',
   }
@@ -184,22 +237,21 @@ function renderSavedResearch(answerText: string) {
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 }
 
-test('saved results explain project matching and retain their own engine, model, and location', async () => {
+test('saved results retain their saved scope independently from the current form', async () => {
   renderSavedResearch('Demo is also the name of a fishing line company.')
   await screen.findByText('Demo is also the name of a fishing line company.')
   const results = within(screen.getByRole('region', { name: 'Research results' }))
   expect(results.getByRole('columnheader', { name: 'Brand-name match' })).toBeTruthy()
   expect(results.getByRole('columnheader', { name: 'Project domain cited' })).toBeTruthy()
-  expect(results.getByText('Project brand and domain checks. Property identity is not verified.')).toBeTruthy()
-  expect(results.getByText('Research results are excluded from AI Visibility metrics.')).toBeTruthy()
-  expect(results.getByText(/different business with the same name/)).toBeTruthy()
+  expect(results.getByText(RESEARCH_COPY.methodologySummary)).toBeTruthy()
+  expect(results.getByText(RESEARCH_COPY.methodology)).toBeTruthy()
   expect(results.getByText('Matched')).toBeTruthy()
   expect(results.getByText('Not cited')).toBeTruthy()
   expect(results.getByText('openai')).toBeTruthy()
   expect(results.getByText('saved-model')).toBeTruthy()
-  expect(results.getByText('Metro Alpha')).toBeTruthy()
+  expect(results.getByText('Regional comparison')).toBeTruthy()
+  expect(results.getByText('No location')).toBeTruthy()
   expect(results.queryByText('current-model')).toBeNull()
-  expect(results.queryByText('No location')).toBeNull()
 })
 
 test('saved answers render readable Markdown with safe links and no active HTML or remote images', async () => {
@@ -243,12 +295,12 @@ test('viewer research follows the visibility model, offers discovered alternativ
   render(<AccountProvider account={{ name: 'analyst', role: 'viewer' }}>
     <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" viewerResearchConfig={{ allowViewers: true, viewerDailyRunLimit: 20 }} /></QueryClientProvider>
   </AccountProvider>)
-  await screen.findByRole('option', { name: 'Use AI Visibility model · chat-latest' })
+  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · chat-latest` })
   const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
   expect(model.value).toBe('')
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments' } })
   const submit = async () => {
-    const button = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(false))
     fireEvent.click(button)
   }
@@ -266,7 +318,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   expect(model.value).toBe('gpt-next')
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: 'claude' } })
   expect(model.value).toBe('')
-  expect(screen.getByRole('option', { name: 'Use AI Visibility model · claude-sonnet-new' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · claude-sonnet-new` })).toBeTruthy()
   await submit()
   await waitFor(() => expect(bodies).toHaveLength(3))
   expect(bodies[2]).toMatchObject({ provider: 'claude', model: 'claude-sonnet-new' })

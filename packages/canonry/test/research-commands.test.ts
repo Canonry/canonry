@@ -15,7 +15,7 @@ const { RESEARCH_CLI_COMMANDS } = await import('../src/cli-commands/research.js'
 
 const detail: ResearchRunDetailDto = {
   id: 'research-1', projectId: 'proj-1', status: 'completed', provider: 'openai', requestedModel: null,
-  resolvedModel: 'gpt-test', location: null, totalQueries: 1, completedQueries: 1, failedQueries: 0,
+  resolvedModel: 'gpt-test', location: null, scope: null, totalQueries: 1, completedQueries: 1, failedQueries: 0,
   error: null, initiatedBy: null, startedAt: null, finishedAt: null, createdAt: '2026-07-23T00:00:00Z',
   queries: [{
     id: 'query-1', position: 0, query: 'best AEO software', status: 'completed', requestedModel: null,
@@ -91,6 +91,38 @@ describe('research commands', () => {
     await expect(run.run({
       positionals: ['demo', 'query'], values: { provider: 'openai', location: 'New York', 'no-location': true }, format: 'json', dryRun: false,
     })).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+  })
+
+  it('maps one portfolio scope directly into the saved batch and never fetches project locations', async () => {
+    const run = RESEARCH_CLI_COMMANDS.find(command => command.path.join(' ') === 'research run')!
+    await run.run({
+      positionals: ['demo', 'query'], values: { provider: 'openai', market: 'north-america' }, format: 'json', dryRun: false,
+    })
+    expect(startResearchRun).toHaveBeenLastCalledWith('demo', expect.objectContaining({
+      scope: { kind: 'market', key: 'north-america' }, location: undefined,
+    }))
+    expect(getProject).not.toHaveBeenCalled()
+  })
+
+  it('keeps portfolio scope independent from an explicit configured location', async () => {
+    const run = RESEARCH_CLI_COMMANDS.find(command => command.path.join(' ') === 'research run')!
+    getProject.mockResolvedValue({ locations: [{ label: 'New York', city: 'New York', region: 'NY', country: 'US' }] })
+    await run.run({
+      positionals: ['demo', 'query'], values: { provider: 'openai', property: 'north-store', location: 'New York' }, format: 'json', dryRun: false,
+    })
+    expect(startResearchRun).toHaveBeenLastCalledWith('demo', expect.objectContaining({
+      scope: { kind: 'property', key: 'north-store' },
+      location: { label: 'New York', city: 'New York', region: 'NY', country: 'US' },
+    }))
+  })
+
+
+  it('rejects multiple portfolio scopes before a request', async () => {
+    const run = RESEARCH_CLI_COMMANDS.find(command => command.path.join(' ') === 'research run')!
+    await expect(run.run({
+      positionals: ['demo', 'query'], values: { market: 'north-america', group: 'retail' }, format: 'json', dryRun: false,
+    })).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+    expect(startResearchRun).not.toHaveBeenCalled()
   })
 
   it('waits for the terminal detail before emitting jsonl query records', async () => {

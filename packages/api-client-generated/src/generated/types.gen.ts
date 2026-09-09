@@ -2793,6 +2793,11 @@ export type ResearchRunCreate = {
         country: string;
         timezone?: string;
     } | null;
+    scope?: {
+        kind: 'market' | 'group' | 'property';
+        key: string;
+        expectedPlanRevision?: number;
+    };
     idempotencyKey?: string;
 };
 
@@ -2809,6 +2814,12 @@ export type ResearchRunDetailDto = {
         region: string;
         country: string;
         timezone?: string;
+    } | null;
+    scope?: {
+        kind: 'market' | 'group' | 'property';
+        key: string;
+        label: string;
+        planRevision: number;
     } | null;
     totalQueries: number;
     completedQueries: number;
@@ -2863,6 +2874,12 @@ export type ResearchRunListDto = {
             region: string;
             country: string;
             timezone?: string;
+        } | null;
+        scope?: {
+            kind: 'market' | 'group' | 'property';
+            key: string;
+            label: string;
+            planRevision: number;
         } | null;
         totalQueries: number;
         completedQueries: number;

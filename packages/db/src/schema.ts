@@ -2301,6 +2301,7 @@ export const researchRuns = sqliteTable('research_runs', {
   status: text('status').notNull().default('queued'), provider: text('provider').notNull(),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(),
   location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
+  scope: text('scope', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunScope | null>(),
   totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
   idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
   initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunPrincipal | null>(),

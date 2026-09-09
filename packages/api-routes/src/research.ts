@@ -2,9 +2,10 @@ import crypto from 'node:crypto'
 import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
+import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, resolveResearchQueryText } from '@ainyc/canonry-contracts'
 import { requireResearchGrant } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { activeMeasurementPlan } from './measurement-overview.js'
 import type { ProviderAdapterInfo, SettingsRoutesOptions } from './settings.js'
 
 export interface ResearchRoutesOptions {
@@ -41,14 +42,24 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const adapter = adapters.find(candidate => candidate.name === providerName)
     if (!providerName || !adapter || adapter.mode !== 'api' || isBrowserProvider(providerName) || !configured.has(providerName)) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: adapters.filter(a => a.mode === 'api' && configured.has(a.name)).map(a => a.name) })
     if (input.model) { adapter.modelValidationPattern.lastIndex = 0; if (!adapter.modelConfigurable || !adapter.modelValidationPattern.test(input.model)) throw validationError(`Invalid model "${input.model}" for provider "${providerName}".`, { provider: providerName, model: input.model, hint: adapter.modelValidationHint }) }
-    const location = input.location === undefined ? (project.defaultLocation ? project.locations.find(item => item.label === project.defaultLocation) ?? null : null) : input.location
+    const existingReceipt = input.idempotencyKey
+      ? app.db.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
+      : undefined
+    const scope = input.scope
+      ? (existingReceipt ? resolveStoredResearchScope(existingReceipt.scope, input.scope, input.idempotencyKey!) : resolveResearchScope(app, project.id, input.scope))
+      : null
+    const location = input.location === undefined
+      ? (scope ? null : (project.defaultLocation ? project.locations.find(item => item.label === project.defaultLocation) ?? null : null))
+      : input.location
     if (location && !project.locations.some(item => sameLocation(item, location))) throw validationError('Research location must exactly match a configured project location.', { location })
     const requestedModel = input.model ?? null
     const resolvedModel = requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel)
     adapter.modelValidationPattern.lastIndex = 0
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError(`Invalid resolved model "${resolvedModel}" for provider "${providerName}".`, { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
-    if (new Set(input.queries.map(query => query.toLocaleLowerCase())).size !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
-    const normalized = { queries: input.queries, provider: providerName, model: requestedModel, location: location ?? null }
+    const resolvedQueries = input.queries.map(query => resolveResearchQueryText(query, scope))
+    if (resolvedQueries.some(query => query.length > 4000)) throw validationError('Research scope context makes a query longer than 4000 characters.')
+    if (new Set(resolvedQueries.map(query => query.toLocaleLowerCase())).size !== resolvedQueries.length) throw validationError('Research queries must be unique within a batch.')
+    const normalized = { queries: resolvedQueries, provider: providerName, model: requestedModel, location: location ?? null, ...(scope ? { scope } : {}) }
     const requestHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
     const now = new Date().toISOString()
     const initiatedBy = researchPrincipal(request)
@@ -73,8 +84,8 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
         }
       }
       const id = crypto.randomUUID()
-      tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, initiatedBy, createdAt: now }).run()
-      for (const [position, query] of input.queries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, status: ResearchQueryStatuses.queued, requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
+      tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: resolvedQueries.length, scope, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, initiatedBy, createdAt: now }).run()
+      for (const [position, query] of resolvedQueries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, status: ResearchQueryStatuses.queued, requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
       writeAuditLog(tx, { projectId: project.id, actor: initiatedBy ? `${initiatedBy.kind}:${initiatedBy.id}` : 'api', action: 'research.created', entityType: 'research_run', entityId: id })
       return { reused: false as const, id, shouldDispatch: true }
     })
@@ -114,6 +125,45 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
   })
 }
 
+function resolveStoredResearchScope(
+  stored: ResearchRunScope | null,
+  selection: ResearchScopeSelection,
+  idempotencyKey: string,
+): ResearchRunScope {
+  if (!stored || stored.kind !== selection.kind || stored.key !== selection.key ||
+    (selection.expectedPlanRevision !== undefined && selection.expectedPlanRevision !== stored.planRevision)) {
+    throw alreadyExists('Research idempotency key', idempotencyKey)
+  }
+  return stored
+}
+
+function resolveResearchScope(app: FastifyInstance, projectId: string, selection: ResearchScopeSelection): ResearchRunScope {
+  const active = activeMeasurementPlan(app.db, projectId)
+  if (!active || active.plan.schemaVersion !== 2) {
+    throw validationError('Research scope requires an active Advanced Measurement plan.')
+  }
+  if (selection.expectedPlanRevision !== undefined && selection.expectedPlanRevision !== active.version.revision) {
+    throw validationError('The selected research scope is stale. Reload the published measurement plan and try again.', {
+      expectedPlanRevision: selection.expectedPlanRevision,
+      activePlanRevision: active.version.revision,
+    })
+  }
+  let label: string | undefined
+  switch (selection.kind) {
+    case 'market':
+      label = active.plan.reportingScopes?.find(scope => scope.stableKey === selection.key)?.label
+      break
+    case 'group':
+      label = active.plan.groups.find(group => group.stableKey === selection.key)?.label
+      break
+    case 'property':
+      label = active.plan.targets.find(target => target.stableKey === selection.key)?.label
+      break
+  }
+  if (!label) throw validationError('Unknown published research ' + selection.kind + ' scope "' + selection.key + '".')
+  return { kind: selection.kind, key: selection.key, label, planRevision: active.version.revision }
+}
+
 function getDetail(app: FastifyInstance, projectId: string, id: string): ResearchRunDetailDto {
   const row = app.db.select().from(researchRuns).where(and(eq(researchRuns.id, id), eq(researchRuns.projectId, projectId))).get()
   if (!row) throw notFound('Research run', id)
@@ -121,7 +171,7 @@ function getDetail(app: FastifyInstance, projectId: string, id: string): Researc
   return { ...serializeRun(row), queries }
 }
 function serializeRun(row: typeof researchRuns.$inferSelect): ResearchRunSummaryDto {
-  return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, initiatedBy: row.initiatedBy ?? null, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
+  return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, scope: row.scope ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, initiatedBy: row.initiatedBy ?? null, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
 }
 function serializeQuery(row: typeof researchRunQueries.$inferSelect): ResearchRunQueryDto {
   return { id: row.id, position: row.position, query: row.queryText, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }

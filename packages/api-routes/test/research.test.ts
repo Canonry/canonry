@@ -1,12 +1,14 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
+import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
-import { ResearchRunStatuses } from '@ainyc/canonry-contracts'
+import { canonicalMeasurementPlanV2Json, ResearchRunStatuses } from '@ainyc/canonry-contracts'
 import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const cleanups: Array<() => void> = []
 afterEach(() => cleanups.splice(0).forEach(fn => fn()))
@@ -20,6 +22,27 @@ function harness(options: Partial<ApiRoutesOptions> = {}) {
   app.register(apiRoutes, { db, skipAuth: true, onResearchRunRequested: id => requested.push(id), providerSummary: [{ name: 'openai', configured: true }], providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-4.1', knownModels: [{ id: 'gpt-4.1', displayName: 'GPT-4.1', tier: 'standard' }], modelValidationPattern: /^gpt-[\w.-]+$/, modelValidationHint: 'gpt model' }], ...options } satisfies ApiRoutesOptions)
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }))
   return { app, db, requested }
+}
+
+function publishResearchScopePlan(db: ReturnType<typeof harness>['db']) {
+  const plan = measurementPlanV2Fixture({
+    reportingScopes: [{
+      stableKey: 'north-market',
+      label: 'North market',
+      kind: 'market',
+      usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }],
+    }],
+  })
+  const canonicalJson = canonicalMeasurementPlanV2Json(plan)
+  const versionId = crypto.randomUUID()
+  db.insert(measurementPlanVersions).values({
+    id: versionId, projectId: 'alpha', revision: 1, canonicalJson, checksum: '1'.repeat(64),
+    schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: new Date().toISOString(),
+  }).run()
+  db.insert(measurementPlans).values({
+    projectId: 'alpha', activeVersionId: versionId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }).run()
+  return plan
 }
 
 describe('research routes', () => {
@@ -56,6 +79,89 @@ describe('research routes', () => {
     const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { queries: ['test'], provider: 'openai' } })
     expect(response.statusCode).toBe(422)
     expect(db.select().from(researchRuns).all()).toHaveLength(0)
+  })
+
+  it('freezes a published market, group, or property context without inferring geography', async () => {
+    const { app, db, requested } = harness()
+    const publishedPlan = publishResearchScopePlan(db)
+    const groupPayload = {
+      queries: ['best homes'], provider: 'openai', idempotencyKey: 'group-scope',
+      scope: { kind: 'group', key: 'regional', expectedPlanRevision: 1 },
+    }
+    const group = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: groupPayload })
+    expect(group.statusCode).toBe(202)
+    expect(group.json()).toMatchObject({
+      location: null,
+      scope: { kind: 'group', key: 'regional', label: 'Regional comparison', planRevision: 1 },
+      queries: [{ query: 'best homes\n\nContext: Regional comparison' }],
+    })
+    expect(requested).toHaveLength(1)
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: groupPayload })).statusCode).toBe(200)
+    const market = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
+      queries: ['market homes'], provider: 'openai', scope: { kind: 'market', key: 'north-market', expectedPlanRevision: 1 },
+    } })
+    expect(market.statusCode).toBe(202)
+    expect(market.json()).toMatchObject({ scope: { kind: 'market', label: 'North market' }, queries: [{ query: 'market homes\n\nContext: North market' }] })
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
+      ...groupPayload, idempotencyKey: 'property-scope', scope: { kind: 'property', key: 'harbor', expectedPlanRevision: 1 },
+      location: { label: 'New York', city: 'New York', region: 'NY', country: 'US' },
+    } })).json()).toMatchObject({
+      location: { label: 'New York' }, scope: { kind: 'property', label: 'Harbor Homes' },
+      queries: [{ query: 'best homes\n\nContext: Harbor Homes' }],
+    })
+    const stale = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
+      queries: ['stale'], provider: 'openai', scope: { kind: 'market', key: 'north-market', expectedPlanRevision: 2 },
+    } })
+    expect(stale.statusCode).toBe(400)
+    const unknown = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
+      queries: ['unknown'], provider: 'openai', scope: { kind: 'property', key: 'not-published' },
+    } })
+    expect(unknown.statusCode).toBe(400)
+    const foreign = await app.inject({ method: 'POST', url: '/api/v1/projects/beta/research/runs', payload: {
+      queries: ['foreign'], provider: 'openai', scope: { kind: 'group', key: 'regional' },
+    } })
+    expect(foreign.statusCode).toBe(400)
+    const oversized = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
+      queries: ['x'.repeat(4000)], provider: 'openai', scope: { kind: 'group', key: 'regional' },
+    } })
+    expect(oversized.statusCode).toBe(400)
+    expect(db.select().from(researchRuns).all()).toHaveLength(3)
+
+    const renamedPlan = {
+      ...publishedPlan,
+      groups: publishedPlan.groups.map(group => group.stableKey === 'regional' ? { ...group, label: 'Renamed region' } : group),
+    }
+    const versionId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(measurementPlanVersions).values({
+      id: versionId, projectId: 'alpha', revision: 2, canonicalJson: canonicalMeasurementPlanV2Json(renamedPlan),
+      checksum: '2'.repeat(64), schemaVersion: 2, compiledChecksum: renamedPlan.compiledChecksum, createdAt: now,
+    }).run()
+    db.update(measurementPlans).set({ activeVersionId: versionId, updatedAt: now }).where(eq(measurementPlans.projectId, 'alpha')).run()
+    const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: groupPayload })
+    expect(replay.statusCode).toBe(200)
+    expect(replay.json()).toMatchObject({ id: group.json().id, scope: { label: 'Regional comparison', planRevision: 1 } })
+    const changedRetry = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...groupPayload, queries: ['changed query'] } })
+    expect(changedRetry.statusCode).toBe(409)
+  })
+
+  it('keeps idempotency retries from before scoped research compatible', async () => {
+    const { app, db } = harness()
+    const now = new Date().toISOString()
+    const payload = { queries: ['legacy query'], provider: 'openai', idempotencyKey: 'legacy-retry' }
+    const normalized = {
+      queries: payload.queries, provider: payload.provider, model: null,
+      location: { label: 'New York', city: 'New York', region: 'NY', country: 'US' },
+    }
+    db.insert(researchRuns).values({
+      id: 'legacy-run', projectId: 'alpha', status: 'completed', provider: 'openai', resolvedModel: 'gpt-4.1',
+      totalQueries: 1, idempotencyKey: payload.idempotencyKey,
+      requestHash: crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex'), createdAt: now,
+    }).run()
+    const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: 'legacy-run', scope: null })
+    expect(db.select().from(researchRuns).all()).toHaveLength(1)
   })
 })
 

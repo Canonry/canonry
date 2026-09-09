@@ -8,10 +8,11 @@ const labelFor = (scope: VisibilityReportScopeOption) => scope.kind === 'project
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect, label = 'Measurement scope' }: {
   options: VisibilityReportScopeOption[]
   selected: VisibilityReportScopeOption
   onSelect: (scope: VisibilityReportScopeOption) => void
+  label?: string
 }) {
   const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
   const [search, setSearch] = useState('')
@@ -103,7 +104,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   </details> : null
 
   return <div className="min-w-0">
-    <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">Measurement scope</span>
+    <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">{label}</span>
     <details ref={picker} className="relative" onToggle={event => {
       if (event.target === event.currentTarget && event.currentTarget.open) searchInput.current?.focus()
     }} onKeyDown={event => {

@@ -1611,7 +1611,7 @@ export const getApiV1ProjectsByNameResearchRunsOptions = (options: Options<GetAp
 /**
  * Start an isolated research query batch
  *
- * Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.
+ * Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. An optional published Advanced Measurement market, group, or property scope is frozen with the batch and appended as explicit query context; it never infers geographic provider location. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.
  */
 export const postApiV1ProjectsByNameResearchRunsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameResearchRunsData>>): UseMutationOptions<PostApiV1ProjectsByNameResearchRunsResponse, PostApiV1ProjectsByNameResearchRunsError, Options<PostApiV1ProjectsByNameResearchRunsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameResearchRunsResponse, PostApiV1ProjectsByNameResearchRunsError, Options<PostApiV1ProjectsByNameResearchRunsData>> = {

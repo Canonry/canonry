@@ -12,9 +12,9 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import type { LocationContext, ResearchRunCreate } from '@ainyc/canonry-contracts'
 
-const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
+const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--group <key>|--property <key>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
@@ -81,6 +81,19 @@ async function resolveLocation(
   })
 }
 
+function resolveScope(input: CliCommandInput, usage: string): ResearchRunCreate['scope'] | undefined {
+  const candidates = (['market', 'group', 'property'] as const)
+    .map(kind => ({ kind, key: getString(input.values, kind) }))
+    .filter((candidate): candidate is { kind: 'market' | 'group' | 'property'; key: string } => candidate.key !== undefined)
+  if (candidates.length > 1) {
+    throw usageError(`Error: --market, --group, and --property are mutually exclusive\nUsage: ${usage}`, {
+      message: '--market, --group, and --property are mutually exclusive',
+      details: { command: 'research.run', usage },
+    })
+  }
+  return candidates[0]
+}
+
 export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['research', 'run'],
@@ -89,6 +102,9 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
       query: multiStringOption(),
       provider: stringOption(),
       model: stringOption(),
+      market: stringOption(),
+      group: stringOption(),
+      property: stringOption(),
       location: stringOption(),
       'no-location': { type: 'boolean', default: false },
       'idempotency-key': stringOption(),
@@ -109,6 +125,7 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
         provider,
         model,
         location: await resolveLocation(project, getString(input.values, 'location'), getBoolean(input.values, 'no-location'), RUN_USAGE),
+        scope: resolveScope(input, RUN_USAGE),
         idempotencyKey: getString(input.values, 'idempotency-key')?.trim() || undefined,
         wait: getBoolean(input.values, 'wait'),
         format: input.format,
