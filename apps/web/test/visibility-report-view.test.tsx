@@ -87,7 +87,7 @@ function legacyReportFixture(): VisibilityReportResponse {
 }
 
 describe('shared production visibility view', () => {
-  it('shows older simple results on a clean URL and opens their saved answers without a filter rescue', async () => {
+  it('loads legacy simple history as all classes once, then normalizes a clean URL to its saved unclassified population', async () => {
     const requests: URL[] = []
     onTestFinished(mockFetch(url => {
       const request = new URL(url)
@@ -106,12 +106,12 @@ describe('shared production visibility view', () => {
     render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
     const population = await screen.findByRole('region', { name: 'Unclassified queries', exact: true })
     expect(requests[0]!.searchParams.get('queryClass')).toBe('all')
-    expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('all')
+    await waitFor(() => expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown'))
+    expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('unknown')
+    expect([...((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).options)].map(option => option.value)).not.toContain('all')
     expect(within(population).getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
-    expect(within(population).getAllByText('43%').length).toBeGreaterThan(0)
-    expect(screen.queryByRole('heading', { name: 'Branded queries', exact: true })).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Non-brand queries', exact: true })).toBeNull()
-    expect(screen.queryByText(/frozen query classification/)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Branded queries', exact: true })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
     fireEvent.click(within(population).getByText('Query results', { selector: 'span' }).closest('summary')!)
     fireEvent.click(within(population).getByRole('button', { name: /View answers for/ }))
     expect(await screen.findByText('A saved answer from an older sweep.')).toBeTruthy()
@@ -119,27 +119,41 @@ describe('shared production visibility view', () => {
     expect(requests.at(-1)!.searchParams.get('runId')).toBe('run-2')
   })
 
-  it.each(['simple', 'advanced'] as const)('keeps historical classes visible when the latest %s sweep has no queries in that class', mode => {
+  it('renders one explicitly selected class, including its empty state, instead of stacking report populations', () => {
     const report = legacyReportFixture()
-    report.selection.mode = mode
-    report.populations[0]!.trend[0] = { ...report.populations[2]!.trend[0]!, provenance: { kind: 'frozen-simple', definitionRevision: null } }
+    report.selection.queryClass = 'branded'
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     expect(screen.getByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Unclassified queries', exact: true })).toBeTruthy()
-    if (mode === 'advanced') expect(screen.getByRole('region', { name: 'Non-brand queries', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Unclassified queries', exact: true })).toBeNull()
+    expect(screen.getAllByRole('region').filter(region => /queries$/.test(region.getAttribute('aria-label') ?? ''))).toHaveLength(1)
+    expect(document.querySelectorAll('details[data-query-results]')).toHaveLength(1)
+    expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
   })
 
-  it('keeps populated simple classes separate even while query search has no matches', () => {
-    const report = legacyReportFixture()
-    for (const population of report.populations) {
-      population.summary = report.populations[2]!.summary
-      population.queries = { items: [], total: 0, nextCursor: null }
+  it('switches the one report population through the existing query-type dropdown', async () => {
+    const requests: URL[] = []
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url)
+      requests.push(request)
+      const report = legacyReportFixture()
+      const queryClass = request.searchParams.get('queryClass') ?? 'all'
+      report.selection.queryClass = queryClass as VisibilityReportResponse['selection']['queryClass']
+      if (queryClass !== 'all') report.populations = report.populations.filter(population => population.queryClass === queryClass)
+      return jsonResponse(report)
+    }))
+    function Workspace() {
+      const [search, setSearch] = useState<Record<string, unknown>>({ queryClass: 'non-brand' })
+      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
     }
-    render(<VisibilityReportView report={report} search="no match" onSelectionChange={() => {}} />)
-    for (const name of ['Branded queries', 'Non-brand queries', 'Unclassified queries']) {
-      const population = screen.getByRole('region', { name, exact: true })
-      expect(within(population).getAllByText('43%').length).toBeGreaterThan(0)
-    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
+    await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Query type' }), { target: { value: 'unknown' } })
+    await waitFor(() => expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown'))
+    expect(screen.getByRole('region', { name: 'Unclassified queries', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
+    expect(screen.getAllByRole('img', { name: /mention and citation trend/ })).toHaveLength(1)
   })
 
   it.each(['simple', 'advanced'] as const)('replaces unavailable %s trend plots with an explicit empty state', mode => {
@@ -331,14 +345,56 @@ describe('shared production visibility view', () => {
     expect(html).not.toContain('Published revision 4')
   })
 
-  it('keeps all classes as separate report sections and offers searchable scope', () => {
+  it('resolves an all-class response to historical non-brand data before current branded data, then to branded when non-brand has no history', () => {
+    const historicalNonBrand = legacyReportFixture()
+    historicalNonBrand.selection.queryClass = 'all'
+    historicalNonBrand.populations[1]!.trend[0] = { ...historicalNonBrand.populations[2]!.trend[0]!, queryCount: 1 }
+    historicalNonBrand.populations[2]!.summary = { ...historicalNonBrand.populations[2]!.summary, queryCount: 0, answerCount: 0 }
+    render(<VisibilityReportView report={historicalNonBrand} onSelectionChange={() => {}} />)
+    expect(screen.getByRole('region', { name: 'Non-brand queries', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Branded queries', exact: true })).toBeNull()
+    cleanup()
+
+    const brandedOnly = legacyReportFixture()
+    brandedOnly.selection.queryClass = 'all'
+    brandedOnly.populations[0]!.summary = brandedOnly.populations[2]!.summary
+    brandedOnly.populations[0]!.queries = brandedOnly.populations[2]!.queries
+    brandedOnly.populations[1]!.summary = { ...brandedOnly.populations[1]!.summary, queryCount: 0, answerCount: 0 }
+    brandedOnly.populations[1]!.trend = []
+    brandedOnly.populations[2]!.summary = { ...brandedOnly.populations[2]!.summary, queryCount: 0, answerCount: 0 }
+    brandedOnly.populations[2]!.trend = []
+    render(<VisibilityReportView report={brandedOnly} onSelectionChange={() => {}} />)
+    expect(screen.getByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
+  })
+
+  it('keeps a branded answer deep link in its branded population when the aggregate selection is all', async () => {
+    const report = reportWithAnswer('branded-query', 'Saved branded answer.')
+    report.selection.queryClass = 'all'
+    report.populations[0]!.queryClass = 'branded'
+    const requests: URL[] = []
+    onTestFinished(mockFetch(url => {
+      requests.push(new URL(url))
+      return jsonResponse(report)
+    }))
+    const answer = { queryKey: 'branded-query', queryClass: 'branded' as const, provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2 }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({ queryClass: 'all', measurementQueryKey: answer.queryKey, measurementAnswer: JSON.stringify(answer) })} onSelectionChange={() => {}} /></QueryClientProvider>)
+    expect(await screen.findByText('Saved branded answer.')).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'branded')
+    expect(screen.getByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
+    expect(requests.find(request => request.searchParams.has('queryKey'))?.searchParams.get('queryClass')).toBe('branded')
+  })
+
+  it('uses the resolved non-brand population for an all-class report response', () => {
     const report = reportFixture()
     report.selection.queryClass = 'all'
     report.populations = ['branded', 'non-brand', 'unknown'].map(queryClass => ({ ...report.populations[0]!, queryClass: queryClass as 'branded' | 'non-brand' | 'unknown' }))
     const html = renderToStaticMarkup(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(html).toContain('Branded queries')
+    expect(html).not.toContain('Branded queries')
     expect(html).toContain('Non-brand queries')
-    expect(html).toContain('Unclassified queries')
+    expect(html).not.toContain('Unclassified queries')
     expect(html).toContain('Search scopes')
     expect(html).not.toContain('Pooled')
   })
@@ -503,7 +559,7 @@ describe('shared production visibility view', () => {
     const view = render(<VisibilityReportView report={report} queryKey="query-context" onSelectionChange={() => {}} />)
     const disclosures = [...view.container.querySelectorAll<HTMLDetailsElement>('details[data-query-results]')]
     expect(disclosures.map(details => [details.dataset.queryResults, details.open])).toEqual([
-      ['branded', false], ['non-brand', true], ['unknown', false],
+      ['non-brand', true],
     ])
     expect(screen.getAllByRole('region', { name: 'Measured answers' })).toHaveLength(1)
     expect(document.activeElement?.textContent).toContain('Saved non-brand answer.')
@@ -670,17 +726,18 @@ describe('shared production visibility view', () => {
     const client = () => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
     const view = render(<QueryClientProvider client={client()}><Harness startingSearch={initialSearch} /></QueryClientProvider>)
     await screen.findByRole('combobox', { name: 'Answer engine' })
-    fireEvent.click(screen.getAllByText('Query results', { selector: 'span' })[1]!.closest('summary')!)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' }))
     expect(await screen.findByText('Stored negative evidence for this exact context.')).toBeTruthy()
     expect(screen.getByText('Not mentioned')).toBeTruthy()
     expect(screen.getByText('Not cited')).toBeTruthy()
-    expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'all')
+    expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'non-brand')
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
     expect(screen.getByRole('combobox', { name: 'Search location' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
-    for (const key of ['queryClass', 'measurementScope', 'measurementScopeKey', 'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementRevision', 'measurementFrom', 'measurementTo', 'measurementRunId', 'runId', 'evidenceId']) {
+    expect(currentSearch.queryClass).toBe('non-brand')
+    for (const key of ['measurementScope', 'measurementScopeKey', 'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementRevision', 'measurementFrom', 'measurementTo', 'measurementRunId', 'runId', 'evidenceId']) {
       expect(currentSearch[key]).toEqual(initialSearch[key])
     }
     const expectedDetailParams = {
@@ -697,10 +754,10 @@ describe('shared production visibility view', () => {
     expect(Object.fromEntries(detailRequests[1]!.searchParams)).toMatchObject(expectedDetailParams)
     fireEvent.click(screen.getByRole('button', { name: 'Close answers' }))
     expect(screen.queryByRole('region', { name: 'Measured answers' })).toBeNull()
-    expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'all')
+    expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'non-brand')
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
-    expect(Object.fromEntries(Object.entries(currentSearch).filter(([, value]) => value !== undefined))).toEqual(initialSearch)
+    expect(Object.fromEntries(Object.entries(currentSearch).filter(([, value]) => value !== undefined))).toEqual({ ...initialSearch, queryClass: 'non-brand' })
   })
 
   it('keeps an undisclosed-model drilldown exact while paging without paging the aggregate', async () => {
@@ -745,7 +802,7 @@ describe('shared production visibility view', () => {
     expect(await screen.findByText('Saved answer from beyond the first query page.')).toBeTruthy()
     const disclosures = [...view.container.querySelectorAll<HTMLDetailsElement>('details[data-query-results]')]
     expect(disclosures.map(details => [details.dataset.queryResults, details.open])).toEqual([
-      ['branded', false], ['non-brand', true], ['unknown', false],
+      ['non-brand', true],
     ])
     expect(document.activeElement?.textContent).toContain('Saved answer from beyond the first query page.')
   })

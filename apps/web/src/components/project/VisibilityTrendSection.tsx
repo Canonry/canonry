@@ -19,6 +19,7 @@ import {
   CHART_NEUTRAL,
   CHART_SERIES_COLORS,
   CHART_TONE,
+  CHART_TOOLTIP_STYLE,
   ComposedChart,
   formatObservedInstantLabel,
   Line,
@@ -193,7 +194,7 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
             <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
             <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
             <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
-            <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleString()} />
+            <RechartsTooltip {...CHART_TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleString()} />
             {segments.map(index => <Fragment key={index}>
               <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
               <Line type="linear" dataKey={`cited-${index}`} name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
@@ -227,8 +228,22 @@ export interface VisibilityReportViewProps {
   onEvidencePage?: (cursor: string) => void
 }
 
+function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: string, answerSelection?: VisibilityAnswerSelection) {
+  const requested = report.selection.queryClass === 'all' ? answerSelection?.queryClass : report.selection.queryClass
+  const explicit = report.populations.find(population => population.queryClass === requested)
+  if (explicit) return explicit
+  const matching = queryKey ? report.populations.find(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey)) : undefined
+  if (matching) return matching
+  // Clean URLs request all classes so older, unclassified history remains
+  // discoverable. Display a single population without combining its rates.
+  const ordered = (['non-brand', 'branded', 'unknown'] as const).map(queryClass => report.populations.find(population => population.queryClass === queryClass))
+  return ordered.find(population => population && (population.summary.queryCount > 0 || population.trend.some(point => point.queryCount > 0)))
+    ?? ordered.find(population => population !== undefined)
+    ?? report.populations[0]!
+}
+
 /** Shared by the live report and the isolated overview review. No metric changes. */
-export function VisibilityReportFilters({ report, onSelectionChange }: Pick<VisibilityReportViewProps, 'report' | 'onSelectionChange'>) {
+export function VisibilityReportFilters({ report, onSelectionChange, queryClass = selectedReportPopulation(report).queryClass }: Pick<VisibilityReportViewProps, 'report' | 'onSelectionChange'> & { queryClass?: VisibilityReportPopulation['queryClass'] }) {
   const [scopeSearch, setScopeSearch] = useState('')
   const picker = useRef<HTMLDetailsElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
@@ -272,7 +287,7 @@ export function VisibilityReportFilters({ report, onSelectionChange }: Pick<Visi
         </div>
       </details>
     </div> : null}
-    {select('Query type', 'queryClass', selection.queryClass, [{ value: 'all', label: 'All queries' }, { value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
+    {select('Query type', 'queryClass', queryClass, [{ value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
     {select('Answer engine', 'measurementProvider', selection.provider ?? '', [{ value: '', label: 'All engines' }, ...filterOptions.providers.map(provider => ({ value: provider, label: provider }))])}
     {select('Search location', 'measurementLocation', selection.location.kind === 'exact' ? selection.location.value : selection.location.kind === 'none' ? 'none' : '', [{ value: '', label: 'All locations' }, ...filterOptions.locations.filter(location => location.kind !== 'all').map(location => ({ value: location.kind === 'exact' ? location.value : 'none', label: location.kind === 'exact' ? location.value : 'No location' }))])}
   </div></div>
@@ -282,9 +297,10 @@ export function VisibilityReportFilters({ report, onSelectionChange }: Pick<Visi
 export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
+  const selectedPopulation = selectedReportPopulation(report, queryKey, answerSelection)
   const answerReport = evidenceReport ?? report
   const matchingPopulations = answerReport.populations.filter(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey))
-  const answerClasses = answerSelection ? [answerSelection.queryClass] : (matchingPopulations.length ? matchingPopulations : isEvidenceLoading ? [] : report.populations.slice(0, 1)).map(population => population.queryClass)
+  const answerClasses = answerSelection ? [answerSelection.queryClass] : (matchingPopulations.length ? matchingPopulations : isEvidenceLoading ? [] : [selectedPopulation]).map(population => population.queryClass)
   const answerFocusKey = queryKey ? JSON.stringify([answerSelection ?? queryKey, answerClasses]) : undefined
   const filterId = useId()
   useEffect(() => {
@@ -331,21 +347,14 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null}
     </div>
     {selection.provenance.kind === 'legacy-simple' && selection.queryClass !== 'unknown' && selection.queryClass !== 'all' ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default py-3 text-sm text-secondary"><p>These saved results aren't separated by query type.</p><Button variant="outline" onClick={() => onSelectionChange({ queryClass: 'all', measurementQueryKey: undefined })}>View all saved results</Button></div> : null}
-    <VisibilityReportFilters report={report} onSelectionChange={onSelectionChange} />
+    <VisibilityReportFilters report={report} queryClass={selectedPopulation.queryClass} onSelectionChange={onSelectionChange} />
     <details className="border-b border-default text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">More filters</summary><div className="flex flex-wrap gap-4 pb-3">
       <label className="min-w-40 flex-1"><span className="mb-1 block text-sm font-medium text-heading">Start date (UTC)</span><input type="date" className={REPORT_CONTROL} value={selection.time.from?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ measurementFrom: event.target.value ? `${event.target.value}T00:00:00.000Z` : undefined })} /></label>
       <label className="min-w-40 flex-1"><span className="mb-1 block text-sm font-medium text-heading">End date (UTC)</span><input type="date" className={REPORT_CONTROL} value={selection.time.to?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ measurementTo: event.target.value ? `${event.target.value}T23:59:59.999Z` : undefined })} /></label>
       {filterSelect('AI model', 'measurementModel', selection.model ?? '', [{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(model => !selection.provider || model.provider === selection.provider).map(model => model.model))).map(model => ({ value: model, label: model }))], 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
-      {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...report.populations[0]!.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
+      {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...selectedPopulation.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
     </div></details>
-    {report.populations.map(population => {
-      // Simple history can predate query labels. In the all-query view, lead
-      // with its saved results instead of empty classes that never had queries.
-      // Retain historical populations and any explicitly requested class.
-      if (selection.mode === 'simple' && selection.queryClass === 'all'
-        && population.summary.queryCount === 0 && !population.trend.some(point => point.queryCount > 0)
-        && !(queryKey && answerClasses.includes(population.queryClass))
-        && report.populations.some(other => other.summary.queryCount > 0 || other.trend.some(point => point.queryCount > 0))) return null
+    {[selectedPopulation].map(population => {
       const queryGroups = groupVisibilityQueryRows(population.queries.items)
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
@@ -452,6 +461,11 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     enabled: Boolean(selection.queryKey) && Boolean(reportQuery.data) && !reportQuery.isPlaceholderData,
     retry: false,
   })
+  useEffect(() => {
+    if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData
+      || reportQuery.data.selection.availability.state === 'unsupported') return
+    onSelectionChange({ queryClass: selectedReportPopulation(reportQuery.data, selection.queryKey, selection.answer).queryClass })
+  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.isPlaceholderData, onSelectionChange])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {
