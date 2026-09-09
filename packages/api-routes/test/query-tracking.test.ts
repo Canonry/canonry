@@ -578,6 +578,20 @@ describe('query tracking workspace: simple projects', () => {
 })
 
 describe('query tracking workspace: advanced portfolios', () => {
+  it('exposes frozen group ancestry without changing property membership', async () => {
+    seedAdvancedPlan()
+    rewriteActivePlan(plan => {
+      const groups = plan.groups as Array<Record<string, unknown>>
+      groups[0]!.parentGroupKey = 'metro'
+      groups.push({ stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], competitors: [] })
+    })
+    const current = await workspace()
+    expect(current.groups).toEqual([
+      { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'] },
+      { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro' },
+    ])
+  })
+
   it('reuses frozen executions and changes classification only in the selected market', async () => {
     seedMultiMarketPlan()
     const before = activeV2Plan()

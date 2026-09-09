@@ -92,6 +92,8 @@ export type MeasurementV2Competitor = z.output<typeof measurementV2CompetitorSch
 export const measurementV2GroupSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   label: z.string().trim().min(1),
+  /** Explicit reporting navigation only; it is never inferred from target membership. */
+  parentGroupKey: measurementV2StableKeySchema.optional(),
   targetKeys: z.array(measurementV2StableKeySchema),
   competitors: z.array(measurementV2CompetitorSchema),
 }).strict()
@@ -283,6 +285,43 @@ export const measurementPlanV2Schema = z.object({
         path: ['assignments', index, 'targetKey'],
         message: `Assignment references unknown Target "${assignment.targetKey}"`,
       })
+    }
+  })
+
+  const groupsByKey = new Map<string, typeof plan.groups[number]>()
+  plan.groups.forEach((group, groupIndex) => {
+    if (groupsByKey.has(group.stableKey)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groups', groupIndex, 'stableKey'], message: 'Duplicate group stable key ' + group.stableKey })
+    }
+    groupsByKey.set(group.stableKey, group)
+  })
+  plan.groups.forEach((group, groupIndex) => {
+    const parentKey = group.parentGroupKey
+    if (parentKey === undefined) return
+    if (parentKey === group.stableKey) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groups', groupIndex, 'parentGroupKey'], message: 'A group cannot be its own parent.' })
+      return
+    }
+    const parent = groupsByKey.get(parentKey)
+    if (!parent) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groups', groupIndex, 'parentGroupKey'], message: 'Group parent does not exist: ' + parentKey })
+      return
+    }
+    const parentTargets = new Set(parent.targetKeys)
+    group.targetKeys.forEach((targetKey, targetIndex) => {
+      if (!parentTargets.has(targetKey)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groups', groupIndex, 'targetKeys', targetIndex], message: 'Group target membership must be a subset of its parent.' })
+    })
+    const seen = new Set<string>([group.stableKey])
+    let cursor = parent
+    while (cursor.parentGroupKey !== undefined) {
+      if (seen.has(cursor.stableKey)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groups', groupIndex, 'parentGroupKey'], message: 'Group parent relationships cannot contain a cycle.' })
+        break
+      }
+      seen.add(cursor.stableKey)
+      const next = groupsByKey.get(cursor.parentGroupKey)
+      if (!next) break
+      cursor = next
     }
   })
 

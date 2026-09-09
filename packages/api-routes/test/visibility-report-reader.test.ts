@@ -271,6 +271,26 @@ describe('buildVisibilityReport', () => {
     ])
   })
 
+  it('keeps configured groups visible before a sweep and excludes groups outside a selected collection', () => {
+    const activeDefinition = definition(3)
+    activeDefinition.targets.push({ id: 'outside', label: 'Outside', mentionEligible: true })
+    activeDefinition.groups.push({ id: 'unrelated', label: 'Unrelated', targetKeys: ['outside'] })
+    activeDefinition.scopeOptions.push(
+      { id: 'outside', label: 'Outside', kind: 'property', targetCount: 1 },
+      { id: 'unrelated', label: 'Unrelated', kind: 'group', targetCount: 1 },
+    )
+    activeDefinition.scopeOptions[0]!.targetCount = 3
+    const selection = { queryClass: 'non-brand' as const, scope: 'project' as const, location: { kind: 'all' as const }, limit: 50 }
+    const project = buildVisibilityReport(input({ activeDefinition, runs: [], selection }))
+    expect(project.selection.measurement.state).toBe('not-measured')
+    expect(project.populations[0]!.breakdown.groups.map(group => group.id)).toEqual(['collection', 'unrelated'])
+    const report = buildVisibilityReport(input({ activeDefinition, runs: [], selection: { ...selection, scope: 'group', scopeKey: 'collection' } }))
+    const missing = { numerator: null, denominator: null, rate: null, reason: 'no-population' }
+    expect(report.populations[0]!.breakdown.groups).toEqual([expect.objectContaining({
+      id: 'collection', queryCount: 0, mentionCoverage: missing, citationCoverage: missing,
+    })])
+  })
+
   it('excludes probe runs even when a caller names their id', () => {
     const report = buildVisibilityReport(input({
       selection: { queryClass: 'non-brand', scope: 'project', runId: 'probe', location: { kind: 'all' }, limit: 50 },

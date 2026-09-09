@@ -597,21 +597,25 @@ function breakdown(
       ...metrics,
     }
   }).sort((left, right) => compareText(left.label, right.label) || compareText(left.id, right.id))
-  const groups = definition.groups.map(group => {
-    const groupTargetKeys = new Set(group.targetKeys)
-    const own = candidates
-      .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
-      .filter((candidate): candidate is Candidate => candidate !== null)
-    const metrics = rate(own.map(candidate => targetValues(candidate, targets).mention), own.length)
-    const citations = rate(own.map(candidate => targetValues(candidate, targets).citation), own.length)
-    return {
-      id: group.id,
-      label: group.label,
-      queryCount: new Set(own.map(candidate => candidate.slot.queryKey)).size,
-      mentionCoverage: metrics,
-      citationCoverage: citations,
-    }
-  }).filter(group => group.queryCount > 0).sort((left, right) => compareText(left.label, right.label) || compareText(left.id, right.id))
+  const populationTargetSet = new Set(populationTargetKeys)
+  const groups = definition.groups
+    .map(group => ({ group, targetKeys: group.targetKeys.filter(targetKey => populationTargetSet.has(targetKey)) }))
+    .filter(({ targetKeys }) => targetKeys.length > 0)
+    .map(({ group, targetKeys }) => {
+      const groupTargetKeys = new Set(targetKeys)
+      const own = candidates
+        .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
+        .filter((candidate): candidate is Candidate => candidate !== null)
+      const metrics = rate(own.map(candidate => targetValues(candidate, targets).mention), own.length)
+      const citations = rate(own.map(candidate => targetValues(candidate, targets).citation), own.length)
+      return {
+        id: group.id,
+        label: group.label,
+        queryCount: new Set(own.map(candidate => candidate.slot.queryKey)).size,
+        mentionCoverage: metrics,
+        citationCoverage: citations,
+      }
+    }).sort((left, right) => compareText(left.label, right.label) || compareText(left.id, right.id))
   return { properties, groups }
 }
 

@@ -262,16 +262,20 @@ function v2Definition(
       location: slot.context?.label ?? null,
     }
   })
+  const groupKeysForTarget = new Map(plan.targets.map(target => [target.stableKey, [] as string[]]))
+  for (const group of plan.groups) {
+    for (const targetKey of group.targetKeys) groupKeysForTarget.get(targetKey)?.push(group.stableKey)
+  }
   const scopeOptions = [
     { id: 'project', label: 'Project', kind: 'project' as const, targetCount: plan.targets.length },
-    ...plan.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length })),
+    ...plan.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length, ...(group.parentGroupKey === undefined ? {} : { parentGroupIds: [group.parentGroupKey] }) })),
     ...plan.reportingScopes?.map(market => ({
       id: market.stableKey,
       label: market.label,
       kind: 'market' as const,
       targetCount: new Set(market.usageEdges.map(edge => edge.targetKey)).size,
     })) ?? [],
-    ...plan.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1 })),
+    ...plan.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1, parentGroupIds: [...new Set(groupKeysForTarget.get(target.stableKey) ?? [])].sort() })),
   ]
   return {
     revision,
@@ -746,9 +750,10 @@ function advancedReaderInput(
     throw validationError(`Measurement run "${query.runId}" is not an eligible advanced result.`)
   }
   const candidates = sourceCandidates.map(candidate => {
-    // #1062's link is emitted only for an execution-identical label-only
-    // republish. In that case the active/requested frozen plan is the report
-    // definition; a material predecessor keeps its own definition instead.
+    // Continuity links are emitted only for an execution-identical display-only
+    // republish (labels or group navigation metadata). In that case the
+    // active/requested frozen plan is the report definition; a material
+    // predecessor keeps its own definition instead.
     // The source already uses that exact frozen revision, so rebuilding its
     // manifest/evidence would only duplicate a large portfolio read.
     if (candidate.source.row.id === presentationVersion.id) return candidate.own

@@ -174,6 +174,16 @@ describe('published measurement plan v2', () => {
   })
 })
 
+  it('validates explicit group hierarchy without inferring it from target overlap', () => {
+    const plan = planV2()
+    const child = { stableKey: 'northbridge-harbor', label: 'Northbridge Harbor', parentGroupKey: 'northbridge-portfolio', targetKeys: ['harbor-point'], competitors: [] }
+    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [...plan.groups, child] }).success).toBe(true)
+    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'missing' }] }).success).toBe(false)
+    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'northbridge-portfolio' }] }).success).toBe(false)
+    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'northbridge-harbor' }, { ...child, parentGroupKey: 'northbridge-portfolio' }] }).success).toBe(false)
+    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [...plan.groups, { ...child, targetKeys: ['not-a-parent-member'] }] }).success).toBe(false)
+  })
+
 describe('measurement plan v2 canonical ordering', () => {
   it('orders provider configuration too, not only the assignment list', () => {
     const plan = planV2()

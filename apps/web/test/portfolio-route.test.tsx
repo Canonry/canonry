@@ -1014,7 +1014,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
 
   const scopePicker = page.getByText('Whole site', { selector: 'summary' }).closest('details')!
   fireEvent.click(page.getByText('Whole site', { selector: 'summary' }))
-  fireEvent.click(within(scopePicker).getByRole('button', { name: /^North/ }))
+  fireEvent.click(within(scopePicker).getByRole('button', { name: 'Select North', exact: true }))
   expect(await page.findByText('North Property')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
 
@@ -2224,7 +2224,7 @@ test('a scope in the URL selects that group on first paint, with no interaction'
 
   // The server-resolved scope reflects the URL rather than defaulting to site.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector('summary')?.textContent).toBe('North · Group')
+  expect(doc.querySelector('summary')?.textContent).toBe('North · 1 property')
 })
 
 test('a market scope reads that group\'s stored competitor landscape', async () => {

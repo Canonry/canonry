@@ -8,6 +8,7 @@ import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
+  getApiV1ProjectsByNameQueryTrackingQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
@@ -100,7 +101,7 @@ function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSecti
   }
   const all = { ...base, ...props }
   render(<QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>)
-  return all
+  return { ...all, queryClient }
 }
 
 function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
@@ -301,7 +302,7 @@ test.each(['group', 'market'] as const)('keeps the selected %s kind visible in t
   renderWorkspace({ selection: { measurementScope: kind, measurementScopeKey: kind === 'group' ? 'north-east' : 'new-york', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   const kindLabel = kind === 'group' ? 'Group' : 'Market'
-  expect(screen.getByText(`Metro Beta · ${kindLabel}`, { selector: 'summary' })).toBeTruthy()
+  expect(screen.getByText(kind === 'group' ? 'Metro Beta · 1 property' : 'Metro Beta · Market', { selector: 'summary' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
   expect(screen.getByText(`Only assignments in Metro Beta · ${kindLabel} will be removed. Earlier results stay unchanged.`)).toBeTruthy()
 })
@@ -318,8 +319,38 @@ test('distinguishes this property from shared assignments and deduplicates group
   expect(within(shared).getByText('This property · Shared with 1 other property · Metro Alpha (group and market)')).toBeTruthy()
   const direct = screen.getByText('Best AEO platform').closest('tr')!
   expect(within(direct).getByText('This property only')).toBeTruthy()
-  fireEvent.click(screen.getByText('Acme', { selector: 'summary' }))
-  expect(screen.getByText('Group: properties grouped together. Market: search context.')).toBeTruthy()
+})
+
+test('shows only in-group properties and relationships for a shared query', async () => {
+  const data = workspace()
+  data.targets = [
+    { stableKey: 'acme', label: 'Acme' },
+    { stableKey: 'beta', label: 'Beta' },
+    { stableKey: 'gamma', label: 'Gamma' },
+    { stableKey: 'delta', label: 'Delta' },
+  ]
+  data.groups = [
+    { stableKey: 'uptown', label: 'Uptown', targetKeys: ['acme', 'beta', 'gamma'] },
+    { stableKey: 'downtown', label: 'Downtown', targetKeys: ['acme', 'delta'] },
+  ]
+  data.tracked[0]!.assignments = [
+    { ...data.tracked[0]!.assignments[0]!, targetKey: 'acme', groupKeys: ['uptown', 'downtown'], marketKeys: [] },
+    { ...data.tracked[0]!.assignments[0]!, targetKey: 'beta', groupKeys: ['uptown'], marketKeys: [] },
+    { ...data.tracked[0]!.assignments[0]!, targetKey: 'gamma', groupKeys: ['uptown'], marketKeys: [] },
+    { ...data.tracked[0]!.assignments[0]!, targetKey: 'delta', groupKeys: ['downtown'], marketKeys: [] },
+  ]
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: 'group', measurementScopeKey: 'uptown', queryClass: 'all' } })
+
+  const row = (await screen.findByText('Acme pricing')).closest('tr')!
+  const scope = within(row).getByText('3 properties in this group · Shared with 1 other property')
+  expect(screen.getByText('Queries belong to properties, so a shared query can also cover other groups.')).toBeTruthy()
+  fireEvent.click(scope)
+  expect(within(row).getByText('Acme · Groups: Uptown')).toBeTruthy()
+  expect(within(row).getByText('Beta · Groups: Uptown')).toBeTruthy()
+  expect(within(row).getByText('Gamma · Groups: Uptown')).toBeTruthy()
+  expect(within(row).queryByText(/Delta/)).toBeNull()
+  expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
 test('focuses the preview outcome and keeps request counts in a secondary disclosure', async () => {
@@ -391,11 +422,36 @@ test('renders a searchable tracked table and delegates URL-owned workspace and s
 
   fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'New York' } })
-  fireEvent.click(screen.getByRole('button', { name: 'New York, Market' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Select New York' }))
   expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'market', measurementScopeKey: 'new-york' })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research' }))
   expect(props.onQueryWorkspaceChange).toHaveBeenCalledWith('research')
+})
+
+test('filters tracked queries by the URL-owned query type and exposes each assignment relationship', async () => {
+  installWorkspaceApi()
+  const props = renderWorkspace({ selection: { measurementScope: 'project', queryClass: 'branded' } })
+
+  await screen.findByText('Acme pricing')
+  expect(screen.queryByText('Best AEO platform')).toBeNull()
+  expect(screen.getByText('1 saved query record in this view. Each record can have more than one property, group, or market assignment.')).toBeTruthy()
+
+  const queryType = screen.getByRole('combobox', { name: 'Query type' })
+  expect(queryType).toHaveProperty('value', 'branded')
+  expect(within(queryType).getByRole('option', { name: 'All query types' })).toBeTruthy()
+  expect(within(queryType).getByRole('option', { name: 'Non-brand' })).toBeTruthy()
+  expect(within(queryType).getByRole('option', { name: 'Branded' })).toBeTruthy()
+  expect(within(queryType).getByRole('option', { name: 'Unclassified' })).toBeTruthy()
+
+  fireEvent.change(queryType, { target: { value: 'non-brand' } })
+  expect(props.onSelectionChange).toHaveBeenCalledWith({ queryClass: 'non-brand' })
+
+  const row = screen.getByText('Acme pricing').closest('tr')!
+  const scope = within(row).getByText('Acme · Group: North East · Market: New York')
+  fireEvent.click(scope)
+  expect(within(row).getByText('Assigned relationships')).toBeTruthy()
+  expect(within(row).getByText('Acme · Groups: North East · Markets: New York')).toBeTruthy()
 })
 
 test('lets measurement and action columns size to their contents inside the scrollable tracked table', async () => {
@@ -464,14 +520,36 @@ test('returns focus to the tracked scope trigger after selecting a filtered scop
   const details = trigger.closest('details')!
   fireEvent.click(trigger)
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'North East' } })
-  expect(screen.queryByRole('button', { name: 'New York, Market' })).toBeNull()
-  const option = screen.getByRole('button', { name: 'North East, Group' })
+  expect(screen.queryByRole('button', { name: 'Select New York' })).toBeNull()
+  const option = screen.getByRole('button', { name: 'Select North East' })
   option.focus()
   fireEvent.click(option)
 
   expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
   expect(details.open).toBe(false)
   expect(document.activeElement).toBe(trigger)
+})
+
+test('browses a nested tracked-query group without first listing every property', async () => {
+  const data = workspace()
+  data.groups = [
+    { stableKey: 'metro', label: 'Metro', targetKeys: ['acme'] },
+    { stableKey: 'north-east', label: 'North East', parentGroupKey: 'metro', targetKeys: ['acme'] },
+  ]
+  installWorkspaceApi(undefined, [], data)
+  const props = renderWorkspace()
+
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
+  expect(screen.getByRole('button', { name: 'Select Metro' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Select North East' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Select Acme' })).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Browse Metro' }))
+  expect(screen.getByText('All properties in this group')).toBeTruthy()
+  fireEvent.click(screen.getByText('Subgroups (1)', { selector: 'summary' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Select North East' }))
+  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
 })
 
 test('searches large scopes and keeps multi-property assignments compact in the table', async () => {
@@ -490,8 +568,8 @@ test('searches large scopes and keeps multi-property assignments compact in the 
   expect(screen.queryByRole('combobox', { name: 'Measurement scope' })).toBeNull()
   fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Property 224' } })
-  expect(screen.queryByRole('button', { name: 'Property 223, Property' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Property 224, Property' }))
+  expect(screen.queryByRole('button', { name: 'Select Property 223' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Select Property 224' }))
   expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'property', measurementScopeKey: 'property-224' })
 })
 
@@ -1086,6 +1164,20 @@ test('requires a market for a saved market template before sending its identity 
   })
 })
 
+test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visible when the shared URL carries %s', async queryClass => {
+  const data = workspace()
+  data.mode = 'simple'
+  data.tracked = data.tracked.map(row => ({ ...row, assignments: [] }))
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: 'project', queryClass } })
+
+  expect(await screen.findByText('Acme pricing')).toBeTruthy()
+  expect(screen.getByText('Best AEO platform')).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Query type' })).toBeNull()
+  expect(screen.queryByRole('columnheader', { name: 'Class' })).toBeNull()
+  expect(screen.queryByText('Unknown')).toBeNull()
+})
+
 test('keeps simple measurements classifier-only and never submits an operator override', async () => {
   let previewBody: Record<string, unknown> | undefined
   installWorkspaceApi((path, body) => {
@@ -1173,4 +1265,56 @@ test.each(['preview', 'commit'] as const)('refreshes a stale workspace after %s 
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByRole('button', { name: 'Confirm changes' })
   expect(reviewedVersions).toEqual([workspaceVersion, refreshedVersion])
+})
+
+
+test.each([
+  ['group', 'north-east'],
+  ['property', 'acme'],
+  ['market', 'new-york'],
+] as const)('offers explicit recovery for a retired tracked-query %s scope', async (measurementScope, measurementScopeKey) => {
+  const data = workspace()
+  if (measurementScope === 'group') data.groups = []
+  if (measurementScope === 'property') data.targets = []
+  if (measurementScope === 'market') data.markets = []
+  installWorkspaceApi(undefined, [], data)
+  const props = renderWorkspace({ selection: { measurementScope, measurementScopeKey, queryClass: 'branded' } })
+
+  expect(await screen.findByText(`This saved ${measurementScope} filter is unavailable in the current measurement.`)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Edit Acme pricing' })).toBeNull()
+  expect(props.onTrackingQueryIdChange).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Show whole site' }))
+  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'project', measurementScopeKey: undefined })
+})
+
+test('hides an open scoped action when a workspace publication retires its group', async () => {
+  const data = workspace()
+  installWorkspaceApi(undefined, [], data)
+  const props = renderWorkspace({
+    selection: { measurementScope: 'group', measurementScopeKey: 'north-east', queryClass: 'branded' },
+    trackingQueryId: 'query-acme',
+  })
+
+  await screen.findByRole('heading', { name: 'Edit query' })
+  data.groups = []
+  await props.queryClient.invalidateQueries({
+    queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: 'demo' } }),
+  })
+
+  expect(await screen.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Edit query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(props.onTrackingQueryIdChange).toHaveBeenCalledWith(undefined)
+})
+
+test('unassigned legacy records remain accessible without promising a future portfolio measurement', async () => {
+  const data = workspace()
+  data.tracked[0]!.assignments = []
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: 'project', queryClass: 'unknown' } })
+  const row = (await screen.findByText('Acme pricing')).closest('tr')!
+  expect(within(row).getByText('Not in current plan')).toBeTruthy()
+  expect(within(row).queryByText('Awaiting sweep')).toBeNull()
+  expect(screen.queryByText('Best AEO platform')).toBeNull()
 })

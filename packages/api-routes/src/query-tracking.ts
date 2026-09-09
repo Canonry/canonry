@@ -809,7 +809,10 @@ function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRout
     active: activeDto(state.active),
     defaultContexts: defaultContexts(state.project, opts, state.mode),
     targets: plan?.targets.map(target => ({ stableKey: target.stableKey, label: target.label })) ?? [],
-    groups: plan?.groups.map(group => ({ stableKey: group.stableKey, label: group.label, targetKeys: group.targetKeys })) ?? [],
+    groups: plan?.groups.map(group => ({
+      stableKey: group.stableKey, label: group.label, targetKeys: group.targetKeys,
+      ...(group.parentGroupKey ? { parentGroupKey: group.parentGroupKey } : {}),
+    })) ?? [],
     markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges })) ?? [],
     tracked: trackedRows(db, state, rows, plan, opts),
     savedSources: savedSources(db, state.project.id),

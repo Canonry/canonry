@@ -40,6 +40,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
 import { hashApiKey } from '../src/auth.js'
 import { sha256Hex } from '../src/measurement-draft-repo.js'
 
@@ -1841,5 +1842,64 @@ describe('measurement draft compiled checksum', () => {
     })
     expect(accepted.statusCode, accepted.body).toBe(200)
     expect(accepted.json()).toMatchObject({ published: true, active: { revision: 1 } })
+  })
+})
+
+describe('measurement draft hierarchy continuity', () => {
+  it('keeps published revisions comparable when explicit parent navigation attaches or detaches', async () => {
+    const initial = await readyDraft()
+    await initial.run('upsert-group', { group: { stableKey: 'metro', label: 'Metro', targetKeys: ['widgets'], competitors: [] } })
+    await initial.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', targetKeys: ['widgets'], competitors: [] } })
+    const first = await publish(initial, null)
+    expect(first.statusCode, first.body).toBe(200)
+    const firstVersion = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 1)).get()!
+    const firstPlan = measurementPlanV2Schema.parse(JSON.parse(firstVersion.canonicalJson))
+    const parentOnly = structuredClone(firstPlan)
+    parentOnly.groups.find(group => group.stableKey === 'submarket')!.parentGroupKey = 'metro'
+    expect(plansAreLabelOnlyVariants(firstPlan, parentOnly)).toBe(true)
+    const changedMembership = structuredClone(firstPlan)
+    changedMembership.groups.find(group => group.stableKey === 'metro')!.targetKeys = []
+    expect(plansAreLabelOnlyVariants(firstPlan, changedMembership)).toBe(false)
+    const changedQuery = structuredClone(firstPlan)
+    changedQuery.querySnapshots[0]!.queryText = 'a changed frozen question'
+    expect(plansAreLabelOnlyVariants(firstPlan, changedQuery)).toBe(false)
+    const changedContext = structuredClone(firstPlan)
+    changedContext.executionNodes[0]!.context.models = { ...changedContext.executionNodes[0]!.context.models, openai: 'changed-model' }
+    expect(plansAreLabelOnlyVariants(firstPlan, changedContext)).toBe(false)
+
+    const attach = await DraftSession.start(1)
+    await attach.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', parentGroupKey: 'metro', targetKeys: ['widgets'] } })
+    const attached = await publish(attach, 1)
+    expect(attached.statusCode, attached.body).toBe(200)
+    const attachedVersion = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 2)).get()!
+    expect(attachedVersion.compiledChecksum).not.toBe(firstVersion.compiledChecksum)
+    expect(attachedVersion.comparableToVersionId).toBe(firstVersion.id)
+
+    const detach = await DraftSession.start(2)
+    await detach.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', parentGroupKey: null, targetKeys: ['widgets'] } })
+    const detached = await publish(detach, 2)
+    expect(detached.statusCode, detached.body).toBe(200)
+    const detachedVersion = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 3)).get()!
+    expect(detachedVersion.compiledChecksum).not.toBe(attachedVersion.compiledChecksum)
+    expect(detachedVersion.comparableToVersionId).toBe(attachedVersion.id)
+  })
+})
+
+describe('measurement draft hierarchy publish round-trip', () => {
+  it('seeds a published hierarchy, retains it through a harmless edit, and republishes it', async () => {
+    const initial = await readyDraft()
+    await initial.run('upsert-group', { group: { stableKey: 'metro', label: 'Metro', targetKeys: ['widgets'], competitors: [] } })
+    await initial.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', parentGroupKey: 'metro', targetKeys: ['widgets'], competitors: [] } })
+    const first = await publish(initial, null)
+    expect(first.statusCode, first.body).toBe(200)
+
+    const seeded = await DraftSession.start(1)
+    const before = (await request('GET', '/measurement-plan/draft')).json().draft.authoring
+    expect(before.groups.find((group: { stableKey: string }) => group.stableKey === 'submarket').parentGroupKey).toBe('metro')
+    await seeded.run('rename-target', { targetKey: 'widgets', label: 'Widgets refreshed' })
+    const second = await publish(seeded, 1)
+    expect(second.statusCode, second.body).toBe(200)
+    const active = (await request('GET', '/measurement-plan')).json().active.plan
+    expect(active.groups.find((group: { stableKey: string }) => group.stableKey === 'submarket')).toMatchObject({ parentGroupKey: 'metro', targetKeys: ['widgets'] })
   })
 })

@@ -87,6 +87,29 @@ function legacyReportFixture(): VisibilityReportResponse {
 }
 
 describe('shared production visibility view', () => {
+  it('recovers a retired group link without changing query class, engine, or unrelated URL state', async () => {
+    const requests: URL[] = []
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url); requests.push(request)
+      if (request.searchParams.get('scope') === 'group') return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'group scope "removed" is not in this frozen definition.' } }, 400)
+      return jsonResponse(reportFixture())
+    }))
+    let currentSearch: Record<string, unknown> = { measurementScope: 'group', measurementScopeKey: 'removed', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' }
+    function Workspace() {
+      const [search, setSearch] = useState(currentSearch)
+      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => { currentSearch = patchVisibilitySelection(previous, patch); return currentSearch })} />
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
+    const recovery = await screen.findByRole('button', { name: 'Show whole site' })
+    expect(screen.getByRole('alert').textContent).not.toContain('VALIDATION_ERROR')
+    fireEvent.click(recovery)
+    await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
+    expect(currentSearch).toMatchObject({ measurementScope: 'project', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' })
+    expect(currentSearch.measurementScopeKey).toBeUndefined()
+    expect(requests.at(-1)!.searchParams.get('scope')).toBe('project')
+  })
+
   it('loads legacy simple history as all classes once, then normalizes a clean URL to its saved unclassified population', async () => {
     const requests: URL[] = []
     onTestFinished(mockFetch(url => {
@@ -219,7 +242,7 @@ describe('shared production visibility view', () => {
     report.selection.scope = report.scopeOptions.find(scope => scope.id === `${kind}-beta`)!
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     const kindLabel = kind === 'group' ? 'Group' : 'Market'
-    expect(screen.getByText(`Metro Beta · ${kindLabel}`, { selector: 'summary' })).toBeTruthy()
+    expect(screen.getByText(`Metro Beta · ${kind === 'group' ? '15 properties' : kindLabel}`, { selector: 'summary' })).toBeTruthy()
     expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
     expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
   })
@@ -873,6 +896,24 @@ describe('shared production visibility view', () => {
     expect(await screen.findByText('Recovered saved evidence.')).toBeTruthy()
     expect(requests.filter(request => !request.searchParams.has('queryKey'))).toHaveLength(1)
     expect(requests.filter(request => request.searchParams.has('queryKey'))).toHaveLength(2)
+  })
+
+  it('starts the breakdown with top-level groups and opens a group on its properties', () => {
+    const report = reportFixture()
+    const root = report.scopeOptions[1]!
+    report.scopeOptions.push({ id: 'subgroup', label: 'Central District', kind: 'group', targetCount: 1, parentGroupIds: [root.id] })
+    const groupRow = report.populations[0]!.breakdown.groups[0]!
+    report.populations[0]!.breakdown.groups.push({ ...groupRow, id: 'subgroup', label: 'Central District' })
+    report.populations[0]!.breakdown.properties = [{ ...groupRow, id: 'property', label: 'Harbor House' }]
+    const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(within(screen.getByRole('region', { name: 'Scope breakdown' })).queryByRole('button', { name: 'Central District' })).toBeNull()
+    report.selection.scope = root
+    view.rerender(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const breakdown = within(screen.getByRole('region', { name: 'Scope breakdown' }))
+    expect(breakdown.getByRole('button', { name: 'Harbor House' })).toBeTruthy()
+    fireEvent.click(breakdown.getByRole('button', { name: 'Groups', exact: true }))
+    expect(breakdown.getByRole('button', { name: 'Central District' })).toBeTruthy()
+    expect(breakdown.queryByRole('button', { name: 'Metro Alpha' })).toBeNull()
   })
 
   it('shows properties when the selected scope has no group breakdown', () => {

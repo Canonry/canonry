@@ -1,8 +1,9 @@
 import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+import { ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
 import { DiscoverySection } from '../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
@@ -144,4 +145,73 @@ test('resets the selected query when switching research history batches', async 
   fireEvent.click(secondRunButton!)
 
   expect(await screen.findByText('Second run first query answer')).toBeTruthy()
+})
+
+function renderSavedResearch(answerText: string) {
+  const run = {
+    id: 'saved-run', projectId: 'project_demo', status: 'completed', provider: 'openai',
+    requestedModel: 'saved-model', resolvedModel: 'saved-model',
+    location: { label: 'Metro Alpha', city: 'Alpha', region: 'AA', country: 'US' },
+    totalQueries: 1, completedQueries: 1, failedQueries: 0, error: null,
+    startedAt: '2026-07-23T10:00:00.000Z', finishedAt: '2026-07-23T10:01:00.000Z', createdAt: '2026-07-23T10:00:00.000Z',
+  }
+  const restoreFetch = mockFetch((url, init) => {
+    expect(init?.method ?? 'GET').toBe('GET')
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [run] })
+    if (path === '/api/v1/projects/demo/research/runs/saved-run') return jsonResponse({ ...run, queries: [{
+      id: 'saved-query', position: 0, query: 'Demo building reviews', status: 'completed',
+      requestedModel: 'saved-model', resolvedModel: 'saved-model', servedModel: 'served-model', answerText,
+      groundingSources: [], citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
+      answerMentioned: true, citationState: 'not-cited', error: null,
+      startedAt: run.startedAt, finishedAt: run.finishedAt, createdAt: run.createdAt,
+    }] })
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
+      country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: {},
+      locations: [], defaultLocation: null, autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+    })
+    if (path === '/api/v1/settings') return jsonResponse({
+      providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'current-model' }],
+      providerCatalog: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+        defaultModel: 'current-model', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID' }],
+    })
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+}
+
+test('saved results explain project matching and retain their own engine, model, and location', async () => {
+  renderSavedResearch('Demo is also the name of a fishing line company.')
+  await screen.findByText('Demo is also the name of a fishing line company.')
+  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  expect(results.getByRole('columnheader', { name: 'Brand-name match' })).toBeTruthy()
+  expect(results.getByRole('columnheader', { name: 'Project domain cited' })).toBeTruthy()
+  expect(results.getByText('Project brand and domain checks. Property identity is not verified.')).toBeTruthy()
+  expect(results.getByText('Research results are excluded from AI Visibility metrics.')).toBeTruthy()
+  expect(results.getByText(/different business with the same name/)).toBeTruthy()
+  expect(results.getByText('Matched')).toBeTruthy()
+  expect(results.getByText('Not cited')).toBeTruthy()
+  expect(results.getByText('openai')).toBeTruthy()
+  expect(results.getByText('saved-model')).toBeTruthy()
+  expect(results.getByText('Metro Alpha')).toBeTruthy()
+  expect(results.queryByText('current-model')).toBeNull()
+  expect(results.queryByText('No location')).toBeNull()
+})
+
+test('saved answers render readable Markdown with safe links and no active HTML or remote images', async () => {
+  renderSavedResearch('[Source](https://example.com/source)\n\n[Unsafe](javascript:alert%281%29)\n\n<img src="https://invalid.example/pixel" onerror="alert(1)">\n\n![Remote image](https://invalid.example/image.png)\n\n- First choice\n- Second choice')
+  const source = await screen.findByRole('link', { name: 'Source' })
+  expect(source.getAttribute('href')).toBe('https://example.com/source')
+  expect(source.getAttribute('target')).toBe('_blank')
+  expect(source.getAttribute('rel')).toBe('noopener noreferrer')
+  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  expect(results.getByText('Unsafe')).toBeTruthy()
+  expect(results.queryByRole('link', { name: 'Unsafe' })).toBeNull()
+  expect(results.queryByRole('img')).toBeNull()
+  expect(results.getAllByRole('listitem')).toHaveLength(2)
+  expect(results.queryByText('[Source](https://example.com/source)')).toBeNull()
 })

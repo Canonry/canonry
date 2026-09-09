@@ -65,8 +65,8 @@ test('scope choices distinguish a property group from a market query context', (
   const trigger = screen.getByText('Whole site', { selector: 'summary' })
   trigger.closest('details')!.open = true
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Metro Alpha' } })
-  expect(screen.getByRole('button', { name: /Metro Alpha.*Group.*15 properties/ })).toBeTruthy()
-  expect(screen.getByRole('button', { name: /Metro Alpha.*Market.*query context/ })).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 properties')
+  expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
 })
 
 test('keeps revision mechanics behind help, with pending assignments visible', () => {

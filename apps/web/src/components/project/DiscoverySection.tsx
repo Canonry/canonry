@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type {
   DiscoveryBucket,
   DiscoverySessionDto,
@@ -12,6 +12,7 @@ import type {
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
   MeasurementQueryTemplate,
+  VisibilityReportScopeOption,
 } from '@ainyc/canonry-contracts'
 
 import {
@@ -38,6 +39,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { ResearchQueriesSection } from './ResearchQueriesSection.js'
+import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { useAccount } from '../../contexts/account-context.js'
 
@@ -251,13 +253,15 @@ function TrackedQueriesWorkspace({
   const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
   const editorHeadingRef = useRef<HTMLHeadingElement>(null)
   const handledRouteAction = useRef<string | null>(null)
-  const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection), [selection, workspace.tracked])
+  const unavailableScope = unavailableTrackingScope(workspace, selection)
+  const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection, workspace.mode), [selection, workspace.mode, workspace.tracked])
   const table = useClientTable({
     rows: rowsInScope,
     getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? 'legacy'} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
   })
 
   useEffect(() => {
+    if (unavailableScope) return
     if (!trackingQueryId) {
       handledRouteAction.current = null
       return
@@ -270,9 +274,10 @@ function TrackedQueriesWorkspace({
     setAction({ kind: 'edit', row, audience: workspace.mode === 'advanced' ? audienceForSelection(selection) : undefined, scopeLabel: selectionScopeLabel(selection, workspace) })
     setDraft(draftForRow(row, selection))
     setReviewedMutation(null)
-  }, [selection, trackingQueryId, workspace])
+  }, [selection, trackingQueryId, unavailableScope, workspace])
 
   useEffect(() => {
+    if (unavailableScope) return
     if (!pendingTrackingSource) return
     const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection)
     setAction({ kind: 'add' })
@@ -281,7 +286,14 @@ function TrackedQueriesWorkspace({
       : { ...next, source: 'discovery', discoveryProbeId: pendingTrackingSource.discoveryProbeId })
     setReviewedMutation(null)
     onPendingTrackingSourceHandled()
-  }, [onPendingTrackingSourceHandled, pendingTrackingSource, selection])
+  }, [onPendingTrackingSourceHandled, pendingTrackingSource, selection, unavailableScope])
+
+  useEffect(() => {
+    if (!unavailableScope) return
+    setAction(null)
+    setReviewedMutation(null)
+    if (trackingQueryId !== undefined) onTrackingQueryIdChange?.(undefined)
+  }, [onTrackingQueryIdChange, trackingQueryId, unavailableScope])
 
   useEffect(() => {
     if (!action || action.kind === 'remove') return
@@ -326,11 +338,19 @@ function TrackedQueriesWorkspace({
     && !hasMarketOnlyAudience(draft)
   const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
 
+  if (unavailableScope) {
+    return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">
+      <p>This saved {selection.measurementScope} filter is unavailable in the current measurement.</p>
+      <Button type="button" variant="outline" className="mt-3" onClick={() => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })}>Show whole site</Button>
+    </section></div>
+  }
+
   return (
     <div className="query-tracking-workspace space-y-4">
       <section aria-label="Tracked queries">
         <div className="flex flex-wrap items-end gap-3">
           <TrackingScopePicker workspace={workspace} selection={selection} onSelectionChange={onSelectionChange} />
+          {workspace.mode === 'advanced' ? <TrackingQueryTypeFilter selection={selection} onSelectionChange={onSelectionChange} /> : null}
           <DataTableSearch
             value={table.query}
             onChange={table.setQuery}
@@ -345,6 +365,10 @@ function TrackedQueriesWorkspace({
             </WriteButton>
           )}
         </div>
+        <p className="mt-2 text-xs leading-5 text-secondary">
+          {table.totalRows.toLocaleString('en-US')} saved query {table.totalRows === 1 ? 'record' : 'records'} in this view. Each record can have more than one property, group, or market assignment.
+        </p>
+        {selection.measurementScope === 'group' ? <p className="mt-1 text-xs leading-5 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
 
         {!workspace.active ? <p className="mt-3 text-sm text-caution">No published measurement yet.</p> : null}
 
@@ -356,16 +380,16 @@ function TrackedQueriesWorkspace({
           <div className="mt-5 overflow-x-auto">
             <table className="evidence-table measurement-responsive-table min-w-[760px] table-auto">
               <thead>
-                <tr><th>Query</th><th>Scope</th><th>Class</th><th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
+                <tr><th>Query</th><th>Scope</th>{workspace.mode === 'advanced' ? <th>Class</th> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
               </thead>
               <tbody>
                 {table.rows.map(row => (
                   <tr key={row.queryId}>
                     <td className="tracking-query-cell break-words font-medium text-heading">{row.queryText}</td>
-                    <td className="tracking-scope-cell text-secondary">{assignmentScopeLabel(row, workspace, selection)}</td>
-                    <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td>
+                    <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td>
+                    {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
                     <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
-                    <td className="whitespace-nowrap"><MeasurementStateBadge row={row} /></td>
+                    <td className="whitespace-nowrap"><MeasurementStateBadge row={row} outsidePlan={workspace.mode === 'advanced' && row.assignments.length === 0} /></td>
                     <td className="measurement-table-actions whitespace-nowrap text-right">
                       {!isEmbed() && <div className="tracking-row-actions flex min-w-max justify-end gap-2">
                         <WriteButton type="button" variant="ghost" size="sm" aria-label={`Edit ${row.queryText}`} onClick={() => openEdit(row)}>
@@ -542,6 +566,20 @@ function audienceForSelection(selection: NonNullable<QueriesSectionProps['select
   return undefined
 }
 
+function unavailableTrackingScope(
+  workspace: QueryTrackingWorkspaceResponse,
+  selection: NonNullable<QueriesSectionProps['selection']>,
+): boolean {
+  if (selection.measurementScope === 'project') return false
+  if (!selection.measurementScopeKey) return true
+  const scopes = selection.measurementScope === 'group'
+    ? workspace.groups
+    : selection.measurementScope === 'property'
+      ? workspace.targets
+      : workspace.markets
+  return !scopes.some(scope => scope.stableKey === selection.measurementScopeKey)
+}
+
 function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selection']>, workspace: QueryTrackingWorkspaceResponse): string {
   const collection = selection.measurementScope === 'property' ? workspace.targets : selection.measurementScope === 'group' ? workspace.groups : selection.measurementScope === 'market' ? workspace.markets : []
   const label = collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label
@@ -549,28 +587,64 @@ function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selecti
   return selection.measurementScope === 'group' ? `${label} · Group` : selection.measurementScope === 'market' ? `${label} · Market` : label
 }
 
+function assignmentMatchesSelection(
+  assignment: QueryTrackingTrackedRow['assignments'][number],
+  selection: NonNullable<QueriesSectionProps['selection']>,
+): boolean {
+  if (selection.queryClass !== 'all' && (assignment.queryClass ?? 'unknown') !== selection.queryClass) return false
+  if (selection.measurementScope === 'project' || !selection.measurementScopeKey) return true
+  if (selection.measurementScope === 'property') return assignment.targetKey === selection.measurementScopeKey
+  if (selection.measurementScope === 'group') return assignment.groupKeys.includes(selection.measurementScopeKey)
+  return assignment.marketKeys.includes(selection.measurementScopeKey)
+}
+
 function filterTrackedRows(
   rows: readonly QueryTrackingTrackedRow[],
   selection: NonNullable<QueriesSectionProps['selection']>,
+  mode: QueryTrackingWorkspaceResponse['mode'],
 ): QueryTrackingTrackedRow[] {
-  if (selection.measurementScope === 'project' || !selection.measurementScopeKey) return [...rows]
-  return rows.filter(row => row.assignments.some(assignment => {
-    if (selection.measurementScope === 'property') return assignment.targetKey === selection.measurementScopeKey
-    if (selection.measurementScope === 'group') return assignment.groupKeys.includes(selection.measurementScopeKey!)
-    return assignment.marketKeys.includes(selection.measurementScopeKey!)
-  }))
+  // Simple workspaces do not store per-row class assignments. The shared
+  // report URL can retain its class filter, but it cannot classify this list.
+  if (mode === 'simple') return [...rows]
+  return rows.filter(row => {
+    // Legacy project-wide records have no assignment to inspect. They remain
+    // reachable through Unclassified, rather than silently becoming non-brand.
+    if (row.assignments.length === 0) {
+      return selection.measurementScope === 'project' && (selection.queryClass === 'all' || selection.queryClass === 'unknown')
+    }
+    return row.assignments.some(assignment => assignmentMatchesSelection(assignment, selection))
+  })
+}
+
+function TrackingQueryTypeFilter({
+  selection,
+  onSelectionChange,
+}: {
+  selection: NonNullable<QueriesSectionProps['selection']>
+  onSelectionChange?: QueriesSectionProps['onSelectionChange']
+}) {
+  return (
+    <label className="min-w-40 flex-1">
+      <span className="mb-1 block text-xs font-medium text-secondary">Query type</span>
+      <select
+        aria-label="Query type"
+        className="h-11 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+        value={selection.queryClass}
+        onChange={event => onSelectionChange?.({ queryClass: event.target.value })}
+      >
+        <option value="all">All query types</option>
+        <option value="non-brand">Non-brand</option>
+        <option value="branded">Branded</option>
+        <option value="unknown">Unclassified</option>
+      </select>
+    </label>
+  )
 }
 
 function scopeValue(selection: NonNullable<QueriesSectionProps['selection']>): string {
   return selection.measurementScopeKey && selection.measurementScope !== 'project'
     ? `${selection.measurementScope}:${selection.measurementScopeKey}`
     : 'project'
-}
-
-function parseScopeValue(value: string): Record<string, unknown> {
-  if (value === 'project') return { measurementScope: 'project', measurementScopeKey: undefined }
-  const [measurementScope, measurementScopeKey] = value.split(':', 2)
-  return { measurementScope, measurementScopeKey }
 }
 
 function TrackingScopePicker({
@@ -582,85 +656,38 @@ function TrackingScopePicker({
   selection: NonNullable<QueriesSectionProps['selection']>
   onSelectionChange?: QueriesSectionProps['onSelectionChange']
 }) {
-  const [search, setSearch] = useState('')
-  const picker = useRef<HTMLDetailsElement>(null)
-  const searchInput = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (picker.current?.open && event.target instanceof Node && !picker.current.contains(event.target)) {
-        picker.current.open = false
-      }
+  const options = useMemo<VisibilityReportScopeOption[]>(() => {
+    const parentGroupIdsByTarget = new Map(workspace.targets.map(target => [target.stableKey, [] as string[]]))
+    for (const group of workspace.groups) {
+      for (const targetKey of group.targetKeys) parentGroupIdsByTarget.get(targetKey)?.push(group.stableKey)
     }
-    document.addEventListener('pointerdown', closeOutside)
-    return () => document.removeEventListener('pointerdown', closeOutside)
-  }, [])
-  const options = useMemo(() => [
-    { value: 'project', label: 'Whole site', detail: 'Project' },
-    ...workspace.groups.map(group => ({ value: `group:${group.stableKey}`, label: group.label, detail: 'Group' })),
-    ...workspace.markets.map(market => ({ value: `market:${market.stableKey}`, label: market.label, detail: 'Market' })),
-    ...workspace.targets.map(target => ({ value: `property:${target.stableKey}`, label: target.label, detail: 'Property' })),
-  ], [workspace.groups, workspace.markets, workspace.targets])
-  const selectedValue = scopeValue(selection)
-  const selected = options.find(option => option.value === selectedValue) ?? options[0]!
-  const normalizedSearch = search.trim().toLocaleLowerCase()
-  const visible = normalizedSearch
-    ? options.filter(option => `${option.label} ${option.detail}`.toLocaleLowerCase().includes(normalizedSearch))
-    : options
+    return [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: workspace.targets.length },
+      ...workspace.groups.map(group => ({
+        id: group.stableKey,
+        label: group.label,
+        kind: 'group' as const,
+        targetCount: group.targetKeys.length,
+        ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}),
+      })),
+      ...workspace.markets.map(market => ({ id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0 })),
+      ...workspace.targets.map(target => ({
+        id: target.stableKey,
+        label: target.label,
+        kind: 'property' as const,
+        targetCount: 1,
+        ...(parentGroupIdsByTarget.get(target.stableKey)?.length ? { parentGroupIds: parentGroupIdsByTarget.get(target.stableKey) } : {}),
+      })),
+    ]
+  }, [workspace.groups, workspace.markets, workspace.targets])
+  const selected = options.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey)) ?? options[0]!
 
-  return (
-    <div className="min-w-64 flex-1">
-      <span id="tracking-scope-label" className="mb-1 block text-xs font-medium text-secondary">Measurement scope</span>
-      <details ref={picker} className="relative" onToggle={event => {
-        if (event.currentTarget.open) searchInput.current?.focus()
-      }} onKeyDown={event => {
-        if (event.key !== 'Escape') return
-        event.preventDefault()
-        event.currentTarget.open = false
-        event.currentTarget.querySelector('summary')?.focus()
-      }}>
-        <summary aria-labelledby="tracking-scope-label" className="visibility-scope-trigger min-h-11 rounded-md border border-default bg-surface px-3 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">
-          {selected.detail === 'Group' || selected.detail === 'Market' ? `${selected.label} · ${selected.detail}` : selected.label}
-          <ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
-        </summary>
-        <div className="visibility-scope-menu">
-          <p className="mb-2 text-sm leading-5 text-secondary">Group: properties grouped together. Market: search context.</p>
-          <label>
-            <span className="sr-only">Search scopes</span>
-            <input
-              ref={searchInput}
-              type="search"
-              aria-label="Search scopes"
-              className="h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-              placeholder="Search groups, markets, properties"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-            />
-          </label>
-          <div className="mt-2 max-h-72 overflow-y-auto">
-            {visible.length === 0 ? <p className="py-3 text-sm text-secondary">No matching scopes.</p> : visible.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                className="flex min-h-11 w-full items-center justify-between gap-3 rounded px-2 text-left text-sm text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500"
-                aria-label={`${option.label}, ${option.detail}`}
-                aria-current={option.value === selectedValue ? 'true' : undefined}
-                onClick={event => {
-                  const details = event.currentTarget.closest('details')
-                  if (details) {
-                    details.open = false
-                    details.querySelector('summary')?.focus()
-                  }
-                  onSelectionChange?.(parseScopeValue(option.value))
-                }}
-              >
-                <span>{option.label}</span><span className="text-secondary">{option.detail}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </details>
-    </div>
-  )
+  return <VisibilityScopePicker options={options} selected={selected} onSelect={scope => {
+    onSelectionChange?.({
+      measurementScope: scope.kind,
+      measurementScopeKey: scope.kind === 'project' ? undefined : scope.id,
+    })
+  }} />
 }
 
 function provenanceLabel(row: QueryTrackingTrackedRow): string {
@@ -681,21 +708,32 @@ function assignmentScopeLabel(
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
   const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
   const marketLabels = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
-  const targetKeys = new Set<string>()
+  const allTargetKeys = new Set(row.assignments.map(assignment => assignment.targetKey))
+  if (allTargetKeys.size === 0) return 'Whole site'
+  const relevantAssignments = selection
+    ? row.assignments.filter(assignment => assignmentMatchesSelection(assignment, selection))
+    : row.assignments
+  const relevantTargetKeys = new Set(relevantAssignments.map(assignment => assignment.targetKey))
+
+  if (selection?.measurementScope === 'group') {
+    const inGroup = relevantTargetKeys.size
+    const shared = Math.max(0, allTargetKeys.size - inGroup)
+    return [
+      `${inGroup} ${inGroup === 1 ? 'property' : 'properties'} in this group`,
+      ...(shared ? [`Shared with ${shared} other ${shared === 1 ? 'property' : 'properties'}`] : []),
+    ].join(' · ')
+  }
+
   const groupKeys = new Set<string>()
   const marketKeys = new Set<string>()
-  for (const assignment of row.assignments) {
-    targetKeys.add(assignment.targetKey)
-    if (selection?.measurementScope !== 'property' || assignment.targetKey === selection.measurementScopeKey) {
-      assignment.groupKeys.forEach(key => groupKeys.add(key))
-      assignment.marketKeys.forEach(key => marketKeys.add(key))
-    }
+  for (const assignment of relevantAssignments) {
+    assignment.groupKeys.forEach(key => groupKeys.add(key))
+    assignment.marketKeys.forEach(key => marketKeys.add(key))
   }
-  if (targetKeys.size === 0) return 'Whole site'
-  const propertyScope = selection?.measurementScope === 'property' && targetKeys.has(selection.measurementScopeKey ?? '')
+  const propertyScope = selection?.measurementScope === 'property' && allTargetKeys.has(selection.measurementScopeKey ?? '')
   const parts = propertyScope
-    ? targetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${targetKeys.size - 1} other ${targetKeys.size === 2 ? 'property' : 'properties'}`]
-    : [targetKeys.size === 1 ? targetLabels.get([...targetKeys][0]!) ?? [...targetKeys][0]! : `${targetKeys.size} properties`]
+    ? allTargetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'property' : 'properties'}`]
+    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} properties`]
   const group = groupKeys.size === 1 ? groupLabels.get([...groupKeys][0]!) ?? [...groupKeys][0]! : null
   const market = marketKeys.size === 1 ? marketLabels.get([...marketKeys][0]!) ?? [...marketKeys][0]! : null
   if (group && market && group === market) parts.push(`${group} (group and market)`)
@@ -708,13 +746,65 @@ function assignmentScopeLabel(
   return parts.join(' · ')
 }
 
+function AssignmentScopeDisclosure({
+  row,
+  workspace,
+  selection,
+}: {
+  row: QueryTrackingTrackedRow
+  workspace: QueryTrackingWorkspaceResponse
+  selection: NonNullable<QueriesSectionProps['selection']>
+}) {
+  const relationships = assignmentRelationships(row, workspace, selection)
+  return (
+    <details className="group min-w-48">
+      <summary className="cursor-pointer rounded px-1 py-1 text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">
+        {assignmentScopeLabel(row, workspace, selection)}
+      </summary>
+      <div className="mt-2 rounded border border-default bg-surface p-2 text-xs leading-5 text-secondary">
+        <p className="font-medium text-strong">Assigned relationships</p>
+        <ul className="mt-1 list-disc space-y-1 pl-4">
+          {relationships.map(relationship => <li key={relationship}>{relationship}</li>)}
+        </ul>
+      </div>
+    </details>
+  )
+}
+
+function assignmentRelationships(
+  row: QueryTrackingTrackedRow,
+  workspace: QueryTrackingWorkspaceResponse,
+  selection: NonNullable<QueriesSectionProps['selection']>,
+): string[] {
+  const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
+  const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
+  const marketLabels = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
+  const relevantAssignments = row.assignments.filter(assignment => assignmentMatchesSelection(assignment, selection))
+  const relationships = relevantAssignments.map(assignment => {
+    const target = targetLabels.get(assignment.targetKey) ?? assignment.targetKey ?? 'Whole site'
+    const groups = selection.measurementScope === 'group' && selection.measurementScopeKey
+      ? assignment.groupKeys.filter(key => key === selection.measurementScopeKey).map(key => groupLabels.get(key) ?? key)
+      : assignment.groupKeys.map(key => groupLabels.get(key) ?? key)
+    const markets = selection.measurementScope === 'market' && selection.measurementScopeKey
+      ? assignment.marketKeys.filter(key => key === selection.measurementScopeKey).map(key => marketLabels.get(key) ?? key)
+      : assignment.marketKeys.map(key => marketLabels.get(key) ?? key)
+    return [
+      target,
+      groups.length ? `Groups: ${groups.join(', ')}` : null,
+      markets.length ? `Markets: ${markets.join(', ')}` : null,
+    ].filter((part): part is string => part !== null).join(' · ')
+  })
+  return [...new Set(relationships)].length ? [...new Set(relationships)] : ['Whole site']
+}
+
 function AssignmentClassBadge({ row }: { row: QueryTrackingTrackedRow }) {
   const classes = [...new Set(row.assignments.map(assignment => assignment.queryClass ?? 'unknown'))]
   const value = classes.join(', ')
   return <ToneBadge tone={classes.includes('unknown') ? 'caution' : 'neutral'}>{value || 'Unknown'}</ToneBadge>
 }
 
-function MeasurementStateBadge({ row }: { row: QueryTrackingTrackedRow }) {
+function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackingTrackedRow; outsidePlan?: boolean }) {
+  if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
     ? <ToneBadge tone="positive">Measured</ToneBadge>
     : <ToneBadge tone="caution">Awaiting sweep</ToneBadge>
