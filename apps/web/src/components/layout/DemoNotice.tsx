@@ -26,9 +26,22 @@ export function DemoNotice() {
   return (
     <aside className="demo-banner" aria-label="Public demo">
       <div className="demo-banner-top">
-        <div className="demo-banner-intro">
-          <strong>Explore Canonry</strong>
-          <span>View-only demo with fictional sample data.</span>
+        <div className="demo-banner-overview">
+          <div>
+            <strong>Explore Canonry</strong>
+            <ul className="demo-banner-facts">
+              <li>No sign-in</li>
+              <li>View only</li>
+              <li>Fictional data</li>
+            </ul>
+          </div>
+          <div>
+            <strong>Your company’s agent</strong>
+            <ul className="demo-banner-facts">
+              <li>MCP + API access</li>
+              <li>Every feature + more</li>
+            </ul>
+          </div>
         </div>
         <div className="demo-banner-controls">
           <nav aria-label="Demo examples">
@@ -50,7 +63,6 @@ export function DemoNotice() {
           </details>
         </div>
       </div>
-      <p className="demo-banner-agent">Everything here, and much more, is available to <strong>your company’s agent through MCP and the API</strong> in your own Canonry instance.</p>
     </aside>
   )
 }

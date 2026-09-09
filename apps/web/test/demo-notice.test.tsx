@@ -12,7 +12,8 @@ describe('public demo notice', () => {
   it('labels fictional data and links directly to both portfolio experiences', () => {
     window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
     render(<DemoNotice />)
-    expect(screen.getByText('View-only demo with fictional sample data.')).toBeTruthy()
+    expect(screen.getByText('View only')).toBeTruthy()
+    expect(screen.getByText('Fictional data')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Standard business' }).getAttribute('href')).toBe('/projects/summit-roofing')
     expect(screen.getByRole('link', { name: 'Property portfolio' }).getAttribute('href')).toBe('/projects/harbor-resorts')
     expect(screen.getByRole('link', { name: 'Site health' }).getAttribute('href')).toContain('/technical-aeo')

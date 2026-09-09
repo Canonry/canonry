@@ -3122,8 +3122,10 @@
 .app-shell-demo .sidebar { position: sticky; top: 0; bottom: auto; height: 100dvh; flex-shrink: 0; align-self: flex-start; }
 .app-shell-demo .main-area { padding-left: 0; }
 .demo-banner { position: relative; z-index: 35; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 12px 24px 16px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.5; }
-.demo-banner-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 24px; }
-.demo-banner-intro { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; }
+.demo-banner-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 32px; }
+.demo-banner-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; }
+.demo-banner-overview strong { display: block; font-size: 16px; }
+.demo-banner-facts { display: grid; gap: 6px; list-style: disc; margin: 10px 0 0; padding-left: 16px; }
 .demo-banner strong { color: var(--color-text-primary); font-weight: 600; }
 .demo-banner-controls { position: relative; display: flex; align-items: center; gap: 24px; }
 .demo-banner-controls > nav { display: flex; gap: 24px; }
@@ -3133,14 +3135,14 @@
 .demo-banner summary { cursor: pointer; gap: 8px; list-style: none; }
 .demo-banner summary::-webkit-details-marker { display: none; }
 .demo-banner details[open] summary svg { transform: rotate(180deg); }
-.demo-banner-agent { max-width: 72ch; margin: 4px 0 0; }
 .demo-banner-features { position: absolute; top: calc(100% + 8px); right: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-elevated); padding: 20px; box-shadow: 0 8px 24px var(--color-shadow-panel); }
 .demo-banner-features h2 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; }
 .demo-banner-features ul { list-style: none; padding: 0; margin: 0; }
 .demo-banner-features a { padding: 4px 0; }
 .demo-banner a:focus-visible, .demo-banner summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }
 @media (max-width: 639px) {
-  .demo-banner { padding: 12px 16px 16px; }
+  .demo-banner { padding: 16px; }
+  .demo-banner-overview { width: 100%; gap: 24px; }
   .demo-banner-controls { width: 100%; flex-wrap: wrap; gap: 0 20px; }
   .demo-banner-controls > nav { gap: 20px; }
   .demo-banner-features { width: min(640px, calc(100vw - 32px)); grid-template-columns: 1fr; gap: 16px; }
