@@ -178,6 +178,7 @@ export interface ApiRoutesOptions {
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
+  getProviderModels?: SettingsRoutesOptions['getProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
   /** Google OAuth configuration summary + update callback */
@@ -575,6 +576,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       briefPromptVersion: opts.briefPromptVersion,
     })
     await api.register(settingsRoutes, {
+      getProviderModels: opts.getProviderModels,
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
@@ -702,6 +704,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
+      getProviderModels: opts.getProviderModels,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
       providerAdapters: opts.providerAdapters,
       configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
       onResearchRunRequested: opts.onResearchRunRequested,

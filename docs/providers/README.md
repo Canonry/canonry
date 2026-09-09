@@ -56,3 +56,36 @@ interface ProviderAdapter {
 - [Claude](./claude.md) — web_search_20250305 tool, final-text citation extraction, tool error handling
 - [Perplexity](./perplexity.md) — `search_results` vs `citations`, no returned search-query telemetry
 - [Local](./local.md) — OpenAI-compatible endpoints, no web search grounding
+
+
+## Available models and Research defaults
+
+`canonry serve` discovers model choices from the configured OpenAI, Claude,
+Gemini, and local providers using metadata-only list-models requests. It does
+not generate answers or consume research/sweep quota. Requests use the same
+credentials and endpoints as those providers, including Gemini Vertex AI.
+The per-install catalog caches successful discovery for one hour, shares
+concurrent lookups, and limits page-load waiting to three seconds. Credential
+or endpoint changes invalidate that provider's cache. A failed refresh retains
+the last successful list, or the bundled choices on a cold start; failures
+back off for at least one minute and honor longer provider Retry-After values. Providers/hosts without model discovery, including
+the standalone Cloud API host, retain bundled choices.
+
+The choices flow through the existing settings and research-list APIs. New
+models become available without a release. Discovery does not choose a new
+execution default or change a project, frozen measurement, or saved answer.
+Model-list APIs do not guarantee that every listed model supports the answer
+adapter's search tools; non-answer modalities are filtered, and an operator
+can still supply an exact supported model ID.
+
+Research defaults use the same precedence as AI Visibility: project model,
+then the instance's configured model, then the adapter default. The viewer
+picker labels this **Use AI Visibility model** and always includes it, even
+when the configured alias is absent from discovery. Explicit research model
+choices apply only to that batch; changing engines clears that override.
+Each created batch freezes its resolved model, and saved results retain their
+requested and provider-reported served model identities.
+
+Provider list APIs: [OpenAI](https://developers.openai.com/api/reference/resources/models/methods/list),
+[Claude](https://platform.claude.com/docs/en/api/models/list),
+[Gemini](https://ai.google.dev/api/models).

@@ -93,7 +93,7 @@ export function ResearchQueriesSection({
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
     return (settingsQuery.data?.providers ?? [])
       .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
-      .map(item => ({ ...item, catalog: catalog.get(item.name)! }))
+      .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
   }, [isViewerResearch, runsQuery.data?.providers, settingsQuery.data])
   const noConfiguredApiProviders = !(isViewerResearch ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
@@ -113,9 +113,10 @@ export function ResearchQueriesSection({
 
   const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
   const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
-  const resolvedModel = (configurableModel ? model.trim() : '')
-    || (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '')
-    || selectedProvider?.catalog.defaultModel
+  const visibilityModel = isViewerResearch
+    ? selectedProvider?.catalog.defaultModel
+    : (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '') || selectedProvider?.catalog.defaultModel
+  const resolvedModel = (configurableModel ? model.trim() : '') || visibilityModel
   const payload = selectedLocation === undefined
     ? null
     : selectedProvider && resolvedModel
@@ -127,7 +128,7 @@ export function ResearchQueriesSection({
           }
         : null
   const modelOptions = selectedProvider
-    ? [...new Map([{ id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel }, ...selectedProvider.catalog.knownModels].map(item => [item.id, item])).values()]
+    ? [...new Map([{ id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel }, ...(model.trim() ? [{ id: model.trim(), displayName: model.trim() }] : []), ...selectedProvider.catalog.knownModels].map(item => [item.id, item])).values()]
     : []
   const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
   const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
@@ -238,10 +239,10 @@ export function ResearchQueriesSection({
             {isViewerResearch ? <label className="block" htmlFor="research-model">
               <span className="text-sm font-medium text-secondary">Model</span>
               <select id="research-model" aria-label="Model" className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                value={resolvedModel ?? ''} disabled={!selectedProvider || !configurableModel}
+                value={model} disabled={!selectedProvider || !configurableModel}
                 onChange={event => setModel(event.target.value)}>
-                {!selectedProvider && <option value="">Choose an answer engine</option>}
-                {modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}{item.id === selectedProvider?.catalog.defaultModel ? ' (default)' : ''}</option>)}
+                <option value="">{selectedProvider ? `Use AI Visibility model · ${visibilityModel}` : 'Choose an answer engine'}</option>
+                {modelOptions.filter(item => item.id !== visibilityModel || item.id === model).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               </select>
             </label> : <label className="block" htmlFor="research-model">
               <span className="text-xs font-medium text-secondary">Exact model <span className="font-normal text-muted">(optional)</span></span>
@@ -249,7 +250,7 @@ export function ResearchQueriesSection({
                 id="research-model"
                 list="research-known-models"
                 className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder={resolvedModel ? `Current: ${resolvedModel}` : 'Choose a provider to select an exact model'}
+                placeholder={visibilityModel ? `AI Visibility model: ${visibilityModel}` : 'Choose a provider to select an exact model'}
                 value={model}
                 disabled={!selectedProvider || !configurableModel}
                 onChange={(event) => setModel(event.target.value)}
@@ -258,6 +259,8 @@ export function ResearchQueriesSection({
                 {(selectedProvider?.catalog.knownModels ?? []).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               </datalist>
             </label>}
+
+            {!model.trim() && visibilityModel && <p className="text-sm text-secondary">Using the same model as AI Visibility: {visibilityModel}.</p>}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
               {!isEmbed() && (isViewerResearch ? (

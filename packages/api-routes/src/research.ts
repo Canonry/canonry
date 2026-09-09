@@ -5,9 +5,11 @@ import { researchRunQueries, researchRuns } from '@ainyc/canonry-db'
 import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
 import { requireResearchGrant } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
-import type { ProviderAdapterInfo } from './settings.js'
+import type { ProviderAdapterInfo, SettingsRoutesOptions } from './settings.js'
 
 export interface ResearchRoutesOptions {
+  getProviderModels?: SettingsRoutesOptions['getProviderModels']
+  getEffectiveProviderModels?: () => Readonly<Record<string, string>>
   providerAdapters?: ProviderAdapterInfo[]
   configuredProviderNames?: readonly string[]
   onResearchRunRequested?: (runId: string, projectId: string) => void
@@ -42,7 +44,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const location = input.location === undefined ? (project.defaultLocation ? project.locations.find(item => item.label === project.defaultLocation) ?? null : null) : input.location
     if (location && !project.locations.some(item => sameLocation(item, location))) throw validationError('Research location must exactly match a configured project location.', { location })
     const requestedModel = input.model ?? null
-    const resolvedModel = requestedModel ?? (project.providerModels[providerName] || adapter.defaultModel)
+    const resolvedModel = requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel)
     adapter.modelValidationPattern.lastIndex = 0
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError(`Invalid resolved model "${resolvedModel}" for provider "${providerName}".`, { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
     if (new Set(input.queries.map(query => query.toLocaleLowerCase())).size !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
@@ -88,14 +90,19 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 100) : 20
     const runs = app.db.select().from(researchRuns).where(eq(researchRuns.projectId, project.id)).orderBy(desc(researchRuns.createdAt)).limit(limit).all().map(serializeRun)
     const configured = new Set(opts.configuredProviderNames ?? [])
-    const providers = (opts.providerAdapters ?? [])
+    const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
+    const providers = await Promise.all((opts.providerAdapters ?? [])
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
-      .map(adapter => ({
-        name: adapter.name,
-        displayName: adapter.displayName,
-        modelConfigurable: adapter.modelConfigurable,
-        defaultModel: project.providerModels[adapter.name] || adapter.defaultModel,
-        knownModels: adapter.knownModels.map(model => ({ id: model.id, displayName: model.displayName })),
+      .map(async adapter => {
+        const defaultModel = project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel
+        const models = opts.getProviderModels ? await opts.getProviderModels(adapter.name) : adapter.knownModels
+        return {
+          name: adapter.name,
+          displayName: adapter.displayName,
+          modelConfigurable: adapter.modelConfigurable,
+          defaultModel,
+          knownModels: [...new Map([{ id: defaultModel, displayName: defaultModel }, ...models].map(model => [model.id, { id: model.id, displayName: model.displayName }])).values()],
+        }
       }))
     return { runs, providers } satisfies ResearchRunListDto
   })

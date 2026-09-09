@@ -1,3 +1,4 @@
+import { listModels } from './list-models.js'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -42,6 +43,8 @@ export const claudeAdapter: ProviderAdapter = {
       { id: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', tier: 'fast' },
     ],
   },
+
+  listModels,
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = claudeValidateConfig(toClaudeConfig(config))

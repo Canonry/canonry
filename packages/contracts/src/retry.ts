@@ -126,7 +126,14 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}
 export function retryAfterDelayMs(err: unknown, now: number = Date.now()): number | null {
   if (err == null || typeof err !== 'object') return null
   const record = err as Record<string, unknown>
-  const raw = record.retryAfter ?? record['retry-after']
+  // Provider SDKs expose response headers instead of a top-level retryAfter.
+  const headers = record.headers
+  const header = typeof Headers !== 'undefined' && headers instanceof Headers
+    ? headers.get('retry-after')
+    : headers && typeof headers === 'object'
+      ? (headers as Record<string, unknown>)['retry-after'] ?? (headers as Record<string, unknown>)['Retry-After']
+      : undefined
+  const raw = record.retryAfter ?? record['retry-after'] ?? header
 
   if (typeof raw === 'number') return Number.isFinite(raw) ? Math.max(0, raw * 1000) : null
   if (typeof raw !== 'string') return null

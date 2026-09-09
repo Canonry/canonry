@@ -55,6 +55,8 @@ export interface ProviderAdapterInfo {
 }
 
 export interface SettingsRoutesOptions {
+  /** Cached, credential-free model metadata supplied by the execution host. */
+  getProviderModels?: (name: string) => Promise<ProviderModelRegistry['knownModels']>
   providerSummary?: ProviderSummaryEntry[]
   /** Adapter metadata for validation — keyed by provider name */
   providerAdapters?: ProviderAdapterInfo[]
@@ -74,19 +76,19 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
-      providerCatalog: (opts.providerAdapters ?? []).map(adapter => ({
+      providerCatalog: await Promise.all((opts.providerAdapters ?? []).map(async adapter => ({
         name: adapter.name,
         displayName: adapter.displayName,
         mode: adapter.mode,
         modelConfigurable: adapter.modelConfigurable,
         defaultModel: adapter.defaultModel,
-        knownModels: adapter.knownModels,
+        knownModels: opts.getProviderModels ? await opts.getProviderModels(adapter.name) : adapter.knownModels,
         modelValidationPattern: {
           source: adapter.modelValidationPattern.source,
           flags: adapter.modelValidationPattern.flags,
         },
         modelValidationHint: adapter.modelValidationHint,
-      })),
+      }))),
       google: opts.google ?? { configured: false },
       bing: opts.bing ?? { configured: false },
     }

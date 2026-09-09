@@ -215,3 +215,59 @@ test('saved answers render readable Markdown with safe links and no active HTML 
   expect(results.getAllByRole('listitem')).toHaveLength(2)
   expect(results.queryByText('[Source](https://example.com/source)')).toBeNull()
 })
+
+
+test('viewer research follows the visibility model, offers discovered alternatives, and resets on engine change', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  let availableModels = [{ id: 'gpt-next', displayName: 'New GPT' }]
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test failure' } }, 500)
+      }
+      return jsonResponse({ runs: [], providers: [
+        { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'chat-latest', knownModels: availableModels },
+        { name: 'claude', displayName: 'Claude', modelConfigurable: true, defaultModel: 'claude-sonnet-new', knownModels: [] },
+      ] })
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: ['openai', 'claude'], providerModels: {}, locations: [], defaultLocation: null,
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<AccountProvider account={{ name: 'analyst', role: 'viewer' }}>
+    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" viewerResearchConfig={{ allowViewers: true, viewerDailyRunLimit: 20 }} /></QueryClientProvider>
+  </AccountProvider>)
+  await screen.findByRole('option', { name: 'Use AI Visibility model · chat-latest' })
+  const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
+  expect(model.value).toBe('')
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments' } })
+  const submit = async () => {
+    const button = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
+    await waitFor(() => expect(button.disabled).toBe(false))
+    fireEvent.click(button)
+  }
+  await submit()
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ provider: 'openai', model: 'chat-latest' })
+  fireEvent.change(model, { target: { value: 'gpt-next' } })
+  await submit()
+  await waitFor(() => expect(bodies).toHaveLength(2))
+  expect(bodies[1]).toMatchObject({ provider: 'openai', model: 'gpt-next' })
+  availableModels = []
+  await queryClient.refetchQueries()
+  expect(model.value).toBe('gpt-next')
+  expect(await screen.findByRole('option', { name: 'gpt-next' })).toBeTruthy()
+  expect(model.value).toBe('gpt-next')
+  fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: 'claude' } })
+  expect(model.value).toBe('')
+  expect(screen.getByRole('option', { name: 'Use AI Visibility model · claude-sonnet-new' })).toBeTruthy()
+  await submit()
+  await waitFor(() => expect(bodies).toHaveLength(3))
+  expect(bodies[2]).toMatchObject({ provider: 'claude', model: 'claude-sonnet-new' })
+})
