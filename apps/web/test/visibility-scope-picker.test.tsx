@@ -32,8 +32,10 @@ describe('group-first scope navigation', () => {
     expect(screen.queryByRole('button', { name: 'Select Harbor House' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
     expect(onSelect).not.toHaveBeenCalled()
-    expect(screen.getByText('Subgroups (2)').closest('details')!.open).toBe(false)
-    fireEvent.click(screen.getByText('Subgroups (2)'))
+    expect(screen.getByText('Subgroups (2)').closest('details')!.open).toBe(true)
+    expect(screen.getByText('All properties (2)').closest('details')!.open).toBe(false)
+    expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
+    fireEvent.click(screen.getByText('All properties (2)'))
     expect(screen.getByRole('button', { name: 'Select City Center' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Lake House' })).toBeTruthy()
@@ -45,13 +47,14 @@ describe('group-first scope navigation', () => {
   it('drills into a subgroup without duplicating overlapping properties and returns to its parent', () => {
     const { onSelect } = openPicker()
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
-    expect(screen.getAllByRole('button', { name: 'Select Harbor House' })).toHaveLength(1)
-    fireEvent.click(screen.getByText('Subgroups (2)'))
+    expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
     expect(screen.queryByRole('button', { name: 'Select Lake House' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Back to North Region' }))
-    expect(screen.getByRole('button', { name: 'Select Lake House' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Lake House' }).closest('details')!.open).toBe(false)
+    fireEvent.click(screen.getByText('All properties (2)'))
+    expect(screen.getAllByRole('button', { name: 'Select Harbor House' })).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Select Lake House' }))
     expect(onSelect).toHaveBeenCalledWith(scopes[6])
   })
@@ -85,7 +88,66 @@ describe('group-first scope navigation', () => {
   it('lists group members by display name regardless of stable-key order', () => {
     openPicker(vi.fn(), [...scopes].reverse())
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    fireEvent.click(screen.getByText('All properties (2)'))
     expect(screen.getAllByRole('button', { name: /^Select .* House$/ }).map(button => button.getAttribute('aria-label'))).toEqual(['Select Harbor House', 'Select Lake House'])
+  })
+
+  it('lets both hierarchy sections collapse independently without changing the selected scope', () => {
+    const { onSelect } = openPicker()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    fireEvent.click(screen.getByText('Subgroups (2)'))
+    expect(screen.getByRole('button', { name: 'Select City Center' }).closest('details')!.open).toBe(false)
+    fireEvent.click(screen.getByText('All properties (2)'))
+    expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
+    fireEvent.click(screen.getByText('All properties (2)'))
+    expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
+    expect(screen.getByRole('button', { name: 'Select North Region' })).toBeTruthy()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('shows leaf properties in a collapsible list and exposes search matches even after collapse', () => {
+    openPicker()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
+    expect(screen.getByText('Properties (1)').closest('details')!.open).toBe(true)
+    fireEvent.click(screen.getByText('Properties (1)'))
+    expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Harbor' } })
+    expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
+  })
+
+  it('reopens at the selected subgroup with its explicit parent available', () => {
+    const onSelect = vi.fn()
+    const view = openPicker(onSelect)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select City Center' }))
+    view.rerender(<VisibilityScopePicker options={scopes} selected={scopes[3]!} onSelect={onSelect} />)
+    fireEvent.click(view.container.querySelector('summary')!)
+    expect(screen.getByRole('button', { name: 'Back to North Region' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Select Lake House' })).toBeNull()
+  })
+
+  it('opens a selected property at its deepest declared group and preserves an overlapping membership', () => {
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={scopes} selected={scopes[5]!} onSelect={onSelect} />)
+    const trigger = view.container.querySelector('summary')!
+    fireEvent.click(trigger)
+    expect(screen.getByRole('button', { name: 'Select City Center' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to North Region' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Browse Waterfront' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Harbor House' }))
+    fireEvent.click(trigger)
+    expect(screen.getByRole('button', { name: 'Select Waterfront' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Harbor House' }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('keeps a selected property with unavailable parent metadata reachable', () => {
+    const selected = { ...scopes[5]!, parentGroupIds: ['retired'] }
+    const view = render(<VisibilityScopePicker options={[...scopes.filter(scope => scope.id !== selected.id), selected]} selected={selected} onSelect={vi.fn()} />)
+    fireEvent.click(view.container.querySelector('summary')!)
+    expect(screen.getByText('All properties', { selector: 'p' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
   })
 
   it('closes on Escape and restores focus to the scope trigger', () => {

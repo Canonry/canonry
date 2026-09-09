@@ -61,15 +61,31 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
     if (picker.current) { picker.current.open = false; picker.current.querySelector('summary')?.focus() }
     onSelect(scope)
   }
-  const browse = (scope: VisibilityReportScopeOption) => {
-    // Search can jump to a nested group; reconstruct the explicit ancestry for Back.
+  const groupPath = (scope: VisibilityReportScopeOption) => {
     const ancestors: string[] = []
     let ancestor = groupById.get(scope.parentGroupIds?.[0] ?? '')
     while (ancestor && !ancestors.includes(ancestor.id) && ancestor.id !== scope.id) {
       ancestors.unshift(ancestor.id)
       ancestor = groupById.get(ancestor.parentGroupIds?.[0] ?? '')
     }
-    setPath([...ancestors, scope.id]); setAllProperties(false); setSearch(''); searchInput.current?.focus()
+    return [...ancestors, scope.id]
+  }
+  const restoreSelection = () => {
+    const selectedGroup = selected.kind === 'group' ? groupById.get(selected.id) : undefined
+    const memberPaths = (selected.parentGroupIds ?? []).flatMap(key => {
+      const group = groupById.get(key)
+      return group ? [groupPath(group)] : []
+    })
+    // A property can belong to overlapping groups. Retain the browsed membership
+    // when possible; otherwise reopen its deepest explicitly declared group.
+    const propertyPath = memberPaths.find(value => value.at(-1) === current?.id)
+      ?? memberPaths.sort((left, right) => right.length - left.length)[0] ?? []
+    setPath(selectedGroup ? groupPath(selectedGroup) : selected.kind === 'property' ? propertyPath : [])
+    setAllProperties(selected.kind === 'property' && propertyPath.length === 0 && groups.length > 0)
+    setSearch('')
+  }
+  const browse = (scope: VisibilityReportScopeOption) => {
+    setPath(groupPath(scope)); setAllProperties(false); setSearch(''); searchInput.current?.focus()
   }
   const row = (scope: VisibilityReportScopeOption, displayLabel = labelFor(scope)) => <div key={`${scope.kind}:${scope.id}`} className="flex items-stretch">
     <button type="button" className={ROW} aria-label={`Select ${labelFor(scope)}`} aria-current={selected.kind === scope.kind && selected.id === scope.id ? 'true' : undefined} onClick={() => choose(scope)}>
@@ -81,15 +97,19 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   const section = (label: string, scopes: VisibilityReportScopeOption[]) => scopes.length > 0 ? <section aria-label={label} className="mt-2">
     <h3 className="px-2 py-2 text-[13px] font-medium text-secondary">{label}</h3>{scopes.map(scope => row(scope))}
   </section> : null
+  const disclosure = (label: string, scopes: VisibilityReportScopeOption[], open: boolean) => scopes.length > 0 ? <details key={`${current?.id ?? 'root'}:${label}`} open={open} className="mt-2 border-y border-default">
+    <summary className="min-h-11 cursor-pointer px-2 py-3 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{label} ({scopes.length})</summary>
+    {scopes.map(scope => row(scope))}
+  </details> : null
 
   return <div className="min-w-0">
     <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">Measurement scope</span>
     <details ref={picker} className="relative" onToggle={event => {
-      if (event.target === event.currentTarget && event.currentTarget.open) { setSearch(''); setPath([]); setAllProperties(false); searchInput.current?.focus() }
+      if (event.target === event.currentTarget && event.currentTarget.open) searchInput.current?.focus()
     }} onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
     }}>
-      <summary id={`${id}-value`} aria-labelledby={`${id}-label ${id}-value`} className={`${CONTROL} visibility-scope-trigger`}>
+      <summary id={`${id}-value`} aria-labelledby={`${id}-label ${id}-value`} className={`${CONTROL} visibility-scope-trigger`} onClick={() => { if (!picker.current?.open) restoreSelection() }}>
         {`${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ' · Property' : selected.kind === 'market' ? ' · Market' : ''}`}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
       </summary>
       <div className="visibility-scope-menu">
@@ -101,11 +121,8 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
         <div className="mt-2 max-h-80 overflow-y-auto">
           {current && !query ? row(current, 'All properties in this group') : null}
           {projects.map(scope => row(scope))}
-          {current && !query && visibleGroups.length > 0 ? <details key={current.id} className="mt-2 border-y border-default">
-            <summary className="min-h-11 cursor-pointer px-2 py-3 text-sm text-primary">Subgroups ({visibleGroups.length})</summary>
-            {visibleGroups.map(scope => row(scope))}
-          </details> : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
-          {section('Properties', visibleProperties)}
+          {current && !query ? disclosure('Subgroups', visibleGroups, true) : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
+          {query ? section('Properties', visibleProperties) : disclosure(current && visibleGroups.length > 0 ? 'All properties' : 'Properties', visibleProperties, !current || visibleGroups.length === 0)}
           {section('Markets', markets)}
           {!current && !allProperties && !query && groups.length > 0 && properties.length > 0 ? <button type="button" className={`${ROW} mt-2 border-t border-default`} aria-label="Browse all properties" onClick={() => { setAllProperties(true); searchInput.current?.focus() }}><span>All properties</span><ChevronRight size={18} aria-hidden="true" /></button> : null}
           {query && visibleGroups.length + visibleProperties.length + markets.length + projects.length === 0 ? <p className="py-3 text-sm text-secondary">No matching scopes.</p> : null}
