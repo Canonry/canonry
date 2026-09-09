@@ -71,7 +71,7 @@ describe('installDuckdb', () => {
   test('spawns the expected npm install command when not yet installed', async () => {
     spawnMock.mockImplementation((_cmd: string, _args: string[]) => {
       const duckdbDir = path.join(pluginDir, 'node_modules', '@duckdb', 'node-api')
-      void (async () => {
+      const installation = (async () => {
         await fs.mkdir(duckdbDir, { recursive: true })
         await fs.writeFile(path.join(duckdbDir, 'package.json'), JSON.stringify({
           name: '@duckdb/node-api',
@@ -84,7 +84,7 @@ describe('installDuckdb', () => {
       return {
         on: (event: string, cb: (...args: unknown[]) => void) => {
           ;(listeners[event] ??= []).push(cb)
-          if (event === 'exit') setTimeout(() => cb(0), 10)
+          if (event === 'exit') void installation.then(() => cb(0))
           return this
         },
         stdout: null,
@@ -107,7 +107,7 @@ describe('installDuckdb', () => {
 
   test('uses pnpm add when packageManager is pnpm', async () => {
     spawnMock.mockImplementation((_cmd: string, _args: string[]) => {
-      void (async () => {
+      const installation = (async () => {
         const duckdbDir = path.join(pluginDir, 'node_modules', '@duckdb', 'node-api')
         await fs.mkdir(duckdbDir, { recursive: true })
         await fs.writeFile(path.join(duckdbDir, 'package.json'), JSON.stringify({
@@ -119,7 +119,7 @@ describe('installDuckdb', () => {
       })()
       return {
         on: (event: string, cb: (...args: unknown[]) => void) => {
-          if (event === 'exit') setTimeout(() => cb(0), 10)
+          if (event === 'exit') void installation.then(() => cb(0))
         },
         stdout: null,
         stderr: null,

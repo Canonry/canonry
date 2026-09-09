@@ -48,7 +48,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
     : query ? groups : roots).filter(matches)
   const visibleProperties = (current ? properties.filter(property => property.parentGroupIds?.includes(current.id))
     : query || allProperties || groups.length === 0 ? properties : []).filter(matches)
-  const markets = allProperties ? [] : options.filter(scope => scope.kind === 'market' && (current || query || allowGroupSelect || groups.length === 0) && (!current || scope.parentGroupIds?.includes(current.id)) && matches(scope))
+  const markets = allProperties || (allowGroupSelect && current) ? [] : options.filter(scope => scope.kind === 'market' && (allowGroupSelect || current || query || groups.length === 0) && (!current || scope.parentGroupIds?.includes(current.id)) && matches(scope))
   const projects = current || allProperties ? [] : options.filter(scope => scope.kind === 'project' && matches(scope))
 
   useEffect(() => {
@@ -98,7 +98,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
       onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
     >
       <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
-      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
+      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
     </button>
     {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={`Browse ${scope.label}`} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
   </div>
