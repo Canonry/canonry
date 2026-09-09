@@ -492,14 +492,18 @@ test('managed scans hide the plain recovery button on a cold failed-run handoff 
   expect(mutationMock.mutate).not.toHaveBeenCalled()
 })
 
-test('public demo hides Page Health scan controls for a view-only session', () => {
+test('public demo hides Page Health scan controls and skips the unavailable schedule read', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
+  const request = vi.fn(async () => new Response(JSON.stringify({ code: 'NOT_FOUND' }), { status: 404, headers: { 'content-type': 'application/json' } }))
+  vi.stubGlobal('fetch', request)
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1')))
   renderSection(queryClient, {}, 'viewer')
 
   expect(screen.queryByRole('button', { name: /Run scan/ })).toBeNull()
   expect(screen.queryByText('Scan settings')).toBeNull()
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Scans are run by your Canonry team'))
+  expect(request.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/schedule'))).toBe(false)
 })
 
 test('keeps three fixed live-finding slots while examples grow from zero to one to three', async () => {

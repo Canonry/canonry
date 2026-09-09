@@ -1579,7 +1579,8 @@ export function SiteHealthSection({
   const [showTemplateLinks, setShowTemplateLinks] = useState(false)
   const embedded = isEmbed()
   const { isAdmin } = useAccount()
-  const managedScanForViewer = (isPublicDemo() || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin
+  const publicDemo = isPublicDemo()
+  const managedScanForViewer = (publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin
   const explicitOnboarding = showOnboardingActions && !embedded
   const runMutation = useTriggerSiteAudit()
 
@@ -1954,7 +1955,7 @@ export function SiteHealthSection({
   const startScan = () => {
     // Gate the dispatcher too: recovery actions also use plain Buttons.
     // This is presentation only; the server independently refuses viewer writes.
-    if ((isPublicDemo() || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin) return
+    if ((publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin) return
     // Release any pinned scan before dispatching its replacement.
     // Otherwise the durable URL handoff keeps the old run selected while the
     // newly queued scan progresses invisibly in the background.
@@ -2053,7 +2054,7 @@ export function SiteHealthSection({
           )}
         </div>
       </header>}
-      {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} />}
+      {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} loadSchedule={!publicDemo} />}
 
       {crawl?.hasCrawlData && currentView !== 'technical' && (
         <div className="grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">

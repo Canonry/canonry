@@ -22,12 +22,13 @@ function managedSweepDate(iso: string, timezone: string | undefined): string | n
   }
 }
 
-export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibility'], running = false }: {
+export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibility'], running = false, loadSchedule = true }: {
   projectName: string
   kind?: SchedulableRunKind
   running?: boolean
   /** Retained for callers; portfolio and simple sweeps use the same concise date. */
   portfolio?: boolean
+  loadSchedule?: boolean
 }) {
   const scan = kind === RunKinds['site-audit']
   const scheduleQuery = useQuery({
@@ -36,6 +37,7 @@ export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibi
       path: { name: projectName },
       query: { kind },
     }),
+    enabled: loadSchedule && Boolean(projectName),
     retry: false,
     refetchInterval: 60_000,
   })
