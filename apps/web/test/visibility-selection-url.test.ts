@@ -3,8 +3,8 @@ import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/m
 import { rootRoute } from '../src/router/routes.js'
 
 describe('shared visibility selection URL', () => {
-  it('defaults to non-brand for simple and advanced projects', () => {
-    expect(parseVisibilitySelection({})).toEqual({ measurementScope: 'project', queryClass: 'non-brand' })
+  it('defaults to all queries for simple and advanced projects', () => {
+    expect(parseVisibilitySelection({})).toEqual({ measurementScope: 'project', queryClass: 'all' })
   })
 
   it('preserves the legacy group bookmark without widening it', () => {
@@ -55,6 +55,6 @@ describe('shared visibility selection URL', () => {
     ].map(patch => JSON.stringify({ queryKey: 'query-1', queryClass: 'non-brand', provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2, ...patch })),
   ])('ignores invalid or mismatched answer context while keeping a legacy query link: %s', measurementAnswer => {
     expect(parseVisibilitySelection({ measurementQueryKey: 'query-1', measurementAnswer }))
-      .toEqual({ measurementScope: 'project', queryClass: 'non-brand', queryKey: 'query-1' })
+      .toEqual({ measurementScope: 'project', queryClass: 'all', queryKey: 'query-1' })
   })
 })
