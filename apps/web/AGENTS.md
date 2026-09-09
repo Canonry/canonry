@@ -41,6 +41,12 @@ Other Vite options use the native CLI without caching, preserving custom output 
 
 ### Simple query evidence
 
+Simple projects render the existing `VisibilityTrendSection`, `OverviewBrief`,
+competitive summary, and `EvidenceTable` directly, including in embeds and
+when an unpublished Advanced draft exists. Do not replace that layout with
+`VisibilityWorkspace` when a unified report becomes available. Published
+Advanced plans retain their own report workspace and scope controls.
+
 Keep the Latest signals block and suggested queries out of the Simple overview.
 The underlying insights and suggestions remain available through the API.
 
@@ -116,7 +122,7 @@ Research retains ICP discovery and bounded tests. Promotion must use query-track
 Advanced tracked query scope and class filters must both honor URL selection. Simple tracked rows have no assignment classes, so retain their complete list and omit the class control even when the shared report URL carries a class filter. Retired scope keys require explicit recovery before scoped edit actions are available. Reuse the group-first visibility scope picker with explicit workspace parent metadata, and expose assignment membership behind an accessible disclosure. Research labels describe project brand-name/domain checks, not verified property identity; keep saved answer engine/model/location context visible and render answer Markdown with safe external links and no remote images.
 For a signed-in viewer, omit Research unless the injected `research.allowViewers` grant is true. When granted, show the direct query test only: read safe provider/model choices from research history without loading `/settings`. Offer an engine and model picker, but no ICP discovery or tracked-query promotion. The server remains the authorization and daily-cap boundary.
 After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
-`VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report.
+For Advanced Measurement, `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts. Query results show each query once, with property and location details shared only when every engine row has identical context. Keep differing contexts beside their engine. A single-answer rate of 0 or 1 may read No or Yes; preserve multi-answer rates/counts and explicit unavailable evidence. Engine rows reflow on narrow screens while retaining their mention/citation labels and answer action.
 Default the shared URL selection to all queries for Simple and Advanced, preserving explicit query-type links.
 Simple history without query labels must show its saved unclassified results on arrival. In the all-query view, omit Simple classes with no current or historical queries when another class has results; keep Advanced unmeasured classes explicit.

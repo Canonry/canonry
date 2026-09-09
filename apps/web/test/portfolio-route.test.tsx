@@ -732,28 +732,55 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   expect(html).not.toContain('Coverage and performance')
 })
 
-test('a Simple project opens the unified non-brand report without advertising advanced measurement', async () => {
-  const html = await renderAt('/projects/project_citypoint')
+test.each([false, true])('a Simple project retains its overview with or without a cached unified report (cached: %s)', async seedVisibilityReport => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { seedVisibilityReport })
 
-  expect(html).toContain('Non-brand queries')
-  expect(html).toContain('1 of 1')
+  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('Time window')
+  expect(html).toContain('Coverage now')
+  expect(html).toContain('Since last sweep')
+  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Mention gaps')
+  expect(html).toContain('Citation gaps')
+  expect(html).toContain('Query evidence')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
-  expect(html).not.toContain('Where competitors are winning')
+  expect(html).not.toContain('More filters')
+  expect(html).not.toContain('Project signals')
+  expect(html).not.toContain('Latest signals')
 })
 
-test.each([false, true])('Simple query results remain available behind disclosure (embed: %s)', async (embed) => {
+test.each([false, true])('Simple query evidence stays open with its class and signal controls (embed: %s)', async embed => {
   const html = await renderAt(
     '/projects/project_citypoint',
     embed ? { enabled: true } : undefined,
   )
   const document = new DOMParser().parseFromString(html, 'text/html')
-  const section = document.querySelector<HTMLDetailsElement>('details[data-query-results="non-brand"]')
+  const section = document.querySelector<HTMLDetailsElement>('#evidence-section')
 
   expect(section).not.toBeNull()
-  expect(section!.open).toBe(false)
+  expect(section!.open).toBe(true)
   expect(section!.querySelector('.evidence-table')).not.toBeNull()
+  expect(section!.textContent).toContain('Mentions')
+  expect(section!.textContent).toContain('Citations')
+  expect(section!.textContent).toContain('All queries')
+  if (embed) expect(section!.textContent).not.toContain('Manage queries')
+})
+
+test('an unpublished Advanced draft and stale report filters do not replace the Simple overview', async () => {
+  const html = await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=old&queryClass=unknown', undefined, {
+    plan: { active: null },
+    setup: measurementSetupResponse(),
+    competitorLandscape: competitorLandscapeResponse(),
+  })
+
+  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('Coverage now')
+  expect(html).toContain('Query evidence')
+  expect(html).toContain('Pinned operator')
+  expect(html).not.toContain('More filters')
+  expect(html).not.toContain('Unclassified queries')
 })
 
 test.each([false, true])('a clean Simple dashboard shows older saved results immediately (embed: %s)', async embed => {
@@ -767,13 +794,22 @@ test.each([false, true])('a clean Simple dashboard shows older saved results imm
   }
   const html = await renderAt('/projects/project_citypoint', embed ? { enabled: true } : undefined, {
     plan: { active: null }, visibilityReport: report,
+  }, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.visibilityEvidence = [{
+        ...project.visibilityEvidence[0]!, query: 'Older saved query', queryClass: null,
+      }]
+    },
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector<HTMLSelectElement>('select[aria-label="Query type"]')?.value).toBe('unknown')
-  expect(doc.querySelector('[aria-label="Unclassified queries"]')?.textContent).toContain('1 of 1')
-  expect(doc.querySelector('[aria-label="Branded queries"]')).toBeNull()
-  expect(doc.querySelector('[aria-label="Non-brand queries"]')).toBeNull()
-  expect(doc.querySelector('[data-query-results="unknown"]')?.textContent).toContain('Older saved query')
+  const evidence = doc.querySelector<HTMLDetailsElement>('#evidence-section')
+  expect(evidence?.open).toBe(true)
+  expect((within(evidence!).getByLabelText('Query class') as HTMLSelectElement).value).toBe('all')
+  expect(evidence?.querySelector('.evidence-table')?.textContent).toContain('Older saved query')
+  expect(evidence?.querySelector('.evidence-table')?.textContent).toContain('Unclassified')
+  expect(html).toContain('Coverage now')
+  expect(doc.querySelector('select[aria-label="Query type"]')).toBeNull()
   expect(html).not.toContain('frozen query classification')
 })
 
@@ -829,7 +865,7 @@ test('a stale Site Health onboarding marker cannot redirect the project overview
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
   expect(router.state.location.pathname).toBe('/projects/project_citypoint')
 })
 
@@ -1097,7 +1133,7 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   })
 
   expect(html).toContain('Citypoint Dental NYC')
-  expect(html).toContain('Non-brand queries')
+  expect(html).toContain('Answer-engine trend')
   expect(html).not.toContain('Import sitemap')
   expect(html).not.toContain('>Portfolio</a>')
   expect(html).not.toContain('Coverage and performance')
@@ -1130,7 +1166,7 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
   await waitFor(() => expect(observed.some(path => path.endsWith('/runs?kind=answer-visibility'))).toBe(true))
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.filter(path =>
@@ -1139,7 +1175,7 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     || path.includes('/measurement-overview?')
     || path.includes('/query-tracking'),
   )).toEqual([])
-  expect(observed.some(path => path.includes('/visibility-report?'))).toBe(true)
+  expect(observed.some(path => path.includes('/visibility-report?'))).toBe(false)
 })
 
 test('embedded Queries and legacy Discovery URLs fall back before reading unpublished tracking or research data', async () => {
@@ -1171,7 +1207,7 @@ test('embedded Queries and legacy Discovery URLs fall back before reading unpubl
         </DashboardProvider>
       </QueryClientProvider>,
     )
-    expect(await screen.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
     screen.unmount()
   }
 
@@ -1372,7 +1408,7 @@ test('a failed setup read keeps project results and the global run action visibl
   )
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
-  expect(await page.findByRole('heading', { name: 'Non-brand queries' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
   expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
@@ -1634,9 +1670,9 @@ test('a frozen visibility baseline remains visible when five newer failed runs f
     },
   })
 
-  expect(html).toContain('Mentioned answers')
-  expect(html).toContain('Cited answers')
-  expect(html).toContain('1 of 1 answers')
+  expect(html).toContain('Coverage now')
+  expect(html).toContain('Since last sweep')
+  expect(html).toContain('Mention gaps')
   expect(html).not.toContain('No AI Visibility baseline yet')
   expect(html).not.toContain('Complete your first AI Visibility sweep')
   expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
@@ -2159,13 +2195,12 @@ test('an unresolved measurement plan shows a skeleton instead of flashing legacy
   expect(html).not.toContain('Non-brand queries')
 })
 
-test('a settled plan read renders the unified report, so the guard is not a permanent skeleton', async () => {
-  // The other half: once the plan settles as absent, the report can resolve the
-  // Simple selection. A guard that cannot tell pending from settled would
+test('a settled absent plan renders the Simple overview, so the guard is not a permanent skeleton', async () => {
+  // The other half: once the plan settles as absent, render the Simple overview. A guard that cannot tell pending from settled would
   // strand this on the skeleton forever.
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Non-brand queries')
+  expect(html).toContain('Answer-engine trend')
   expect(html).not.toContain('Loading project overview')
 })
 
