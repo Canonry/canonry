@@ -186,6 +186,27 @@ describe('viewer research grants', () => {
     expect(db.select().from(researchRuns).all()).toEqual([])
   })
 
+  it('keeps history cleanup forbidden for research viewers and read-only keys', async () => {
+    const { app, viewer } = await harness(true)
+    for (const headers of [cookieHeaders(viewer), keyHeaders(READ_KEY), keyHeaders(UNRELATED_KEY)]) {
+      const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/results/clear', headers, payload: { runIds: ['saved-run'], confirm: true } })
+      expect(response.statusCode).toBe(403)
+    }
+  })
+
+  it('offers safe model choices without giving a viewer settings access or starting work', async () => {
+    const { app, db, viewer, requested } = await harness(true)
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs', headers: cookieHeaders(viewer) })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().providers).toEqual([{
+      name: 'openai', displayName: 'OpenAI', modelConfigurable: true,
+      defaultModel: 'gpt-5-mini', knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini' }],
+    }])
+    expect((await app.inject({ method: 'GET', url: '/api/v1/settings', headers: cookieHeaders(viewer) })).statusCode).toBe(403)
+    expect(requested).not.toHaveBeenCalled()
+    expect(db.select().from(researchRuns).all()).toEqual([])
+  })
+
   it('allows and attributes viewer research after opt-in', async () => {
     const { app, db, viewer } = await harness(true)
 

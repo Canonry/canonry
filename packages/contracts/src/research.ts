@@ -55,5 +55,18 @@ export type ResearchRunQueryDto = z.infer<typeof researchRunQuerySchema>
 
 export const researchRunDetailSchema = researchRunSummarySchema.extend({ queries: z.array(researchRunQuerySchema) })
 export type ResearchRunDetailDto = z.infer<typeof researchRunDetailSchema>
-export const researchRunListSchema = z.object({ runs: z.array(researchRunSummarySchema) })
+/** Safe model choices for research; excludes credentials and instance settings. */
+export const researchProviderOptionSchema = z.object({
+  name: z.string(),
+  displayName: z.string(),
+  modelConfigurable: z.boolean(),
+  defaultModel: z.string(),
+  knownModels: z.array(z.object({ id: z.string(), displayName: z.string() })),
+})
+export type ResearchProviderOption = z.infer<typeof researchProviderOptionSchema>
+
+export const researchRunListSchema = z.object({
+  runs: z.array(researchRunSummarySchema),
+  providers: z.array(researchProviderOptionSchema).optional(),
+})
 export type ResearchRunListDto = z.infer<typeof researchRunListSchema>

@@ -143,7 +143,10 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
     const method = init?.method ?? 'GET'
     requests.push({ path, method, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     if (path === '/api/v1/projects/demo') return jsonResponse(project)
-    if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: [], providers: [
+      { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini' }, { id: 'gpt-5', displayName: 'GPT-5' }] },
+      { name: 'gemini', displayName: 'Gemini', modelConfigurable: true, defaultModel: 'gemini-2.5-flash', knownModels: [{ id: 'gemini-2.5-flash', displayName: 'Gemini Flash' }] },
+    ] })
     if (path === '/api/v1/projects/demo/research/runs' && method === 'POST') {
       return jsonResponse({
         id: 'research-1', projectId: project.id, status: 'queued', provider: 'openai', requestedModel: null,
@@ -159,8 +162,13 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
 
   expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
-  expect(screen.queryByLabelText('API provider')).toBeNull()
-  expect(screen.getByText('7 research runs per project each day.')).toBeTruthy()
+  expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
+  expect(screen.getByText('Up to 7 research batches per project each day. Each batch can contain up to 50 queries.')).toBeTruthy()
+  expect(screen.getByText('Enter at least one query to enable Run.')).toBeTruthy()
+  await waitFor(() => expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5-mini'))
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
+  fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
+  await waitFor(() => expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gemini-2.5-flash'))
 
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which AEO platform fits an agency?' } })
   const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement
@@ -171,7 +179,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
     queries: ['Which AEO platform fits an agency?'],
     location: null,
   })
-  expect(requests.find(request => request.method === 'POST')?.body).not.toHaveProperty('provider')
+  expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({ provider: 'gemini', model: 'gemini-2.5-flash' })
   expect(requests.some(request => request.path === '/api/v1/settings')).toBe(false)
 })
 

@@ -87,7 +87,17 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const requested = Number.parseInt(request.query.limit ?? '', 10)
     const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 100) : 20
     const runs = app.db.select().from(researchRuns).where(eq(researchRuns.projectId, project.id)).orderBy(desc(researchRuns.createdAt)).limit(limit).all().map(serializeRun)
-    return { runs } satisfies ResearchRunListDto
+    const configured = new Set(opts.configuredProviderNames ?? [])
+    const providers = (opts.providerAdapters ?? [])
+      .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
+      .map(adapter => ({
+        name: adapter.name,
+        displayName: adapter.displayName,
+        modelConfigurable: adapter.modelConfigurable,
+        defaultModel: project.providerModels[adapter.name] || adapter.defaultModel,
+        knownModels: adapter.knownModels.map(model => ({ id: model.id, displayName: model.displayName })),
+      }))
+    return { runs, providers } satisfies ResearchRunListDto
   })
 
   app.get<{ Params: { name: string; runId: string } }>('/projects/:name/research/runs/:runId', async (request) => {

@@ -2,7 +2,7 @@ import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import type { AuditLogEntry } from '@ainyc/canonry-contracts'
-import { describeError } from '@ainyc/canonry-contracts'
+import { resultsClearRequestSchema, describeError } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -72,5 +72,18 @@ export async function showHistory(project: string | undefined, format?: string, 
         cause: message,
       },
     })
+  }
+}
+
+export async function clearResults(project: string, opts: { runIds: string[]; researchRunIds: string[]; confirm: boolean; format?: string }): Promise<void> {
+  const request = resultsClearRequestSchema.safeParse({ runIds: opts.runIds, researchRunIds: opts.researchRunIds, confirm: opts.confirm })
+  if (!request.success) throw new CliError({ code: 'INVALID_ARGUMENT', message: request.error.issues.map(issue => issue.message).join(' '), exitCode: 1 })
+  const result = await getClient().clearResults(project, request.data)
+  if (opts.format === 'jsonl') emitJsonl([result])
+  else if (opts.format === 'json') console.log(JSON.stringify(result, null, 2))
+  else {
+    console.log(`${result.dryRun ? 'Would clear' : 'Cleared'} ${result.runIds.length} visibility runs and ${result.researchRunIds.length} research batches.`)
+    console.log(`${result.querySnapshots} saved visibility answers; ${result.researchQueries} research queries.`)
+    if (result.dryRun) console.log('Back up the evidence, then repeat with --confirm to delete these exact runs.')
   }
 }

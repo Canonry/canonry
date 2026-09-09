@@ -1627,6 +1627,13 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed or a sweep is using the live query catalog.') },
   },
   {
+    method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],
+    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Site Health, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResultsClearRequest' } } } },
+    responses: { 200: jsonResponse('Selected history previewed or cleared.', 'ResultsClearResponse'), 400: errorResponse('Invalid selection or unsupported run kind.'), 403: errorResponse('Administrator or runs.write scope required.'), 404: errorResponse('Project or selected run not found.'), 409: errorResponse('Visibility or research work is active.') },
+  },
+  {
     method: 'get', path: '/api/v1/projects/{name}/research/runs', summary: 'List saved research query batches', tags: ['research'],
     parameters: [nameParameter, { name: 'limit', in: 'query', description: 'Max runs, default 20 and maximum 100.', schema: integerSchema }],
     responses: { 200: jsonResponse('Research runs returned newest first.', 'ResearchRunListDto'), 404: errorResponse('Project not found.') },

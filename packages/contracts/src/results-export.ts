@@ -78,3 +78,24 @@ export const resultsExportDtoSchema = z.object({
   records: z.array(resultsExportRecordSchema),
 })
 export type ResultsExportDto = z.infer<typeof resultsExportDtoSchema>
+
+/** Exact saved runs only. Omitting confirm previews the deletion. */
+export const resultsClearRequestSchema = z.object({
+  runIds: z.array(z.string().trim().min(1)).max(100).default([]),
+  researchRunIds: z.array(z.string().trim().min(1)).max(100).default([]),
+  confirm: z.boolean().default(false),
+}).strict().superRefine((value, ctx) => {
+  if (value.runIds.length + value.researchRunIds.length === 0) ctx.addIssue({ code: 'custom', message: 'Select at least one saved run.' })
+  if (new Set(value.runIds).size !== value.runIds.length || new Set(value.researchRunIds).size !== value.researchRunIds.length) ctx.addIssue({ code: 'custom', message: 'Run IDs must be unique.' })
+})
+export type ResultsClearRequest = z.infer<typeof resultsClearRequestSchema>
+export const resultsClearResponseSchema = z.object({
+  dryRun: z.boolean(),
+  runIds: z.array(z.string()),
+  researchRunIds: z.array(z.string()),
+  querySnapshots: z.number().int().nonnegative(),
+  researchQueries: z.number().int().nonnegative(),
+  insights: z.number().int().nonnegative(),
+  healthSnapshots: z.number().int().nonnegative(),
+})
+export type ResultsClearResponse = z.infer<typeof resultsClearResponseSchema>

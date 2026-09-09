@@ -74,6 +74,8 @@ export interface RunListItemVm extends RunDto {
 
 export interface PortfolioProjectVm {
   project: ProjectDto
+  /** False when saved mention evidence is unavailable; zero is a measured result. */
+  hasMeasurement?: boolean
   /** Headline metric — Mention Coverage (% of tracked queries whose AI answer
    *  text mentioned the brand). This is the key portfolio metric, not cited. */
   mentionScore: number

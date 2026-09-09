@@ -1,20 +1,59 @@
-import { and, asc, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
+import { auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
 import {
   CitationStates,
+  resultsClearRequestSchema,
+  runInProgress,
+  type ResultsClearResponse,
   mentionStateFromAnswerMentioned,
   notFound,
   RunKinds,
   validationError,
   visibilityStateFromAnswerMentioned,
 } from '@ainyc/canonry-contracts'
-import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
+import { requireAdminSession, requireScope } from './auth.js'
+import { writeAuditLog, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
+  app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/results/clear', async request => {
+    requireAdminSession(request)
+    requireScope(request, 'runs.write')
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = resultsClearRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid history cleanup request', { issues: parsed.error.issues })
+    const input = parsed.data
+    return app.db.transaction(tx => {
+      const active = tx.select({ id: runs.id }).from(runs).where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), inArray(runs.status, ['queued', 'running']))).get()
+      const activeResearch = tx.select({ id: researchRuns.id }).from(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.status, ['queued', 'running']))).get()
+      if (active || activeResearch) throw runInProgress(project.name, active ? 'answer-visibility' : 'research', (active ?? activeResearch)!.id)
+      const selectedRuns = tx.select({ id: runs.id, kind: runs.kind }).from(runs).where(and(eq(runs.projectId, project.id), inArray(runs.id, input.runIds))).all()
+      const selectedResearch = tx.select({ id: researchRuns.id }).from(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.id, input.researchRunIds))).all()
+      if (selectedRuns.length !== input.runIds.length || selectedResearch.length !== input.researchRunIds.length) throw notFound('Selected saved run in project', project.name)
+      if (selectedRuns.some(run => run.kind !== RunKinds['answer-visibility'])) throw validationError('Only answer-visibility runs and research batches can be cleared. Site Health and integration runs are preserved.')
+      const result: ResultsClearResponse = {
+        dryRun: !input.confirm,
+        runIds: input.runIds,
+        researchRunIds: input.researchRunIds,
+        querySnapshots: tx.select({ value: count() }).from(querySnapshots).where(inArray(querySnapshots.runId, input.runIds)).get()!.value,
+        researchQueries: tx.select({ value: count() }).from(researchRunQueries).where(inArray(researchRunQueries.researchRunId, input.researchRunIds)).get()!.value,
+        insights: tx.select({ value: count() }).from(insights).where(inArray(insights.runId, input.runIds)).get()!.value,
+        healthSnapshots: tx.select({ value: count() }).from(healthSnapshots).where(inArray(healthSnapshots.runId, input.runIds)).get()!.value,
+      }
+      if (input.confirm) {
+        // Foreign keys remove saved answers and derived run evidence atomically.
+        // Query definitions, plans, schedules, audit history, and usage remain.
+        tx.delete(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.id, input.researchRunIds))).run()
+        tx.delete(runs).where(and(eq(runs.projectId, project.id), inArray(runs.id, input.runIds))).run()
+        writeAuditLog(tx, { projectId: project.id, actor: request.principal ? `${request.principal.kind}:${request.principal.id}` : 'api', action: 'results.cleared', entityType: 'project', entityId: project.id, diff: result, userAgent: request.headers['user-agent'] })
+      }
+      return result
+    })
+  })
+
   // GET /projects/:name/history — audit log for project
   app.get<{
     Params: { name: string }

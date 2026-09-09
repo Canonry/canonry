@@ -107,32 +107,48 @@ export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow
 }
 
 function ReportTrend({ population }: { population: VisibilityReportPopulation }) {
-  const points = population.trend.flatMap(point => {
-    const plotted = { createdAt: point.createdAt, mentioned: point.mentionCoverage.rate, cited: point.citationCoverage.rate }
-    return point.continuity.state === 'comparable' || point.continuity.state === 'first'
-      ? [plotted]
-      : [{ createdAt: point.createdAt, mentioned: null, cited: null }, plotted]
+  const descriptionId = useId()
+  let segment = 0
+  const points = population.trend.map((point, index) => {
+    if (index > 0 && point.continuity.state !== 'comparable') segment += 1
+    return {
+      createdAt: Date.parse(point.createdAt),
+      [`mentioned-${segment}`]: point.mentionCoverage.rate,
+      [`cited-${segment}`]: point.citationCoverage.rate,
+    }
   })
+  const segments = Array.from({ length: segment + 1 }, (_, index) => index)
+  const boundaries = new Set(population.trend.slice(1).map(point => point.continuity.state))
+  const notes = [
+    ...(points.length === 1 ? ['First measurement. A trend appears after another comparable run.'] : []),
+    ...(boundaries.has('definition-changed') ? ['Gaps mark changes to what was measured.'] : []),
+    ...(boundaries.has('model-changed') ? ['Gaps mark changes to answer engines or models.'] : []),
+    ...(boundaries.has('legacy-unknown') ? ['Older runs lack the details needed for comparison.'] : []),
+    ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
+  ]
   if (points.length === 0) return <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>
-  const hasRates = points.some(point => point.mentioned !== null || point.cited !== null)
+  const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
   return <>
     {hasRates ? <>
-      <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
-        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
-        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
-      </ul>
-      <div className="visibility-trend-chart" role="img" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
-            <XAxis dataKey="createdAt" tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(String(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
-            <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
-            <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(String(value)).toLocaleDateString()} />
-            <Line type="linear" dataKey="mentioned" name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-            <Line type="linear" dataKey="cited" name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+    <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
+      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
+      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
+    </ul>
+    {notes.length > 0 && <p id={descriptionId} className="pb-3 text-sm text-secondary">{notes.join(' ')}</p>}
+    <div className="visibility-trend-chart" role="img" aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+          <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
+          <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
+          <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleString()} />
+          {segments.map(index => <Fragment key={index}>
+            <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+            <Line type="linear" dataKey={`cited-${index}`} name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+          </Fragment>)}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
     </> : <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>}
     <details className="py-3 text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">Trend data and comparability</summary>
       <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>

@@ -109,6 +109,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'PUT /api/v1/projects/{name}/measurement-query-templates/{templateId}': 'included',
   'DELETE /api/v1/projects/{name}/measurement-query-templates/{templateId}': 'included',
   'POST /api/v1/projects/{name}/measurement-query-templates/{templateId}/apply': 'included',
+  'POST /api/v1/projects/{name}/results/clear': 'included',
   'POST /api/v1/projects/{name}/research/runs': 'included',
   'GET /api/v1/projects/{name}/research/runs': 'included',
   'GET /api/v1/projects/{name}/research/runs/{runId}': 'included',

@@ -407,6 +407,24 @@ describe('shared production visibility view', () => {
     ])
   })
 
+  it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    population.trend = ['first', state].map((continuity, index) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T10:00:00Z`, revision: index + 1,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage,
+      citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' },
+      continuity: { state: continuity as typeof state | 'first', comparedRunId: index === 0 ? null : 'run-0' },
+    }))
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const chart = screen.getByRole('img', { name: /mention and citation trend/ })
+    const explanation = document.getElementById(chart.getAttribute('aria-describedby')!)!
+    expect(explanation.textContent).toContain(state === 'definition-changed' ? 'changes to what was measured' : state === 'model-changed' ? 'changes to answer engines or models' : 'Older runs lack')
+    expect(explanation.textContent).toContain('Missing citation results mean the saved evidence is incomplete.')
+    expect(explanation.closest('details')).toBeNull()
+  })
+
   it('uses plain labels for saved-result filters without changing the selection contract', () => {
     const report = reportFixture()
     report.populations[0]!.trend = ['run-1', 'run-2'].map((runId, index) => ({

@@ -241,6 +241,8 @@ import type {
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
+  ResultsClearRequest,
+  ResultsClearResponse,
   ResearchRunCreate,
   ResearchRunDetailDto,
   ResearchRunListDto,
@@ -294,6 +296,7 @@ import {
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
   type GetApiV1ProjectsByNameRunsData,
+  postApiV1ProjectsByNameResultsClear,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
   getApiV1RunsById,
@@ -3591,6 +3594,13 @@ export class ApiClient {
   }
 
   // ── Research query runs ────────────────────────────────────────────────
+
+  /** Preview or clear exact saved visibility/research run IDs. */
+  async clearResults(project: string, request: ResultsClearRequest): Promise<ResultsClearResponse> {
+    return this.invoke<ResultsClearResponse>(() => postApiV1ProjectsByNameResultsClear({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
 
   /**
    * Start one saved research batch. Research results are deliberately kept

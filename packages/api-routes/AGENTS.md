@@ -268,3 +268,12 @@ Constraints:
 - `docs/architecture.md` — system overview and data flow
 - `packages/contracts/` — DTOs, error codes, Zod schemas
 - `packages/db/` — database schema and migration patterns
+
+### Saved-result cleanup
+
+`POST /projects/:name/results/clear` previews exact visibility/research run IDs by default.
+Confirmation deletes saved answers and derived run evidence in one transaction. Reject active
+visibility/research work, sibling-project IDs, and any other run kind. Keep queries, plans,
+schedules, audit history, Site Health, backlinks, and usage accounting. Require an administrator
+session or `runs.write` key. `GET research/runs` also returns safe configured API model choices;
+never include credentials, quotas, or provider connection settings in that catalog.

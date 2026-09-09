@@ -690,6 +690,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   if (!overview) {
     return {
       project: dto,
+      hasMeasurement: false,
       mentionScore: 0,
       mentionDelta: 'No data',
       mentionTone: 'neutral',
@@ -712,6 +713,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
 
   return {
     project: dto,
+    hasMeasurement: total > 0 && mention.progress != null,
     mentionScore,
     mentionDelta: total > 0 ? `${mentioned} of ${total} queries` : 'No data',
     mentionTone: mention.tone as MetricTone,
