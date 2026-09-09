@@ -102,6 +102,21 @@ describe('buildVisibilityReport', () => {
       .toEqual({ numerator: 0, denominator: 1, rate: 0 })
   })
 
+  it.each(['project', 'group', 'property', 'market'] as const)('returns identical class populations and cursors within an all-class %s report', scope => {
+    const scopeKeys = { project: undefined, group: 'collection', property: 'north', market: 'alpha' }
+    const selection = { ...input().selection, scope, scopeKey: scopeKeys[scope], limit: 1 }
+    const all = buildVisibilityReport(input({ selection }))
+    for (const queryClass of ['non-brand', 'branded', 'unknown'] as const) {
+      const population = all.populations.find(value => value.queryClass === queryClass)!
+      const selected = buildVisibilityReport(input({ selection: { ...selection, queryClass } }))
+      expect(selected).toEqual({ ...all, selection: { ...all.selection, queryClass }, populations: [population] })
+      if (population.queries.nextCursor) {
+        const next = buildVisibilityReport(input({ selection: { ...selection, queryClass, cursor: population.queries.nextCursor } }))
+        expect(next.populations[0]!.queries.items[0]!.queryKey).not.toBe(population.queries.items[0]!.queryKey)
+      }
+    }
+  })
+
   it('keeps a scoped Property denominator when a class has no assignment for one Property', () => {
     const report = buildVisibilityReport(input({
       selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50 },
