@@ -1,12 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameScheduleOptions } from '@ainyc/canonry-api-client/react-query'
-import { formatZonedTimestamp, RunKinds, type SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, type SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { ApiError, heyClient } from '../../api.js'
-import { InfoTooltip } from '../shared/InfoTooltip.js'
 
 export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'
 
 export const MANAGED_SCANS_COPY = 'Scans are run by your Canonry team'
+export const MANAGED_SWEEPS_UNAVAILABLE_COPY = 'Next sweep unavailable'
+
+function managedSweepDate(iso: string, timezone: string | undefined): string | null {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: timezone ?? 'UTC',
+    }).format(new Date(iso))
+  } catch {
+    return null
+  }
+}
 
 export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibility'], running = false }: {
   projectName: string
@@ -29,28 +41,24 @@ export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibi
     ? scan ? nextRun.toLocaleString('en-GB', {
         weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
         timeZone: 'UTC', hourCycle: 'h23',
-      }) : formatZonedTimestamp(nextRun.toISOString(), schedule?.timezone)
+      }) : managedSweepDate(nextRun.toISOString(), schedule?.timezone)
     : null
 
   const errorCode = scheduleQuery.error instanceof ApiError ? scheduleQuery.error.code
     : (scheduleQuery.error as { error?: { code?: string } } | null)?.error?.code
   const missingSchedule = errorCode === 'NOT_FOUND'
-  const scheduleHelp = scheduleQuery.isPending ? 'Checking the next scheduled time.'
-    : scheduleQuery.isError && !missingSchedule ? 'The next scheduled time could not be loaded.'
-    : !schedule ? 'No automatic sweep is currently scheduled.'
-    : !schedule.enabled ? 'Automatic sweeps are paused.'
-    : nextSync ? `The next AI Visibility sweep is scheduled to start ${nextSync}. Results update after the sweep finishes.`
-    : 'The next scheduled time has not been set.'
+  const unavailableSweep = !nextSync || missingSchedule || !schedule?.enabled
 
   return (
-    <div className="inline-flex items-center gap-1">
     <p className="text-sm text-secondary" role="status">
-      {running && <span className="text-neutral">{scan ? 'Scan running…' : 'AI sweep running…'} · </span>}
-      {nextSync && nextRun ? <>
-        Next {scan ? 'scan' : 'scheduled sweep'} <time dateTime={nextRun.toISOString()}>{nextSync}{scan ? ' UTC' : ''}</time> · managed by your Canonry team
-      </> : scan ? MANAGED_SCANS_COPY : MANAGED_SWEEPS_COPY}
+      {scan ? <>
+        {running && <span className="text-neutral">Scan running… · </span>}
+        {nextSync && nextRun ? <>
+          Next scan <time dateTime={nextRun.toISOString()}>{nextSync} UTC</time> · managed by your Canonry team
+        </> : MANAGED_SCANS_COPY}
+      </> : running ? 'Sweep running…' : unavailableSweep ? MANAGED_SWEEPS_UNAVAILABLE_COPY : nextSync && nextRun ? <>
+        Next sweep: <time dateTime={nextRun.toISOString()}>{nextSync}</time>
+      </> : MANAGED_SWEEPS_UNAVAILABLE_COPY}
     </p>
-    {!scan && <InfoTooltip text={`${MANAGED_SWEEPS_COPY}. ${scheduleHelp}`} />}
-    </div>
   )
 }

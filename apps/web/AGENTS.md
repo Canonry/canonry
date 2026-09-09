@@ -183,7 +183,11 @@ Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/
 replace answer-visibility launch controls and empty-state launch instructions
 for every dashboard role, including admins. `ManagedSweepStatus` reads
 `GET /projects/:name/schedule?kind=answer-visibility`; only an enabled schedule
-with a valid `nextRunAt` gets a UTC date. The component accepts a schedule kind.
+with a valid `nextRunAt` gets a calendar date in the schedule timezone. The
+answer-visibility header shows `Next sweep: Sep 23` or a concise running or
+unavailable state, without a tooltip, time, or team-ownership copy. Omit the
+Advanced default `Recent measurements` label; preserve explicit historical
+ranges. The component accepts a schedule kind.
 Managed `site-audit` hides viewer scan controls and next-scan settings; admins
 retain them. Gate `startScan` and `startAudit` themselves, including recovery
 callbacks, and keep all progress, score, map, page, failure, partial and dead-link

@@ -2468,12 +2468,21 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       { managedSweeps: true, schedule: managedSchedule, accountRole },
     )
     const header = projectHeader(html)
-    expect(header.querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
-    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
-    expect(header.querySelector('.info-tooltip-trigger')?.getAttribute('aria-label')).toContain('Results update after the sweep finishes')
-    expect(header.textContent).toContain('Next scheduled sweep Tue, Sep 8, 2026, 6:00 AM UTC · managed by your Canonry team')
+    expect(header.querySelector('button')).toBeNull()
+    expect(header.textContent).toContain('Sweep running…')
+    if (mode === 'advanced') expect(header.textContent).not.toContain('Recent measurements')
     expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
   }
+})
+
+test('Advanced header keeps an explicit historical measurement range', async () => {
+  const html = await renderAt('/projects/project_citypoint?measurementFrom=2026-09-01T00:00:00.000Z&measurementTo=2026-09-08T23:59:59.999Z', undefined,
+    { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() },
+    { managedSweeps: true, schedule: managedSchedule },
+  )
+  const header = projectHeader(html)
+  expect(header.textContent).toContain('2026-09-01 to 2026-09-08')
+  expect(header.textContent).not.toContain('Recent measurements')
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
@@ -2483,10 +2492,10 @@ test('managed sweeps without a schedule replaces the header action without inven
     },
   })
   const status = projectHeader(html).querySelector('[role="status"]')!
-  expect(status.textContent).toBe('Sweeps are run by your Canonry team')
+  expect(status.textContent).toBe('Next sweep unavailable')
   expect(status.querySelector('time')).toBeNull()
-  expect(projectHeader(html).querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
-  expect(status.textContent).not.toMatch(/Next sync|UTC|\d/)
+  expect(projectHeader(html).querySelector('button')).toBeNull()
+  expect(status.textContent).not.toMatch(/UTC|\d/)
 })
 
 test.each(['simple', 'advanced'] as const)('managed %s project header retains queued and running sweep signals', async mode => {
@@ -2499,10 +2508,9 @@ test.each(['simple', 'advanced'] as const)('managed %s project header retains qu
       } },
     )
     const header = projectHeader(html)
-    expect(header.querySelector('[role="status"]')?.textContent).toContain('AI sweep running…')
-    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
-    expect(header.querySelector('.info-tooltip-trigger')?.getAttribute('aria-label')).toContain('Results update after the sweep finishes')
-    expect(header.querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
+    expect(header.querySelector('[role="status"]')?.textContent).toBe('Sweep running…')
+    expect(header.querySelector('time')).toBeNull()
+    expect(header.querySelector('button')).toBeNull()
   }
 })
 
@@ -2540,7 +2548,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
 test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
-  expect(projectHeader(html).textContent).toContain('Sweeps are run by your Canonry team')
+  expect(projectHeader(html).textContent).toContain('Sweep running…')
 })
 
 test('managed sweeps replaces the global batch sweep control', async () => {
