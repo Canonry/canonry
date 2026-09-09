@@ -2243,8 +2243,37 @@
     box-shadow: -1px 0 0 var(--color-border);
   }
 
-  .measurement-query-cell { min-width: 16rem; }
-  .measurement-target-cell { min-width: 10rem; }
+  .measurement-results-table { table-layout: fixed; }
+  .measurement-results-table th:first-child { width: 46%; }
+  .measurement-results-table th:last-child { width: 11rem; }
+  .measurement-results-table thead th {
+    @apply text-sm font-medium normal-case tracking-normal text-secondary;
+  }
+  .measurement-results-table .measurement-result-heading th {
+    @apply border-y border-default bg-surface-subtle py-3 text-left normal-case tracking-normal;
+  }
+  .measurement-result-engine { overflow-wrap: anywhere; }
+  .measurement-result-action { text-align: right; }
+  .measurement-result-mobile-label { display: none; }
+
+  @container (max-width: 52rem) {
+    .measurement-results-table,
+    .measurement-results-table tbody { display: block; width: 100%; }
+    .measurement-results-table thead { @apply sr-only; }
+    .measurement-results-table .measurement-result-heading { display: block; }
+    .measurement-results-table .measurement-result-heading th { display: block; width: 100%; }
+    .measurement-results-table .measurement-engine-result {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      @apply border-b border-default py-2;
+    }
+    .measurement-results-table.measurement-responsive-table tbody .measurement-engine-result > td { @apply border-b-0 py-2; }
+    .measurement-result-engine { grid-column: 1; grid-row: 1; }
+    .measurement-result-action { grid-column: 2; grid-row: 1; align-self: center; }
+    .measurement-results-table .measurement-engine-result .measurement-result-action { padding-inline: 0; }
+    .measurement-result-mobile-label { @apply mb-2 block text-sm text-secondary; }
+  }
+
   .query-tracking-workspace { container-type: inline-size; }
   .tracking-query-cell { min-width: 18rem; }
   .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
@@ -2254,8 +2283,6 @@
     .visibility-report .measurement-responsive-table td,
     .query-tracking-workspace .measurement-responsive-table th,
     .query-tracking-workspace .measurement-responsive-table td { padding-inline: 0.75rem; }
-    .measurement-query-cell { min-width: 14rem; }
-    .measurement-target-cell { min-width: 8rem; }
     .tracking-query-cell { min-width: 14rem; }
     .tracking-scope-cell { min-width: 10rem; }
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }

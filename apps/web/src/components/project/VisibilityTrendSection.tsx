@@ -8,7 +8,7 @@ import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-ap
 import { heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
 import { Button } from '../ui/button.js'
-import { ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Minus } from 'lucide-react'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
@@ -106,6 +106,58 @@ export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow
   return [...groups.values()]
 }
 
+function QueryResultRate({ value, singleAnswer }: { value: VisibilityReportRate; singleAnswer: boolean }) {
+  if (singleAnswer && value.denominator === 1 && (value.rate === 0 || value.rate === 1)) {
+    const found = value.rate === 1
+    return <span className={`inline-flex items-center gap-2 text-sm ${found ? 'text-positive' : 'text-secondary'}`}>
+      {found ? <Check size={16} aria-hidden="true" /> : <Minus size={16} aria-hidden="true" />}{found ? 'Yes' : 'No'}
+    </span>
+  }
+  return <span className="inline-flex items-center gap-1"><ReportRate value={value} />{value.reason === 'evidence-incomplete' ? <InfoTooltip text="The saved evidence is incomplete, so this result cannot be measured. It does not mean the answer had no citation." /> : null}</span>
+}
+
+function QueryProperties({ targetKeys, labels }: { targetKeys: string[]; labels: Map<string, string> }) {
+  if (targetKeys.length === 0) return <span>No assigned properties</span>
+  if (targetKeys.length === 1) return <span>{labels.get(targetKeys[0]!) ?? targetKeys[0]}</span>
+  return <details>
+    <summary className="min-h-11 cursor-pointer py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{targetKeys.length} properties</summary>
+    <ul className="max-h-48 space-y-2 overflow-y-auto pb-3">{targetKeys.map(key => <li key={key}>{labels.get(key) ?? key}</li>)}</ul>
+  </details>
+}
+
+function QueryResultGroup({ group, advanced, targetLabels, onViewAnswers }: {
+  group: VisibilityQueryGroup
+  advanced: boolean
+  targetLabels: Map<string, string>
+  onViewAnswers: (row: VisibilityReportQueryRow) => void
+}) {
+  const first = group.rows[0]!
+  const targetIdentity = (row: VisibilityReportQueryRow) => JSON.stringify([...row.targetKeys].sort())
+  const sharedTargets = group.rows.every(row => targetIdentity(row) === targetIdentity(first))
+  const sharedLocation = group.rows.every(row => row.location === first.location)
+  const locationLabel = (location: string | null) => location === null ? 'No location targeting' : `Search location: ${location}`
+  return <tbody data-query-key={group.queryKey}>
+    <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
+      <h3 className="break-words text-base font-medium text-heading">{group.query}</h3>
+      <div className="flex flex-wrap items-center gap-x-5 text-sm font-normal text-secondary">
+        {advanced && sharedTargets ? <QueryProperties targetKeys={first.targetKeys} labels={targetLabels} /> : null}
+        {sharedLocation ? <span>{locationLabel(first.location)}</span> : null}
+      </div>
+    </th></tr>
+    {group.rows.map(row => <tr className="measurement-engine-result" key={JSON.stringify([row.provider, row.model, row.location])}>
+      <td className="measurement-result-engine">
+        <span className="font-medium text-heading">{providerDisplayName(row.provider)}</span>
+        <span className="block break-words text-sm text-secondary">{row.model ?? 'Model not recorded'}</span>
+        {advanced && !sharedTargets ? <div className="mt-1 text-sm text-secondary"><QueryProperties targetKeys={row.targetKeys} labels={targetLabels} /></div> : null}
+        {!sharedLocation ? <span className="mt-1 block text-sm text-secondary">{locationLabel(row.location)}</span> : null}
+      </td>
+      <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} singleAnswer={row.answerCount === 1} /></td>
+      <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} singleAnswer={row.answerCount === 1} /></td>
+      <td className="measurement-result-action"><Button variant="ghost" className="min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={() => onViewAnswers(row)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
+    </tr>)}
+  </tbody>
+}
+
 function ReportTrend({ population }: { population: VisibilityReportPopulation }) {
   const descriptionId = useId()
   let segment = 0
@@ -130,25 +182,25 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
   return <>
     {hasRates ? <>
-    <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
-      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
-      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
-    </ul>
-    {notes.length > 0 && <p id={descriptionId} className="pb-3 text-sm text-secondary">{notes.join(' ')}</p>}
-    <div className="visibility-trend-chart" role="img" aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
-          <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
-          <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
-          <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleString()} />
-          {segments.map(index => <Fragment key={index}>
-            <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-            <Line type="linear" dataKey={`cited-${index}`} name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-          </Fragment>)}
-        </ComposedChart>
-      </ResponsiveContainer>
-    </div>
+      <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
+        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
+        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
+      </ul>
+      {notes.length > 0 && <p id={descriptionId} className="pb-3 text-sm text-secondary">{notes.join(' ')}</p>}
+      <div className="visibility-trend-chart" role="img" aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+            <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
+            <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
+            <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleString()} />
+            {segments.map(index => <Fragment key={index}>
+              <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+              <Line type="linear" dataKey={`cited-${index}`} name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+            </Fragment>)}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </> : <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>}
     <details className="py-3 text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">Trend data and comparability</summary>
       <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
@@ -295,7 +347,6 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         && !(queryKey && answerClasses.includes(population.queryClass))
         && report.populations.some(other => other.summary.queryCount > 0 || other.trend.some(point => point.queryCount > 0))) return null
       const queryGroups = groupVisibilityQueryRows(population.queries.items)
-      const queryColumnCount = selection.mode === 'advanced' ? 7 : 6
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-default py-4">
@@ -314,27 +365,9 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="pb-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">{onSearch ? <input type="search" aria-label={`Search ${REPORT_CLASS_LABEL[population.queryClass]}`} placeholder="Search queries" className={`${REPORT_CONTROL} max-w-sm`} value={search} onChange={event => onSearch(event.target.value)} /> : null}<InfoTooltip text={selection.mode === 'advanced' ? 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, property scope, and answer counts. Mentioned and Cited count answers matching any assigned property, not the percentage of properties found.' : 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, and answer counts. Mentioned counts answers naming your brand. Cited counts answers linking to your site.'} /></div>
         <div className="overflow-x-auto">
-          <table className="evidence-table measurement-responsive-table">
-            <thead><tr><th>Query</th>{selection.mode === 'advanced' ? <th>Properties</th> : null}<th>Answer engine</th><th>Search location</th><th>Mentioned</th><th>Cited</th><th className="measurement-table-actions"><span className="sr-only">Evidence</span></th></tr></thead>
-            {queryGroups.map(group => <tbody key={group.queryKey} data-query-key={group.queryKey}>
-              <tr className="bg-surface-subtle">
-                <th scope="rowgroup" colSpan={queryColumnCount} className="measurement-query-cell text-sm font-medium normal-case tracking-normal text-heading">{group.query}</th>
-              </tr>
-              {group.rows.map(row => <tr key={JSON.stringify([row.provider, row.model, row.location])}>
-                <td aria-label={`Query: ${group.query}`} className="measurement-query-cell text-secondary"><span aria-hidden="true">↳</span></td>
-                {selection.mode === 'advanced' ? <td className="measurement-target-cell">
-                  {row.targetKeys.length === 1 ? targetLabels.get(row.targetKeys[0]!) ?? row.targetKeys[0] : row.targetKeys.length > 1 ? <details>
-                    <summary className="min-h-11 cursor-pointer py-2 text-secondary">{row.targetKeys.length} properties</summary>
-                    <ul className="max-h-48 space-y-2 overflow-y-auto py-2 text-sm text-secondary">{row.targetKeys.map(key => <li key={key}>{targetLabels.get(key) ?? key}</li>)}</ul>
-                  </details> : 'No properties'}
-                </td> : null}
-                <td>{row.provider}{row.model ? <span className="block text-sm text-secondary">{row.model}</span> : null}</td>
-                <td>{row.location ?? 'No location'}</td>
-                <td><ReportRate value={row.mentionCoverage} /></td>
-                <td><ReportRate value={row.citationCoverage} /></td>
-                <td className="measurement-table-actions"><Button variant="ghost" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={() => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })}>View answers</Button></td>
-              </tr>)}
-            </tbody>)}
+          <table className="evidence-table measurement-responsive-table measurement-results-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} engine results`}>
+            <thead><tr><th scope="col">Answer engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th><th scope="col"><span className="sr-only">Evidence</span></th></tr></thead>
+            {queryGroups.map(group => <QueryResultGroup key={group.queryKey} group={group} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={row => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })} />)}
           </table>
         </div>
         {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
