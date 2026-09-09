@@ -26,6 +26,10 @@ export function DemoNotice() {
           <a href={`${base}/projects/harbor-resorts`}>Property portfolio</a>
         </nav>
       </div>
+      <div className="demo-notice-agent">
+        <strong>Built for your company’s agent</strong>
+        <p>Everything you see here, and much more, is available through MCP and the API in your own Canonry instance.</p>
+      </div>
       <details>
         <summary>Explore features</summary>
         <p>Open a report, change its filters, and follow the evidence. Connections, edits, and live runs are disabled.</p>

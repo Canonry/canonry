@@ -3122,6 +3122,8 @@
 .demo-notice { margin-bottom: 24px; border-bottom: 1px solid var(--color-border); padding-bottom: 16px; color: var(--color-text-secondary); font-size: 14px; }
 .demo-notice-intro { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 20px; }
 .demo-notice strong { color: var(--color-text-primary); font-weight: 600; }
+.demo-notice-agent { margin-top: 16px; }
+.demo-notice-agent strong { font-size: 16px; }
 .demo-notice nav { display: flex; flex-wrap: wrap; gap: 16px; }
 .demo-notice a { text-decoration: underline; text-underline-offset: 3px; }
 .demo-notice details { margin-top: 10px; }
