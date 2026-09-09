@@ -315,6 +315,8 @@ export function RootLayout() {
   // ── Data fetching via TanStack Query ──
   const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, {
     includeSettings: !embed,
+    // The sidebar needs project identities; each page owns its analytics.
+    includeOverviews: false,
     pauseProjectPolling: location.pathname === '/setup',
   })
   const enableLiveStatus = !contextDashboard
