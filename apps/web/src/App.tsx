@@ -27,6 +27,7 @@ import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
   shouldShowDashboardResourceLinks,
@@ -604,7 +605,7 @@ export function RootLayout() {
             <Radar className="sidebar-icon" />
             <span>Traffic sources</span>
           </Link>
-          <Link
+          {!isPublicDemo() && <Link
             to="/backlinks"
             className="sidebar-link"
             activeProps={{ className: 'sidebar-link sidebar-link-active' }}
@@ -612,7 +613,7 @@ export function RootLayout() {
           >
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
-          </Link>
+          </Link>}
           {isAdmin && (
             <Link
               to="/settings"
@@ -763,7 +764,7 @@ export function RootLayout() {
                 className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
                 title={serviceStatusTooltip(healthSnapshot.workerStatus)}
               >
-                Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
+                {isPublicDemo() ? 'Worker disabled' : `Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
               </span>
             </div>
             {!isFocusedSetup ? (
@@ -811,9 +812,9 @@ export function RootLayout() {
           <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Traffic sources
           </Link>
-          <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+          {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
-          </Link>
+          </Link>}
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
               Settings

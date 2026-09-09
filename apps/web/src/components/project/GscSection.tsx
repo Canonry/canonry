@@ -42,6 +42,7 @@ import {
   fetchGscSitemaps,
   submitGscSitemaps,
   requestIndexing,
+  isPublicDemo,
   heyClient,
   type ApiGscSitemap,
   type ApiGoogleConnection,
@@ -245,7 +246,8 @@ export function GscSection({
   refreshNonce: number
 }) {
   const queryClient = useQueryClient()
-  const { isAdmin } = useAccount()
+  const { isAdmin, canWrite } = useAccount()
+  const publicDemo = isPublicDemo()
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
   const [properties, setProperties] = useState<ApiGoogleProperty[]>([])
@@ -433,6 +435,10 @@ export function GscSection({
   const triggerInspectSitemapMutation = useTriggerInspectSitemap()
 
   async function loadProperties(currentConn: ApiGoogleConnection | undefined, force = false) {
+    if (publicDemo) {
+      setProperties([])
+      return
+    }
     if (!currentConn) {
       setProperties([])
       setSelectedProperty('')
@@ -805,7 +811,7 @@ export function GscSection({
     setError(null)
     try {
       const [settings, conns] = await Promise.all([
-        isAdmin ? fetchSettings().catch(() => null) : Promise.resolve(null),
+        publicDemo || !isAdmin ? Promise.resolve(null) : fetchSettings().catch(() => null),
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
@@ -816,12 +822,12 @@ export function GscSection({
 
       const currentConn = conns.find((c) => c.connectionType === 'gsc')
       await Promise.all([
-        loadProperties(currentConn),
+        publicDemo ? Promise.resolve() : loadProperties(currentConn),
         loadPerformanceRows(),
         loadPerformanceDaily(),
         loadInspectionHistory(),
         loadCoverage(),
-        currentConn?.propertyId ? handleListSitemaps() : Promise.resolve(),
+        !publicDemo && currentConn?.propertyId ? handleListSitemaps() : Promise.resolve(),
       ])
     } finally {
       setLoading(false)
@@ -1110,13 +1116,14 @@ export function GscSection({
                 Coverage measured{' '}
                 {coverage?.lastInspectedAt ? formatTimestamp(coverage.lastInspectedAt) : 'never'}
               </span>
-              <button
+              {!publicDemo && <button
                 type="button"
                 className="ml-auto text-muted transition-colors hover:text-negative-400"
+                disabled={!canWrite}
                 onClick={asyncHandler(handleDisconnect)}
               >
                 Disconnect
-              </button>
+              </button>}
             </div>
           ) : !isAdmin ? (
             <Card className="surface-card"><p className="text-sm text-secondary">{GSC_MANAGED_EMPTY_COPY}</p></Card>
@@ -1828,6 +1835,7 @@ export function GscSection({
                 )}
               </Card>
 
+              {!publicDemo && <>
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
@@ -1841,7 +1849,7 @@ export function GscSection({
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={listingSitemaps || !gscConn?.propertyId}
+                    disabled={!canWrite || listingSitemaps || !gscConn?.propertyId}
                     onClick={() => void handleListSitemaps()}
                   >
                     {listingSitemaps ? 'Reloading\u2026' : 'Reload from Google'}
@@ -1999,6 +2007,7 @@ export function GscSection({
                   </div>
                 )}
               </Card>
+              </>}
 
               {/* Inspection log */}
               <Card className="surface-card">
@@ -2094,7 +2103,7 @@ export function GscSection({
           )}
 
           {/* ── SETUP SECTION (at bottom, collapsible for connected projects) ── */}
-          {gscConn && (
+          {gscConn && !publicDemo && (
             <>
               <div className="border-t border-default pt-3">
                 <button

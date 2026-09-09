@@ -492,6 +492,16 @@ test('managed scans hide the plain recovery button on a cold failed-run handoff 
   expect(mutationMock.mutate).not.toHaveBeenCalled()
 })
 
+test('public demo hides Page Health scan controls for a view-only session', () => {
+  window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
+  const queryClient = makeClient()
+  queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1')))
+  renderSection(queryClient, {}, 'viewer')
+
+  expect(screen.queryByRole('button', { name: /Run scan/ })).toBeNull()
+  expect(screen.queryByText('Scan settings')).toBeNull()
+})
+
 test('keeps three fixed live-finding slots while examples grow from zero to one to three', async () => {
   const { rerender } = render(
     <LivePageHealthFindings runId="run_live" preview={livePreview(0)} />,
