@@ -23,6 +23,7 @@ const advancedMeasurementV2Operations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-group',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-market',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-group',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-group-membership',
@@ -76,7 +77,7 @@ function isAdvancedMeasurementV2Operation(operation: string): boolean {
 
 describe('Advanced Measurement v2 MCP OpenAPI classification', () => {
   it('lists every exposed operation', () => {
-    expect(advancedMeasurementV2Operations).toHaveLength(48)
+    expect(advancedMeasurementV2Operations).toHaveLength(49)
 
     const classifiedOperations = Object.keys(MCP_OPENAPI_OPERATION_CLASSIFICATIONS)
       .filter(isAdvancedMeasurementV2Operation)

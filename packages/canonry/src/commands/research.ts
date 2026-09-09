@@ -28,6 +28,8 @@ export interface ResearchRunOptions {
   queries: string[]
   provider?: string
   model?: string
+  scope?: ResearchRunCreate['scope']
+  template?: ResearchRunCreate['template']
   location?: LocationContext | null
   idempotencyKey?: string
   wait?: boolean
@@ -41,6 +43,8 @@ export async function researchRun(project: string, opts: ResearchRunOptions): Pr
     queries: opts.queries,
     provider: opts.provider,
     model: opts.model,
+    scope: opts.scope,
+    template: opts.template,
     location: opts.location,
     idempotencyKey: opts.idempotencyKey,
   }
@@ -79,11 +83,11 @@ export async function researchList(project: string, opts: { limit?: number; form
     return
   }
   console.log(`Research history for "${project}" (${runs.length}):\n`)
-  console.log('  ID                                    STATUS      QUERIES  PROVIDER / MODEL                  CREATED')
-  console.log('  ────────────────────────────────────  ──────────  ───────  ────────────────────────────────  ───────────────────────')
+  console.log('  ID                                    STATUS      QUERIES  PROVIDER / MODEL                  SCOPE                     CREATED')
+  console.log('  ────────────────────────────────────  ──────────  ───────  ────────────────────────────────  ────────────────────────  ───────────────────────')
   for (const run of runs) {
     const model = run.resolvedModel ? `${run.provider} / ${run.resolvedModel}` : run.provider
-    console.log(`  ${run.id.padEnd(36)}  ${run.status.padEnd(10)}  ${String(run.totalQueries).padStart(7)}  ${model.slice(0, 32).padEnd(32)}  ${run.createdAt}`)
+    console.log(`  ${run.id.padEnd(36)}  ${run.status.padEnd(10)}  ${String(run.totalQueries).padStart(7)}  ${model.slice(0, 32).padEnd(32)}  ${formatScope(run.scope).slice(0, 24).padEnd(24)}  ${run.createdAt}`)
   }
 }
 
@@ -116,6 +120,7 @@ function printStarted(project: string, run: ResearchRunSummaryDto): void {
   console.log(`Research run saved: ${run.id}`)
   console.log(`  Status:   ${run.status}`)
   console.log(`  Queries:  ${run.totalQueries}`)
+  console.log(`  Scope:    ${formatScope(run.scope)}`)
   console.log(`  Provider: ${run.provider}${run.resolvedModel ? ` / ${run.resolvedModel}` : ''}`)
   console.log(`  Inspect:  canonry research show ${project} ${run.id}`)
   console.log('  Nothing was added to tracked queries.')
@@ -132,6 +137,7 @@ function printDetail(project: string, detail: ResearchRunDetailDto, format?: str
   }
   console.log(`Research run: ${detail.id}`)
   console.log(`  Status:   ${detail.status}`)
+  console.log(`  Scope:    ${formatScope(detail.scope)}`)
   console.log(`  Provider: ${detail.provider}${detail.resolvedModel ? ` / ${detail.resolvedModel}` : ''}`)
   if (detail.location) console.log(`  Location: ${detail.location.label}`)
   console.log(`  Results:  ${detail.completedQueries} completed, ${detail.failedQueries} failed, ${detail.totalQueries} total`)
@@ -158,4 +164,8 @@ function printDetail(project: string, detail: ResearchRunDetailDto, format?: str
       }
     }
   }
+}
+
+function formatScope(scope: ResearchRunSummaryDto['scope']): string {
+  return scope ? `${scope.label} (${scope.kind})` : 'Project-wide'
 }

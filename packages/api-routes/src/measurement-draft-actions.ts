@@ -17,6 +17,8 @@ import {
   measurementDraftRenameTargetRequestSchema,
   measurementDraftUpsertCompetitorRequestSchema,
   measurementDraftUpsertGroupRequestSchema,
+  measurementDraftUpsertMarketRequestSchema,
+  measurementV2UsageEdgeKey,
   measurementDraftUpsertTargetRequestSchema,
   notFound,
   validationError,
@@ -46,6 +48,7 @@ export const MEASUREMENT_DRAFT_ACTIONS = [
   'clear-assignments',
   'classify-assignments',
   'upsert-group',
+  'upsert-market',
   'remove-group',
   'upsert-competitor',
   'remove-competitor',
@@ -642,6 +645,26 @@ function upsertGroup(authoring: MeasurementDraftAuthoring, body: unknown): Draft
   }
 }
 
+function upsertMarket(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
+  const { market } = parseBody(measurementDraftUpsertMarketRequestSchema, body, 'upsert-market')
+  const included = new Set(authoring.targets.filter(target => target.status === 'included').map(target => target.stableKey))
+  const frozen = new Set(authoring.assignments.flatMap(assignment => (assignment.executionContexts ?? [])
+    .filter(context => context.executionNodeKey !== undefined)
+    .map(context => measurementV2UsageEdgeKey({ targetKey: assignment.targetKey, queryId: assignment.queryId, executionNodeKey: context.executionNodeKey! }))))
+  const seen = new Set<string>()
+  for (const edge of market.usageEdges) {
+    const key = measurementV2UsageEdgeKey(edge)
+    if (!included.has(edge.targetKey) || !frozen.has(key)) throw validationError('Market members must be existing frozen assignments on included Properties.')
+    if (seen.has(key)) throw validationError('Market membership contains a duplicate assignment.')
+    seen.add(key)
+  }
+  const reportingScopes = [...(authoring.reportingScopes ?? [])]
+  const index = reportingScopes.findIndex(scope => scope.stableKey === market.stableKey)
+  if (index === -1) reportingScopes.push(market)
+  else reportingScopes[index] = market
+  return { authoring: { ...authoring, reportingScopes }, warnings: [] }
+}
+
 function removeGroup(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
   const { groupKey } = parseBody(measurementDraftRemoveGroupRequestSchema, body, 'remove-group')
   const children = authoring.groups.filter(group => group.parentGroupKey === groupKey)
@@ -704,6 +727,7 @@ export function applyDraftAction(
       case 'clear-assignments': return clearAssignments(authoring, body)
       case 'classify-assignments': return classifyAssignments(authoring, body)
       case 'upsert-group': return upsertGroup(authoring, body)
+      case 'upsert-market': return upsertMarket(authoring, body)
       case 'remove-group': return removeGroup(authoring, body)
       case 'upsert-competitor': return upsertCompetitor(authoring, body)
       case 'remove-competitor': return removeCompetitor(authoring, body)

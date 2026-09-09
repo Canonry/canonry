@@ -92,7 +92,7 @@ It does not open the global `runId` drawer.
 ## Research and operator controls
 
 **Research → Find queries** uses the existing ICP discovery process.
-**Research → Test queries** uses saved, bounded query batches.
+**Research → Test queries** uses saved, bounded query batches. `canonry research run` can save one configured `--market` or `--property` destination without changing its final query text. Paired `--template-id` and `--template-version` retain provenance for a template the editor already expanded. A destination may still use `--location` or `--no-location` for geographic provider context.
 Neither process adds queries to official tracking automatically.
 **Review for tracking** sends selected results through the same assignment preview.
 

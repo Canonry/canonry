@@ -160,7 +160,7 @@ visibility.
 Preview a completed session with `cnry discover promote preview <project> <session-id>`. Promote only after approval.
 
 **Research without changing tracking.** Run `cnry research run <project> "query one" "query two" --wait`.
-Research saves the answers without adding queries to the tracked questions.
+For a configured portfolio destination, select one `--market <key>` or `--property <key>`; Canonry saves the destination with the answers without changing the query. Add paired `--template-id <id> --template-version <version>` only to preserve an already-expanded template's provenance. Research never adds queries to the tracked questions.
 
 </details>
 

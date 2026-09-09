@@ -5,7 +5,7 @@ register: product
 ## Query control and visibility
 
 AI Visibility shows measured trends, query performance, answers, sources, and competitors.
-Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio tracked query type and scope filters follow the URL; assignment details expose property and group memberships. Research reports brand-name matches and project-domain citations separately from verified property measurement.
+Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio tracked query type and scope filters follow the URL; assignment details expose property and group memberships. Research reports brand-name matches and project-domain citations separately from verified property measurement. Research is a small query builder, including for Analysts: groups organize choices, one configured Market or Property supplies template names, and the complete expanded question remains editable. Run sends the final question exactly as shown, with no appended scope text or group expansion. Custom research stays available without a portfolio plan. Saved batches retain destination, template provenance, and execution settings; tracking review preselects that destination and exposes its property assignments. Classify the final question against the project brand and configured property names, independent of template or destination.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
 The Simple dashboard keeps its trend controls, coverage summary, competitive gaps,

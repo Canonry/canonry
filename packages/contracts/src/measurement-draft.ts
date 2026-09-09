@@ -433,6 +433,11 @@ export const measurementDraftUpsertGroupRequestSchema = z.object({
   }).strict(),
 }).strict()
 
+/** Configure a market by explicit name and existing frozen assignment membership. */
+export const measurementDraftUpsertMarketRequestSchema = z.object({
+  market: measurementDraftReportingScopeSchema,
+}).strict()
+
 export const measurementDraftRemoveGroupRequestSchema = z.object({
   groupKey: measurementV2StableKeySchema,
 }).strict()

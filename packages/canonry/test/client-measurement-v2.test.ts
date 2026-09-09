@@ -478,6 +478,17 @@ describe('ApiClient Advanced Measurement v2 draft actions', () => {
       },
     },
     {
+      name: 'upsert market',
+      invoke: (api: ApiClient) => api.upsertMeasurementDraftMarket(PROJECT, {
+        market: { stableKey: 'metro-north', label: 'Metro North', usageEdges: [{ executionNodeKey: 'node-northstar', targetKey: target.stableKey, queryId: 'northstar-query' }] },
+      }, IDEMPOTENCY_KEY, ETAG),
+      expected: {
+        method: 'POST',
+        pathname: `/api/v1/projects/${PROJECT}/measurement-plan/draft/actions/upsert-market`,
+        headers: ordinaryHeaders,
+      },
+    },
+    {
       name: 'remove group',
       invoke: (api: ApiClient) => api.removeMeasurementDraftGroup(PROJECT, {
         groupKey: 'northstar-group',

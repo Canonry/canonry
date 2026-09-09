@@ -8,10 +8,12 @@ const labelFor = (scope: VisibilityReportScopeOption) => scope.kind === 'project
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect, label = 'Measurement scope', allowGroupSelect = true }: {
   options: VisibilityReportScopeOption[]
   selected: VisibilityReportScopeOption
   onSelect: (scope: VisibilityReportScopeOption) => void
+  label?: string
+  allowGroupSelect?: boolean
 }) {
   const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
   const [search, setSearch] = useState('')
@@ -46,7 +48,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
     : query ? groups : roots).filter(matches)
   const visibleProperties = (current ? properties.filter(property => property.parentGroupIds?.includes(current.id))
     : query || allProperties || groups.length === 0 ? properties : []).filter(matches)
-  const markets = current || allProperties ? [] : options.filter(scope => scope.kind === 'market' && matches(scope))
+  const markets = allProperties || (allowGroupSelect && current) ? [] : options.filter(scope => scope.kind === 'market' && (allowGroupSelect || current || query || groups.length === 0) && (!current || scope.parentGroupIds?.includes(current.id)) && matches(scope))
   const projects = current || allProperties ? [] : options.filter(scope => scope.kind === 'project' && matches(scope))
 
   useEffect(() => {
@@ -88,11 +90,17 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
     setPath(groupPath(scope)); setAllProperties(false); setSearch(''); searchInput.current?.focus()
   }
   const row = (scope: VisibilityReportScopeOption, displayLabel = labelFor(scope)) => <div key={`${scope.kind}:${scope.id}`} className="flex items-stretch">
-    <button type="button" className={ROW} aria-label={`Select ${labelFor(scope)}`} aria-current={selected.kind === scope.kind && selected.id === scope.id ? 'true' : undefined} onClick={() => choose(scope)}>
+    <button
+      type="button"
+      className={ROW}
+      aria-label={scope.kind === 'group' && !allowGroupSelect ? `Browse ${labelFor(scope)}` : `Select ${labelFor(scope)}`}
+      aria-current={selected.kind === scope.kind && selected.id === scope.id ? 'true' : undefined}
+      onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
+    >
       <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
-      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? 'Query context' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
+      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
     </button>
-    {scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={`Browse ${scope.label}`} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
+    {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={`Browse ${scope.label}`} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
   </div>
   const section = (label: string, scopes: VisibilityReportScopeOption[]) => scopes.length > 0 ? <section aria-label={label} className="mt-2">
     <h3 className="px-2 py-2 text-[13px] font-medium text-secondary">{label}</h3>{scopes.map(scope => row(scope))}
@@ -103,7 +111,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   </details> : null
 
   return <div className="min-w-0">
-    <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">Measurement scope</span>
+    <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">{label}</span>
     <details ref={picker} className="relative" onToggle={event => {
       if (event.target === event.currentTarget && event.currentTarget.open) searchInput.current?.focus()
     }} onKeyDown={event => {
@@ -119,7 +127,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
         </div> : null}
         <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? 'Search properties' : 'Search groups or properties'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
-          {current && !query ? row(current, 'All properties in this group') : null}
+          {allowGroupSelect && current && !query ? row(current, 'All properties in this group') : null}
           {projects.map(scope => row(scope))}
           {current && !query ? disclosure('Subgroups', visibleGroups, true) : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
           {query ? section('Properties', visibleProperties) : disclosure(current && visibleGroups.length > 0 ? 'All properties' : 'Properties', visibleProperties, !current || visibleGroups.length === 0)}

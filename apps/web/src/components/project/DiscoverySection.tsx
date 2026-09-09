@@ -13,6 +13,7 @@ import type {
   QueryTrackingWorkspaceResponse,
   MeasurementQueryTemplate,
   VisibilityReportScopeOption,
+  ResearchRunScope,
 } from '@ainyc/canonry-contracts'
 
 import {
@@ -38,7 +39,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { ResearchQueriesSection } from './ResearchQueriesSection.js'
+import { ResearchQueriesSection, type ResearchScopeOption, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -104,8 +105,14 @@ export function QueriesSection({
     if (controlledResearchMode === undefined) setUncontrolledResearchMode(mode)
     onResearchModeChange?.(mode)
   }
-  const reviewSavedSource = (source: SavedTrackingSource) => {
-    setPendingTrackingSource({ ...source, trackingSelection: { ...selection } })
+  const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
+    const trackingSelection = scope === undefined ? { ...selection } : {
+      ...selection,
+      measurementScope: scope?.kind ?? 'project' as const,
+      measurementScopeKey: scope?.key,
+    }
+    setPendingTrackingSource({ ...source, trackingSelection })
+    if (scope !== undefined) onSelectionChange?.({ measurementScope: trackingSelection.measurementScope, measurementScopeKey: trackingSelection.measurementScopeKey })
     selectWorkspace('tracked')
   }
 
@@ -136,6 +143,7 @@ export function QueriesSection({
             mode={researchMode}
             onModeChange={selectResearchMode}
             onReviewSavedSource={reviewSavedSource}
+            onSelectionChange={onSelectionChange}
             viewerResearchConfig={viewerResearchConfig}
           />
         )}
@@ -162,6 +170,7 @@ function QueryResearchWorkspace({
   projectName,
   selection,
   mode,
+  onSelectionChange,
   onModeChange,
   onReviewSavedSource,
   viewerResearchConfig,
@@ -170,28 +179,74 @@ function QueryResearchWorkspace({
   selection: NonNullable<QueriesSectionProps['selection']>
   mode: ResearchWorkspaceMode
   onModeChange: (mode: ResearchWorkspaceMode) => void
-  onReviewSavedSource: (source: SavedTrackingSource) => void
+  onSelectionChange?: QueriesSectionProps['onSelectionChange']
+  onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
+  const researchWorkspaceEnabled = viewerResearchConfig !== null || mode === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: viewerResearchConfig === null && selection.measurementScope !== 'project',
+    enabled: researchWorkspaceEnabled,
+    staleTime: 60_000,
   })
-  const scopeLabel = workspaceQuery.data
-    ? selectionScopeLabel(selection, workspaceQuery.data)
-    : selection.measurementScope === 'project' ? 'Whole site' : `${selection.measurementScopeKey ?? 'Selected scope'} · ${selection.measurementScope === 'group' ? 'Group' : selection.measurementScope === 'market' ? 'Market' : 'Property'}`
-  const destination = workspaceQuery.data && selection.measurementScope === 'property' ? `${scopeLabel} · Property` : scopeLabel
+  const researchTemplatesQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: researchWorkspaceEnabled,
+    staleTime: 60_000,
+  })
+  const researchScopeOptions = useMemo<VisibilityReportScopeOption[]>(() => {
+    const workspace = workspaceQuery.data
+    if (!workspace) return [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 0 }]
+    const groupIdsByTarget = new Map(workspace.targets.map(target => [target.stableKey, [] as string[]]))
+    for (const group of workspace.groups) for (const targetKey of group.targetKeys) groupIdsByTarget.get(targetKey)?.push(group.stableKey)
+    const groupIdsByMarket = new Map(workspace.markets.map(market => [market.stableKey, new Set<string>()]))
+    for (const market of workspace.markets) {
+      for (const edge of market.usageEdges) for (const groupId of groupIdsByTarget.get(edge.targetKey) ?? []) groupIdsByMarket.get(market.stableKey)?.add(groupId)
+    }
+    return [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: workspace.targets.length },
+      ...workspace.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length, ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}) })),
+      ...workspace.markets.map(market => {
+        const parentGroupIds = [...(groupIdsByMarket.get(market.stableKey) ?? [])]
+        return { id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0, ...(parentGroupIds.length ? { parentGroupIds } : {}) }
+      }),
+      ...workspace.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1, ...(groupIdsByTarget.get(target.stableKey)?.length ? { parentGroupIds: groupIdsByTarget.get(target.stableKey) } : {}) })),
+    ]
+  }, [workspaceQuery.data])
+  const researchTemplates = useMemo<ResearchTemplateOption[]>(() => (researchTemplatesQuery.data?.templates ?? []).map(template => ({
+    id: template.id,
+    version: template.updatedAt,
+    label: template.name,
+    pattern: template.pattern,
+    variables: template.variables,
+  })), [researchTemplatesQuery.data])
+  const selectedScopeOption = researchScopeOptions.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey))
+  const selectedResearchScope: ResearchScopeOption | null = selectedScopeOption && (selectedScopeOption.kind === 'market' || selectedScopeOption.kind === 'property') && workspaceQuery.data?.active
+    ? { kind: selectedScopeOption.kind, key: selectedScopeOption.id, label: selectedScopeOption.label, planRevision: workspaceQuery.data.active.revision, expectedPlanRevision: workspaceQuery.data.active.revision }
+    : null
+  const wantsExplicitScope = selection.measurementScope === 'market' || selection.measurementScope === 'property'
+  const scopePending = wantsExplicitScope && (workspaceQuery.isPending || workspaceQuery.isFetching)
+  const scopeError = wantsExplicitScope && (workspaceQuery.isError || (!scopePending && selectedResearchScope === null))
+  const researchProps = {
+    projectName,
+    scopeOptions: researchScopeOptions,
+    selectedScope: selectedResearchScope,
+    scopePending,
+    scopeError,
+    onRetryScope: () => { void workspaceQuery.refetch() },
+    onScopeChange: (scope: VisibilityReportScopeOption) => onSelectionChange?.({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id }),
+    templates: researchTemplates,
+  }
   if (viewerResearchConfig) {
     return (
       <ResearchQueriesSection
-        projectName={projectName}
+        {...researchProps}
         viewerResearchConfig={viewerResearchConfig}
       />
     )
   }
   return (
     <div>
-      <p className="mb-3 text-sm text-secondary">Tracking destination: {destination}</p>
       <div className="flex border-b border-default" role="tablist" aria-label="Research workspace">
         <WorkspaceTab active={mode === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
         <WorkspaceTab active={mode === 'test'} label="Test queries" onClick={() => onModeChange('test')} />
@@ -204,8 +259,8 @@ function QueryResearchWorkspace({
           />
         ) : (
           <ResearchQueriesSection
-            projectName={projectName}
-            onReviewForTracking={({ researchRunQueryId }) => onReviewSavedSource({ source: 'research', researchRunQueryId })}
+            {...researchProps}
+            onReviewForTracking={({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null)}
           />
         )}
       </div>

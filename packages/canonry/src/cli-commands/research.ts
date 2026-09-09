@@ -12,23 +12,14 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@ainyc/canonry-contracts'
 
-const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
+const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--property <key>] [--template-id <id> --template-version <version>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
   const flagged = getStringArray(input.values, 'query') ?? []
-  const seen = new Set<string>()
-  const queries: string[] = []
-  for (const raw of [...positional, ...flagged]) {
-    const query = raw.trim()
-    const key = query.toLocaleLowerCase()
-    if (query && !seen.has(key)) {
-      seen.add(key)
-      queries.push(query)
-    }
-  }
+  const queries = deduplicateResearchQueries([...positional, ...flagged])
   if (queries.length === 0) {
     throw usageError(`Error: at least one research query is required\nUsage: ${usage}`, {
       message: 'at least one research query is required',
@@ -81,6 +72,31 @@ async function resolveLocation(
   })
 }
 
+function resolveScope(input: CliCommandInput, usage: string): ResearchRunCreate['scope'] | undefined {
+  const candidates = (['market', 'property'] as const)
+    .map(kind => ({ kind, key: getString(input.values, kind) }))
+    .filter((candidate): candidate is { kind: 'market' | 'property'; key: string } => candidate.key !== undefined)
+  if (candidates.length > 1) {
+    throw usageError(`Error: --market and --property are mutually exclusive\nUsage: ${usage}`, {
+      message: '--market and --property are mutually exclusive',
+      details: { command: 'research.run', usage },
+    })
+  }
+  return candidates[0]
+}
+
+function resolveTemplate(input: CliCommandInput, usage: string): NonNullable<ResearchRunCreate['template']> | undefined {
+  const templateId = getString(input.values, 'template-id')?.trim() || undefined
+  const templateVersion = getString(input.values, 'template-version')?.trim() || undefined
+  if (Boolean(templateId) !== Boolean(templateVersion)) {
+    throw usageError(`Error: --template-id and --template-version must be used together\nUsage: ${usage}`, {
+      message: '--template-id and --template-version must be used together',
+      details: { command: 'research.run', usage },
+    })
+  }
+  return templateId && templateVersion ? { templateId, templateVersion } : undefined
+}
+
 export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['research', 'run'],
@@ -89,6 +105,10 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
       query: multiStringOption(),
       provider: stringOption(),
       model: stringOption(),
+      market: stringOption(),
+      property: stringOption(),
+      'template-id': stringOption(),
+      'template-version': stringOption(),
       location: stringOption(),
       'no-location': { type: 'boolean', default: false },
       'idempotency-key': stringOption(),
@@ -109,6 +129,8 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
         provider,
         model,
         location: await resolveLocation(project, getString(input.values, 'location'), getBoolean(input.values, 'no-location'), RUN_USAGE),
+        scope: resolveScope(input, RUN_USAGE),
+        template: resolveTemplate(input, RUN_USAGE),
         idempotencyKey: getString(input.values, 'idempotency-key')?.trim() || undefined,
         wait: getBoolean(input.values, 'wait'),
         format: input.format,

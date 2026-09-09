@@ -6,8 +6,15 @@ import {
   ResearchQueryStatuses,
   ResearchRunStatuses,
   type ResearchRunDetailDto,
+  expandResearchTemplate,
+  researchTemplateBindings,
+  deduplicateResearchQueries,
   type ResearchRunQueryDto,
   type ResearchRunStatus,
+  type ResearchRunScope,
+  type ResearchTemplateSelection,
+  type VisibilityReportScopeOption,
+  type ResearchScopeSelection,
 } from '@ainyc/canonry-contracts'
 
 import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
@@ -25,6 +32,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
+import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { useAccount } from '../../contexts/account-context.js'
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
@@ -32,14 +40,61 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.running,
 ])
 
+/** Shared so assertions describe the shipped Research interface. */
+export const RESEARCH_COPY = {
+  queryPlaceholder: 'One query per line',
+  queryCountLimit: ' / 50 queries',
+  inheritedModel: 'Use AI Visibility model',
+  runAction: 'Run queries',
+  savedNote: 'Saved separately from tracked queries and AI Visibility metrics.',
+  historyTitle: 'Research history',
+  emptyHistory: 'No saved research.',
+  resultsEmpty: 'Choose a saved batch.',
+  methodologySummary: 'How matching works',
+  methodology: 'Brand-name matches use configured project names or domains in answer text. Project-domain citations use source links. Neither verifies property identity.',
+  queryContextLabel: 'Market or property',
+  scopeLoading: 'Loading market or property…',
+  scopeError: 'Could not verify market or property.',
+  retryScope: 'Retry market or property',
+  templateLabel: 'Template',
+  customQuery: 'Custom query',
+  staleTemplate: 'The portfolio changed. Refresh the template or choose Custom query to keep this text.',
+  refreshTemplate: 'Refresh template',
+  templateProvenance: 'Template details',
+  brandedQuery: 'Branded',
+  discoveryQuery: 'Discovery',
+  unclassifiedQuery: 'Unclassified',
+} as const
+
+export type ResearchScopeOption = ResearchRunScope & { expectedPlanRevision: number }
+
+export type ResearchTemplateOption = { id: string; version: string; label: string; pattern: string; variables: readonly string[] }
+
+export type ResearchTrackingSource = { researchRunQueryId: string; scope?: ResearchRunScope | null }
 export function ResearchQueriesSection({
   projectName,
   onReviewForTracking,
+  scopeOptions,
+  selectedScope,
+  onScopeChange,
+  scopePending = false,
+  scopeError = false,
+  onRetryScope,
+  allowGroupSelect = false,
+  templates = [],
   viewerResearchConfig = null,
 }: {
   projectName: string
-  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+  onReviewForTracking?: (source: ResearchTrackingSource) => void
   viewerResearchConfig?: ViewerResearchConfig | null
+  scopeOptions?: VisibilityReportScopeOption[]
+  selectedScope?: ResearchScopeOption | null
+  onScopeChange?: (scope: VisibilityReportScopeOption) => void
+  scopePending?: boolean
+  scopeError?: boolean
+  onRetryScope?: () => void
+  allowGroupSelect?: boolean
+  templates?: readonly ResearchTemplateOption[]
 }) {
   const queryClient = useQueryClient()
   const { account, canWrite } = useAccount()
@@ -48,6 +103,8 @@ export function ResearchQueriesSection({
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [locationChoice, setLocationChoice] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState<ResearchTemplateOption | null>(null)
+  const [templatePlanRevision, setTemplatePlanRevision] = useState<number | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const retryRequest = useRef<{ fingerprint: string; key: string } | null>(null)
   const submitInFlight = useRef(false)
@@ -87,6 +144,7 @@ export function ResearchQueriesSection({
   const detail = runsQuery.isError || detailQuery.isError ? null : detailQuery.data ?? null
 
   const submittedQueries = useMemo(() => normalizeResearchQueries(queryText), [queryText])
+  const selectedScopeOption = scopeOptions?.find(option => option.kind === selectedScope?.kind && option.id === selectedScope.key) ?? scopeOptions?.find(option => option.kind === 'project')
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
     if (isViewerResearch) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
@@ -111,6 +169,33 @@ export function ResearchQueriesSection({
     }
   }, [locationChoice, projectQuery.data, projectQuery.isError])
 
+  const scopeIdentity = selectedScope ? `${selectedScope.kind}:${selectedScope.key}` : ''
+  const templateBindings = useMemo(() => researchTemplateBindings(selectedScope), [selectedScope])
+  const templateOptions = useMemo(() => selectedScope
+    ? templates.filter(template => template.variables.every(variable => variable in templateBindings))
+    : [], [selectedScope, templateBindings, templates])
+  const templateValue = selectedTemplate ? `${selectedTemplate.id}:${selectedTemplate.version}` : 'custom'
+  const templateProvenance = selectedScope && selectedTemplate
+    ? { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } satisfies ResearchTemplateSelection
+    : undefined
+  const templateScopeStale = selectedTemplate !== null && templatePlanRevision !== selectedScope?.expectedPlanRevision
+  const applyTemplate = (nextTemplate: ResearchTemplateOption | null) => {
+    setSelectedTemplate(nextTemplate)
+    setTemplatePlanRevision(nextTemplate ? selectedScope?.expectedPlanRevision ?? null : null)
+    if (nextTemplate && selectedScope) setQueryText(expandResearchTemplate(nextTemplate, selectedScope).output)
+  }
+
+  useEffect(() => {
+    if (!selectedScope || (selectedTemplate && !selectedTemplate.variables.every(variable => variable in templateBindings))) {
+      setSelectedTemplate(null)
+      setTemplatePlanRevision(null)
+      return
+    }
+    if (!selectedTemplate) return
+    setTemplatePlanRevision(selectedScope.expectedPlanRevision)
+    setQueryText(expandResearchTemplate(selectedTemplate, selectedScope).output)
+  }, [scopeIdentity])
+
   const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
   const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
   const visibilityModel = isViewerResearch
@@ -124,14 +209,21 @@ export function ResearchQueriesSection({
             queries: submittedQueries,
             provider: selectedProvider.name,
             ...(configurableModel ? { model: resolvedModel } : {}),
+            ...(selectedScope ? { scope: { kind: selectedScope.kind, key: selectedScope.key, expectedPlanRevision: selectedScope.expectedPlanRevision } satisfies ResearchScopeSelection } : {}),
+            ...(templateProvenance ? { template: templateProvenance } : {}),
             location: selectedLocation,
           }
         : null
   const modelOptions = selectedProvider
-    ? [...new Map([{ id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel }, ...(model.trim() ? [{ id: model.trim(), displayName: model.trim() }] : []), ...selectedProvider.catalog.knownModels].map(item => [item.id, item])).values()]
+    ? [...new Map([
+        { id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel },
+        ...(model.trim() ? [{ id: model.trim(), displayName: model.trim() }] : []),
+        ...selectedProvider.catalog.knownModels,
+      ].map(item => [item.id, item])).values()]
     : []
   const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
   const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
+    && !scopePending && !scopeError && !templateScopeStale
     && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
     && (isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching)
     && submittedQueries.length > 0 && submittedQueries.length <= 50
@@ -146,6 +238,7 @@ export function ResearchQueriesSection({
       retryRequest.current = null
       setSelectedRunId(run.id)
       setQueryText('')
+      setSelectedTemplate(null)
       setModel('')
       await refreshResearch(queryClient)
       addToast({
@@ -192,23 +285,51 @@ export function ResearchQueriesSection({
             </div>
           </div>
           <div className="mt-4 space-y-4">
+            {scopeOptions && selectedScopeOption && onScopeChange && <VisibilityScopePicker
+              label={RESEARCH_COPY.queryContextLabel}
+              options={scopeOptions}
+              selected={selectedScopeOption}
+              onSelect={onScopeChange}
+              allowGroupSelect={allowGroupSelect}
+            />}
+            {scopePending && <p role="status" className="text-sm text-secondary">{RESEARCH_COPY.scopeLoading}</p>}
+            {scopeError && <div role="alert" className="text-sm text-negative"><p>{RESEARCH_COPY.scopeError}</p>{onRetryScope && <Button variant="outline" onClick={onRetryScope}>{RESEARCH_COPY.retryScope}</Button>}</div>}
+
+            <label className="block" htmlFor="research-template">
+              <span className="text-xs font-medium text-secondary">{RESEARCH_COPY.templateLabel}</span>
+              <select
+                id="research-template"
+                className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                value={templateValue}
+                onChange={event => applyTemplate(event.target.value === 'custom' ? null : templateOptions.find(template => `${template.id}:${template.version}` === event.target.value) ?? null)}
+              >
+                <option value="custom">{RESEARCH_COPY.customQuery}</option>
+                {selectedTemplate && !templateOptions.some(template => `${template.id}:${template.version}` === templateValue) && <option value={templateValue}>{selectedTemplate.label}</option>}
+                {templateOptions.map(template => <option key={`${template.id}:${template.version}`} value={`${template.id}:${template.version}`}>{template.label}</option>)}
+              </select>
+            </label>
+
+            {templateScopeStale && <div role="alert" className="text-sm text-caution">
+              <p>{RESEARCH_COPY.staleTemplate}</p>
+              <Button variant="outline" onClick={() => applyTemplate(selectedTemplate)}>{RESEARCH_COPY.refreshTemplate}</Button>
+            </div>}
+
             <label className="block" htmlFor="research-queries">
               <span className="text-xs font-medium text-secondary">Queries</span>
               <textarea
                 id="research-queries"
                 className="mt-1 min-h-36 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                placeholder={'one query per line\ne.g. What is the best way to choose an AEO platform?'}
+                placeholder={RESEARCH_COPY.queryPlaceholder}
                 value={queryText}
                 aria-label="Queries"
                 onChange={(event) => setQueryText(event.target.value)}
                 aria-describedby="research-query-count"
               />
               <span id="research-query-count" className={`mt-1 block text-sm ${submittedQueries.length > 50 ? 'text-negative' : 'text-secondary'}`}>
-                {submittedQueries.length} {submittedQueries.length === 1 ? 'query' : 'queries'}, duplicates and blank lines are removed. Maximum 50.
+                {submittedQueries.length}{RESEARCH_COPY.queryCountLimit}
               </span>
             </label>
-
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={`grid gap-3 ${locations.length > 0 ? 'sm:grid-cols-2' : ''}`}>
               <label className="block" htmlFor="research-provider">
                   <span className="text-xs font-medium text-secondary">Answer engine</span>
                   <select
@@ -221,7 +342,7 @@ export function ResearchQueriesSection({
                     {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
                   </select>
               </label>
-              <label className="block" htmlFor="research-location">
+              {locations.length > 0 && <label className="block" htmlFor="research-location">
                 <span className="text-xs font-medium text-secondary">Location</span>
                 <select
                   id="research-location"
@@ -233,7 +354,7 @@ export function ResearchQueriesSection({
                   <option value="__none__">No location</option>
                   {locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}
                 </select>
-              </label>
+              </label>}
             </div>
 
             {isViewerResearch ? <label className="block" htmlFor="research-model">
@@ -241,7 +362,7 @@ export function ResearchQueriesSection({
               <select id="research-model" aria-label="Model" className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
                 value={model} disabled={!selectedProvider || !configurableModel}
                 onChange={event => setModel(event.target.value)}>
-                <option value="">{selectedProvider ? `Use AI Visibility model · ${visibilityModel}` : 'Choose an answer engine'}</option>
+                <option value="">{selectedProvider ? `${RESEARCH_COPY.inheritedModel} · ${visibilityModel}` : 'Choose an answer engine'}</option>
                 {modelOptions.filter(item => item.id !== visibilityModel || item.id === model).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               </select>
             </label> : <label className="block" htmlFor="research-model">
@@ -250,7 +371,7 @@ export function ResearchQueriesSection({
                 id="research-model"
                 list="research-known-models"
                 className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder={visibilityModel ? `AI Visibility model: ${visibilityModel}` : 'Choose a provider to select an exact model'}
+                placeholder={visibilityModel ? `${RESEARCH_COPY.inheritedModel}: ${visibilityModel}` : 'Choose an answer engine'}
                 value={model}
                 disabled={!selectedProvider || !configurableModel}
                 onChange={(event) => setModel(event.target.value)}
@@ -260,25 +381,21 @@ export function ResearchQueriesSection({
               </datalist>
             </label>}
 
-            {!model.trim() && visibilityModel && <p className="text-sm text-secondary">Using the same model as AI Visibility: {visibilityModel}.</p>}
-
             <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
               {!isEmbed() && (isViewerResearch ? (
                 <Button type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
                   <Play size={14} />
-                  {researchMutation.isPending ? 'Starting research…' : `Run ${submittedQueries.length || ''} research ${submittedQueries.length === 1 ? 'query' : 'queries'}`}
+                  {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
                 </Button>
               ) : (
                 <WriteButton type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
                   <Play size={14} />
-                  {researchMutation.isPending ? 'Starting research…' : `Run ${submittedQueries.length || ''} research ${submittedQueries.length === 1 ? 'query' : 'queries'}`}
+                  {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
                 </WriteButton>
               ))}
-              <p className="text-sm leading-5 text-secondary">Saved to research history. Nothing is added to tracked queries.</p>
-              {submittedQueries.length === 0 && <p className="text-sm text-secondary">Enter at least one query to enable Run.</p>}
+              <p className="text-sm leading-5 text-secondary">{RESEARCH_COPY.savedNote}</p>
             </div>
-            {payload && <p className="text-sm text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p>}
-            {isViewerResearch && <p className="text-sm text-secondary">Up to {viewerResearchConfig.viewerDailyRunLimit} research batches per project each day. Each batch can contain up to 50 queries.</p>}
+            {isViewerResearch && <p className="text-sm text-secondary">{viewerResearchConfig.viewerDailyRunLimit} batches per project per day.</p>}
             {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
             {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
             {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && (
@@ -292,22 +409,22 @@ export function ResearchQueriesSection({
         <Card className="surface-card min-w-0">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">History</p>
-              <h3>Saved research batches</h3>
+              <h3>{RESEARCH_COPY.historyTitle}</h3>
             </div>
             {runsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
           </div>
           {runsQuery.isError ? <div role="alert" className="mt-4 text-sm text-negative"><p>Could not load research history.</p><Button variant="outline" onClick={() => { void runsQuery.refetch() }}>Retry history</Button></div> : runsQuery.isPending ? <p role="status">Loading research history…</p> : runs.length === 0 ? (
-            <p className="mt-4 text-sm text-muted">No research batches yet. Add one or more queries to begin.</p>
+            <p className="mt-4 text-sm text-muted">{RESEARCH_COPY.emptyHistory}</p>
           ) : (
             <div className="mt-4 overflow-x-auto">
-              <table className="evidence-table min-w-[680px] [overflow-wrap:anywhere]">
-                <thead><tr><th>Run</th><th>Model</th><th>Location</th><th>Progress</th><th>Status</th></tr></thead>
+              <table className="evidence-table min-w-[760px] [overflow-wrap:anywhere]">
+                <thead><tr><th>Run</th><th>Model</th><th>Destination</th><th>Location</th><th>Progress</th><th>Status</th></tr></thead>
                 <tbody>
                   {runs.map(run => (
                     <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
                       <td><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
                       <td className="text-secondary"><span className="block">{run.provider}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
+                      <td className="text-secondary">{run.scope?.label ?? 'Whole site'}</td>
                       <td className="text-secondary">{run.location?.label ?? 'No location'}</td>
                       <td className="tabular-nums text-secondary">{run.completedQueries + run.failedQueries}/{run.totalQueries}</td>
                       <td><ToneBadge tone={toneForResearchRun(run.status)}>{run.status}</ToneBadge></td>
@@ -324,7 +441,6 @@ export function ResearchQueriesSection({
     </div>
   )
 }
-
 function ResearchRunDetail({
   detail,
   isLoading,
@@ -332,7 +448,7 @@ function ResearchRunDetail({
 }: {
   detail: ResearchRunDetailDto | null
   isLoading: boolean
-  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+  onReviewForTracking?: (source: ResearchTrackingSource) => void
 }) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
 
@@ -347,7 +463,7 @@ function ResearchRunDetail({
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>
-          <h3>{detail ? `Research run ${shortId(detail.id)}` : 'Choose a research batch'}</h3>
+          <h3>{detail ? `Research run ${shortId(detail.id)}` : RESEARCH_COPY.resultsEmpty}</h3>
         </div>
         {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{detail.status}</ToneBadge>}
       </div>
@@ -356,11 +472,15 @@ function ResearchRunDetail({
           <div><dt className="font-medium">Answer engine</dt><dd>{detail.provider}</dd></div>
           <div><dt className="font-medium">Requested model</dt><dd className="font-mono">{detail.requestedModel ?? detail.resolvedModel}</dd></div>
           <div><dt className="font-medium">Location</dt><dd>{detail.location?.label ?? 'No location'}</dd></div>
+          <div><dt className="font-medium">Destination</dt><dd>{detail.scope?.label ?? 'Whole site'}</dd></div>
         </dl>
-        <p>Research results are excluded from AI Visibility metrics.</p>
+        {detail.template && <details>
+          <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">{RESEARCH_COPY.templateProvenance}</summary>
+          <p className="mt-2 font-mono text-xs">{detail.template.templateId} · {detail.template.templateVersion}</p>
+        </details>}
         <details>
-          <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Project brand and domain checks. Property identity is not verified.</summary>
-          <p className="mt-2 max-w-prose leading-6">Mentions match configured project brand names or domains in answer text. A match can refer to a different business with the same name. Citations check project domains in the source links. Inspect the answer and sources to confirm the intended property.</p>
+          <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">{RESEARCH_COPY.methodologySummary}</summary>
+          <p className="mt-2 max-w-prose leading-6">{RESEARCH_COPY.methodology}</p>
         </details>
       </div>}
       {!detail ? (
@@ -368,12 +488,13 @@ function ResearchRunDetail({
       ) : (
         <div className="mt-4 space-y-4">
           <div className="overflow-x-auto">
-            <table className="evidence-table min-w-[680px] [overflow-wrap:anywhere]">
-              <thead><tr><th>Query</th><th>Status</th><th>Brand-name match</th><th>Project domain cited</th></tr></thead>
+            <table className="evidence-table min-w-[760px] [overflow-wrap:anywhere]">
+              <thead><tr><th>Query</th><th>Class</th><th>Status</th><th>Brand-name match</th><th>Project domain cited</th></tr></thead>
               <tbody>
                 {detail.queries.map(item => (
                   <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
                     <td><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
+                    <td><ToneBadge tone={item.queryClass === 'branded' ? 'positive' : item.queryClass === 'non-brand' ? 'neutral' : 'caution'}>{item.queryClass === 'branded' ? RESEARCH_COPY.brandedQuery : item.queryClass === 'non-brand' ? RESEARCH_COPY.discoveryQuery : RESEARCH_COPY.unclassifiedQuery}</ToneBadge></td>
                     <td><ToneBadge tone={toneForResearchQuery(item.status)}>{item.status}</ToneBadge></td>
                     <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Matched' : 'No match'}</ToneBadge></td>
                     <td><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
@@ -382,21 +503,22 @@ function ResearchRunDetail({
               </tbody>
             </table>
           </div>
-          <ResearchAnswer query={selected} isLoading={isLoading} onReviewForTracking={onReviewForTracking} />
+          <ResearchAnswer query={selected} scope={detail.scope ?? null} isLoading={isLoading} onReviewForTracking={onReviewForTracking} />
         </div>
       )}
     </Card>
   )
 }
-
 function ResearchAnswer({
   query,
   isLoading,
+  scope,
   onReviewForTracking,
 }: {
   query: ResearchRunQueryDto | null
   isLoading: boolean
-  onReviewForTracking?: (source: { researchRunQueryId: string }) => void
+  scope: ResearchRunScope | null
+  onReviewForTracking?: (source: ResearchTrackingSource) => void
 }) {
   if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading saved answers…' : 'Select a query to inspect its answer.'}</p>
   return (
@@ -407,7 +529,7 @@ function ResearchAnswer({
       </div>
       {!isEmbed() && onReviewForTracking && (
         <div className="rounded-md border border-default bg-surface-subtle px-3 py-3">
-          <WriteButton type="button" size="sm" onClick={() => onReviewForTracking({ researchRunQueryId: query.id })}>
+          <WriteButton type="button" size="sm" onClick={() => onReviewForTracking({ researchRunQueryId: query.id, scope })}>
             Review for tracking
           </WriteButton>
           <p className="mt-2 text-xs leading-5 text-muted">Only this saved query text enters tracking review. Its answer remains research evidence.</p>
@@ -472,16 +594,7 @@ function ResearchAnswer({
 }
 
 function normalizeResearchQueries(value: string): string[] {
-  const seen = new Set<string>()
-  return value
-    .split(/\r?\n/)
-    .map(item => item.trim())
-    .filter(item => {
-      const key = item.toLocaleLowerCase()
-      if (!item || seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+  return deduplicateResearchQueries(value.split(/\r?\n/))
 }
 
 function formatResearchDate(value: string): string {

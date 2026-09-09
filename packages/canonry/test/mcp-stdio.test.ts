@@ -256,6 +256,7 @@ describe('canonry-mcp stdio', () => {
       ['clear-assignments', 'targetKey'],
       ['classify-assignments', 'assignments'],
       ['upsert-group', 'group'],
+      ['upsert-market', 'market'],
       ['remove-group', 'groupKey'],
       ['upsert-competitor', 'competitor'],
       ['remove-competitor', 'competitorKey'],

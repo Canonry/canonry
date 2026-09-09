@@ -7,6 +7,13 @@ import {
 import { providerNameSchema } from './provider.js'
 import { queryClassSchema } from './query-class.js'
 
+/** Expand an authoring template once; execution uses the editable final question verbatim. */
+export function expandQueryTemplate(pattern: string, bindings: Readonly<Record<string, string>>): string {
+  let output = pattern
+  for (const [variable, value] of Object.entries(bindings)) output = output.split(`{${variable}}`).join(value)
+  return output.trim()
+}
+
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const queryTrackingIdSchema = z.string().trim().min(1).max(256)
 const queryTrackingTextSchema = z.string().trim().min(1).max(4_000)

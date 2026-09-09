@@ -247,6 +247,7 @@ const measurementDraftActionOpenApiOperations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-group',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-market',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-group',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-group-membership',
@@ -881,7 +882,7 @@ const discoverySessionIdInputSchema = z.object({
 
 const researchRunStartInputSchema = z.object({
   project: projectNameSchema,
-  request: researchRunCreateSchema.describe('One shared provider/model/location context for every free-form query in this saved research batch.'),
+  request: researchRunCreateSchema.describe('One shared provider/model/location context for every final free-form query in this saved research batch. An optional market or Property destination is saved with the batch. Template provenance records a template ID and version only; it never expands or alters queries.'),
 })
 
 const researchRunsListInputSchema = z.object({
@@ -2823,7 +2824,7 @@ export const canonryMcpTools = [
     name: 'canonry_research_run_start',
     title: 'Start research query run',
     description:
-      'Run a batch of free-form queries once each against one API provider, with an optional exact model and location. Results are saved as a research run for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
+      'Run final free-form queries once each against one API provider, with an optional exact model, location, or one configured market or Property destination. Scope never changes query text or fans out a group. Optional template provenance records the source template ID and version; callers must submit the fully expanded, editable final query text. Results retain that destination and provenance for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
     access: 'write',
     tier: 'discovery',
     inputSchema: researchRunStartInputSchema,

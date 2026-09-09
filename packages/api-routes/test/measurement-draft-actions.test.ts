@@ -431,3 +431,24 @@ describe('measurement draft group hierarchy', () => {
     expect(() => applyDraftAction('remove-group', legacyEdit, { groupKey: 'dallas' }, audienceContext)).toThrow(/explicit parent/)
   })
 })
+
+
+it('configures a named market from exact frozen memberships without changing assignments', () => {
+  const authoring = audienceFixture()
+  authoring.assignments = [{
+    targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+    executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'existing-context' }],
+  }]
+  const edge = { executionNodeKey: 'existing-context', targetKey: 'dallas-1', queryId: 'q-market' }
+  const market = { stableKey: 'uptown', kind: 'market', label: 'Uptown', usageEdges: [edge] }
+  const added = applyDraftAction('upsert-market', authoring, { market }, audienceContext).authoring
+  expect(added.reportingScopes).toEqual([market])
+  expect(added.assignments).toEqual(authoring.assignments)
+  expect(added.groups).toEqual(authoring.groups)
+  expect(authoring.reportingScopes).toBeUndefined()
+  const renamed = applyDraftAction('upsert-market', added, { market: { ...market, label: 'Uptown district' } }, audienceContext).authoring
+  expect(renamed.reportingScopes).toHaveLength(1)
+  expect(renamed.reportingScopes?.[0]?.label).toBe('Uptown district')
+  expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, usageEdges: [{ ...edge, executionNodeKey: 'unpublished' }] } }, audienceContext)).toThrow(/existing frozen assignments/)
+  expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, usageEdges: [edge, edge] } }, audienceContext)).toThrow(/duplicate assignment/)
+})

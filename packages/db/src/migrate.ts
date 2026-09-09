@@ -4082,6 +4082,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE schedules ADD COLUMN recurrence TEXT`,
     ],
   },
+  {
+    version: 153,
+    name: 'research-run-scope',
+    statements: [
+      `ALTER TABLE research_runs ADD COLUMN scope TEXT`,
+      `ALTER TABLE research_runs ADD COLUMN template TEXT`,
+      `ALTER TABLE research_run_queries ADD COLUMN query_class TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

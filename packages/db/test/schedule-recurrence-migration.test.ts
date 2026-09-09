@@ -11,7 +11,7 @@ describe('calendar recurrence migration', () => {
     db.insert(schedules).values({ id: 's', projectId: 'p', cronExpr: '0 6 * * *', preset: 'daily', nextRunAt: '2026-09-10T06:00:00.000Z', createdAt: now, updatedAt: now }).run()
     // Reconstruct the previous release's schedule table, then exercise upgrade.
     db.run(sql`ALTER TABLE schedules DROP COLUMN recurrence`)
-    db.run(sql`DELETE FROM _migrations WHERE version = 152`)
+    db.run(sql`DELETE FROM _migrations WHERE version >= 152`)
     migrate(db)
     expect(db.select().from(schedules).get()).toMatchObject({ id: 's', cronExpr: '0 6 * * *', preset: 'daily', recurrence: null, nextRunAt: '2026-09-10T06:00:00.000Z', updatedAt: now })
     const recurrence = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }
