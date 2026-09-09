@@ -1,6 +1,8 @@
 import crypto from 'node:crypto'
 import {
   buildSimpleMeasurementDefinition,
+  buildMeasurementExecutionIdentity,
+  canonicalMeasurementExecutionIdentityJson,
   buildMeasurementRunManifestV1,
   canonicalMeasurementPlanV2Json,
   canonicalSimpleMeasurementDefinitionJson,
@@ -190,6 +192,8 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
   const simpleQueries = SIMPLE_QUERIES.map((query, index) => ({ id: `demo-summit-query-${index + 1}`, query }))
   const portfolioPlan = harborPlan(context, now)
   const planVersionId = 'demo-harbor-plan-v2'
+  const execution = { providers: PROVIDERS.map(identity => identity.provider), models: Object.fromEntries(PROVIDERS.map(identity => [identity.provider, identity.requestedModel])) }
+  const executionIdentity = buildMeasurementExecutionIdentity(execution, sha256(canonicalMeasurementExecutionIdentityJson(execution)))
   const planManifest = buildMeasurementRunManifestV1({
     expectedSlots: portfolioPlan.executionNodes.flatMap(node => node.context.providers.map(provider => ({
       executionId: node.stableKey,
@@ -277,7 +281,7 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
       const portfolioRunId = `demo-harbor-week-${6 - week}`
       tx.insert(runs).values({
         id: portfolioRunId, projectId: context.portfolio.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
-        measurementPlanVersionId: planVersionId, measurementManifest: planManifest, startedAt: createdAt, finishedAt: createdAt, createdAt,
+        measurementPlanVersionId: planVersionId, measurementManifest: planManifest, measurementExecutionIdentity: executionIdentity, startedAt: createdAt, finishedAt: createdAt, createdAt,
       }).run()
       tx.insert(querySnapshots).values(portfolioPlan.executionNodes.flatMap((node, nodeIndex) => PROVIDERS.map((identity, providerIndex) => {
         const target = portfolioPlan.targets.find(candidate => node.stableKey.includes(candidate.stableKey))!

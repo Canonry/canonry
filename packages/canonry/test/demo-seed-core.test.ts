@@ -19,7 +19,7 @@ describe('seedDemoCore', () => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-demo-core-'))
     db = createClient(path.join(directory, 'demo.db'))
     migrate(db)
-    await seedDemoCore(db, createDemoSeedContext(NOW))
+    seedDemoCore(db, createDemoSeedContext(NOW))
     app = Fastify()
     app.register(apiRoutes, { db, skipAuth: true })
     await app.ready()
@@ -27,6 +27,7 @@ describe('seedDemoCore', () => {
 
   afterEach(async () => {
     await app?.close()
+    db?.$client.close()
     fs.rmSync(directory, { recursive: true, force: true })
   })
 
@@ -42,6 +43,14 @@ describe('seedDemoCore', () => {
     expect(body.populations.every(population => population.trend.length === 6)).toBe(true)
     expect(new Set(body.populations.map(population => population.queryClass))).toEqual(new Set(['branded', 'non-brand', 'unknown']))
     expect(body.populations.find(population => population.queryClass === 'non-brand')!.summary.citationCoverage.rate).toBeLessThan(1)
+  })
+
+  it('keeps the portfolio history comparable under its unchanged engine and model selection', async () => {
+    const response = await app.inject('/api/v1/projects/harbor-resorts/visibility-report?queryClass=non-brand')
+    expect(response.statusCode).toBe(200)
+    const trend = response.json().populations[0].trend as Array<{ continuity: { state: string } }>
+    expect(trend).toHaveLength(6)
+    expect(trend.slice(1).map(point => point.continuity.state)).toEqual(Array(5).fill('comparable'))
   })
 
   it('populates the custom portfolio overview and property evidence from a reviewed v2 plan', async () => {
