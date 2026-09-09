@@ -8,11 +8,12 @@ const labelFor = (scope: VisibilityReportScopeOption) => scope.kind === 'project
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options, selected, onSelect }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect }: {
   options: VisibilityReportScopeOption[]
   selected: VisibilityReportScopeOption
   onSelect: (scope: VisibilityReportScopeOption) => void
 }) {
+  const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
   const [search, setSearch] = useState('')
   const [path, setPath] = useState<string[]>([])
   const [allProperties, setAllProperties] = useState(false)

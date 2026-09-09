@@ -82,6 +82,12 @@ describe('group-first scope navigation', () => {
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
   })
 
+  it('lists group members by display name regardless of stable-key order', () => {
+    openPicker(vi.fn(), [...scopes].reverse())
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    expect(screen.getAllByRole('button', { name: /^Select .* House$/ }).map(button => button.getAttribute('aria-label'))).toEqual(['Select Harbor House', 'Select Lake House'])
+  })
+
   it('closes on Escape and restores focus to the scope trigger', () => {
     const view = openPicker()
     const search = screen.getByRole('searchbox', { name: 'Search scopes' })
