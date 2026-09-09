@@ -3118,16 +3118,30 @@
   }
 }
 
-/* Dedicated public demo disclosure; uses the dashboard's existing tokens. */
-.demo-notice { margin-bottom: 24px; border-bottom: 1px solid var(--color-border); padding-bottom: 16px; color: var(--color-text-secondary); font-size: 14px; }
-.demo-notice-intro { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 20px; }
-.demo-notice strong { color: var(--color-text-primary); font-weight: 600; }
-.demo-notice-agent { margin-top: 16px; }
-.demo-notice-agent strong { font-size: 16px; }
-.demo-notice nav { display: flex; flex-wrap: wrap; gap: 16px; }
-.demo-notice a { text-decoration: underline; text-underline-offset: 3px; }
-.demo-notice details { margin-top: 10px; }
-.demo-notice summary { cursor: pointer; width: fit-content; min-height: 32px; }
-.demo-notice p { max-width: 72ch; margin: 4px 0 12px; }
-.demo-notice ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 24px; list-style: none; padding: 0; }
-.demo-notice a:focus-visible, .demo-notice summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+/* The public demo introduction sits above the complete application. */
+.app-shell-demo .sidebar { position: sticky; top: 0; bottom: auto; height: 100dvh; flex-shrink: 0; align-self: flex-start; }
+.app-shell-demo .main-area { padding-left: 0; }
+.demo-banner { position: relative; z-index: 35; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 12px 24px 16px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.5; }
+.demo-banner-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 24px; }
+.demo-banner-intro { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; }
+.demo-banner strong { color: var(--color-text-primary); font-weight: 600; }
+.demo-banner-controls { position: relative; display: flex; align-items: center; gap: 24px; }
+.demo-banner-controls > nav { display: flex; gap: 24px; }
+.demo-banner a, .demo-banner summary { display: flex; align-items: center; min-height: 44px; color: var(--color-text-secondary); }
+.demo-banner-controls > nav a { text-decoration: underline; text-underline-offset: 4px; }
+.demo-banner a:hover, .demo-banner summary:hover { color: var(--color-text-primary); }
+.demo-banner summary { cursor: pointer; gap: 8px; list-style: none; }
+.demo-banner summary::-webkit-details-marker { display: none; }
+.demo-banner details[open] summary svg { transform: rotate(180deg); }
+.demo-banner-agent { max-width: 72ch; margin: 4px 0 0; }
+.demo-banner-features { position: absolute; top: calc(100% + 8px); right: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-elevated); padding: 20px; box-shadow: 0 8px 24px var(--color-shadow-panel); }
+.demo-banner-features h2 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; }
+.demo-banner-features ul { list-style: none; padding: 0; margin: 0; }
+.demo-banner-features a { padding: 4px 0; }
+.demo-banner a:focus-visible, .demo-banner summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }
+@media (max-width: 639px) {
+  .demo-banner { padding: 12px 16px 16px; }
+  .demo-banner-controls { width: 100%; flex-wrap: wrap; gap: 0 20px; }
+  .demo-banner-controls > nav { gap: 20px; }
+  .demo-banner-features { width: min(640px, calc(100vw - 32px)); grid-template-columns: 1fr; gap: 16px; }
+}

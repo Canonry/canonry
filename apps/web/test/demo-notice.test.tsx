@@ -15,7 +15,7 @@ describe('public demo notice', () => {
     expect(screen.getByText('View-only demo with fictional sample data.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Standard business' }).getAttribute('href')).toBe('/projects/summit-roofing')
     expect(screen.getByRole('link', { name: 'Property portfolio' }).getAttribute('href')).toBe('/projects/harbor-resorts')
-    expect(screen.getByRole('link', { name: 'Site health and page map' }).getAttribute('href')).toContain('/technical-aeo')
+    expect(screen.getByRole('link', { name: 'Site health' }).getAttribute('href')).toContain('/technical-aeo')
     expect(screen.queryByRole('button', { name: /run|connect|publish/i })).toBeNull()
   })
 })

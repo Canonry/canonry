@@ -543,7 +543,9 @@ export function RootLayout() {
   }
 
   return (
-    <div className={`app-shell ${shellModifier}`}>
+    <>
+    <DemoNotice />
+    <div className={`app-shell ${shellModifier}${isPublicDemo() ? ' app-shell-demo' : ''}`}>
       <a className="skip-link" href="#content">
         Skip to content
       </a>
@@ -873,7 +875,6 @@ export function RootLayout() {
           id="content"
           className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
         >
-          <DemoNotice />
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">
               <div className="page-skeleton-header">
@@ -1079,5 +1080,6 @@ export function RootLayout() {
       <Toaster />
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
+    </>
   )
 }
