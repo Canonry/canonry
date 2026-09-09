@@ -136,6 +136,7 @@ test('buildApp registers health and API routes', async () => {
     port: 3000,
     basePath: '/',
     databaseUrlConfigured: true,
+    mcp: { status: 'not-supported' },
   })
   expect(healthResponse.json().lastHeartbeatAt).toBeDefined()
 

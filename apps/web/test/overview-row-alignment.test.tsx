@@ -155,3 +155,16 @@ test('shows an awaiting-baseline state rather than zero performance or stable re
   expect(doc.body.textContent).toContain('Awaiting first measurement')
   expect(doc.body.textContent).not.toContain('All projects stable')
 })
+
+
+test('shows MCP as a separate infrastructure row for viewers', async () => {
+  const doc = await renderOverview(fixture => {
+    fixture.health.apiStatus.mcp = { status: 'available' }
+  }, true)
+  const label = [...doc.querySelectorAll('p')].find(node => node.textContent === 'MCP')!
+  expect(label).toBeDefined()
+  const row = label.parentElement!.parentElement!
+  expect(row.textContent).toContain('Available')
+  expect(row.textContent).not.toContain('API')
+  expect(row.querySelector('[title]')?.getAttribute('title')).toContain('not an individual client connection')
+})

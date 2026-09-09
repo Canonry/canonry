@@ -16,7 +16,7 @@ export function buildSystemHealthCards(
   healthSnapshot: HealthSnapshot,
   settings: SettingsVm,
 ): SystemHealthCardVm[] {
-  return cards.map((card) => {
+  const result = cards.filter(card => card.id !== 'mcp').map((card) => {
     if (card.id === 'api') {
       return {
         ...card,
@@ -47,6 +47,27 @@ export function buildSystemHealthCards(
       meta: configuredNames || 'None configured',
     }
   })
+  const mcp = healthSnapshot.apiStatus.mcp
+  const mcpCard: SystemHealthCardVm = { id: 'mcp', label: 'MCP', tone: 'neutral', detail: 'Unknown', meta: 'MCP status is not available from this server.' }
+  if (healthSnapshot.apiStatus.state === 'checking') {
+    mcpCard.detail = 'Checking'
+    mcpCard.meta = 'Checking MCP availability.'
+  } else if (healthSnapshot.apiStatus.state === 'ok' && mcp) {
+    if (mcp.status === 'available') {
+      mcpCard.tone = 'positive'
+      mcpCard.detail = 'Available'
+      mcpCard.meta = 'MCP is available for agent connections. This checks the server transport, not an individual client connection.'
+    } else if (mcp.status === 'unavailable') {
+      mcpCard.tone = 'negative'
+      mcpCard.detail = 'Unavailable'
+      mcpCard.meta = 'The MCP transport is not fully available. Contact your Canonry team.'
+    } else {
+      mcpCard.detail = 'Not enabled'
+      mcpCard.meta = 'This server does not provide an MCP endpoint.'
+    }
+  }
+  result.splice(Math.max(0, result.findIndex(card => card.id === 'api') + 1), 0, mcpCard)
+  return result
 }
 
 export function getLaunchBlockedReason(healthSnapshot: HealthSnapshot, settings: SettingsVm): string | undefined {

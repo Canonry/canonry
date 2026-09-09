@@ -578,3 +578,20 @@ test('settings route exposes health failure details on the badge tooltip', async
   expect(html).toMatch(/Check basePath configuration/)
   expect(html).toMatch(/Depends on API health check · API 404: Not Found/)
 })
+
+
+test.each([
+  [{ status: 'available' }, { status: 'available' }],
+  [{ status: 'unavailable' }, { status: 'unavailable' }],
+  [{ status: 'not-supported' }, { status: 'not-supported' }],
+  [{ status: 'healthy' }, undefined],
+  [null, undefined],
+  [undefined, undefined],
+])('fetchServiceStatus validates MCP metadata %j', async (mcp, expected) => {
+  const realFetch = globalThis.fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  globalThis.fetch = vi.fn(async () => Response.json({ version: '1', mcp }))
+  const result = await fetchServiceStatus('/health', 'API')
+  expect(result.state).toBe('ok')
+  expect(result.mcp).toEqual(expected)
+})

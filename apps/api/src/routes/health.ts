@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
+import type { McpHealth } from '@ainyc/canonry-contracts'
 import type { PlatformEnv } from '@ainyc/canonry-config'
 
 interface HealthResponse {
@@ -10,6 +11,7 @@ interface HealthResponse {
   basePath: string
   databaseUrlConfigured: boolean
   lastHeartbeatAt: string
+  mcp: McpHealth
 }
 
 export function registerHealthRoutes(app: FastifyInstance, env: PlatformEnv): void {
@@ -17,6 +19,7 @@ export function registerHealthRoutes(app: FastifyInstance, env: PlatformEnv): vo
   app.get(path, async (): Promise<HealthResponse> => ({
     service: 'canonry',
     status: 'ok',
+    mcp: { status: 'not-supported' },
     version: '0.1.0',
     port: env.apiPort,
     basePath: env.basePath,
