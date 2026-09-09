@@ -197,26 +197,24 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
   `)
 })
 
-test('project route keeps the shared-report class baseline stable', async () => {
+test('project route keeps the core metric and evidence class baseline stable', async () => {
   const html = await renderRoute('/projects/Citypoint%20Dental%20NYC')
 
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classFor(html, '.page-header'),
     pageTitle: classFor(html, '.page-title'),
-    reportSection: classFor(html, '[aria-label="AI visibility results"]'),
-    reportPopulation: classFor(html, '[aria-label="Non-brand queries"]'),
-    trendChart: classFor(html, '.visibility-trend-chart'),
-    queryTable: classFor(html, '.evidence-table'),
+    firstSectionDivider: classFor(html, '.page-section-divider'),
+    firstMetricFill: classFor(html, '.metric-card-bar-fill'),
+    evidenceDisclosure: classFor(html, '#evidence-section'),
   }).toMatchInlineSnapshot(`
     {
+      "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
+      "firstMetricFill": "metric-card-bar-fill progress-fill-positive",
+      "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": "page-header",
       "pageTitle": "page-title",
-      "queryTable": "evidence-table",
-      "reportPopulation": "py-4",
-      "reportSection": "visibility-report",
-      "trendChart": "visibility-trend-chart",
     }
   `)
 })

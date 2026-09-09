@@ -302,26 +302,25 @@ test('embed hides the page-header run action that leaks on every tab', async () 
   // A read-only report still renders in the embed, proving we hid controls,
   // not content.
   expect(embed).toContain('Citypoint Dental NYC')
-  expect(embed).toContain('AI visibility results')
-  expect(embed).toContain('Non-brand queries')
-  expect(embed).toContain('Query results')
-  expect(embed).toContain('emergency dentist near me')
+  expect(embed).toContain('Answer-engine trend')
+  expect(embed).toContain('Coverage now')
+  expect(embed).toContain('Query evidence')
+  expect(embed).toContain('Mention share')
 })
 
-test('embed hides the shared-report query manager without reviving retired overview managers', async () => {
+test('embed hides the overview competitor and query managers', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Query administration stays an operator control even though the report is
-  // otherwise readable in both surfaces. Competitor editing is no longer part
-  // of the overview report, so do not accidentally restore the retired control.
+  // Operator sees the overview write affordances. Identity editing now lives
+  // in project Settings instead of the overview header.
+  expect(operator).toContain('Manage competitors')
   expect(operator).toContain('Manage queries')
+  expect(operator).not.toContain('+ add domain')
+  expect(operator).not.toContain('Also known as')
+  // The write affordances do not render in the embed.
+  expect(embed).not.toContain('Manage competitors')
   expect(embed).not.toContain('Manage queries')
-  expect(operator).not.toContain('+ Add competitor')
-  expect(embed).not.toContain('+ Add competitor')
-  expect(embed).toContain('Query results')
-  expect(embed).toContain('View answers')
-  expect(embed).toContain('Competitors')
 
   // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the
   // embed drops it while the operator keeps it. The locale still shows once in
@@ -332,27 +331,16 @@ test('embed hides the shared-report query manager without reviving retired overv
   expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 
-test('embed keeps shared report drill-down readable without restoring legacy overview disclosures', async () => {
+test('embed defaults client-value overview disclosures open and omits run history', async () => {
   const embedDoc = parseHtml(await renderAt('/projects/project_citypoint', { enabled: true, views: ['project'] }))
   const operatorDoc = parseHtml(await renderAt('/projects/project_citypoint'))
 
-  // The shared report has its own measured-run disclosure and progressive
-  // query/competitor drill-down. The old overview disclosures must not shadow
-  // it in either operator or embed renders.
-  expect([...operatorDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'More filters')).toBe(true)
-  expect([...embedDoc.querySelectorAll('details summary')].some(summary => summary.textContent === 'More filters')).toBe(true)
-  expect(operatorDoc.body.textContent).toContain('Query results')
-  expect(embedDoc.body.textContent).toContain('Query results')
-  expect(operatorDoc.querySelector('details[data-query-results]')?.hasAttribute('open')).toBe(false)
-  expect(embedDoc.querySelector('details[data-query-results]')?.hasAttribute('open')).toBe(false)
-  expect(operatorDoc.body.textContent).toContain('Competitors')
-  expect(embedDoc.body.textContent).toContain('Competitors')
+  expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
+  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(false)
+  expect(detailsForTitle(operatorDoc, 'Recent execution history')).not.toBeNull()
 
-  expect(detailsForTitle(operatorDoc, 'Query evidence')).toBeNull()
-  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')).toBeNull()
-  expect(detailsForTitle(operatorDoc, 'Recent execution history')).toBeNull()
-  expect(detailsForTitle(embedDoc, 'Query evidence')).toBeNull()
-  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')).toBeNull()
+  expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
+  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(true)
   expect(detailsForTitle(embedDoc, 'Recent execution history')).toBeNull()
 })
 

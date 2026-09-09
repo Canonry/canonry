@@ -8,6 +8,8 @@ AI Visibility shows measured trends, query performance, answers, sources, and co
 Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
+The Simple dashboard keeps its trend controls, coverage summary, competitive gaps,
+and query evidence. The Advanced report layout is reserved for published portfolios.
 Groups collect properties. Markets select explicit execution-context edges.
 
 ## Product purpose
