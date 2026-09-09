@@ -8,7 +8,7 @@ import { createDemoHttpServer } from '../src/demo/http.js'
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.restoreAllMocks() })
 
-async function fixture() {
+async function fixture(apiRateLimitMax?: number) {
   const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-http-'))
   mkdirSync(join(dir, 'assets'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head></head><body><div id="root"></div></body></html>')
@@ -19,7 +19,7 @@ async function fixture() {
   migrate(db)
   const now = new Date('2026-09-09T12:00:00.000Z')
   db.insert(projects).values({ id: 'demo-simple', name: 'summit-roofing', displayName: 'Summit Roofing', canonicalDomain: 'summit-roofing.example', country: 'US', language: 'en', createdAt: now.toISOString(), updatedAt: now.toISOString() }).run()
-  const app = await createDemoHttpServer({ db, assetsDir: dir, now })
+  const app = await createDemoHttpServer({ db, assetsDir: dir, now, apiRateLimitMax })
   cleanups.push(async () => { await app.close(); db.$client.close(); rmSync(dir, { recursive: true, force: true }) })
   return { app, db }
 }
@@ -64,6 +64,35 @@ describe('dedicated public demo server', () => {
     const { app } = await fixture()
     expect((await app.inject('/favicon.svg')).statusCode).toBe(200)
     expect((await app.inject('/private.txt')).statusCode).toBe(404)
+  })
+
+  it('reserves the rate limit for API reads and separates visitors behind a loopback proxy', async () => {
+    const { app } = await fixture(2)
+    for (let index = 0; index < 5; index += 1) {
+      expect((await app.inject('/assets/app.js')).statusCode).toBe(200)
+    }
+    const firstVisitor = { 'x-forwarded-for': '198.51.100.10' }
+    expect((await app.inject({ url: '/api/v1/projects', headers: firstVisitor })).statusCode).toBe(200)
+    expect((await app.inject({ url: '/api/v1/projects', headers: firstVisitor })).statusCode).toBe(200)
+    expect((await app.inject({ url: '/api/v1/projects', headers: firstVisitor })).statusCode).toBe(429)
+    expect((await app.inject({
+      url: '/api/v1/projects',
+      headers: { 'x-forwarded-for': '198.51.100.11' },
+    })).statusCode).toBe(200)
+  })
+
+  it('ignores forwarded caller headers from a non-loopback peer', async () => {
+    const { app } = await fixture(1)
+    expect((await app.inject({
+      url: '/api/v1/projects',
+      remoteAddress: '203.0.113.20',
+      headers: { 'x-forwarded-for': '198.51.100.20' },
+    })).statusCode).toBe(200)
+    expect((await app.inject({
+      url: '/api/v1/projects',
+      remoteAddress: '203.0.113.20',
+      headers: { 'x-forwarded-for': '198.51.100.21' },
+    })).statusCode).toBe(429)
   })
 
   it('labels synthetic data, supports deep links and serves only built public assets', async () => {

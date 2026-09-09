@@ -21,8 +21,10 @@ export async function createDemoHttpServer(options: {
   db: DatabaseClient
   assetsDir: string
   now: Date
+  /** Focused test seam; public demo servers use the default API budget. */
+  apiRateLimitMax?: number
   /** Read-only synthetic stores, never callbacks that invoke providers. */
-  readOptions?: Pick<ApiRoutesOptions, 'googleConnectionStore' | 'googleStateSecret' | 'bingConnectionStore' | 'ga4CredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'>
+  readOptions?: Pick<ApiRoutesOptions, 'googleConnectionStore' | 'googleStateSecret' | 'googleMarketingCredentialStore' | 'bingConnectionStore' | 'ga4CredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'>
 }) {
   const { db, assetsDir, now } = options
   const html = readFileSync(join(assetsDir, 'index.html'), 'utf8')
@@ -34,8 +36,20 @@ export async function createDemoHttpServer(options: {
     keyPrefix: 'demo',
     createdAt: now.toISOString(),
   }).run()
-  const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 })
-  await app.register(rateLimit, { max: 600, timeWindow: '1 minute' })
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 1024 * 1024,
+    // The published service listens on loopback behind cloudflared. Trust its
+    // caller chain without letting a directly connected remote client spoof it.
+    trustProxy: ['127.0.0.1', '::1'],
+  })
+  await app.register(rateLimit, {
+    max: options.apiRateLimitMax ?? 600,
+    timeWindow: '1 minute',
+    // A dashboard load fans out across many immutable chunks. Those reads do
+    // not touch the API budget, which stays available for stored-data calls.
+    allowList: request => !request.url.startsWith('/api/'),
+  })
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Robots-Tag', 'noindex, nofollow')
     reply.header('X-Content-Type-Options', 'nosniff')
