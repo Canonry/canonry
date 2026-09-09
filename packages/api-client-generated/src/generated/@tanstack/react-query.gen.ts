@@ -2985,6 +2985,8 @@ export const getApiV1ProjectsByNameScheduleOptions = (options: Options<GetApiV1P
 
 /**
  * Create or update a schedule
+ *
+ * Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes.
  */
 export const putApiV1ProjectsByNameScheduleMutation = (options?: Partial<Options<PutApiV1ProjectsByNameScheduleData>>): UseMutationOptions<PutApiV1ProjectsByNameScheduleResponse, PutApiV1ProjectsByNameScheduleError, Options<PutApiV1ProjectsByNameScheduleData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameScheduleResponse, PutApiV1ProjectsByNameScheduleError, Options<PutApiV1ProjectsByNameScheduleData>> = {

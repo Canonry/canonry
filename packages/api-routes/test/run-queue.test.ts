@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, schedules } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { queueRunIfProjectIdle } from '../src/run-queue.js'
@@ -226,4 +226,29 @@ describe('queueRunIfProjectIdle', () => {
       expect(second.activeRunId).toBe(first.runId)
     }
   })
+
+  it('rolls back a calendar occurrence claim when queue insertion fails', () => {
+    const { db, tmpDir } = createTempDb()
+    onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, 'proj_1', 'test-project')
+    const dueAt = '2026-09-23T04:00:00.000Z'
+    db.insert(schedules).values({
+      id: 'calendar', projectId: 'proj_1', kind: 'answer-visibility', cronExpr: '',
+      recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' }, preset: null,
+      timezone: 'America/New_York', enabled: true, providers: [], nextRunAt: dueAt,
+      createdAt: dueAt, updatedAt: dueAt,
+    }).run()
+    db.$client.exec("CREATE TRIGGER fail_calendar_run BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'queue insert failed'); END")
+
+    expect(() => queueRunIfProjectIdle(db, {
+      projectId: 'proj_1', kind: 'answer-visibility', trigger: RunTriggers.scheduled,
+      scheduleClaim: {
+        scheduleId: 'calendar', dueAt, expectedUpdatedAt: dueAt,
+        nextRunAt: '2026-10-07T04:00:00.000Z',
+      },
+    })).toThrow('queue insert failed')
+    expect(db.select().from(schedules).where(eq(schedules.id, 'calendar')).get())
+      .toMatchObject({ nextRunAt: dueAt, updatedAt: dueAt })
+  })
+
 })

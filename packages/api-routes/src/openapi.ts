@@ -2802,6 +2802,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Create or update a schedule',
+    description: 'Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes.',
     tags: ['schedules'],
     parameters: [nameParameter, scheduleKindQueryParameter],
     requestBody: {
@@ -2814,6 +2815,7 @@ const routeCatalog: OpenApiOperation[] = [
               kind: { $ref: '#/components/schemas/SchedulableRunKind' },
               preset: stringSchema,
               cron: stringSchema,
+              recurrence: { $ref: '#/components/schemas/CalendarRecurrence' },
               timezone: stringSchema,
               providers: stringArraySchema,
               enabled: booleanSchema,

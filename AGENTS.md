@@ -160,6 +160,7 @@ canonry traffic events <project> --source <id> --format json                    
 
 # Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
+canonry schedule set <project> --every-days 14 --start-date 2026-09-23 --at 00:00 --timezone America/New_York  # calendar recurrence, anchored to the local date/time
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
 canonry schedule set <project> --kind gbp-sync --preset daily                                # gbp-sync (no source; syncs selected locations)
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)

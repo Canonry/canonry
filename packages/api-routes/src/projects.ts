@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
@@ -17,6 +17,7 @@ import {
   hasLocationLabel,
   DEFAULT_MEASUREMENT_CONFIG,
   PROJECTS_WRITE_SCOPE,
+  SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
 import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
@@ -546,7 +547,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    const schedule = app.db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()
+    const schedule = app.db.select().from(schedules).where(and(
+      eq(schedules.projectId, project.id),
+      eq(schedules.kind, SchedulableRunKinds['answer-visibility']),
+    )).get()
     const notificationRows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
 
     const config = {
@@ -581,9 +585,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         }),
         ...(schedule ? {
           schedule: {
-            ...(schedule.preset ? { preset: schedule.preset } : { cron: schedule.cronExpr }),
+            ...(schedule.recurrence ? { recurrence: schedule.recurrence } : schedule.preset ? { preset: schedule.preset } : { cron: schedule.cronExpr }),
             timezone: schedule.timezone,
             providers: schedule.providers,
+            enabled: schedule.enabled,
           },
         } : {}),
       },

@@ -8,7 +8,7 @@ import { pruneProviderModelsForProviders, validateProviderModels } from './provi
 import { writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
-import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
+import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
 export interface ApplyRoutesOptions {
@@ -69,12 +69,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     )
 
     // Validate schedule before entering transaction
-    let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
+    let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
     let deleteSchedule = false
     if (config.spec.schedule) {
       const schedSpec = config.spec.schedule
-      let cronExpr: string
+      let cronExpr = ''
       let preset: string | null = null
+      const recurrence = schedSpec.recurrence ?? null
 
       if (schedSpec.preset) {
         preset = schedSpec.preset
@@ -87,14 +88,11 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       } else if (schedSpec.cron) {
         cronExpr = schedSpec.cron
         if (!validateCron(cronExpr)) throw validationError(`Invalid cron expression in schedule: ${cronExpr}`)
-      } else {
-        throw validationError('Schedule requires either "preset" or "cron"')
       }
 
       const timezone = schedSpec.timezone ?? 'UTC'
       if (!isValidTimezone(timezone)) throw validationError(`Invalid timezone: ${timezone}`)
-
-      resolvedSchedule = { cronExpr, preset, timezone }
+      resolvedSchedule = { cronExpr, preset, recurrence, timezone }
     } else {
       deleteSchedule = true
     }
@@ -279,11 +277,21 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         // a request to resume the sweeps. A schedule this apply creates has no
         // prior state to preserve, so it defaults to enabled.
         const specEnabled = config.spec.schedule?.enabled
+        // An omitted enabled value preserves a pause already set outside config-as-code.
+        const effectiveEnabled = specEnabled ?? existingSched?.enabled ?? true
+        const nextRunAt = effectiveEnabled
+          ? nextRunFromSchedule(resolvedSchedule)
+          : null
+        if (effectiveEnabled && resolvedSchedule.recurrence && !nextRunAt) {
+          throw validationError('Calendar recurrence has no valid future occurrence')
+        }
         if (existingSched) {
           tx.update(schedules).set({
             cronExpr: resolvedSchedule.cronExpr,
             preset: resolvedSchedule.preset,
+            recurrence: resolvedSchedule.recurrence,
             timezone: resolvedSchedule.timezone,
+            nextRunAt,
             providers: config.spec.schedule?.providers ?? [],
             ...(specEnabled === undefined ? {} : { enabled: specEnabled }),
             updatedAt: nextScheduleUpdatedAt(existingSched.updatedAt, Date.parse(now)),
@@ -295,7 +303,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             kind: AV_KIND,
             cronExpr: resolvedSchedule.cronExpr,
             preset: resolvedSchedule.preset,
+            recurrence: resolvedSchedule.recurrence,
             timezone: resolvedSchedule.timezone,
+            nextRunAt,
             enabled: specEnabled ?? true,
             providers: config.spec.schedule?.providers ?? [],
             createdAt: now,

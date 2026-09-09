@@ -58,6 +58,14 @@ describe('printSchedule (text-mode output)', () => {
     expect(lines.filter(l => l.includes('0 0 * * *'))).toHaveLength(1)
   })
 
+  it('renders calendar recurrence details instead of the empty cron placeholder', () => {
+    printSchedule(baseSchedule({ cronExpr: '', recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' } }))
+    expect(lines).toContain('  Every:     14 day(s)')
+    expect(lines).toContain('  Start:     2026-09-23')
+    expect(lines).toContain('  At:        00:00')
+    expect(lines.some(line => line.startsWith('  Cron:'))).toBe(false)
+  })
+
   it('renders sourceId only for traffic-sync schedules', () => {
     printSchedule(baseSchedule({ kind: 'traffic-sync', sourceId: 'src_abc' }))
     expect(lines.some(l => l === '  Source:    src_abc')).toBe(true)

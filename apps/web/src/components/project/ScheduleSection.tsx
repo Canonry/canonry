@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatZonedTimestamp } from '@ainyc/canonry-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
 
@@ -18,6 +19,7 @@ const FREQ_OPTIONS = [
   { value: 'weekly@wed', label: 'Every Wednesday' },
   { value: 'weekly@fri', label: 'Every Friday' },
   { value: 'twice-daily', label: 'Twice a day (6am & 6pm)' },
+  { value: 'calendar', label: 'Every N days' },
   { value: 'custom', label: 'Custom cron expression' },
 ] as const
 
@@ -38,6 +40,20 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney',
 ] as const
 
+type CalendarRecurrence = NonNullable<ApiSchedule['recurrence']>
+
+function calendarRecurrenceLabel(recurrence: CalendarRecurrence, timezone: string): string {
+  const tzShort = timezone === 'UTC' ? 'UTC' : (timezone.split('/').pop()?.replace(/_/g, ' ') ?? timezone)
+  const date = new Date(`${recurrence.startDate}T00:00:00Z`)
+  const startDate = Number.isNaN(date.getTime())
+    ? recurrence.startDate
+    : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)
+  const [hours, minutes] = recurrence.time.split(':').map(Number)
+  const time = Number.isInteger(hours) && Number.isInteger(minutes)
+    ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(new Date(Date.UTC(1970, 0, 1, hours, minutes)))
+    : recurrence.time
+  return `Every ${recurrence.everyDays} days starting ${startDate} at ${time} · ${tzShort}`
+}
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
   const managedSweeps = isDashboardManagedSweeps()
@@ -47,6 +63,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
   const [freq, setFreq] = useState('daily')
   const [hour, setHour] = useState(6)
   const [customCron, setCustomCron] = useState('')
+  const [recurrenceEveryDays, setRecurrenceEveryDays] = useState(14)
+  const [recurrenceStartDate, setRecurrenceStartDate] = useState('')
+  const [recurrenceTime, setRecurrenceTime] = useState('00:00')
   const [timezone, setTimezone] = useState('UTC')
   const [tzOther, setTzOther] = useState(false)
   const [tzOtherValue, setTzOtherValue] = useState('')
@@ -88,10 +107,17 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
   const loadScheduleIntoEditor = (nextSchedule: ApiSchedule | null) => {
     if (nextSchedule) {
-      const parsed = parsePreset(nextSchedule.preset ?? null, nextSchedule.cronExpr)
-      setFreq(parsed.freq)
-      setHour(parsed.hour)
-      setCustomCron(parsed.customCron)
+      if (nextSchedule.recurrence) {
+        setFreq('calendar')
+        setRecurrenceEveryDays(nextSchedule.recurrence.everyDays)
+        setRecurrenceStartDate(nextSchedule.recurrence.startDate)
+        setRecurrenceTime(nextSchedule.recurrence.time)
+      } else {
+        const parsed = parsePreset(nextSchedule.preset ?? null, nextSchedule.cronExpr)
+        setFreq(parsed.freq)
+        setHour(parsed.hour)
+        setCustomCron(parsed.customCron)
+      }
       const isKnownTz = (COMMON_TIMEZONES as readonly string[]).includes(nextSchedule.timezone)
       setTimezone(isKnownTz ? nextSchedule.timezone : 'Other')
       setTzOther(!isKnownTz)
@@ -100,6 +126,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       setFreq('daily')
       setHour(6)
       setCustomCron('')
+      setRecurrenceEveryDays(14)
+      setRecurrenceStartDate('')
+      setRecurrenceTime('00:00')
       setTimezone('UTC')
       setTzOther(false)
       setTzOtherValue('')
@@ -160,7 +189,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         timezone: effectiveTz,
         expectedUpdatedAt: editingVersion,
       }
-      if (freq === 'custom') body.cron = customCron.trim()
+      if (freq === 'calendar') {
+        body.recurrence = { everyDays: recurrenceEveryDays, startDate: recurrenceStartDate, time: recurrenceTime }
+      } else if (freq === 'custom') body.cron = customCron.trim()
       else body.preset = buildPreset(freq, hour)
       const result = await saveSchedule(projectName, body)
       setEditing(false)
@@ -168,7 +199,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       updateScheduleCache(result)
       addToast({
         title: 'Schedule saved',
-        detail: scheduleLabel(result.preset ?? null, result.cronExpr, result.timezone),
+        detail: result.recurrence ? calendarRecurrenceLabel(result.recurrence, result.timezone) : scheduleLabel(result.preset ?? null, result.cronExpr, result.timezone),
         tone: 'positive',
         dedupeKey: `schedule:${projectName}`,
         dedupeMode: 'replace',
@@ -201,13 +232,14 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         enabled: !latestSchedule.enabled,
         expectedUpdatedAt: editingScheduleVersion,
       }
-      if (latestSchedule.preset) body.preset = latestSchedule.preset
+      if (latestSchedule.recurrence) body.recurrence = latestSchedule.recurrence
+      else if (latestSchedule.preset) body.preset = latestSchedule.preset
       else body.cron = latestSchedule.cronExpr
       const nextSchedule = await saveSchedule(projectName, body)
       updateScheduleCache(nextSchedule)
       addToast({
         title: nextSchedule.enabled ? 'Schedule resumed' : 'Schedule paused',
-        detail: scheduleLabel(nextSchedule.preset ?? null, nextSchedule.cronExpr, nextSchedule.timezone),
+        detail: nextSchedule.recurrence ? calendarRecurrenceLabel(nextSchedule.recurrence, nextSchedule.timezone) : scheduleLabel(nextSchedule.preset ?? null, nextSchedule.cronExpr, nextSchedule.timezone),
         tone: 'positive',
         dedupeKey: `schedule:toggle:${projectName}`,
         dedupeMode: 'replace',
@@ -287,10 +319,12 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               {managedSweeps && <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
-              <p className="text-sm font-medium text-strong">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
-              <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
+              <p className="text-sm font-medium text-strong">{schedule.recurrence
+                ? calendarRecurrenceLabel(schedule.recurrence, schedule.timezone)
+                : scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
+              {!schedule.recurrence && <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>}
               {schedule.enabled && schedule.nextRunAt && (
-                <p className="text-xs text-muted">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
+                <p className="text-xs text-muted">Next run: {formatZonedTimestamp(schedule.nextRunAt, schedule.timezone)}</p>
               )}
               {schedule.lastRunAt && (
                 <p className="text-xs text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
@@ -330,6 +364,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               <label className="text-xs font-medium text-secondary">Frequency</label>
               <select
                 className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                aria-label="Frequency"
                 value={freq}
                 onChange={(e) => setFreq(e.target.value)}
               >
@@ -338,19 +373,21 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Time</label>
-              <select
-                className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
-                value={hour}
-                disabled={freq === 'twice-daily' || freq === 'custom'}
-                onChange={(e) => setHour(parseInt(e.target.value))}
-              >
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>{formatHour(i)}</option>
-                ))}
-              </select>
-            </div>
+            {freq !== 'calendar' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-secondary">Time</label>
+                <select
+                  className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
+                  value={hour}
+                  disabled={freq === 'twice-daily' || freq === 'custom'}
+                  onChange={(e) => setHour(parseInt(e.target.value))}
+                >
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <option key={i} value={i}>{formatHour(i)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           {freq === 'custom' && (
             <div className="space-y-1.5">
@@ -364,10 +401,28 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               />
             </div>
           )}
+          {freq === 'calendar' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-secondary">Repeat every</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Repeat every days" type="number" min="1" max="3650" value={recurrenceEveryDays} onChange={(e) => setRecurrenceEveryDays(Number(e.target.value))} />
+                <p className="text-xs text-muted">days</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-secondary">Start date</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Start date" type="date" value={recurrenceStartDate} onChange={(e) => setRecurrenceStartDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-secondary">Time</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Recurrence time" type="time" value={recurrenceTime} onChange={(e) => setRecurrenceTime(e.target.value)} />
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-secondary">Timezone</label>
             <select
               className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+              aria-label="Timezone"
               value={tzOther ? 'Other' : timezone}
               onChange={(e) => {
                 if (e.target.value === 'Other') { setTzOther(true); setTimezone('Other') }
@@ -395,7 +450,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             <Button
               type="button"
               size="sm"
-              disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || (freq === 'custom' && !customCron.trim())}
+              disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || (freq === 'custom' && !customCron.trim()) || (freq === 'calendar' && (!Number.isInteger(recurrenceEveryDays) || recurrenceEveryDays < 1 || recurrenceEveryDays > 3650 || !recurrenceStartDate || !recurrenceTime))}
               onClick={asyncHandler(handleSave)}
             >
               {saving ? 'Saving...' : 'Save schedule'}

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -577,5 +577,57 @@ describe('apply preserves traffic-sync schedules', () => {
       .get()
     expect(avRow).toBeTruthy()
     expect(avRow!.preset).toBe('weekly')
+  })
+})
+
+
+describe('native calendar schedule persistence', () => {
+  let harness: Harness
+  const recurrence = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-09T18:00:00Z'))
+    harness = await buildHarness()
+  })
+  afterEach(async () => { await teardown(harness); vi.useRealTimers() })
+
+  it('returns the anchored next time without a running scheduler and preserves recurrence through pause/resume', async () => {
+    const url = '/api/v1/projects/site-a/schedule'
+    const payload = { recurrence, timezone: 'America/New_York', providers: ['openai'], expectedUpdatedAt: null }
+    const created = await harness.app.inject({ method: 'PUT', url, payload })
+    expect(created.statusCode).toBe(201)
+    const schedule = created.json()
+    expect(schedule).toMatchObject({ recurrence, cronExpr: '', preset: null, nextRunAt: '2026-09-23T04:00:00.000Z' })
+    const listed = await harness.app.inject({ method: 'GET', url: '/api/v1/projects/site-a/schedules' })
+    expect(listed.json()).toEqual([schedule])
+    const paused = await harness.app.inject({ method: 'PUT', url, payload: { ...payload, enabled: false, expectedUpdatedAt: schedule.updatedAt } })
+    expect(paused.statusCode).toBe(200)
+    expect(paused.json()).toMatchObject({ recurrence, enabled: false, nextRunAt: null })
+    vi.setSystemTime(new Date('2026-10-25T18:00:00Z'))
+    const resumed = await harness.app.inject({ method: 'PUT', url, payload: { ...payload, expectedUpdatedAt: paused.json().updatedAt } })
+    expect(resumed.statusCode).toBe(200)
+    expect(resumed.json()).toMatchObject({ recurrence, nextRunAt: '2026-11-04T05:00:00.000Z' })
+    const stale = await harness.app.inject({ method: 'PUT', url, payload: { ...payload, expectedUpdatedAt: schedule.updatedAt } })
+    expect(stale.statusCode).toBe(409)
+  })
+
+  it('clears obsolete timing when switching between cron and calendar modes', async () => {
+    const url = '/api/v1/projects/site-a/schedule'
+    await harness.app.inject({ method: 'PUT', url, payload: { preset: 'daily' } })
+    const native = await harness.app.inject({ method: 'PUT', url, payload: { recurrence, timezone: 'America/New_York' } })
+    expect(native.json()).toMatchObject({ recurrence, cronExpr: '', preset: null })
+    const cron = await harness.app.inject({ method: 'PUT', url, payload: { preset: 'weekly' } })
+    expect(cron.json()).toMatchObject({ recurrence: null, preset: 'weekly' })
+    expect(cron.json().nextRunAt).not.toBe('2026-09-23T04:00:00.000Z')
+  })
+
+  it.each([
+    { recurrence: { ...recurrence, startDate: '2026-02-29' } },
+    { recurrence, timezone: 'Mars/Base' },
+    { recurrence, cron: '0 0 * * *' },
+  ])('rejects malformed recurrence without changing the saved schedule: %j', async (payload) => {
+    const response = await harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', payload })
+    expect(response.statusCode).toBe(400)
+    expect(harness.db.select().from(schedules).all()).toEqual([])
   })
 })

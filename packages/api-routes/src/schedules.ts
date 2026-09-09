@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { schedules, trafficSources } from '@ainyc/canonry-db'
 import {
   type ScheduleDto,
+  type CalendarRecurrence,
   type ProviderName,
   type SchedulableRunKind,
   SchedulableRunKinds,
@@ -17,7 +18,7 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
-import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
+import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 
 /**
  * Resolve the optional `?kind=` query into a SchedulableRunKind. Defaults to
@@ -60,7 +61,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   app.put<{
     Params: { name: string }
     Querystring: { kind?: string }
-    Body: { kind?: string; preset?: string; cron?: string; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; expectedUpdatedAt?: string | null }
+    Body: { kind?: string; preset?: string; cron?: string; recurrence?: CalendarRecurrence; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; expectedUpdatedAt?: string | null }
   }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -76,7 +77,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // Body kind takes precedence over the query string. Both default to
     // 'answer-visibility' so the legacy URL still works unchanged.
     const kind = parsedBody.data.kind ?? parseKindParam(request.query?.kind)
-    const { preset, cron, timezone, providers, enabled, sourceId, expectedUpdatedAt } = parsedBody.data
+    const { preset, cron, recurrence, timezone, providers, enabled, sourceId, expectedUpdatedAt } = parsedBody.data
 
     // Per-kind invariants
     if (kind === SchedulableRunKinds['traffic-sync']) {
@@ -121,7 +122,9 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     let cronExpr: string
-    if (preset) {
+    if (recurrence) {
+      cronExpr = ''
+    } else if (preset) {
       try {
         cronExpr = resolvePreset(preset)
       } catch (err: unknown) {
@@ -136,6 +139,10 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     const enabledBool = enabled !== false
+    const nextRunAt = enabledBool ? nextRunFromSchedule({ cronExpr, timezone, recurrence }) : null
+    if (recurrence && enabledBool && !nextRunAt) {
+      throw validationError('Calendar recurrence has no valid future occurrence')
+    }
     const mutation = app.db.transaction((tx) => {
       const existing = tx
         .select()
@@ -151,6 +158,8 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       const scheduleId = existing?.id ?? crypto.randomUUID()
       const values = {
         cronExpr,
+        recurrence: recurrence ?? null,
+        nextRunAt,
         preset: preset ?? null,
         timezone,
         providers: (providers ?? []) as ProviderName[],
@@ -192,7 +201,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         actor: 'api',
         action: existing ? 'schedule.updated' : 'schedule.created',
         entityType: 'schedule',
-        diff: { kind, cronExpr, preset, timezone, providers, sourceId },
+        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId },
       })
 
       return {
@@ -294,6 +303,7 @@ function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
     projectId: row.projectId,
     kind: row.kind as SchedulableRunKind,
     cronExpr: row.cronExpr,
+    recurrence: row.recurrence,
     preset: row.preset,
     timezone: row.timezone,
     enabled: row.enabled,

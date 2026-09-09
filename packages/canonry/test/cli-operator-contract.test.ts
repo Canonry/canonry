@@ -427,7 +427,7 @@ describe('operator CLI contract', () => {
     expect(removeParsed.removed).toBe(true)
   })
 
-  it('prints a JSON usage error for schedule set without preset or cron', async () => {
+  it('prints a JSON usage error for schedule set without a timing option', async () => {
     const result = await invokeCli(['schedule', 'set', 'test-proj', '--format', 'json'])
 
     expect(result.exitCode).toBe(1)
@@ -435,9 +435,9 @@ describe('operator CLI contract', () => {
       error: { code: string; message: string; details: { command: string; required: string[] } }
     }
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
-    expect(parsed.error.message).toBe('schedule preset or cron is required')
+    expect(parsed.error.message).toBe('exactly one of schedule preset, cron, or recurrence is required')
     expect(parsed.error.details.command).toBe('schedule.set')
-    expect(parsed.error.details.required).toEqual(['preset | cron'])
+    expect(parsed.error.details.required).toEqual(['preset | cron | recurrence'])
   })
 
   it('prints a JSON usage error for project add-location when required flags are missing', async () => {

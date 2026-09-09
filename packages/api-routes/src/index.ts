@@ -756,7 +756,7 @@ export type { AuthPrincipal } from './auth.js'
 export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'
-export { nextRunFromCron } from './schedule-utils.js'
+export { nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from './schedule-utils.js'
 export {
   executeDiscovery,
   classifyProbeBucket,

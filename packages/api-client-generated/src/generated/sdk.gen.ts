@@ -2540,6 +2540,8 @@ export const getApiV1ProjectsByNameSchedule = <ThrowOnError extends boolean = fa
 
 /**
  * Create or update a schedule
+ *
+ * Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes.
  */
 export const putApiV1ProjectsByNameSchedule = <ThrowOnError extends boolean = false>(options: Options<PutApiV1ProjectsByNameScheduleData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1ProjectsByNameScheduleResponses, PutApiV1ProjectsByNameScheduleErrors, ThrowOnError>({

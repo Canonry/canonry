@@ -3,7 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, gscDailyTotals, migrate } from '@ainyc/canonry-db'
+import { createClient, gscDailyTotals, migrate, projects, schedules } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {
@@ -64,7 +65,7 @@ test('project export includes schedule and notifications for round-tripping', as
     const body = JSON.parse(exportRes.body) as {
       spec: {
         ownedDomains: string[]
-        schedule?: { preset?: string; cron?: string; timezone: string; providers: string[] }
+        schedule?: { preset?: string; cron?: string; timezone: string; providers: string[]; enabled: boolean }
         notifications: Array<{ channel: string; url: string; events: string[] }>
       }
     }
@@ -74,12 +75,79 @@ test('project export includes schedule and notifications for round-tripping', as
       preset: 'daily',
       timezone: 'UTC',
       providers: ['gemini'],
+      enabled: true,
     })
     expect(body.spec.notifications).toEqual([{
       channel: 'webhook',
       url: 'https://8.8.8.8/hook',
       events: ['run.completed'],
     }])
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('project recurrence exports and applies without resuming a paused schedule', async () => {
+  const { app, db, tmpDir } = buildApp()
+  await app.ready()
+
+  try {
+    const applied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'recurring' },
+        spec: {
+          displayName: 'Recurring',
+          canonicalDomain: 'recurring.example',
+          country: 'US',
+          language: 'en',
+          schedule: {
+            recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' },
+            timezone: 'America/New_York',
+            enabled: false,
+          },
+        },
+      },
+    })
+    expect(applied.statusCode).toBe(200)
+
+    const project = db.select().from(projects).where(eq(projects.name, 'recurring')).get()!
+    const row = db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()!
+    expect(row.cronExpr).toBe('')
+    expect(row.recurrence).toEqual({ everyDays: 14, startDate: '2026-09-23', time: '00:00' })
+    expect(row.enabled).toBe(false)
+    expect(row.nextRunAt).toBeNull()
+
+    // Re-applying declarative timing without enabled must retain a deliberate pause.
+    const reapplied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'recurring' },
+        spec: {
+          displayName: 'Recurring', canonicalDomain: 'recurring.example', country: 'US', language: 'en',
+          schedule: { recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' }, timezone: 'America/New_York' },
+        },
+      },
+    })
+    expect(reapplied.statusCode).toBe(200)
+    const reappliedRow = db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()!
+    expect(reappliedRow).toMatchObject({ enabled: false, nextRunAt: null })
+
+    const exported = await app.inject({ method: 'GET', url: '/api/v1/projects/recurring/export' })
+    expect(exported.statusCode).toBe(200)
+    expect(exported.json().spec.schedule).toEqual({
+      recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' },
+      timezone: 'America/New_York',
+      providers: [],
+      enabled: false,
+    })
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
