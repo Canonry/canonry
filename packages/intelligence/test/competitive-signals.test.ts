@@ -31,6 +31,14 @@ describe('compileCompetitiveSignalResolver', () => {
     })
   })
 
+  it('keeps supplied prose domains equivalent to ordinary extraction', () => {
+    const answerText = 'Read https://www.rival.com/review before deciding.'
+    const ordinary = resolver.resolve({ answerText })
+    const reused = resolver.resolve({ answerText, answerDomains: ['www.rival.com'] })
+
+    expect(reused).toEqual(ordinary)
+  })
+
   it('recognizes an exact short domain without treating its generic label as identity', () => {
     const short = compileCompetitiveSignalResolver(['ai.com'])
 

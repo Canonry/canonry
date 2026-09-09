@@ -120,6 +120,35 @@ export interface BrandAliasMatcher {
 }
 
 /**
+ * One answer's normalized representation, reusable across brand matchers.
+ *
+ * Competitor reporting checks the same answer against several independently
+ * compiled identities. Keep the normalization and word walk with the answer,
+ * while each matcher retains its own exact alias set.
+ */
+export interface PreparedBrandMatchText {
+  readonly normalized: string
+  readonly stripped: string
+}
+
+const wordsByPreparedText = new WeakMap<PreparedBrandMatchText, string[]>()
+
+/** Normalize an answer once before checking it against several matchers. */
+export function prepareBrandMatchText(text: string | null | undefined): PreparedBrandMatchText | null {
+  if (!text) return null
+  const normalized = normalizeForMatch(text)
+  return { normalized, stripped: normalized.replace(NON_WORD, '') }
+}
+
+function wordsOfPreparedText(prepared: PreparedBrandMatchText): string[] {
+  const cached = wordsByPreparedText.get(prepared)
+  if (cached) return cached
+  const words = wordsOfNormalized(prepared.normalized)
+  wordsByPreparedText.set(prepared, words)
+  return words
+}
+
+/**
  * Compile approved aliases into a reusable matcher.
  *
  * Exposed rather than hidden because the shape of the work is one alias list
@@ -160,22 +189,22 @@ export function compileBrandAliases(aliases: readonly string[]): BrandAliasMatch
  */
 export function matcherMatchesText(
   matcher: BrandAliasMatcher,
-  text: string | null | undefined,
+  text: string | PreparedBrandMatchText | null | undefined,
 ): boolean {
   if (!text || matcher.keys.size === 0) return false
-  const normalized = normalizeForMatch(text)
+  const prepared = typeof text === 'string' ? prepareBrandMatchText(text) : text
+  if (!prepared) return false
 
-  const stripped = normalized.replace(NON_WORD, '')
   let possible = false
   for (const key of matcher.keys) {
-    if (stripped.includes(key)) {
+    if (prepared.stripped.includes(key)) {
       possible = true
       break
     }
   }
   if (!possible) return false
 
-  const words = wordsOfNormalized(normalized)
+  const words = wordsOfPreparedText(prepared)
   for (let start = 0; start < words.length; start++) {
     let candidate = ''
     for (let end = start; end < words.length; end++) {
@@ -196,16 +225,16 @@ export function matcherMatchesText(
  */
 export function matchedAliasKeys(
   matcher: BrandAliasMatcher,
-  text: string | null | undefined,
+  text: string | PreparedBrandMatchText | null | undefined,
 ): Set<string> {
   const found = new Set<string>()
   if (!text || matcher.keys.size === 0) return found
-  const normalized = normalizeForMatch(text)
-  const stripped = normalized.replace(NON_WORD, '')
-  const reachable = [...matcher.keys].filter(key => stripped.includes(key))
+  const prepared = typeof text === 'string' ? prepareBrandMatchText(text) : text
+  if (!prepared) return found
+  const reachable = [...matcher.keys].filter(key => prepared.stripped.includes(key))
   if (reachable.length === 0) return found
 
-  const words = wordsOfNormalized(normalized)
+  const words = wordsOfPreparedText(prepared)
   for (let start = 0; start < words.length; start++) {
     let candidate = ''
     for (let end = start; end < words.length; end++) {

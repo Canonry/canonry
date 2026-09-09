@@ -36,12 +36,9 @@ export function Sparkline({ points, tone }: { points: number[]; tone: MetricTone
   const plotHeight = innerHeight - GUIDE_GAP
   const xOf = (index: number): number => padding + (index / Math.max(points.length - 1, 1)) * innerWidth
 
-  // Below the meaningful-sample floor the line is still DRAWN — a portfolio row
-  // without a chart loses the shape a reader scans for — but drawn dashed, so
-  // the sample size is visible in the mark itself rather than only in a caption
-  // nobody reads. Suppressing it entirely was the first attempt and it removed
-  // the graph, which is the wrong trade: the honest fix for an over-dramatic
-  // line is scaling it truthfully, not deleting it.
+  // Below the meaningful-sample floor the graph stays visible. A single
+  // baseline is a point; otherwise the line is dashed, so a reader does not
+  // mistake the first measurement for a trend.
   const provisional = isTrendBaseline(points)
 
   const min = Math.min(...points)
@@ -50,9 +47,10 @@ export function Sparkline({ points, tone }: { points: number[]; tone: MetricTone
   // of the box rather than being stretched across it.
   const span = Math.max(max - min, MIN_SPAN)
   const low = (max + min) / 2 - span / 2
-  const coordinates = points
-    .map((point, index) => `${xOf(index)},${padding + (1 - (point - low) / span) * plotHeight}`)
-    .join(' ')
+  const coordinates = points.map((point, index) => ({
+    x: xOf(index),
+    y: padding + (1 - (point - low) / span) * plotHeight,
+  }))
 
   return (
     <svg
@@ -66,7 +64,20 @@ export function Sparkline({ points, tone }: { points: number[]; tone: MetricTone
         </clipPath>
       </defs>
       <line className="sparkline-guide" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
-      <polyline clipPath={`url(#${clipId})`} points={coordinates} vectorEffect="non-scaling-stroke" />
+      {coordinates.length === 1 ? (
+        <circle
+          className="sparkline-point"
+          cx={coordinates[0]!.x}
+          cy={coordinates[0]!.y}
+          r="3"
+        />
+      ) : (
+        <polyline
+          clipPath={`url(#${clipId})`}
+          points={coordinates.map(point => `${point.x},${point.y}`).join(' ')}
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   )
 }

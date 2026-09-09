@@ -47,6 +47,7 @@ import {
   type RunHistoryPointDto,
   type ScoreSummaryDto,
   escapeLikePattern,
+  extractDomainsFromText,
   normalizeQueryText,
   validationError,
 } from '@ainyc/canonry-contracts'
@@ -226,11 +227,21 @@ export async function compositeRoutes(app: FastifyInstance) {
 
     // Branded and non-brand never share a denominator: `buildMentionShare`
     // headlines the non-brand class and keeps branded beside it.
+    // The overview reads each stored answer for both current project identity
+    // and competitor signals. Keep prose-domain parsing local to this request
+    // and share it across those independent readers.
+    const answerDomainsByText = new Map<string, readonly string[]>()
+    for (const snapshot of trackedLatest) {
+      if (snapshot.answerText && !answerDomainsByText.has(snapshot.answerText)) {
+        answerDomainsByText.set(snapshot.answerText, extractDomainsFromText(snapshot.answerText))
+      }
+    }
     const mentionShareInputs = buildMentionShareInputs({
       project,
       competitorDomains: competitorRows.map(c => c.domain),
       snapshots: trackedLatest,
       queryTextById: queryLookup.byId,
+      answerDomainsByText,
     })
     const competitiveSignalResolver = compileCompetitiveSignalResolver(
       competitorRows.map(c => c.domain),
@@ -241,6 +252,7 @@ export async function compositeRoutes(app: FastifyInstance) {
         citedDomains: snapshot.citedDomains,
         groundingSources: snapshot.groundingSources,
         answerText: snapshot.answerText,
+        answerDomains: snapshot.answerText ? answerDomainsByText.get(snapshot.answerText) : undefined,
       }),
     }))
 

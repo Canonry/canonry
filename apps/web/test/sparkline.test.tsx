@@ -18,6 +18,16 @@ function pointsOf(html: string): Array<{ x: number; y: number }> {
 }
 
 describe('Sparkline', () => {
+  it('renders one baseline measurement as a visible point, not a trend line', () => {
+    const html = renderToStaticMarkup(<Sparkline points={[73]} tone="positive" />)
+
+    expect(html).toContain('sparkline-provisional')
+    expect(html).toContain('<circle')
+    expect(html).toContain('class="sparkline-point"')
+    expect(html).not.toMatch(/<circle[^>]*clip-path=/)
+    expect(html).not.toContain('<polyline')
+  })
+
   it('still draws the line below the sample floor, but marks it provisional', () => {
     // The real series that prompted this: three runs, 11 of 16 queries mentioned
     // becoming 10. Suppressing the line entirely was the first attempt and it
