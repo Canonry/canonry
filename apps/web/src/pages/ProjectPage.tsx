@@ -3031,11 +3031,20 @@ function ProjectPageContent({
           />)}
           {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
             <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
-            <OverviewSignals
-              insights={model.insights}
-              suggestedQueries={model.suggestedQueries}
-              onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
-            />
+            {overviewLoading ? (
+              <p role="status" className="text-sm text-secondary">Loading project signals…</p>
+            ) : overviewError ? (
+              <div role="alert" className="text-sm text-secondary">
+                <p>Could not load project signals.</p>
+                <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
+              </div>
+            ) : (
+              <OverviewSignals
+                insights={model.insights}
+                suggestedQueries={model.suggestedQueries}
+                onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+              />
+            )}
           </details> : null}
           {competitorLandscapeReadEnabled ? (
             <details className="page-section-divider">
