@@ -1900,6 +1900,7 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
       return jsonResponse(updatedProject)
     }
     if (path.endsWith('/projects')) return jsonResponse([updatedProject])
+    if (path.endsWith('/queries')) return jsonResponse([{ id: 'tracked-query', query: 'places to rent' }])
     if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
     if (path.endsWith('/schedules') || path.endsWith('/notifications')) return jsonResponse([])

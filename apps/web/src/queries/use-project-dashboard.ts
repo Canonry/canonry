@@ -1,17 +1,11 @@
 import { useCallback, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fetchQueries,
-  fetchCompetitors,
-  fetchGscCoverage,
   fetchTimeline,
   fetchRunDetail,
-  fetchBingCoverage,
-  fetchConnectedBingCoverage,
-  fetchInsights,
   fetchProjectOverview,
   heyClient,
-  isEmbed,
 } from '../api.js'
 import {
   getApiV1ProjectsByNameOptions,
@@ -26,22 +20,19 @@ import { competitorEvidenceRevision } from './competitor-landscape-refresh.js'
 
 const DASHBOARD_TIMELINE_RUN_LIMIT = 20
 
-/**
- * Heavy dashboard hook scoped to a single project. Fetches everything
- * `ProjectPage` needs to render the full command center: project metadata,
- * runs, timeline, latest + previous run details (for evidence + diffs),
- * GSC / Bing coverage, DB-backed insights, and the server overview
- * composite.
- *
- * Pairs with `useDashboardOverview`, which is the slim portfolio-shaped
- * counterpart used by every other page. The split fixes the per-project
- * fan-out tax that `useDashboard` paid on every dashboard mount across
- * all projects regardless of which one the user navigated to.
- *
- * Cost: 9 endpoints for the requested project only — never fans out
- * across other projects.
- */
-export function useProjectDashboard(projectName: string | null | undefined) {
+interface ProjectDashboardOptions {
+  /** Summary metrics are only consumed by AI Visibility. */
+  overview?: boolean
+  /** Full answer history is needed by Simple evidence and the answer drawer. */
+  evidence?: boolean
+}
+
+/** Project identity loads independently of optional summary and evidence reads. */
+export function useProjectDashboard(
+  projectName: string | null | undefined,
+  options: ProjectDashboardOptions = {},
+) {
+  const queryClient = useQueryClient()
   // First-paint / SSR fallback: when the DashboardProvider has injected a
   // pre-built fixture (used by tests and the SSR shell), prefer the
   // matching `ProjectCommandCenterVm` from there until the per-project
@@ -57,7 +48,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     ) ?? null
   }, [contextDashboard, projectName])
 
-  // The three project-page queries below all override the global
+  // The active project-page queries below override the global
   // `refetchOnWindowFocus: false` default. Rationale: CLI-driven
   // mutations (`cnry query add`, `cnry competitor add`, `cnry project
   // create`, etc.) bypass React Query entirely — the dashboard's cache
@@ -106,7 +97,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
   // Mirror the multi-location run-grouping logic from `useDashboard`:
   // pick all sibling runs with the same `createdAt` as the latest, so
   // every location's snapshot lands in `latestRunDetails`.
-  const { latestRunIds, previousRunIds, latestRunIdsKey, latestVisibilityRevision } = useMemo(() => {
+  const { latestRunIds, latestRunIdsKey, latestVisibilityRevision } = useMemo(() => {
     const completed = projectRuns
       .filter(r =>
         (r.status === 'completed' || r.status === 'partial')
@@ -117,13 +108,8 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     const latestIds = latestCreatedAt
       ? completed.filter(r => r.createdAt === latestCreatedAt).map(r => r.id)
       : []
-    const previousCreatedAt = completed.find(r => r.createdAt !== latestCreatedAt)?.createdAt ?? null
-    const previousIds = previousCreatedAt
-      ? completed.filter(r => r.createdAt === previousCreatedAt).map(r => r.id)
-      : []
     return {
       latestRunIds: latestIds,
-      previousRunIds: previousIds,
       latestRunIdsKey: [...latestIds].sort().join(','),
       // The trend response depends on the same completed logical sweep as the
       // evidence/dashboard detail. Include both timestamp and sibling ids so a
@@ -135,83 +121,80 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     }
   }, [projectRuns])
 
-  const detailQuery = useQuery({
-    queryKey: ['project-dashboard-full', project?.id ?? null, latestRunIdsKey || 'none'] as const,
-    queryFn: async (): Promise<ProjectData | null> => {
-      if (!project || !projectName) return null
-      const [qs, comps, timeline, latestRunDetails, previousRunDetails, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
-        fetchQueries(projectName).catch(() => []),
-        fetchCompetitors(projectName).catch(() => []),
-        fetchTimeline(projectName, undefined, DASHBOARD_TIMELINE_RUN_LIMIT).catch(() => []),
-        latestRunIds.length
-          ? Promise.all(latestRunIds.map(id => fetchRunDetail(id).catch(() => null)))
-              .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
-          : Promise.resolve([]),
-        previousRunIds.length
-          ? Promise.all(previousRunIds.map(id => fetchRunDetail(id).catch(() => null)))
-              .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
-          : Promise.resolve([]),
-        fetchGscCoverage(projectName).catch(() => null),
-        (isEmbed() ? fetchBingCoverage(projectName) : fetchConnectedBingCoverage(projectName)).catch(() => null),
-        fetchInsights(projectName).catch(() => null),
-        fetchProjectOverview(projectName).catch(() => null),
-      ])
-      return {
-        project,
-        runs: projectRuns,
-        queries: qs,
-        competitors: comps,
-        timeline,
-        latestRunDetails,
-        previousRunDetails,
-        gscCoverage,
-        bingCoverage,
-        dbInsights,
-        overview,
-      }
-    },
-    enabled: !!project && !!projectName && runsQuery.isSuccess,
+  const ready = !!project && !!projectName && runsQuery.isSuccess
+  // Keep the shared prefix so query publication, identity edits, and run
+  // completion invalidate both projections without refetching inactive tabs.
+  const overviewQuery = useQuery({
+    queryKey: ['project-dashboard-full', project?.id ?? null, latestRunIdsKey || 'none', 'overview'] as const,
+    queryFn: async () => ({ project: project!, overview: await fetchProjectOverview(projectName!) }),
+    enabled: ready && options.overview === true,
     staleTime: STATIC_VISIBILITY_STALE_MS,
     refetchOnWindowFocus: 'always',
-    // This is a nine-endpoint fan-out, including evidence snapshots and
-    // integration summaries. Refetch on focus and when the latest run id
-    // changes; do not poll the full historical payload on a timer.
+  })
+  const evidenceQuery = useQuery({
+    queryKey: ['project-dashboard-full', project?.id ?? null, latestRunIdsKey || 'none', 'evidence'] as const,
+    queryFn: async () => {
+      const [queries, timeline, latestRunDetails] = await Promise.all([
+        fetchQueries(projectName!),
+        fetchTimeline(projectName!, undefined, DASHBOARD_TIMELINE_RUN_LIMIT),
+        Promise.all(latestRunIds.map(id => fetchRunDetail(id))),
+      ])
+      return { project: project!, queries, timeline, latestRunDetails }
+    },
+    enabled: ready && options.evidence === true,
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+    refetchOnWindowFocus: 'always',
   })
 
   const commandCenter = useMemo<ProjectCommandCenterVm | null>(() => {
-    if (detailQuery.data) {
-      // Re-project runs through the fresh runsQuery so queued/running runs
-      // that started after the detail query cached still surface in badges.
-      return buildProjectCommandCenter({
-        ...detailQuery.data,
-        runs: projectRuns,
-      })
+    if (!project || !runsQuery.data) return initialCommandCenter
+    const evidence = options.evidence ? evidenceQuery.data : undefined
+    const data: ProjectData = {
+      project,
+      runs: projectRuns,
+      queries: evidence?.queries ?? [],
+      timeline: evidence?.timeline ?? [],
+      latestRunDetails: evidence?.latestRunDetails ?? [],
+      previousRunDetails: [],
+      competitors: [],
+      overview: options.overview ? overviewQuery.data?.overview ?? null : null,
     }
-    // SSR / test fallback (see initialCommandCenter rationale above).
-    if (initialCommandCenter) return initialCommandCenter
-    return null
-  }, [detailQuery.data, projectRuns, initialCommandCenter])
+    const built = buildProjectCommandCenter(data)
+    // Keep injected first-paint metrics while only project metadata refreshes.
+    // A settings save must not turn a known baseline into an empty shell.
+    if (initialCommandCenter && !(options.overview && overviewQuery.data)) {
+      return {
+        ...initialCommandCenter,
+        project: built.project,
+        recentRuns: runsQuery.data ? built.recentRuns : initialCommandCenter.recentRuns,
+        visibilityEvidence: evidence ? built.visibilityEvidence : initialCommandCenter.visibilityEvidence,
+      }
+    }
+    return built
+  }, [project, projectRuns, evidenceQuery.data, overviewQuery.data, initialCommandCenter, options.evidence, options.overview, runsQuery.data])
 
   const refetch = useCallback(async () => {
     await Promise.all([
       projectQuery.refetch(),
       runsQuery.refetch(),
-      detailQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['project-dashboard-full', project?.id ?? null] }),
     ])
-  }, [projectQuery.refetch, runsQuery.refetch, detailQuery.refetch])
+  }, [projectQuery.refetch, runsQuery.refetch, queryClient, project?.id])
 
-  // Once we have a renderable commandCenter — from either the live query
-  // or the SSR fixture — stop reporting `isLoading`. Background refetches
-  // (runs polling, etc.) shouldn't put the page back into the loading
-  // skeleton state.
-  const isLoading = !commandCenter
-    && (projectQuery.isLoading || runsQuery.isLoading || detailQuery.isLoading)
+  const isError = projectQuery.isError || runsQuery.isError
+  const isLoading = !initialCommandCenter && (projectQuery.isLoading || runsQuery.isLoading)
+  const overviewLoading = !!projectName && options.overview === true && !initialCommandCenter && !isError && overviewQuery.isPending
+  const evidenceLoading = !!projectName && options.evidence === true && !initialCommandCenter && !isError && evidenceQuery.isPending
 
   return {
     commandCenter,
     project,
     isLoading,
-    isError: projectQuery.isError || runsQuery.isError || detailQuery.isError,
+    isError,
+    overviewLoading,
+    overviewError: options.overview === true && overviewQuery.isError && !overviewQuery.data,
+    evidenceLoading,
+    evidenceError: options.evidence === true && evidenceQuery.isError && !evidenceQuery.data,
     latestVisibilityRevision,
     competitorHistoryRevision: competitorEvidenceRevision(projectRuns),
     refetch,

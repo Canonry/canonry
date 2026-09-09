@@ -17,36 +17,18 @@ import { useAccount } from '../contexts/account-context.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 
 /**
- * Slim dashboard hook for the portfolio surface (overview, projects list,
- * runs, setup, settings, sidebar). Fetches the absolute minimum needed to
- * render multi-project widgets: one `/overview` per project instead of the
- * 9-endpoint fan-out the project page needs.
+ * Portfolio pages load one summary per project. The application shell opts
+ * out with `includeOverviews: false` and builds navigation from project/run
+ * metadata, using cached summaries when available. Project tabs own their
+ * analytics and answer evidence through `useProjectDashboard`.
  *
- * Replaces `useDashboard` for every consumer except ProjectPage, which
- * needs the heavy fan-out (timeline, latestRunDetails, GSC/Bing coverage,
- * DB insights) to render evidence tables and the full command center.
- *
- * The per-project queryFn populates only the `overview` field on
- * `ProjectData`. `buildDashboard` already tolerates the rest being empty —
- * the resulting `ProjectCommandCenterVm` has empty `visibilityEvidence`
- * (the timeline-derived table that only ProjectPage renders), but
- * `mentionSummary`, `recentRuns`, `competitors`, `providerScores`, and
- * everything else the overview surfaces are populated from `/overview`
- * alone.
- *
- * Cost comparison on a 5-project portfolio:
- *   - `useDashboard`         → 1 + 1 + 1 + (9 × 5)  = 48 requests on cold load
- *   - `useDashboardOverview` → 1 + 1 + 1 + (1 × 5)  =  8 requests on cold load
- *
- * Side effect: client-side attention items derived from `visibilityEvidence`
- * (lost-citation alerts) won't fire on the overview because evidence is
- * empty. Server-side `overview.attentionItems` (the canonical source per
- * AGENTS.md "no UI-only calculations") continues to surface every real
- * signal. The duplicated client derivation in `buildAttentionItems` is
- * tracked for removal in a follow-up.
+ * Overview attention items come from the server summary; this hook does not
+ * fetch answer bodies or derive evidence-based alerts in the browser.
  */
 interface DashboardOverviewOptions {
   includeSettings?: boolean
+  /** Keep project/run metadata available without starting per-project `/overview` reads. */
+  includeOverviews?: boolean
   /** Setup owns project creation and invalidates this query explicitly. */
   pauseProjectPolling?: boolean
 }
@@ -55,6 +37,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const contextDashboard = useInitialDashboard()
   const effectiveInitial = initialDashboard ?? contextDashboard?.dashboard ?? null
   const includeSettings = options.includeSettings ?? true
+  const includeOverviews = options.includeOverviews ?? true
   const pauseProjectPolling = options.pauseProjectPolling ?? false
   const { isAdmin } = useAccount()
 
@@ -99,10 +82,8 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const projects = projectsQuery.data ?? []
   const allRuns = runsQuery.data ?? []
 
-  // Per-project: ONLY /overview. The other 8 endpoints `useDashboard`
-  // fetches (timeline, queries, competitors, latestRunDetails × N,
-  // previousRunDetails × N, gscCoverage, bingCoverage, dbInsights) are
-  // only consumed by ProjectPage and live in `useProjectDashboard`.
+  // Optional summaries are shared with portfolio-page consumers. Disabled
+  // shell observers can use their cached results without starting requests.
   const projectOverviewQueries = useQueries({
     queries: projects.map((project) => {
       const projectRuns = allRuns.filter(r => r.projectId === project.id)
@@ -134,34 +115,51 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
             overview,
           }
         },
-        enabled: !effectiveInitial && projectsQuery.isSuccess && runsQuery.isSuccess,
+        enabled: !effectiveInitial && includeOverviews && projectsQuery.isSuccess && runsQuery.isSuccess,
         staleTime: STATIC_VISIBILITY_STALE_MS,
       }
     }),
   })
 
-  const allProjectOverviewsLoaded = projectOverviewQueries.every(q => q.isSuccess)
+  const allProjectOverviewsLoaded = !includeOverviews || projectOverviewQueries.every(q => q.isSuccess)
 
   const dashboard = useMemo(() => {
     if (effectiveInitial) return effectiveInitial
     if (!projectsQuery.data || !runsQuery.data) return null
     if (projects.length > 0 && !allProjectOverviewsLoaded) return null
 
-    const projectDataList: ProjectData[] = projectOverviewQueries
-      .map((q) => {
-        if (!q.data) return null
-        // Re-project runs through the fresh allRuns array so in-progress
-        // sweeps (queued / running, started after the overview was cached)
-        // surface in the run badges. Same pattern as `useDashboard`.
+    const projectDataList: ProjectData[] = includeOverviews
+      ? projectOverviewQueries
+        .map((q) => {
+          if (!q.data) return null
+          // Re-project runs through the fresh allRuns array so in-progress
+          // sweeps (queued / running, started after the overview was cached)
+          // surface in the run badges. Same pattern as `useDashboard`.
+          return {
+            ...q.data,
+            runs: allRuns.filter((r) => r.projectId === q.data!.project.id),
+          }
+        })
+        .filter((d): d is ProjectData => d != null)
+      : projects.map((project, index) => {
+        const cached = projectOverviewQueries[index]?.data
         return {
-          ...q.data,
-          runs: allRuns.filter((r) => r.projectId === q.data!.project.id),
+          project,
+          runs: allRuns.filter((r) => r.projectId === project.id),
+          queries: [],
+          competitors: [],
+          timeline: [],
+          latestRunDetails: [],
+          previousRunDetails: [],
+          gscCoverage: null,
+          bingCoverage: null,
+          dbInsights: null,
+          overview: cached?.overview ?? null,
         }
       })
-      .filter((d): d is ProjectData => d != null)
 
     return buildDashboard(projectDataList, settingsQuery.data ?? null)
-  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectOverviewsLoaded, projectOverviewQueries, projects.length, allRuns])
+  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, includeOverviews, allProjectOverviewsLoaded, projectOverviewQueries, projects, allRuns])
 
   const isError = !effectiveInitial && (projectsQuery.isError || runsQuery.isError)
   const isLoading = !effectiveInitial && !dashboard && !isError
@@ -170,7 +168,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     const queries: Array<Promise<unknown>> = [
       projectsQuery.refetch(),
       runsQuery.refetch(),
-      ...projectOverviewQueries.map(query => query.refetch()),
+      ...(includeOverviews ? projectOverviewQueries.map(query => query.refetch()) : []),
     ]
     if (includeSettings) {
       queries.push(settingsQuery.refetch())
@@ -178,6 +176,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     await Promise.all(queries)
   }, [
     includeSettings,
+    includeOverviews,
     projectOverviewQueries,
     projectsQuery.refetch,
     runsQuery.refetch,

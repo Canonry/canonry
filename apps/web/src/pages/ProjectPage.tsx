@@ -113,6 +113,7 @@ import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
+import { STATIC_VISIBILITY_STALE_MS } from '../queries/query-client.js'
 import { useCompetitorLandscapeRefresh } from '../queries/competitor-landscape-refresh.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
@@ -1440,13 +1441,18 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   const lookupProjectName = nameFromContext
     ?? projectsListQuery.data?.find(p => p.name === routeIdentifier || p.id === routeIdentifier)?.name
     ?? null
+  const embed = getEmbedConfig()
+  const resolvedTab = resolveEmbedProjectTab(props.tab, embed ? filterEmbedProjectTabs(embed.projectTabs) : undefined)
   const {
     commandCenter: model,
     isLoading: dashboardLoading,
+    overviewLoading,
+    overviewError,
+    isError: dashboardError,
     latestVisibilityRevision,
     competitorHistoryRevision,
     refetch,
-  } = useProjectDashboard(lookupProjectName)
+  } = useProjectDashboard(lookupProjectName, { overview: resolvedTab === 'overview' })
   const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
 
   // Not-found state: both context and the projects-list query resolved
@@ -1470,6 +1476,13 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
         </Card>
       </div>
     )
+  }
+
+  if (!model && (dashboardError || projectsListQuery.isError)) {
+    return <div className="page-container" role="alert">
+      <p>Could not load this project.</p>
+      <Button type="button" variant="outline" onClick={() => { void Promise.all([projectsListQuery.refetch(), refetch()]) }}>Retry</Button>
+    </div>
   }
 
   if (!model || isLoading) {
@@ -1504,6 +1517,8 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     refetch={refetch}
     latestVisibilityRevision={latestVisibilityRevision}
     competitorHistoryRevision={competitorHistoryRevision}
+    overviewLoading={overviewLoading}
+    overviewError={overviewError}
     {...props}
   />
 }
@@ -1718,12 +1733,16 @@ function ProjectPageContent({
   refetch,
   latestVisibilityRevision,
   competitorHistoryRevision,
+  overviewLoading,
+  overviewError,
 }: {
   tab: ProjectPageTab
   model: ProjectCommandCenterVm
   refetch: () => Promise<void>
   latestVisibilityRevision: string
   competitorHistoryRevision: string
+  overviewLoading: boolean
+  overviewError: boolean
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -1856,7 +1875,6 @@ function ProjectPageContent({
   }, [navigate])
   const [hasExpandedAdvancedProperty, setHasExpandedAdvancedProperty] = useState(false)
 
-  const visibilityEvidence = model?.visibilityEvidence ?? []
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
   const portfolioQueriesQuery = useQuery({
@@ -2004,6 +2022,18 @@ function ProjectPageContent({
     measurementSetupQuery.data === undefined
     && activeMeasurementPlanQuery.data === undefined
     && (activeMeasurementPlanQuery.isLoading || measurementSetupQuery.isLoading)
+  const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
+  const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
+  const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
+  // Other tabs still expose the admin sweep control. Its readiness needs the
+  // tracked basket, but never answer bodies or historical run detail.
+  const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
+  const headerQueriesQuery = useQuery({
+    ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: needsHeaderQueries,
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+    refetchOnWindowFocus: 'always',
+  })
   // Advanced competitor reads are explicit. A market keeps its frozen market
   // identities AND the project pins that the stored-evidence API unions into
   // its denominator. All markets is a separate raw-evidence aggregate, never
@@ -2207,16 +2237,17 @@ function ProjectPageContent({
     () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
     [visibilityEvidence],
   )
-  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0
+  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0 || (headerQueriesQuery.data?.length ?? 0) > 0
   const hasMeasurementPlanQueries = activeMeasurementPlan !== null
   const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
   const visibilityInputsPending = canWrite
-    && !hasTrackedQueries
-    && activeMeasurementPlanQuery.data === undefined
-    && activeMeasurementPlanQuery.isPending
-  const providerReadinessFailed = canWrite
-    && measurementSetupQuery.isError
-    && !measurementSetupQuery.isFetching
+    && !hasVisibilityInputs
+    && ((activeMeasurementPlanQuery.data === undefined && activeMeasurementPlanQuery.isPending)
+      || headerQueriesQuery.isLoading || (needsSimpleEvidence && evidenceDashboard.evidenceLoading))
+  const providerReadinessFailed = canWrite && (
+    (measurementSetupQuery.isError && !measurementSetupQuery.isFetching)
+    || (needsHeaderQueries && headerQueriesQuery.isError && !headerQueriesQuery.isFetching)
+  )
   const sweepReadinessPending = canWrite
     && !providerReadinessFailed
     && (visibilityInputsPending
@@ -2256,7 +2287,7 @@ function ProjectPageContent({
   }, [locationLabelsInEvidence, configuredLocationLabels])
 
   useEffect(() => {
-    if (locationFilter === undefined || locationFilter === '' || !projectName) {
+    if (!needsSimpleEvidence || locationFilter === undefined || locationFilter === '' || !projectName) {
       setLocationTimeline(null)
       setLocationTimelineLoading(false)
       return
@@ -2265,7 +2296,7 @@ function ProjectPageContent({
     fetchTimeline(projectName, locationFilter, 20)
       .then(tl => { setLocationTimeline(tl); setLocationTimelineLoading(false) })
       .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
-  }, [locationFilter, projectName])
+  }, [locationFilter, projectName, needsSimpleEvidence])
 
   // Build a runHistory override map keyed by query::provider from the location-scoped timeline
   const locationRunHistoryMap = useMemo<Map<string, RunHistoryPoint[]> | null>(() => {
@@ -2609,7 +2640,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          <p className="text-sm text-muted">{tab === 'overview' && !isSimpleOverview ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
+          {tab === 'overview' ? <p className="text-sm text-muted">{!isSimpleOverview ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p> : null}
           {!isEmbed() && (isDashboardManagedSweeps() ? (
             <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (
@@ -2625,7 +2656,7 @@ function ProjectPageContent({
                 variant="outline"
                 disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
                 onClick={providerReadinessFailed
-                  ? () => { void measurementSetupQuery.refetch() }
+                  ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
                   : sweepSetupRequired
                     ? openAiVisibilitySetup
                     : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
@@ -2706,10 +2737,15 @@ function ProjectPageContent({
           }}
         />
       ) : tab === 'overview' ? (
-        isMeasurementModeUnresolved ? (
+        isMeasurementModeUnresolved || (isSimpleOverview && overviewLoading) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>
             <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
+          </div>
+        ) : isSimpleOverview && overviewError ? (
+          <div role="alert" className="page-section-divider">
+            <p>Could not load AI visibility.</p>
+            <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
           </div>
         ) : (
         <>
@@ -2882,10 +2918,16 @@ function ProjectPageContent({
                 )}
               </div>
             )}
-            <EvidenceTable
-              evidence={filteredEvidence}
-              compareLocations={compareLocations}
-            />
+            {evidenceDashboard.evidenceLoading ? (
+              <p role="status" className="text-sm text-secondary">Loading query evidence…</p>
+            ) : evidenceDashboard.evidenceError ? (
+              <div role="alert" className="text-sm text-secondary">
+                <p>Could not load query evidence.</p>
+                <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
+              </div>
+            ) : (
+              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} />
+            )}
           </OverviewDisclosure>
 
           <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive" defaultOpen={isEmbed()}>
@@ -2989,11 +3031,20 @@ function ProjectPageContent({
           />)}
           {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
             <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
-            <OverviewSignals
-              insights={model.insights}
-              suggestedQueries={model.suggestedQueries}
-              onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
-            />
+            {overviewLoading ? (
+              <p role="status" className="text-sm text-secondary">Loading project signals…</p>
+            ) : overviewError ? (
+              <div role="alert" className="text-sm text-secondary">
+                <p>Could not load project signals.</p>
+                <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
+              </div>
+            ) : (
+              <OverviewSignals
+                insights={model.insights}
+                suggestedQueries={model.suggestedQueries}
+                onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+              />
+            )}
           </details> : null}
           {competitorLandscapeReadEnabled ? (
             <details className="page-section-divider">
