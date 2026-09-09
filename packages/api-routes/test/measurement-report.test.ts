@@ -5,6 +5,7 @@ import {
   buildMeasurementReport,
   classifyCitedUrl,
   normalizeMeasurementLocation,
+  targetMentionedInAnswer,
   type MeasurementOverviewBuildOptions,
   type MeasurementOverviewInput,
   type MeasurementReportInput,
@@ -418,6 +419,36 @@ describe('report kernel', () => {
     expect(report.targets.find(target => target.id === 'north')?.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
     expect(report.targets.find(target => target.id === 'aliasless')?.mentionCoverage)
       .toEqual({ numerator: null, denominator: null, rate: null, reason: 'aliasless' })
+  })
+
+  it('keeps shared first-word aliases longest, Unicode-normalized, and ambiguity-aware', () => {
+    const mentionTargets: MeasurementTargetInput[] = [
+      { id: 'short', label: 'Short', aliases: ['Northstar'], urls: [] },
+      { id: 'long-a', label: 'Long A', aliases: ['Northstar Harbor'], urls: [] },
+      { id: 'long-b', label: 'Long B', aliases: ['NORTHSTAR-HARBOR'], urls: [] },
+      { id: 'inner', label: 'Inner', aliases: ['Harbor'], urls: [] },
+      { id: 'unique', label: 'Unique', aliases: ['Northstar North', 'northstar north'], urls: [] },
+    ]
+    const answer = 'Ｎｏｒｔｈｓｔａｒ Harbor and Northstar North.'
+    expect(mentionTargets.map(target => targetMentionedInAnswer(answer, target.id, mentionTargets)))
+      .toEqual([false, false, false, false, true])
+    expect(targetMentionedInAnswer('Northstar Harbor. Harbor.', 'inner', mentionTargets)).toBe(true)
+  })
+
+  it('rebuilds alias and route indexes for each frozen definition', () => {
+    const input = baseInput()
+    const original = buildMeasurementReport(input)
+    const changed = buildMeasurementReport({
+      ...input,
+      targets: input.targets.map(target => ({
+        ...target,
+        aliases: ['Unmentioned replacement'],
+        urls: target.urls.map(url => ({ ...url, host: 'replacement.example' })),
+      })),
+    })
+    expect(changed.targets.find(target => target.id === 'harbor')?.mentionCoverage.rate).toBe(0)
+    expect(changed.targets.find(target => target.id === 'harbor')?.citationCoverage.rate).toBe(0)
+    expect(buildMeasurementReport(input)).toEqual(original)
   })
 
   it('is deterministic when plan and observation collections are reordered', () => {

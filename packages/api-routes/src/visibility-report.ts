@@ -20,6 +20,7 @@ import {
   measurementV2UsageEdgeKey,
   normalizeMeasurementHost,
   parseStoredMeasurementPlanAnyVersion,
+  prepareBrandMatchText,
   validationError,
   visibilityReportQuerySchema,
   visibilityReportResponseSchema,
@@ -170,10 +171,11 @@ function exactCompetitorMatchers(plan: MeasurementPlanV2): Map<string, ReturnTyp
 function competitorSignals(
   snapshot: Pick<VisibilitySnapshot, 'answerText' | 'citedDomains'>,
   matchers: ReadonlyMap<string, ReturnType<typeof compileBrandAliases>>,
+  preparedAnswerText = prepareBrandMatchText(snapshot.answerText),
 ): { mentioned: string[]; cited: string[] } {
-  const mentioned = snapshot.answerText === null
+  const mentioned = preparedAnswerText === null
     ? []
-    : [...matchers].filter(([, matcher]) => matcherMatchesText(matcher, snapshot.answerText)).map(([domain]) => domain)
+    : [...matchers].filter(([, matcher]) => matcherMatchesText(matcher, preparedAnswerText)).map(([domain]) => domain)
   const citedDomains = new Set(snapshot.citedDomains.map(value => {
     try {
       return normalizeMeasurementHost(value)
@@ -459,12 +461,13 @@ function frozenSimpleRun(
     }
     const slotId = `slot:simple:${query.queryId}:${provider}`
     if (!slotKeys.has(slotId)) throw new Error(`Frozen simple definition has no slot for stored snapshot ${snapshot.id}`)
+    const preparedAnswerText = prepareBrandMatchText(snapshot.answerText)
     const mentioned = snapshot.answerText !== null
-      ? matcherMatchesText(matcher, snapshot.answerText)
+      ? matcherMatchesText(matcher, preparedAnswerText)
       : snapshot.answerMentioned === true
     const competitorSignalsForSnapshot = competitors === null
       ? { mentioned: [], cited: [] }
-      : competitorSignals(snapshot, competitors)
+      : competitorSignals(snapshot, competitors, preparedAnswerText)
     observations.push({
       slotId,
       answerId: snapshot.id,

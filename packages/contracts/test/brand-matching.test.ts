@@ -5,6 +5,7 @@ import {
   compileBrandAliases,
   matchedAliasKeys,
   matcherMatchesText,
+  prepareBrandMatchText,
   textContainsBrandAlias,
   textContainsAnyBrandAlias,
 } from '../src/brand-matching.js'
@@ -73,6 +74,21 @@ describe('one segmentation for the whole alias set', () => {
     for (const text of ['Demand IQ rocks', 'nothing', 'the Gjelina Hotel']) {
       expect(matcherMatchesText(matcher, text)).toBe(textContainsAnyBrandAlias(text, aliases))
     }
+  })
+
+  it('reuses one prepared answer across competitor matchers without changing matches', () => {
+    const answer = 'Totême works with Demand-IQ; acmeology is unrelated.'
+    const prepared = prepareBrandMatchText(answer)
+    const matchers = [
+      compileBrandAliases(['Toteme']),
+      compileBrandAliases(['Demand IQ']),
+      compileBrandAliases(['Acme']),
+    ]
+
+    expect(prepared).not.toBeNull()
+    expect(matchers.map(matcher => matcherMatchesText(matcher, prepared)))
+      .toEqual(matchers.map(matcher => matcherMatchesText(matcher, answer)))
+    expect(matchers.map(matcher => matcherMatchesText(matcher, prepared))).toEqual([true, true, false])
   })
 
   it('reports every alias that matched, not just the first', () => {

@@ -17,6 +17,20 @@ describe('mention-share input identity', () => {
     expect(inputs.snapshots.map(snapshot => snapshot.projectMentioned)).toEqual([true, false, true])
   })
 
+  it('accepts request-scoped prose domains without changing project mentions', () => {
+    const answerDomainsByText = new Map<string, readonly string[]>()
+    const answerText = 'See https://www.acme.com/pricing for details.'
+    const inputs = buildMentionShareInputs({
+      project: { displayName: 'Acme', canonicalDomain: 'acme.com' },
+      competitorDomains: [],
+      snapshots: [{ queryText: 'pricing', answerMentioned: false, answerText }],
+      answerDomainsByText,
+    })
+
+    expect(inputs.snapshots[0]!.projectMentioned).toBe(true)
+    expect(answerDomainsByText.get(answerText)).toEqual(['acme.com'])
+  })
+
   it('counts an exact short competitor domain without counting its bare label', () => {
     const competitors = mentionShareCompetitorsFromDomains(['https://www.ai.com/pricing'])
     expect(competitors[0]!.brandTokens).toEqual(['ai.com'])

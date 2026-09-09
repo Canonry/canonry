@@ -19,17 +19,18 @@ export function extractAnswerMentions(
   answerText: string | null | undefined,
   brandNames: string[],
   domains: string[],
+  answerDomains?: readonly string[],
 ): AnswerMentionResult {
   if (!answerText) return { mentioned: false, matchedTerms: [] }
 
   const matchedTerms: string[] = []
   const matchedDomainTerms = new Set<string>()
-  const answerDomains = extractDomainsFromText(answerText)
+  const extractedAnswerDomains = answerDomains ?? extractDomainsFromText(answerText)
 
   for (const domain of domains) {
     const normalizedDomain = hostOf(domain)
     if (!normalizedDomain || !normalizedDomain.includes('.')) continue
-    if (answerDomains.some(candidate => hostMatchesDomain(candidate, normalizedDomain))) {
+    if (extractedAnswerDomains.some(candidate => hostMatchesDomain(candidate, normalizedDomain))) {
       matchedTerms.push(normalizedDomain)
       matchedDomainTerms.add(normalizedDomain)
     }
@@ -85,8 +86,9 @@ export function determineAnswerMentioned(
   answerText: string | null | undefined,
   brandNames: string[],
   domains: string[],
+  answerDomains?: readonly string[],
 ): boolean {
-  return extractAnswerMentions(answerText, brandNames, domains).mentioned
+  return extractAnswerMentions(answerText, brandNames, domains, answerDomains).mentioned
 }
 
 export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | null | undefined): VisibilityState {

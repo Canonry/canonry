@@ -17,6 +17,8 @@ export interface CompetitiveSignalEvidence {
   citedDomains?: readonly string[]
   groundingSources?: readonly CompetitiveSignalSource[]
   answerText?: string | null
+  /** Request-scoped prose-domain result, when another reader already has it. */
+  answerDomains?: readonly string[]
 }
 
 /**
@@ -78,7 +80,7 @@ export function compileCompetitiveSignalResolver(
         ...(evidence.citedDomains ?? []),
         ...(evidence.groundingSources ?? []).map(source => source.uri),
       ]
-      const answerDomains = extractDomainsFromText(evidence.answerText)
+      const answerDomains = evidence.answerDomains ?? extractDomainsFromText(evidence.answerText)
       const mentionedBrandKeys = matchedAliasKeys(domainBrandMatcher, evidence.answerText)
       const citedCompetitorDomains: string[] = []
       const mentionedCompetitorDomains: string[] = []

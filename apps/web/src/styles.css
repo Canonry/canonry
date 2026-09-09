@@ -2003,10 +2003,25 @@
     stroke: var(--chart-tone-neutral);
   }
 
+  .sparkline-positive .sparkline-point {
+    fill: var(--chart-tone-positive);
+  }
+
+  .sparkline-caution .sparkline-point {
+    fill: var(--chart-tone-caution);
+  }
+
+  .sparkline-negative .sparkline-point {
+    fill: var(--chart-tone-negative);
+  }
+
+  .sparkline-neutral .sparkline-point {
+    fill: var(--chart-tone-neutral);
+  }
+
   /*
-   * Fewer readings than a trend needs. The line is still drawn — a portfolio row
-   * without a chart loses the shape a reader scans for — but dashed, so the
-   * sample size shows in the mark instead of only in a caption.
+   * Fewer readings than a trend needs. A single reading is a point; otherwise
+   * the line is dashed so the mark does not imply a fuller sample.
    */
   .sparkline-provisional polyline {
     stroke-dasharray: 3 3;

@@ -421,27 +421,42 @@ function ownedBy(host: string, roots: readonly string[]): boolean {
   return roots.some(root => host === root || host.endsWith(`.${root}`))
 }
 
+interface CompiledTargetRoute {
+  targetId: string
+  url: MeasurementTargetUrlInput
+  path: string
+}
+
+function compiledTargetRoutes(targets: readonly MeasurementTargetInput[]): ReadonlyMap<string, CompiledTargetRoute[]> {
+  const routes = new Map<string, CompiledTargetRoute[]>()
+  for (const target of targets) {
+    for (const url of target.urls) {
+      const host = normalizedHost(url.host)
+      const path = url.mode === 'host' ? '' : normalizedPath(url.path)
+      const rows = routes.get(host) ?? []
+      rows.push({ targetId: target.id, url, path: url.pathCase === 'insensitive' ? path.toLocaleLowerCase('en') : path })
+      routes.set(host, rows)
+    }
+  }
+  return routes
+}
+
 function routeClaim(
   source: ParsedSourceUrl,
-  target: MeasurementTargetInput,
-  url: MeasurementTargetUrlInput,
+  route: CompiledTargetRoute,
 ): RouteClaim | null {
-  if (source.host !== normalizedHost(url.host)) return null
-  if (url.mode === 'host') return { targetId: target.id, urlId: url.id, modeRank: 1, pathLength: 0 }
+  const { targetId, url, path: matcherPath } = route
+  if (url.mode === 'host') return { targetId, urlId: url.id, modeRank: 1, pathLength: 0 }
 
-  const configuredPath = normalizedPath(url.path)
   const sourcePath = url.pathCase === 'insensitive'
     ? source.path.toLocaleLowerCase('en')
     : source.path
-  const matcherPath = url.pathCase === 'insensitive'
-    ? configuredPath.toLocaleLowerCase('en')
-    : configuredPath
   const matches = url.mode === 'exact'
     ? sourcePath === matcherPath
     : matcherPath === '/' || sourcePath === matcherPath || sourcePath.startsWith(`${matcherPath}/`)
   if (!matches) return null
   return {
-    targetId: target.id,
+    targetId,
     urlId: url.id,
     modeRank: url.mode === 'exact' ? 3 : 2,
     pathLength: matcherPath.length,
@@ -450,7 +465,7 @@ function routeClaim(
 
 function classifySourceAttribution(
   value: string,
-  targets: readonly MeasurementTargetInput[],
+  routes: ReadonlyMap<string, readonly CompiledTargetRoute[]>,
   normalizedOwnedHosts: readonly string[],
 ): SourceAttribution {
   const source = parseSourceUrl(value)
@@ -459,11 +474,9 @@ function classifySourceAttribution(
   }
 
   const claims: RouteClaim[] = []
-  for (const target of targets) {
-    for (const url of target.urls) {
-      const claim = routeClaim(source, target, url)
-      if (claim) claims.push(claim)
-    }
+  for (const route of routes.get(source.host) ?? []) {
+    const claim = routeClaim(source, route)
+    if (claim) claims.push(claim)
   }
   claims.sort((left, right) => (
     right.modeRank - left.modeRank
@@ -525,7 +538,7 @@ export function classifyCitedUrl(
   usageEdge: MeasurementUsageEdgeInput,
 ): MeasurementAttributionResult {
   return classifySourceForUsageEdge(
-    classifySourceAttribution(value, targets, ownedHosts.map(normalizedHost)),
+    classifySourceAttribution(value, compiledTargetRoutes(targets), ownedHosts.map(normalizedHost)),
     usageEdge,
   )
 }
@@ -572,16 +585,27 @@ function compiledMentionAliases(targets: readonly MeasurementTargetInput[]): Men
     .filter(alias => alias.words.length > 0)
 }
 
+function indexMentionAliases(aliases: readonly MentionAlias[]): ReadonlyMap<string, MentionAlias[]> {
+  const byFirstWord = new Map<string, MentionAlias[]>()
+  for (const alias of aliases) {
+    const firstWord = alias.words[0]!
+    const rows = byFirstWord.get(firstWord) ?? []
+    rows.push(alias)
+    byFirstWord.set(firstWord, rows)
+  }
+  return byFirstWord
+}
+
 function mentionedTargetsForAliases(
   answerText: string | null,
-  aliases: readonly MentionAlias[],
+  aliases: ReadonlyMap<string, readonly MentionAlias[]>,
 ): ReadonlySet<string> {
   const result = new Set<string>()
   if (answerText === null) return result
   const textWords = words(answerText)
 
   for (let start = 0; start < textWords.length;) {
-    const matches = aliases.filter(alias => aliasMatchesAt(textWords, alias.words, start))
+    const matches = (aliases.get(textWords[start]!) ?? []).filter(alias => aliasMatchesAt(textWords, alias.words, start))
     if (matches.length === 0) {
       start++
       continue
@@ -595,7 +619,7 @@ function mentionedTargetsForAliases(
 }
 
 function mentionedTargets(answerText: string | null, targets: readonly MeasurementTargetInput[]): ReadonlySet<string> {
-  return mentionedTargetsForAliases(answerText, compiledMentionAliases(targets))
+  return mentionedTargetsForAliases(answerText, indexMentionAliases(compiledMentionAliases(targets)))
 }
 
 /**
@@ -646,6 +670,7 @@ function prepareReport(
   // once avoids rescanning hundreds of Property names for every provider
   // answer while preserving the same longest/ambiguous matching algorithm.
   const mentionAliases = compiledMentionAliases(input.targets)
+  const aliasesByFirstWord = indexMentionAliases(mentionAliases)
 
   for (const observation of input.observations) {
     const slots = observation.executionId !== null
@@ -692,7 +717,7 @@ function prepareReport(
       historical: source.historical,
       sourceComplete: source.complete,
       sourceUrls: source.urls,
-      mentionedTargetIds: mentionedTargetsForAliases(observation.answerText, mentionAliases),
+      mentionedTargetIds: mentionedTargetsForAliases(observation.answerText, aliasesByFirstWord),
     })
   }
 
@@ -712,11 +737,13 @@ function prepareReport(
   // O(edges × targets × sources) read. The winners below are edge-independent;
   // only assigned vs sibling is projected per edge.
   const normalizedOwnedHosts = input.ownedHosts.map(normalizedHost)
+  // Host/path normalization belongs to the frozen definition, not each source.
+  const targetRoutes = compiledTargetRoutes(input.targets)
   const sourceAttributions = new Map<string, SourceAttribution>()
   const sourceAttribution = (sourceUrl: string): SourceAttribution => {
     const cached = sourceAttributions.get(sourceUrl)
     if (cached !== undefined) return cached
-    const resolved = classifySourceAttribution(sourceUrl, input.targets, normalizedOwnedHosts)
+    const resolved = classifySourceAttribution(sourceUrl, targetRoutes, normalizedOwnedHosts)
     sourceAttributions.set(sourceUrl, resolved)
     return resolved
   }

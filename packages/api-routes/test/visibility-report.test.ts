@@ -349,6 +349,17 @@ describe('visibility report route', () => {
     expect(unknown.observedCompetitors).toEqual([{ name: 'Observed Alternative', answerCount: 1 }])
   })
 
+  it('treats an empty frozen Simple answer as a measured non-mention', async () => {
+    seedSimpleRun('simple-empty-answer', SECOND, true)
+    db.update(querySnapshots).set({ answerText: '', answerMentioned: true })
+      .where(eq(querySnapshots.runId, 'simple-empty-answer')).run()
+
+    const result = await report('mode=simple&runId=simple-empty-answer&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    expect((result.body as VisibilityReportResponse).populations[0]!.summary.mentionCoverage)
+      .toEqual({ numerator: 0, denominator: 1, rate: 0 })
+  })
+
   it('compares semantically identical frozen simple captures and breaks only at a requested-model change', async () => {
     seedSimpleRun('simple-first', FIRST, true)
     seedSimpleRun('simple-second', SECOND, true)

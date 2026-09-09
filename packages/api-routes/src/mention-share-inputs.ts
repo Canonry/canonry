@@ -5,6 +5,7 @@ import {
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
+  extractDomainsFromText,
   hostOf,
   surfaceClassFromCompetitorType,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
@@ -128,6 +129,8 @@ export function buildMentionShareInputs(opts: {
   competitorDomains: readonly string[]
   snapshots: readonly MentionShareSnapshotRow[]
   queryTextById?: ReadonlyMap<string, string>
+  /** Request-scoped cache shared with other answer-prose readers. */
+  answerDomainsByText?: Map<string, readonly string[]>
 }): MentionShareInputs {
   const classify = projectQueryClassifier(opts.project)
   const projectBrandNames = effectiveBrandNames({
@@ -145,12 +148,19 @@ export function buildMentionShareInputs(opts: {
     competitors: mentionShareCompetitorsFromDomains(opts.competitorDomains),
     snapshots: opts.snapshots.map(snap => {
       const queryText = (snap.queryId ? opts.queryTextById?.get(snap.queryId) : undefined) ?? snap.queryText ?? null
+      const cachedAnswerDomains = !snap.answerText || !opts.answerDomainsByText
+        ? undefined
+        : opts.answerDomainsByText.get(snap.answerText) ?? (() => {
+            const domains = extractDomainsFromText(snap.answerText)
+            opts.answerDomainsByText!.set(snap.answerText!, domains)
+            return domains
+          })()
       return {
         // Mention share is a current-identity metric. Recompute stored answer
         // text after an alias/domain rename; only text-less legacy rows need
         // the persisted run-time boolean as a fallback.
         projectMentioned: snap.answerText
-          ? determineAnswerMentioned(snap.answerText, projectBrandNames, projectDomains)
+          ? determineAnswerMentioned(snap.answerText, projectBrandNames, projectDomains, cachedAnswerDomains)
           : snap.answerMentioned === true,
         answerText: snap.answerText,
         queryClass: classify ? classify(queryText) : null,
