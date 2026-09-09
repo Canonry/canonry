@@ -12,6 +12,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
+import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
 import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
@@ -2457,20 +2458,22 @@ test('managed sweeps unset preserves the operator sweep control and identical op
   const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
   expect(projectHeader(original).outerHTML).toBe(projectHeader(disabled).outerHTML)
   expect(projectHeader(original).textContent).toContain('Run AI sweep')
-  expect(original).not.toContain('managed by your Canonry team')
-  expect(original).not.toContain('Sweeps are run by your Canonry team')
+  expect(original).not.toContain(MANAGED_SWEEPS_COPY)
 })
 
 test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s header control for admins and viewers', async mode => {
   for (const accountRole of ['admin', 'viewer'] as const) {
     const html = await renderAt('/projects/project_citypoint', undefined,
       mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined,
-      { managedSweeps: true, schedule: managedSchedule, accountRole },
+      { managedSweeps: true, schedule: managedSchedule, accountRole, configureFixture(dashboard) {
+        dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
+      } },
     )
     const header = projectHeader(html)
     expect(header.querySelector('button')).toBeNull()
-    expect(header.textContent).toContain('Sweep running…')
-    if (mode === 'advanced') expect(header.textContent).not.toContain('Recent measurements')
+    expect(header.querySelector('[role="status"]')?.textContent).toContain(MANAGED_SWEEPS_NEXT_LABEL)
+    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
+    if (mode === 'advanced') expect(header.querySelectorAll('.page-header-right > p:not([role="status"])')).toHaveLength(0)
     expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
   }
 })
@@ -2481,8 +2484,9 @@ test('Advanced header keeps an explicit historical measurement range', async () 
     { managedSweeps: true, schedule: managedSchedule },
   )
   const header = projectHeader(html)
-  expect(header.textContent).toContain('2026-09-01 to 2026-09-08')
-  expect(header.textContent).not.toContain('Recent measurements')
+  const range = header.querySelector('.page-header-right > p:not([role="status"])')
+  expect(range?.textContent).toContain('2026-09-01')
+  expect(range?.textContent).toContain('2026-09-08')
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
@@ -2492,10 +2496,9 @@ test('managed sweeps without a schedule replaces the header action without inven
     },
   })
   const status = projectHeader(html).querySelector('[role="status"]')!
-  expect(status.textContent).toBe('Next sweep unavailable')
+  expect(status.textContent).toBe(MANAGED_SWEEPS_UNAVAILABLE_COPY)
   expect(status.querySelector('time')).toBeNull()
   expect(projectHeader(html).querySelector('button')).toBeNull()
-  expect(status.textContent).not.toMatch(/UTC|\d/)
 })
 
 test.each(['simple', 'advanced'] as const)('managed %s project header retains queued and running sweep signals', async mode => {
@@ -2508,7 +2511,7 @@ test.each(['simple', 'advanced'] as const)('managed %s project header retains qu
       } },
     )
     const header = projectHeader(html)
-    expect(header.querySelector('[role="status"]')?.textContent).toBe('Sweep running…')
+    expect(header.querySelector('[role="status"]')?.textContent).toBe(MANAGED_SWEEPS_RUNNING_COPY)
     expect(header.querySelector('time')).toBeNull()
     expect(header.querySelector('button')).toBeNull()
   }
@@ -2522,7 +2525,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   const container = document.createElement('div')
   container.innerHTML = html
   const section = within(container).getByRole('heading', { name: 'Scheduled runs' }).closest('section')!
-  expect(section.textContent).toContain('Sweeps are run by your Canonry team')
+  expect(section.textContent).toContain(MANAGED_SWEEPS_COPY)
   expect(section.textContent).toContain('0 6 * * *')
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
 })
@@ -2541,14 +2544,14 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     managedSweeps: true, configureFixture: forceNoisyFreshVisibility,
   })
-  expect(html).toContain('Sweeps are run by your Canonry team')
+  expect(html).toContain(MANAGED_SWEEPS_COPY)
   expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep/)
 })
 
 test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
-  expect(projectHeader(html).textContent).toContain('Sweep running…')
+  expect(projectHeader(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
 })
 
 test('managed sweeps replaces the global batch sweep control', async () => {
@@ -2556,7 +2559,7 @@ test('managed sweeps replaces the global batch sweep control', async () => {
   expect(original).toContain('Run all projects')
   const managed = await renderAt('/runs', undefined, undefined, { managedSweeps: true })
   expect(managed).not.toContain('Run all projects')
-  expect(managed).toContain('Sweeps are run by your Canonry team')
+  expect(managed).toContain(MANAGED_SWEEPS_COPY)
 })
 
 

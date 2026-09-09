@@ -1,3 +1,4 @@
+import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
@@ -45,7 +46,7 @@ test.each(['absent', 'active', 'paused'] as const)('managed %s schedule stays re
     expect(await screen.findByText('0 6 * * *')).toBeTruthy()
     expect(screen.getByText(state === 'active' ? 'Active' : 'Paused')).toBeTruthy()
   }
-  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  expect(await screen.findByText(MANAGED_SWEEPS_COPY)).toBeTruthy()
   expect(screen.queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
   expect(screen.queryByText(/Set one to automatically trigger/)).toBeNull()
   expect(screen.queryByRole('combobox')).toBeNull()

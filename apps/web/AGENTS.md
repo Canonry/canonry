@@ -340,6 +340,12 @@ Token migration guardrails:
   `canWrite && !isEmbed()`; market pins create/update a draft and never publish.
 - History fallback pins show unavailable metrics, never latest-only counts under
   a historical window.
+
+### UI tests
+
+Use semantic selectors and exported UI copy constants for text assertions.
+Keep fixture dates and behavior checks independent of display wording.
+
 ## Common Mistakes
 
 - **Importing `recharts` directly** — use `ChartPrimitives.tsx` exports.

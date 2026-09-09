@@ -7,6 +7,8 @@ export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'
 
 export const MANAGED_SCANS_COPY = 'Scans are run by your Canonry team'
 export const MANAGED_SWEEPS_UNAVAILABLE_COPY = 'Next sweep unavailable'
+export const MANAGED_SWEEPS_RUNNING_COPY = 'Sweep running…'
+export const MANAGED_SWEEPS_NEXT_LABEL = 'Next sweep:'
 
 function managedSweepDate(iso: string, timezone: string | undefined): string | null {
   try {
@@ -56,8 +58,8 @@ export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibi
         {nextSync && nextRun ? <>
           Next scan <time dateTime={nextRun.toISOString()}>{nextSync} UTC</time> · managed by your Canonry team
         </> : MANAGED_SCANS_COPY}
-      </> : running ? 'Sweep running…' : unavailableSweep ? MANAGED_SWEEPS_UNAVAILABLE_COPY : nextSync && nextRun ? <>
-        Next sweep: <time dateTime={nextRun.toISOString()}>{nextSync}</time>
+      </> : running ? MANAGED_SWEEPS_RUNNING_COPY : unavailableSweep ? MANAGED_SWEEPS_UNAVAILABLE_COPY : nextSync && nextRun ? <>
+        {MANAGED_SWEEPS_NEXT_LABEL} <time dateTime={nextRun.toISOString()}>{nextSync}</time>
       </> : MANAGED_SWEEPS_UNAVAILABLE_COPY}
     </p>
   )
