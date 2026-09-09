@@ -181,6 +181,7 @@ describe('drizzle-zod derived row schemas', () => {
       projectId: 'p_1',
       kind: 'answer-visibility' as const,
       cronExpr: '0 8 * * *',
+      recurrence: null,
       preset: 'daily',
       timezone: 'America/Los_Angeles',
       enabled: true,

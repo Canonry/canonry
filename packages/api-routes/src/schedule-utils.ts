@@ -5,6 +5,7 @@
  */
 
 import { CronExpressionParser } from 'cron-parser'
+import type { CalendarRecurrence } from '@ainyc/canonry-contracts'
 
 const DAY_MAP: Record<string, string> = {
   sun: '0', mon: '1', tue: '2', wed: '3', thu: '4', fri: '5', sat: '6',
@@ -141,4 +142,117 @@ export function nextRunFromCron(
   } catch {
     return null
   }
+}
+
+
+export interface ScheduleTiming {
+  cronExpr: string
+  timezone: string
+  recurrence?: CalendarRecurrence | null
+}
+
+const MS_PER_CALENDAR_DAY = 24 * 60 * 60 * 1000
+
+function calendarOrdinal(date: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+  const parsed = new Date(`${date}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null
+  return Math.floor(parsed.getTime() / MS_PER_CALENDAR_DAY)
+}
+
+function dateFromOrdinal(ordinal: number): string | null {
+  const date = new Date(ordinal * MS_PER_CALENDAR_DAY)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10)
+}
+
+/** Date.UTC treats years 0..99 as 1900..1999; calendar anchors do not. */
+function utcMillis(year: number, month: number, day: number, hour = 0, minute = 0): number {
+  const date = new Date(0)
+  date.setUTCFullYear(year, month - 1, day)
+  date.setUTCHours(hour, minute, 0, 0)
+  return date.getTime()
+}
+
+interface ZonedParts {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+}
+
+function zonedParts(instant: Date, timezone: string): ZonedParts | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(instant)
+    const values = Object.fromEntries(parts
+      .filter(part => part.type !== 'literal')
+      .map(part => [part.type, Number(part.value)]))
+    const { year, month, day, hour, minute } = values
+    return Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day)
+      && Number.isInteger(hour) && Number.isInteger(minute)
+      ? { year: year!, month: month!, day: day!, hour: hour!, minute: minute! }
+      : null
+  } catch {
+    return null
+  }
+}
+
+function recurrenceDate(recurrence: CalendarRecurrence, timezone: string, ordinal: number): Date | null {
+  const date = dateFromOrdinal(ordinal)
+  if (!date || !/^\d{2}:\d{2}$/.test(recurrence.time)) return null
+  const [year, month, day] = date.split('-').map(Number)
+  const [hour, minute] = recurrence.time.split(':').map(Number)
+  if ([year, month, day, hour, minute].some(value => value === undefined || Number.isNaN(value))) return null
+  const localAsUtc = utcMillis(year!, month!, day!, hour!, minute!)
+  const offsets = new Set<number>()
+  for (const hours of [-36, -24, -12, 0, 12, 24, 36]) {
+    const probe = new Date(localAsUtc + hours * 60 * 60 * 1000)
+    const local = zonedParts(probe, timezone)
+    if (!local) continue
+    offsets.add(utcMillis(local.year, local.month, local.day, local.hour, local.minute) - probe.getTime())
+  }
+  const matches = [...offsets]
+    .map(offset => new Date(localAsUtc - offset))
+    .filter(candidate => {
+      const local = zonedParts(candidate, timezone)
+      return local?.year === year && local.month === month && local.day === day && local.hour === hour && local.minute === minute
+    })
+  return matches.length ? new Date(Math.min(...matches.map(candidate => candidate.getTime()))) : null
+}
+
+/** Return the next anchored calendar occurrence strictly after `from`. */
+export function nextRunFromRecurrence(
+  recurrence: CalendarRecurrence,
+  timezone: string,
+  from: Date = new Date(),
+): string | null {
+  if (!Number.isInteger(recurrence.everyDays) || recurrence.everyDays < 1 || recurrence.everyDays > 3650 || !isValidTimezone(timezone)) return null
+  const anchor = calendarOrdinal(recurrence.startDate)
+  if (anchor === null || !/^\d{2}:\d{2}$/.test(recurrence.time)) return null
+  const [hour, minute] = recurrence.time.split(':').map(Number)
+  if (hour === undefined || minute === undefined || hour > 23 || minute > 59) return null
+  const local = zonedParts(from, timezone)
+  const localOrdinal = local
+    ? calendarOrdinal(`${String(local.year).padStart(4, '0')}-${String(local.month).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`)
+    : null
+  if (localOrdinal === null) return null
+  let occurrenceIndex = Math.max(0, Math.floor((localOrdinal - anchor) / recurrence.everyDays))
+  // A spring-forward gap has no matching instant. Skip that slot while retaining
+  // the recurrence's original N-day phase; bound retries for corrupt input.
+  for (let attempts = 0; attempts < 8; attempts += 1, occurrenceIndex += 1) {
+    const occurrence = recurrenceDate(recurrence, timezone, anchor + occurrenceIndex * recurrence.everyDays)
+    if (occurrence && occurrence > from) return occurrence.toISOString()
+  }
+  return null
+}
+
+/** Resolve the next run for either a legacy cron row or a calendar recurrence. */
+export function nextRunFromSchedule(schedule: ScheduleTiming, from: Date = new Date()): string | null {
+  return schedule.recurrence
+    ? nextRunFromRecurrence(schedule.recurrence, schedule.timezone, from)
+    : nextRunFromCron(schedule.cronExpr, schedule.timezone, from)
 }

@@ -166,10 +166,10 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
   expect(screen.getByText('Up to 7 research batches per project each day. Each batch can contain up to 50 queries.')).toBeTruthy()
   expect(screen.getByText('Enter at least one query to enable Run.')).toBeTruthy()
-  await waitFor(() => expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5-mini'))
+  expect((await screen.findByRole('option', { name: 'Use AI Visibility model · gpt-5-mini' }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
-  await waitFor(() => expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gemini-2.5-flash'))
+  expect((await screen.findByRole('option', { name: 'Use AI Visibility model · gemini-2.5-flash' }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which AEO platform fits an agency?' } })
   const run = screen.getByRole('button', { name: /^Run .*quer/ }) as HTMLButtonElement

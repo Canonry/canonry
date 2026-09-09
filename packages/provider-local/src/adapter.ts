@@ -1,3 +1,4 @@
+import { listModels } from './list-models.js'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -38,6 +39,8 @@ export const localAdapter: ProviderAdapter = {
       { id: 'llama3', displayName: 'Llama 3', tier: 'standard' },
     ],
   },
+
+  listModels,
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = localValidateConfig(toLocalConfig(config))

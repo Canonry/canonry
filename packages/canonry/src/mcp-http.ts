@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-import { isReadOnlyKey } from '@ainyc/canonry-contracts'
+import { isReadOnlyKey, type McpHealth } from '@ainyc/canonry-contracts'
 import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
 import { eq } from 'drizzle-orm'
@@ -114,6 +114,14 @@ export function mcpTransportPaths(): string[] {
     paths.push(`/mcp/x/${toolkit}`, `/mcp/x/${toolkit}/readonly`)
   }
   return paths
+}
+
+/** Read registered routes only: health polling must not open MCP sessions or run tools. */
+export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string): McpHealth {
+  const available = mcpTransportPaths().every(path =>
+    (['POST', 'GET', 'DELETE'] as const).every(method => app.hasRoute({ method, url: `${apiPrefix}${path}` })),
+  )
+  return { status: available ? 'available' : 'unavailable' }
 }
 
 export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptions): void {

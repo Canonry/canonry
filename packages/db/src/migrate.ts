@@ -4075,6 +4075,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE research_runs ADD COLUMN initiated_by TEXT`,
     ],
   },
+  {
+    version: 152,
+    name: 'schedule-calendar-recurrence',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN recurrence TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

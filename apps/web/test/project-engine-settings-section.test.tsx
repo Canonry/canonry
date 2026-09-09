@@ -119,3 +119,24 @@ test.each([
   expect(screen.queryByRole('heading', { name: 'Answer engines' })).toBeNull()
   expect(requests).toEqual([])
 })
+
+
+test('the inherited model label uses the configured instance model, even when absent from discovery', async () => {
+  const restore = mockFetch(url => {
+    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse({
+      ...settings, providers: [{ name: 'gemini', configured: true, model: 'gemini-configured-alias' }],
+    })
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => client.clear())
+  const onSave = vi.fn().mockResolvedValue(undefined)
+  render(<QueryClientProvider client={client}><ProjectEngineSettingsSection
+    project={{ name: 'demo', providers: ['gemini'], providerModels: {} }} onSave={onSave}
+  /></QueryClientProvider>)
+  const option = await screen.findByRole('option', { name: 'Use instance setting: gemini-configured-alias' })
+  expect((option as HTMLOptionElement).selected).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini'], providerModels: {} }))
+})

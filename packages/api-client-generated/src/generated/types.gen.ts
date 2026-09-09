@@ -8570,6 +8570,11 @@ export type ProjectConfig = {
         schedule?: {
             preset?: string;
             cron?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
             timezone: string;
             providers: Array<string>;
             enabled?: boolean;
@@ -9794,11 +9799,22 @@ export type RunDto = {
 
 export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor';
 
+export type CalendarRecurrence = {
+    everyDays: number;
+    startDate: string;
+    time: string;
+};
+
 export type ScheduleDto = {
     id: string;
     projectId: string;
     kind: SchedulableRunKind;
     cronExpr: string;
+    recurrence?: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    } | null;
     preset?: string | null;
     timezone: string;
     enabled: boolean;
@@ -17144,6 +17160,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
         kind?: SchedulableRunKind;
         preset?: string;
         cron?: string;
+        recurrence?: CalendarRecurrence;
         timezone?: string;
         providers?: Array<string>;
         enabled?: boolean;

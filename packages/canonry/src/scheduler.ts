@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import cron from 'node-cron'
 import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
-import { queueRunIfProjectIdle, nextRunFromCron, ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
+import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import {
   SchedulableRunKinds,
+  calendarRecurrenceSchema,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -129,10 +130,17 @@ function taskKey(projectId: string, kind: SchedulableRunKind): string {
   return `${projectId}::${kind}`
 }
 
+type SchedulerTask = Pick<cron.ScheduledTask, 'stop' | 'destroy'>
+
+function scheduleRecurrence(schedule: typeof schedules.$inferSelect): CalendarRecurrence | null {
+  if (!schedule.recurrence) return null
+  return calendarRecurrenceSchema.safeParse(schedule.recurrence).data ?? null
+}
+
 export class Scheduler {
   private db: DatabaseClient
   private callbacks: SchedulerCallbacks
-  private tasks = new Map<string, cron.ScheduledTask>()
+  private tasks = new Map<string, SchedulerTask>()
 
   constructor(db: DatabaseClient, callbacks: SchedulerCallbacks) {
     this.db = db
@@ -219,13 +227,19 @@ export class Scheduler {
       // Capture nextRunAt before registration so the check uses the stored DB
       // value, not a value that registerCronTask might have modified.
       const missedRunAt = schedule.nextRunAt
-      this.registerCronTask(schedule)
+      const recurrence = scheduleRecurrence(schedule)
+      const registered = this.registerCronTask(schedule, recurrence ? { preserveNextRunAt: true } : {})
 
       // Catch-up: if the scheduled slot was set but the server was down when
-      // it was supposed to fire, trigger immediately.
-      if (missedRunAt && new Date(missedRunAt) < new Date()) {
-        log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
-        this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind)
+      // it was supposed to fire, trigger immediately. Calendar answer runs
+      // claim atomically with admission below; callback-only kinds retain the
+      // cron-era at-most-once pre-dispatch claim (a process crash can skip it).
+      if (registered && missedRunAt && new Date(missedRunAt) < new Date()) {
+        const answerRecurrence = recurrence && schedule.kind === SchedulableRunKinds['answer-visibility']
+        if (!recurrence || answerRecurrence || this.claimCalendarOccurrence(schedule, missedRunAt, new Date())) {
+          log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
+          this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind, answerRecurrence ? missedRunAt : undefined)
+        }
       }
     }
 
@@ -281,7 +295,7 @@ export class Scheduler {
     }
   }
 
-  private stopTask(key: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
+  private stopTask(key: string, task: SchedulerTask, verb: 'Stopped' | 'Removed'): void {
     void task.stop()
     void task.destroy()
     log.info(`task.${verb.toLowerCase()}`, { key })
@@ -305,13 +319,23 @@ export class Scheduler {
     })
   }
 
-  private registerCronTask(schedule: typeof schedules.$inferSelect): void {
+  private registerCronTask(schedule: typeof schedules.$inferSelect, options: { preserveNextRunAt?: boolean } = {}): boolean {
+    const recurrence = scheduleRecurrence(schedule)
+    if (recurrence) {
+      this.registerCalendarTask(schedule, recurrence, options)
+      return true
+    }
+    if (schedule.recurrence) {
+      log.error('calendar.invalid', { projectId: schedule.projectId, kind: schedule.kind })
+      return false
+    }
+
     const { id: scheduleId, projectId, cronExpr, timezone } = schedule
     const kind = schedule.kind as SchedulableRunKind
 
     if (!cron.validate(cronExpr)) {
       log.error('cron.invalid', { projectId, kind, cronExpr })
-      return
+      return false
     }
 
     const task = cron.schedule(cronExpr, () => {
@@ -321,15 +345,103 @@ export class Scheduler {
     })
 
     this.tasks.set(taskKey(projectId, kind), task)
-    this.updateScheduleTiming(scheduleId, {
-      nextRunAt: nextRunFromCron(cronExpr, timezone),
-    })
+    if (!options.preserveNextRunAt || !schedule.nextRunAt) {
+      this.updateScheduleTiming(scheduleId, {
+        nextRunAt: nextRunFromCron(cronExpr, timezone),
+      })
+    }
 
     const label = schedule.preset ?? cronExpr
     log.info('cron.registered', { projectId, kind, schedule: label, timezone })
+    return true
   }
 
-  private triggerRun(scheduleId: string, projectId: string, kind: SchedulableRunKind): void {
+  /** Calendar schedules are checked at most once a minute so long intervals
+   * never exceed Node's timeout limit and a delayed event loop cannot fire an
+   * old occurrence twice. The row's nextRunAt is a persistent claim token. */
+  private registerCalendarTask(
+    schedule: typeof schedules.$inferSelect,
+    recurrence: CalendarRecurrence,
+    options: { preserveNextRunAt?: boolean },
+  ): void {
+    const { id: scheduleId, projectId, timezone } = schedule
+    const kind = schedule.kind as SchedulableRunKind
+    const key = taskKey(projectId, kind)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
+    const task: SchedulerTask = {
+      stop: () => { stopped = true; if (timer) clearTimeout(timer) },
+      destroy: () => { stopped = true; if (timer) clearTimeout(timer) },
+    }
+    const arm = (nextRunAt: string | null | undefined) => {
+      if (stopped) return
+      const dueMs = nextRunAt ? Date.parse(nextRunAt) : Number.NaN
+      // Re-evaluate at the exact due instant, while retaining a one-minute
+      // upper bound for a changed row or a delayed/failed occurrence.
+      const delay = Number.isFinite(dueMs) && dueMs > Date.now()
+        ? Math.min(60_000, Math.max(1, dueMs - Date.now()))
+        : 60_000
+      timer = setTimeout(tick, delay)
+    }
+    const tick = () => {
+      if (stopped) return
+      const current = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
+      if (!current || !current.enabled || !scheduleRecurrence(current)) {
+        this.remove(projectId, kind)
+        return
+      }
+      const now = new Date()
+      let nextRunAt = current.nextRunAt
+      if (!nextRunAt || Number.isNaN(Date.parse(nextRunAt))) {
+        nextRunAt = nextRunFromSchedule({ cronExpr: current.cronExpr, timezone: current.timezone, recurrence: scheduleRecurrence(current) }, now)
+        if (nextRunAt) this.updateScheduleTiming(current.id, { nextRunAt })
+      }
+      if (nextRunAt && Date.parse(nextRunAt) <= now.getTime()) {
+        if (kind === SchedulableRunKinds['answer-visibility']) {
+          this.triggerRun(scheduleId, projectId, kind, nextRunAt)
+        } else if (this.claimCalendarOccurrence(current, nextRunAt, now)) {
+          this.triggerRun(scheduleId, projectId, kind)
+        }
+      }
+      arm(this.db.select({ nextRunAt: schedules.nextRunAt }).from(schedules).where(eq(schedules.id, scheduleId)).get()?.nextRunAt)
+    }
+
+    this.tasks.set(key, task)
+    let registeredNextRunAt = schedule.nextRunAt
+    if (!options.preserveNextRunAt || !registeredNextRunAt) {
+      registeredNextRunAt = nextRunFromSchedule({ cronExpr: schedule.cronExpr, timezone, recurrence }, new Date())
+      if (registeredNextRunAt) this.updateScheduleTiming(scheduleId, { nextRunAt: registeredNextRunAt })
+    }
+    // Startup owns catch-up below. An overdue row retries in one minute; a
+    // future row arms precisely at its due wall-clock instant.
+    if (options.preserveNextRunAt) arm(registeredNextRunAt)
+    else timer = setTimeout(tick, 0)
+    log.info('calendar.registered', { projectId, kind, recurrence, timezone })
+  }
+
+  /** Atomically advance a due callback-only calendar occurrence before dispatch. */
+  private claimCalendarOccurrence(schedule: typeof schedules.$inferSelect, dueAt: string, now: Date): boolean {
+    return this.db.transaction((tx) => {
+      const current = tx.select().from(schedules).where(eq(schedules.id, schedule.id)).get()
+      if (!current || !current.enabled || current.updatedAt !== schedule.updatedAt || current.nextRunAt !== dueAt) return false
+      const recurrence = scheduleRecurrence(current)
+      if (!recurrence) return false
+      const nextRunAt = nextRunFromSchedule({ cronExpr: current.cronExpr, timezone: current.timezone, recurrence }, now)
+      if (!nextRunAt) return false
+      const result = tx.update(schedules).set({
+        nextRunAt,
+        updatedAt: nextScheduleUpdatedAt(current.updatedAt),
+      }).where(and(
+        eq(schedules.id, current.id),
+        eq(schedules.enabled, true),
+        eq(schedules.nextRunAt, dueAt),
+        eq(schedules.updatedAt, schedule.updatedAt),
+      )).run()
+      return result.changes === 1
+    })
+  }
+
+  private triggerRun(scheduleId: string, projectId: string, kind: SchedulableRunKind, claimedOccurrence?: string): void {
     try {
       const now = new Date().toISOString()
       const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
@@ -339,7 +451,16 @@ export class Scheduler {
         return
       }
 
-      const nextRunAt = nextRunFromCron(currentSchedule.cronExpr, currentSchedule.timezone)
+      const recurrence = scheduleRecurrence(currentSchedule)
+      if (claimedOccurrence && (!recurrence || currentSchedule.nextRunAt !== claimedOccurrence)) {
+        log.info('calendar.stale-claim', { projectId, scheduleId, kind })
+        return
+      }
+      const nextRunAt = nextRunFromSchedule({
+        cronExpr: currentSchedule.cronExpr,
+        timezone: currentSchedule.timezone,
+        recurrence,
+      })
 
       // Check if project still exists
       const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
@@ -568,6 +689,13 @@ export class Scheduler {
       const scheduleProviders = currentSchedule.providers
       const providers = scheduleProviders.length > 0 ? scheduleProviders : undefined
 
+      // A recurrence is invalid only if a legacy/corrupt row bypassed the
+      // route validator; never consume its due slot by claiming a null next.
+      if (claimedOccurrence && recurrence && !nextRunAt) {
+        log.error('calendar.invalid', { projectId, kind, scheduleId })
+        return
+      }
+
       const queueResult = queueRunIfProjectIdle(this.db, {
         createdAt: now,
         kind: 'answer-visibility',
@@ -577,18 +705,30 @@ export class Scheduler {
         providers,
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
+        ...(claimedOccurrence && recurrence && currentSchedule.nextRunAt === claimedOccurrence ? {
+          scheduleClaim: {
+            scheduleId: currentSchedule.id,
+            dueAt: claimedOccurrence,
+            expectedUpdatedAt: currentSchedule.updatedAt,
+            nextRunAt: nextRunAt!,
+          },
+        } : {}),
       })
 
       if (queueResult.conflict) {
+        if (queueResult.scheduleClaimed === false) {
+          log.info('calendar.skipped-claimed', { projectName: project.name, scheduleId: currentSchedule.id })
+          return
+        }
         log.info('run.skipped-active', { projectName: project.name, activeRunId: queueResult.activeRunId })
-        this.updateScheduleTiming(currentSchedule.id, {
-          nextRunAt,
-        })
+        if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
         return
       }
 
       const runId = queueResult.runId
-      this.updateScheduleTiming(currentSchedule.id, {
+      this.updateScheduleTiming(currentSchedule.id, claimedOccurrence ? {
+        lastRunAt: now,
+      } : {
         lastRunAt: now,
         nextRunAt,
       })

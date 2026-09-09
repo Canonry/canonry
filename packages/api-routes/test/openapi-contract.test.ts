@@ -165,6 +165,7 @@ describe('openapi contract', () => {
     )
 
     const schedulePath = body.paths['/api/v1/projects/{name}/schedule']!
+    expect(schedulePath.put?.requestBody?.content?.['application/json']?.schema?.properties?.recurrence).toEqual({ $ref: '#/components/schemas/CalendarRecurrence' })
     for (const method of ['put', 'get', 'delete'] as const) {
       const kindParam = schedulePath[method]?.parameters?.find((p) => p.name === 'kind')
       expect(kindParam?.schema?.$ref).toBe(KIND_REF)

@@ -1,3 +1,4 @@
+import { listModels } from './list-models.js'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -45,6 +46,8 @@ export const openaiAdapter: ProviderAdapter = {
       { id: 'gpt-4.1', displayName: 'GPT-4.1', tier: 'standard' },
     ],
   },
+
+  listModels,
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = openaiValidateConfig(toOpenAIConfig(config))

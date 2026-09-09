@@ -11,6 +11,7 @@ import {
   normalizeMeasurementExecutionQueryText,
   parseStoredMeasurementPlanAnyVersion,
   RunTriggers,
+  nextScheduleUpdatedAt,
   resolveMeasurementRunQueryScope,
   resolveMeasurementRunScope,
   validationError,
@@ -26,7 +27,7 @@ import {
   type MeasurementV2ExecutionNode,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { measurementPlans, measurementPlanVersions, projects, runs } from '@ainyc/canonry-db'
+import { measurementPlans, measurementPlanVersions, projects, runs, schedules } from '@ainyc/canonry-db'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'
 
@@ -55,6 +56,13 @@ export interface QueueRunParams {
   providerModels?: Readonly<Record<string, string>> | null
   /** Groups/targets to spot-check, resolved against the plan revision pinned here. */
   measurementScope?: MeasurementRunScopeRequest | null
+  /** Atomically advance one due calendar occurrence while queueing this run. */
+  scheduleClaim?: {
+    scheduleId: string
+    dueAt: string
+    expectedUpdatedAt: string
+    nextRunAt: string
+  }
 }
 
 interface MeasurementStamp {
@@ -560,7 +568,7 @@ export function assertMeasurementRunStampable(db: DatabaseClient, params: QueueR
 }
 
 export type QueueRunResult =
-  | { conflict: true; activeRunId: string }
+  | { conflict: true; activeRunId: string; scheduleClaimed?: false }
   | { conflict: false; runId: string }
 
 /** Queue only when this project has no active run of the requested kind. */
@@ -570,8 +578,12 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
   const trigger = params.trigger ?? 'manual'
   const runId = crypto.randomUUID()
 
+  if (params.scheduleClaim && trigger !== RunTriggers.scheduled) {
+    throw new Error('Schedule claims require a scheduled run trigger')
+  }
+
   return db.transaction((tx) => {
-    const activeRun = tx
+    const activeRun = () => tx
       .select()
       .from(runs)
       .where(
@@ -583,11 +595,35 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       )
       .get()
 
-    if (activeRun) {
-      return { conflict: true, activeRunId: activeRun.id } as const
+    // Preserve ordinary manual/scheduled admission behavior: an active run
+    // returns before any plan work. Calendar rows compile first so an invalid
+    // plan cannot consume their persisted occurrence claim.
+    if (!params.scheduleClaim) {
+      const current = activeRun()
+      if (current) return { conflict: true, activeRunId: current.id } as const
     }
 
     const stamp = measurementStamp(tx as unknown as DatabaseClient, params)
+
+    if (params.scheduleClaim) {
+      const claim = tx.update(schedules).set({
+        nextRunAt: params.scheduleClaim.nextRunAt,
+        updatedAt: nextScheduleUpdatedAt(params.scheduleClaim.expectedUpdatedAt),
+      }).where(and(
+        eq(schedules.id, params.scheduleClaim.scheduleId),
+        eq(schedules.projectId, params.projectId),
+        eq(schedules.kind, kind),
+        eq(schedules.enabled, true),
+        eq(schedules.nextRunAt, params.scheduleClaim.dueAt),
+        eq(schedules.updatedAt, params.scheduleClaim.expectedUpdatedAt),
+      )).run()
+      if (claim.changes !== 1) {
+        return { conflict: true, activeRunId: params.scheduleClaim.scheduleId, scheduleClaimed: false } as const
+      }
+    }
+
+    const current = activeRun()
+    if (current) return { conflict: true, activeRunId: current.id } as const
 
     // Stamp the query set this run is about to measure, so analytics can compare
     // like-for-like later without inferring membership from row timestamps.

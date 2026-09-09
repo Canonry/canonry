@@ -1,4 +1,4 @@
-import type { ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
+import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
@@ -17,6 +17,7 @@ export interface ServiceStatus {
   statusCode?: number
   hint?: string
   updateAvailable?: UpdateAvailable
+  mcp?: McpHealth
 }
 
 export interface UpdateAvailable {

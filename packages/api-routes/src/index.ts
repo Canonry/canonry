@@ -178,6 +178,7 @@ export interface ApiRoutesOptions {
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
+  getProviderModels?: SettingsRoutesOptions['getProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
   /** Google OAuth configuration summary + update callback */
@@ -575,6 +576,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       briefPromptVersion: opts.briefPromptVersion,
     })
     await api.register(settingsRoutes, {
+      getProviderModels: opts.getProviderModels,
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
@@ -702,6 +704,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
+      getProviderModels: opts.getProviderModels,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
       providerAdapters: opts.providerAdapters,
       configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
       onResearchRunRequested: opts.onResearchRunRequested,
@@ -752,7 +756,7 @@ export type { AuthPrincipal } from './auth.js'
 export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'
-export { nextRunFromCron } from './schedule-utils.js'
+export { nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from './schedule-utils.js'
 export {
   executeDiscovery,
   classifyProbeBucket,

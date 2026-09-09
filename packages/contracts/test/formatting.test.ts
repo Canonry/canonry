@@ -6,6 +6,7 @@ import {
   deltaTone,
   formatAverageDelta,
   formatDate,
+  formatZonedTimestamp,
   formatDateRange,
   formatDeltaCopy,
   formatIsoDate,
@@ -693,4 +694,12 @@ describe('inclusiveDayCount', () => {
     expect(inclusiveDayCount('2026-02-30', '2026-03-30')).toBeNull()
     expect(inclusiveDayCount('2025-02-01', '2025-02-29')).toBeNull()
   })
+})
+
+
+test('formatZonedTimestamp keeps the configured timezone, including daylight saving', () => {
+  expect(formatZonedTimestamp('2026-09-23T04:00:00Z', 'America/New_York')).toBe('Wed, Sep 23, 2026, 12:00 AM EDT')
+  expect(formatZonedTimestamp('2026-11-04T05:00:00Z', 'America/New_York')).toBe('Wed, Nov 4, 2026, 12:00 AM EST')
+  expect(formatZonedTimestamp('2026-09-23T04:00:00Z', 'invalid')).toBe('Wed, Sep 23, 2026, 4:00 AM UTC')
+  expect(formatZonedTimestamp('invalid')).toBeNull()
 })

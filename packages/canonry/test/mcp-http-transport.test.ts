@@ -225,6 +225,13 @@ describe('MCP over OAuth', () => {
     await built.cleanup()
   })
 
+  it('reports MCP availability without opening a session', async () => {
+    const res = await request(built, { method: 'GET', url: '/health' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ mcp: { status: 'available' } })
+    expect(built.sessionKeys()).toEqual([])
+  })
+
   it('challenges an unauthenticated caller with its discovery document', async () => {
     // RFC 9728 s5.1. This header is the entire entry point: a client holding no
     // credential learns from it where the authorization server lives. Without

@@ -11,6 +11,9 @@ export async function setSchedule(project: string, opts: {
   sourceId?: string
   preset?: string
   cron?: string
+  everyDays?: string
+  startDate?: string
+  at?: string
   timezone?: string
   providers?: string[]
   format?: string
@@ -21,6 +24,9 @@ export async function setSchedule(project: string, opts: {
   if (opts.sourceId) body.sourceId = opts.sourceId
   if (opts.preset) body.preset = opts.preset
   if (opts.cron) body.cron = opts.cron
+  if (opts.everyDays || opts.startDate || opts.at) {
+    body.recurrence = { everyDays: Number(opts.everyDays), startDate: opts.startDate, time: opts.at }
+  }
   if (opts.timezone) body.timezone = opts.timezone
   if (opts.providers?.length) body.providers = opts.providers
 
@@ -48,8 +54,9 @@ export async function showSchedule(project: string, format?: string, kind?: stri
 export async function enableSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
   const current: ScheduleDto = await client.getSchedule(project, kind)
-  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: true }
-  if (current.preset) body.preset = current.preset
+  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: true, expectedUpdatedAt: current.updatedAt }
+  if (current.recurrence) body.recurrence = current.recurrence
+  else if (current.preset) body.preset = current.preset
   else body.cron = current.cronExpr
   if (current.providers.length) body.providers = current.providers
   if (current.sourceId) body.sourceId = current.sourceId
@@ -65,8 +72,9 @@ export async function enableSchedule(project: string, format?: string, kind?: st
 export async function disableSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
   const current: ScheduleDto = await client.getSchedule(project, kind)
-  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: false }
-  if (current.preset) body.preset = current.preset
+  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: false, expectedUpdatedAt: current.updatedAt }
+  if (current.recurrence) body.recurrence = current.recurrence
+  else if (current.preset) body.preset = current.preset
   else body.cron = current.cronExpr
   if (current.providers.length) body.providers = current.providers
   if (current.sourceId) body.sourceId = current.sourceId
@@ -98,7 +106,13 @@ export function printSchedule(s: ScheduleDto): void {
   if (s.preset) {
     console.log(`  Preset:    ${s.preset}`)
   }
-  console.log(`  Cron:      ${s.cronExpr}`)
+  if (s.recurrence) {
+    console.log(`  Every:     ${s.recurrence.everyDays} day(s)`)
+    console.log(`  Start:     ${s.recurrence.startDate}`)
+    console.log(`  At:        ${s.recurrence.time}`)
+  } else {
+    console.log(`  Cron:      ${s.cronExpr}`)
+  }
   console.log(`  Timezone:  ${s.timezone}`)
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
   if (s.kind === 'traffic-sync' && s.sourceId) {

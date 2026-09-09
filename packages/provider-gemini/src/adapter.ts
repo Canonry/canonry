@@ -1,3 +1,4 @@
+import { listModels } from './list-models.js'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -46,6 +47,8 @@ export const geminiAdapter: ProviderAdapter = {
       { id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', tier: 'standard' },
     ],
   },
+
+  listModels: (config, signal) => listModels(toGeminiConfig(config), signal),
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = geminiValidateConfig(toGeminiConfig(config))

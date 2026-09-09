@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { calendarRecurrenceSchema } from './schedule.js'
 import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
 import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
@@ -12,8 +13,9 @@ export const configMetadataSchema = z.object({
 })
 
 export const configScheduleSchema = z.object({
-  preset: z.string().optional(),
-  cron: z.string().optional(),
+  preset: z.string().min(1).optional(),
+  cron: z.string().min(1).optional(),
+  recurrence: calendarRecurrenceSchema.optional(),
   timezone: z.string().optional().default('UTC'),
   providers: z.array(providerNameSchema).optional().default([]),
   /**
@@ -25,8 +27,8 @@ export const configScheduleSchema = z.object({
    */
   enabled: z.boolean().optional(),
 }).refine(
-  (data) => (data.preset && !data.cron) || (!data.preset && data.cron),
-  { message: 'Exactly one of "preset" or "cron" must be provided' },
+  (data) => [data.preset, data.cron, data.recurrence].filter(value => value !== undefined).length === 1,
+  { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' },
 ).optional()
 
 export const configNotificationSchema = z.object({

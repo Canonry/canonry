@@ -29,6 +29,14 @@ export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sy
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 
+/** Calendar-day recurrence in the schedule's IANA timezone, anchored to startDate. */
+export const calendarRecurrenceSchema = z.object({
+  everyDays: z.number().int().min(1).max(3650),
+  startDate: z.string().date(),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be HH:mm'),
+}).strict()
+export type CalendarRecurrence = z.infer<typeof calendarRecurrenceSchema>
+
 // --- DTOs ---
 
 export const scheduleDtoSchema = z.object({
@@ -36,7 +44,9 @@ export const scheduleDtoSchema = z.object({
   projectId: z.string(),
   /** Run kind dispatched when this schedule fires. Defaults to 'answer-visibility' for legacy rows. */
   kind: schedulableRunKindSchema,
+  /** Empty for calendar recurrence schedules. */
   cronExpr: z.string(),
+  recurrence: calendarRecurrenceSchema.nullable().optional(),
   preset: z.string().nullable().optional(),
   timezone: z.string().default('UTC'),
   enabled: z.boolean().default(true),
@@ -64,8 +74,9 @@ export function nextScheduleUpdatedAt(previous: string | undefined, nowMs = Date
 export const scheduleUpsertRequestSchema = z.object({
   /** Run kind. Defaults to 'answer-visibility' so existing callers don't have to change. */
   kind: schedulableRunKindSchema.optional(),
-  preset: z.string().optional(),
-  cron: z.string().optional(),
+  preset: z.string().min(1).optional(),
+  cron: z.string().min(1).optional(),
+  recurrence: calendarRecurrenceSchema.optional(),
   timezone: z.string().optional().default('UTC'),
   enabled: z.boolean().optional().default(true),
   providers: z.array(providerNameSchema).optional().default([]),
@@ -77,8 +88,8 @@ export const scheduleUpsertRequestSchema = z.object({
    */
   expectedUpdatedAt: scheduleExpectedUpdatedAtSchema.nullable().optional(),
 }).refine(
-  (data) => (data.preset && !data.cron) || (!data.preset && data.cron),
-  { message: 'Exactly one of "preset" or "cron" must be provided' },
+  (data) => [data.preset, data.cron, data.recurrence].filter(value => value !== undefined).length === 1,
+  { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' },
 )
 
 export type ScheduleUpsertRequest = z.infer<typeof scheduleUpsertRequestSchema>

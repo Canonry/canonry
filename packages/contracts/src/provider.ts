@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { GroundingSource } from './run.js'
-import type { ProviderModelRegistry } from './models.js'
+import type { ModelDefinition, ProviderModelRegistry } from './models.js'
 import type { RetrievalContract, RetrievalStatus } from './retrieval.js'
 
 export const providerQuotaPolicySchema = z.object({
@@ -270,6 +270,8 @@ export interface ProviderAdapter {
   modelRegistry: ProviderModelRegistry
   /** URL where users can obtain an API key (shown in UI) */
   keyUrl?: string
+  /** Read model metadata only; must never generate an answer or spend query quota. */
+  listModels?(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]>
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
   healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>

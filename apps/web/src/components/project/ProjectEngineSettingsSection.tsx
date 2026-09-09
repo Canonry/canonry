@@ -64,7 +64,8 @@ export function ProjectEngineSettingsSection({
     [settings.data],
   )
   const rows = useMemo(() => {
-    const known = new Map(catalog.map(entry => [entry.name, entry]))
+    const instanceModels = new Map(settings.data?.providers.map(provider => [provider.name, provider.model]))
+    const known = new Map(catalog.map(entry => [entry.name, { ...entry, defaultModel: instanceModels.get(entry.name) || entry.defaultModel }]))
     for (const provider of Object.keys(models)) {
       if (!known.has(provider)) {
         known.set(provider, {
@@ -80,7 +81,7 @@ export function ProjectEngineSettingsSection({
       }
     }
     return [...known.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
-  }, [catalog, models])
+  }, [catalog, models, settings.data?.providers])
   const hasModelChange = !sameModels(models, saved.providerModels)
 
   useEffect(() => {

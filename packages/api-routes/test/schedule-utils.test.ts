@@ -1,5 +1,7 @@
-import { test, expect } from 'vitest'
-import { resolvePreset, validateCron, isValidTimezone, nextRunFromCron } from '../src/schedule-utils.js'
+import { afterEach, test, expect, vi } from 'vitest'
+
+afterEach(() => vi.useRealTimers())
+import { resolvePreset, validateCron, isValidTimezone, nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from '../src/schedule-utils.js'
 
 // --- resolvePreset ---
 
@@ -111,4 +113,66 @@ test('nextRunFromCron returns null for an unparseable expression', () => {
 
 test('nextRunFromCron returns null for an invalid timezone', () => {
   expect(nextRunFromCron('0 6 * * *', 'not/a-zone', new Date('2026-06-01T15:33:00Z'))).toBeNull()
+})
+
+
+// --- calendar recurrence ---
+
+const fortnightlyNewYork = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }
+
+test('nextRunFromRecurrence never fires before its local calendar anchor', () => {
+  expect(nextRunFromRecurrence(fortnightlyNewYork, 'America/New_York', new Date('2026-09-20T12:00:00.000Z')))
+    .toBe('2026-09-23T04:00:00.000Z')
+})
+
+test('nextRunFromRecurrence keeps a fortnightly midnight wall time across DST', () => {
+  expect(nextRunFromRecurrence(fortnightlyNewYork, 'America/New_York', new Date('2026-09-23T04:00:00.000Z')))
+    .toBe('2026-10-07T04:00:00.000Z')
+  expect(nextRunFromRecurrence(fortnightlyNewYork, 'America/New_York', new Date('2026-10-07T04:00:00.000Z')))
+    .toBe('2026-10-21T04:00:00.000Z')
+  expect(nextRunFromRecurrence(fortnightlyNewYork, 'America/New_York', new Date('2026-10-21T04:00:00.000Z')))
+    .toBe('2026-11-04T05:00:00.000Z')
+})
+
+test('nextRunFromRecurrence follows calendar ordinals across a year boundary', () => {
+  expect(nextRunFromRecurrence({ everyDays: 14, startDate: '2026-12-25', time: '00:00' }, 'America/New_York', new Date('2026-12-25T05:00:00.000Z')))
+    .toBe('2027-01-08T05:00:00.000Z')
+})
+
+test('nextRunFromSchedule dispatches recurrence rows and retains legacy cron rows', () => {
+  expect(nextRunFromSchedule({ cronExpr: '', timezone: 'America/New_York', recurrence: fortnightlyNewYork }, new Date('2026-10-21T04:00:00.000Z')))
+    .toBe('2026-11-04T05:00:00.000Z')
+  expect(nextRunFromSchedule({ cronExpr: '0 6 * * *', timezone: 'UTC' }, new Date('2026-06-01T15:33:00.000Z')))
+    .toBe('2026-06-02T06:00:00.000Z')
+})
+
+
+test('nextRunFromRecurrence chooses the earlier offset for a fall-back wall-clock ambiguity', () => {
+  expect(nextRunFromRecurrence({ everyDays: 14, startDate: '2026-11-01', time: '01:30' }, 'America/New_York', new Date('2026-10-30T00:00:00.000Z')))
+    .toBe('2026-11-01T05:30:00.000Z')
+})
+
+
+test('nextRunFromRecurrence skips a nonexistent spring-forward wall time without changing its phase', () => {
+  expect(nextRunFromRecurrence({ everyDays: 1, startDate: '2026-03-08', time: '02:30' }, 'America/New_York', new Date('2026-03-07T12:00:00.000Z')))
+    .toBe('2026-03-09T06:30:00.000Z')
+  expect(nextRunFromRecurrence({ everyDays: 14, startDate: '2026-02-22', time: '02:30' }, 'America/New_York', new Date('2026-03-01T00:00:00.000Z')))
+    .toBe('2026-03-22T06:30:00.000Z')
+})
+
+test('nextRunFromRecurrence preserves years below 100 and rejects invalid bounds', () => {
+  expect(nextRunFromRecurrence({ everyDays: 1, startDate: '0099-01-01', time: '00:00' }, 'UTC', new Date('0098-12-31T12:00:00.000Z')))
+    .toBe('0099-01-01T00:00:00.000Z')
+  expect(nextRunFromRecurrence({ everyDays: 3651, startDate: '2026-09-23', time: '00:00' }, 'UTC', new Date())).toBeNull()
+  expect(nextRunFromRecurrence(fortnightlyNewYork, 'America/New_York', new Date('invalid'))).toBeNull()
+})
+
+
+test('nextRunFromRecurrence picks the same fall-back instant regardless of the host clock season', () => {
+  const fold = { everyDays: 14, startDate: '2026-11-01', time: '01:30' }
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-01-15T00:00:00.000Z'))
+  expect(nextRunFromRecurrence(fold, 'America/New_York')).toBe('2026-11-01T05:30:00.000Z')
+  vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'))
+  expect(nextRunFromRecurrence(fold, 'America/New_York')).toBe('2026-11-01T05:30:00.000Z')
 })

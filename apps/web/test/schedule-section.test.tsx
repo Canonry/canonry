@@ -1,4 +1,4 @@
-import { afterEach, expect, onTestFinished, test } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
@@ -405,4 +405,118 @@ test('sends the displayed version when toggling and deleting a schedule', async 
   expect(scheduleReads).toBe(2)
   expect(scheduleWrites).toBe(1)
   expect(scheduleDeletes).toBe(1)
+})
+
+test('creates a native calendar schedule with its local-day anchor and time', async () => {
+  const recurrence = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }
+  const saved = makeSchedule({ cronExpr: '', preset: null, recurrence, timezone: 'America/New_York', nextRunAt: '2026-09-23T04:00:00.000Z' })
+  let reads = 0
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'PUT') {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        recurrence,
+        timezone: 'America/New_York',
+        expectedUpdatedAt: null,
+      })
+      return jsonResponse(saved)
+    }
+    reads += 1
+    return jsonResponse([])
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+
+  expect(await screen.findByText(/No schedule configured/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '+ Set schedule' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Frequency' }), { target: { value: 'calendar' } })
+  expect(screen.getAllByRole('combobox')).toHaveLength(2)
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Repeat every days' }), { target: { value: '14' } })
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-09-23' } })
+  fireEvent.change(screen.getByLabelText('Recurrence time'), { target: { value: '00:00' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Timezone' }), { target: { value: 'America/New_York' } })
+  const NativeDateTimeFormat = Intl.DateTimeFormat
+  function MockDateTimeFormat(...args: ConstructorParameters<typeof Intl.DateTimeFormat>) {
+    return new NativeDateTimeFormat(...args)
+  }
+  const formatSpy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(MockDateTimeFormat)
+  fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
+
+  expect(await screen.findByText('Every 14 days starting Sep 23, 2026 at 12:00 AM · New York')).toBeTruthy()
+  expect(formatSpy).toHaveBeenCalledWith('en-US', expect.objectContaining({ hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }))
+  formatSpy.mockRestore()
+  expect(screen.getByText('Next run: Wed, Sep 23, 2026, 12:00 AM EDT')).toBeTruthy()
+  expect(screen.queryByText(/Cron:/)).toBeNull()
+  expect(reads).toBe(2)
+})
+
+test('edits a calendar schedule without converting it to cron', async () => {
+  const initial = makeSchedule({
+    cronExpr: '',
+    preset: null,
+    recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' },
+    timezone: 'America/New_York',
+  })
+  const saved = makeSchedule({
+    ...initial,
+    recurrence: { everyDays: 21, startDate: '2026-10-14', time: '09:30' },
+    updatedAt: '2026-08-02T00:00:00.000Z',
+  })
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'PUT') {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        recurrence: { everyDays: 21, startDate: '2026-10-14', time: '09:30' },
+        expectedUpdatedAt: initial.updatedAt,
+      })
+      return jsonResponse(saved)
+    }
+    return jsonResponse([initial])
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+
+  expect(await screen.findByText(/Every 14 days starting/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }))
+  expect((screen.getByRole('combobox', { name: 'Frequency' }) as HTMLSelectElement).value).toBe('calendar')
+  expect((screen.getByRole('spinbutton', { name: 'Repeat every days' }) as HTMLInputElement).value).toBe('14')
+  expect((screen.getByLabelText('Start date') as HTMLInputElement).value).toBe('2026-09-23')
+  expect((screen.getByLabelText('Recurrence time') as HTMLInputElement).value).toBe('00:00')
+
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Repeat every days' }), { target: { value: '21' } })
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-10-14' } })
+  fireEvent.change(screen.getByLabelText('Recurrence time'), { target: { value: '09:30' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }))
+
+  expect(await screen.findByText('Every 21 days starting Oct 14, 2026 at 9:30 AM · New York')).toBeTruthy()
+  expect(screen.queryByText(/Cron:/)).toBeNull()
+})
+
+test('pauses a calendar schedule while preserving its recurrence payload', async () => {
+  const recurrence = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }
+  const active = makeSchedule({ cronExpr: '', preset: null, recurrence, timezone: 'America/New_York' })
+  const paused = makeSchedule({ ...active, enabled: false, updatedAt: '2026-08-02T00:00:00.000Z' })
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'PUT') {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        recurrence,
+        enabled: false,
+        expectedUpdatedAt: active.updatedAt,
+      })
+      return jsonResponse(paused)
+    }
+    return jsonResponse([active])
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+
+  expect(await screen.findByText(/Every 14 days starting/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+  expect(await screen.findByText('Paused')).toBeTruthy()
+  expect(screen.getByText('Every 14 days starting Sep 23, 2026 at 12:00 AM · New York')).toBeTruthy()
+  expect(screen.queryByText(/Cron:/)).toBeNull()
 })

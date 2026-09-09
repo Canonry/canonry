@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getLaunchBlockedReason, buildSetupModel, serviceStatusTooltip } from '../src/lib/health-helpers.js'
+import { buildSystemHealthCards, getLaunchBlockedReason, buildSetupModel, serviceStatusTooltip } from '../src/lib/health-helpers.js'
 import type { HealthSnapshot, SettingsVm, SetupWizardVm } from '../src/view-models.js'
 
 function makeHealth(overrides?: Partial<HealthSnapshot>): HealthSnapshot {
@@ -109,5 +109,32 @@ describe('buildSetupModel', () => {
     const original = JSON.stringify(baseModel)
     buildSetupModel(baseModel, makeHealth(), makeSettings())
     expect(JSON.stringify(baseModel)).toBe(original)
+  })
+})
+
+
+describe('MCP system health', () => {
+  it.each([
+    ['available', 'Available', 'positive'],
+    ['unavailable', 'Unavailable', 'negative'],
+    ['not-supported', 'Not enabled', 'neutral'],
+    [undefined, 'Unknown', 'neutral'],
+  ] as const)('reports %s independently of a healthy API', (status, detail, tone) => {
+    const health = makeHealth()
+    health.apiStatus.mcp = status ? { status } : undefined
+    const cards = buildSystemHealthCards([
+      { id: 'api', label: 'API', tone: 'neutral', detail: '', meta: '' },
+    ], health, makeSettings())
+    expect(cards.map(card => card.id)).toEqual(['api', 'mcp'])
+    expect(cards[0]?.detail).toBe('Healthy')
+    expect(cards[1]).toMatchObject({ label: 'MCP', detail, tone })
+    expect(getLaunchBlockedReason(health, makeSettings())).toBeUndefined()
+  })
+
+  it('does not claim MCP is available when the health request failed', () => {
+    const health = makeHealth()
+    health.apiStatus.state = 'error'
+    health.apiStatus.mcp = { status: 'available' }
+    expect(buildSystemHealthCards([], health, makeSettings())[0]).toMatchObject({ id: 'mcp', detail: 'Unknown' })
   })
 })

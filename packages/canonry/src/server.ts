@@ -226,6 +226,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
+import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -233,7 +234,7 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
-import { registerMcpHttpRoutes, mcpTransportPaths } from "./mcp-http.js";
+import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -2903,6 +2904,7 @@ export async function createServer(opts: {
       includeCanonryLocal: true,
     },
     providerSummary,
+    getProviderModels: createProviderModelCatalog(registry),
     providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map((a) => ({
       name: a.name,
       displayName: a.displayName,
@@ -3533,6 +3535,7 @@ export async function createServer(opts: {
       status: "ok",
       service: "canonry",
       version: PKG_VERSION,
+      mcp: mcpHttpHealth(app, apiPrefix),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
       ...(update ? { updateAvailable: update } : {}),
     };

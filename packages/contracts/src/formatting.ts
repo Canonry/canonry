@@ -500,3 +500,19 @@ export function parseBoundedRate(value: number | null): number | null {
   if (value === null) return null
   return value >= 0 && value <= 1 ? value : null
 }
+
+
+/** A scheduled instant in its configured timezone, with an explicit zone label. */
+export function formatZonedTimestamp(iso: string, timeZone = 'UTC'): string | null {
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return null
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  }
+  try {
+    return date.toLocaleString('en-US', { ...options, timeZone })
+  } catch {
+    return date.toLocaleString('en-US', { ...options, timeZone: 'UTC' })
+  }
+}

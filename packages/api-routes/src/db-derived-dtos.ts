@@ -51,6 +51,7 @@ import {
   schedules,
 } from '@ainyc/canonry-db'
 import {
+  calendarRecurrenceSchema,
   configSourceSchema,
   locationContextSchema,
   measurementConfigSchema,
@@ -104,6 +105,7 @@ export const runRowSchema = createSelectSchema(runs, {
 
 // --- schedules ---
 export const scheduleRowSchema = createSelectSchema(schedules, {
+  recurrence: calendarRecurrenceSchema.nullable(),
   kind: schedulableRunKindSchema,
   providers: z.array(providerNameSchema),
 })

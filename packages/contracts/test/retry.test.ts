@@ -223,6 +223,13 @@ describe('isRetryableHttpError with body-reported throttling', () => {
 })
 
 describe('retryAfterDelayMs', () => {
+  it('reads SDK response headers and preserves explicit overrides', () => {
+    expect(retryAfterDelayMs({ headers: new Headers({ 'retry-after': '300' }) })).toBe(300_000)
+    expect(retryAfterDelayMs({ headers: { 'retry-after': '12' } })).toBe(12_000)
+    expect(retryAfterDelayMs({ headers: { 'Retry-After': '12' } })).toBe(12_000)
+    expect(retryAfterDelayMs({ retryAfter: 5, headers: { 'retry-after': '12' } })).toBe(5_000)
+  })
+
   it('reads delta-seconds in both numeric and string form', () => {
     expect(retryAfterDelayMs({ retryAfter: 30 })).toBe(30_000)
     expect(retryAfterDelayMs({ retryAfter: '30' })).toBe(30_000)
