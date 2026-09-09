@@ -1,6 +1,6 @@
 import {
   aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly,
-  researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots,
+  discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots,
   trafficSources, type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext } from './types.js'
@@ -32,6 +32,9 @@ export function seedDemoExploration(db: DatabaseClient, context: DemoSeedContext
     const topics = project.id === context.simple.id
       ? ['How do homeowners compare roofing materials?', 'What should a roof repair estimate include?']
       : ['What amenities matter most for a family resort stay?', 'How should travelers compare coastal resorts?']
+    const discoveryId = `${project.id}-discovery`
+    db.insert(discoverySessions).values({ id: discoveryId, projectId: project.id, status: 'completed', icpDescription: `Fictional research example for ${project.displayName}.`, buyerDescription: 'People comparing local services and planning a purchase.', seedProvider: 'openai', seedProviders: ['openai'], seedCountRaw: 2, seedCount: 2, canonicalCount: 2, probeCount: 2, citedCount: 1, aspirationalCount: 1, wastedCount: 0, startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
+    db.insert(discoveryProbes).values(topics.map((query, i) => ({ id: `${discoveryId}-${i}`, sessionId: discoveryId, projectId: project.id, query, bucket: i === 0 ? 'cited' : 'aspirational', citationState: i === 0 ? 'cited' : 'not-cited', answerMentioned: i === 0, citedDomains: i === 0 ? [project.domain] : ['comparison-guide.example'], createdAt }))).run()
     db.insert(researchRunQueries).values(topics.map((queryText, position) => ({ id: `${researchRunId}-${position}`, researchRunId, position, queryText, status: 'completed', requestedModel: 'demo-model', resolvedModel: 'demo-model', servedModel: 'demo-model', answerText: `Fictional sample answer: compare clear pricing, service details, and independent reviews. ${project.displayName} illustrates a business with useful comparison guidance.`, groundingSources: [{ uri: `${root}guides/`, title: `${project.displayName} comparison guide` }], citedDomains: [project.domain], answerMentioned: true, citationState: 'cited', startedAt: createdAt, finishedAt: createdAt, createdAt }))).run()
   }
 }

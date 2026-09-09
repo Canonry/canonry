@@ -48,6 +48,8 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/conversion-tracking/contracts/:contractId',
   '/api/v1/projects/:name/conversion-tracking/contracts/:contractId/integrity',
   '/api/v1/projects/:name/conversion-tracking/options',
+  '/api/v1/projects/:name/discover/sessions',
+  '/api/v1/projects/:name/discover/sessions/:id',
   '/api/v1/projects/:name/export',
   '/api/v1/projects/:name/ga/ai-referral-daily',
   '/api/v1/projects/:name/ga/ai-referral-history',
