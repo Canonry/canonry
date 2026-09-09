@@ -10,7 +10,7 @@ Publication starts no provider work. New assignments await the project-wide swee
 Simple sites and portfolios use the same report contract with separate query-class populations.
 The Simple dashboard keeps its trend controls, coverage summary, competitive gaps,
 and query evidence. The Advanced report layout is reserved for published portfolios.
-Groups collect properties and can declare a parent Group for navigation. Start with top-level Groups, then show their Properties immediately with subgroups collapsed. Parent membership contains every child Property; overlap between sibling Groups is allowed. Changing only group navigation parents preserves measurement comparability. Markets select explicit execution-context edges.
+Groups collect properties and can declare a parent Group for navigation. Start with top-level Groups, then follow the declared hierarchy with subgroups expanded and the parent's full property list collapsed. Leaf Groups show their Properties in an expanded disclosure. Both lists can be collapsed, and reopening the picker restores the selected Group or a Property's declared group context. Parent membership contains every child Property; overlap between sibling Groups is allowed. Changing only group navigation parents preserves measurement comparability. Markets select explicit execution-context edges.
 
 ## Product purpose
 

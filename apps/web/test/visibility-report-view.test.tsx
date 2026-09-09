@@ -236,9 +236,8 @@ describe('shared production visibility view', () => {
     }))
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
 
-    const disclosure = screen.getByText('Trend data and comparability').closest('details')!
-    fireEvent.click(within(disclosure).getByText('Trend data and comparability'))
-    const table = within(disclosure).getByRole('table')
+    const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+    expect(table.parentElement!.classList.contains('sr-only')).toBe(false)
     expect(within(table).getAllByRole('row')).toHaveLength(3)
     for (const point of population.trend) {
       expect(within(table).getByText(new Date(point.createdAt).toLocaleDateString())).toBeTruthy()

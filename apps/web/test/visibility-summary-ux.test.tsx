@@ -47,6 +47,11 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(within(legend).getByText('Cited')).toBeTruthy()
   const outcomes = screen.getByText('Property outcomes', { selector: 'summary' }).closest('details')!
   expect(outcomes.open).toBe(false)
+  expect(screen.queryByText('Trend data and comparability')).toBeNull()
+  const data = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+  expect(data.parentElement!.classList.contains('sr-only')).toBe(true)
+  expect(within(data).getAllByRole('row')).toHaveLength(2)
+  expect(screen.getByText('First measurement. A trend appears after another comparable run.')).toBeTruthy()
   const trend = screen.getByRole('img', { name: /mention and citation trend/ })
   expect(trend.compareDocumentPosition(outcomes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
@@ -74,4 +79,20 @@ test('keeps revision mechanics behind help, with pending assignments visible', (
   expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
   expect(screen.queryByText(/Measured under revision/)).toBeNull()
   expect(screen.getByRole('button', { name: /Measured under revision 2/ })).toBeTruthy()
+})
+
+test.each(['simple', 'advanced'] as const)('keeps %s comparison warnings beside the chart with accessible history', mode => {
+  const report = fixture()
+  report.selection.mode = mode
+  const population = report.populations[0]!
+  const first = population.trend[0]!
+  population.trend.push(...(['definition-changed', 'model-changed', 'legacy-unknown'] as const).map((state, index) => ({ ...first, runId: `run-${index + 3}`, createdAt: `2026-09-0${index + 2}T10:00:00Z`, continuity: { state, comparedRunId: first.runId } })))
+  render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+  const chart = screen.getByRole('img', { name: /mention and citation trend/ })
+  const description = document.getElementById(chart.getAttribute('aria-describedby')!)!
+  expect(description.textContent).toContain('Gaps mark changes to what was measured.')
+  expect(description.textContent).toContain('Gaps mark changes to answer engines or models.')
+  expect(description.textContent).toContain('Older runs lack the details needed for comparison.')
+  const data = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+  expect(within(data).getAllByRole('row')).toHaveLength(5)
 })

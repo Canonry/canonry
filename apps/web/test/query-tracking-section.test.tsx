@@ -547,7 +547,8 @@ test('browses a nested tracked-query group without first listing every property'
 
   fireEvent.click(screen.getByRole('button', { name: 'Browse Metro' }))
   expect(screen.getByText('All properties in this group')).toBeTruthy()
-  fireEvent.click(screen.getByText('Subgroups (1)', { selector: 'summary' }))
+  expect(screen.getByText('Subgroups (1)', { selector: 'summary' }).closest('details')!.open).toBe(true)
+  expect(screen.getByText('All properties (1)', { selector: 'summary' }).closest('details')!.open).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Select North East' }))
   expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
 })
