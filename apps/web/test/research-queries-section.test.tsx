@@ -93,7 +93,7 @@ test('switches to research, deduplicates query lines, gates exact model choice, 
   expect(screen.getByText(/2 queries, duplicates and blank lines are removed/)).toBeTruthy()
 
   await screen.findByRole('option', { name: 'OpenAI' })
-  fireEvent.change(screen.getByLabelText('API provider'), { target: { value: 'openai' } })
+  fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'openai' } })
   expect((screen.getByLabelText(/Exact model/) as HTMLInputElement).disabled).toBe(false)
 })
 
