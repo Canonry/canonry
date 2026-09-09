@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
+import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 /**
  * MCP over Streamable HTTP. The properties worth pinning are the ones the
@@ -500,12 +501,45 @@ describe('MCP over Streamable HTTP', () => {
     return (parsed.result?.tools ?? []).map(tool => tool.name)
   }
 
-  it('serves a narrow surface on the core endpoint, not the whole registry', async () => {
-    // The point of the whole exercise: the full eager surface is 206 tools and
-    // ~52k tokens of definitions on every turn.
-    const tools = await toolsFor('/api/v1/mcp', built.wildcardKey)
-    expect(tools.length).toBeGreaterThan(0)
-    expect(tools.length).toBeLessThan(30)
+  it.each([
+    ['/api/v1/mcp', false], ['/api/v1/mcp', true],
+    ['/api/v1/mcp/readonly', false], ['/api/v1/mcp/readonly', true],
+    ['/api/v1/mcp/x/monitoring/readonly', false],
+  ] as const)('exposes property analysis immediately at %s (read-only key: %s)', async (url, readOnlyKey) => {
+    const tools = await toolsFor(url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
+    expect(tools).toEqual(expect.arrayContaining([
+      'canonry_project_overview', 'canonry_visibility_report',
+      'canonry_measurement_overview', 'canonry_measurement_property_evidence',
+      'canonry_measurement_portfolio_summary', 'canonry_measurement_property_questions',
+      'canonry_measurement_question_result', 'canonry_measurement_property_competitors',
+      'canonry_measurement_changes', 'canonry_measurement_data_quality',
+    ]))
+    expect(tools).not.toContain('canonry_load_toolkit')
+    expect(tools).not.toContain('canonry_gsc_performance')
+    expect(tools).not.toContain('canonry_measurement_draft_action')
+    expect(tools.length).toBeLessThan(80)
+    if (readOnlyKey || url.endsWith('/readonly')) {
+      for (const tool of canonryMcpTools.filter(tool => tool.access === 'write')) {
+        expect(tools).not.toContain(tool.name)
+      }
+    }
+  })
+
+  it('exposes property analysis to an OAuth reader without write tools', async () => {
+    const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
+    const tools = await toolsFor('/api/v1/mcp', token)
+    expect(tools).toContain('canonry_measurement_portfolio_summary')
+    expect(tools).toContain('canonry_measurement_property_evidence')
+    for (const tool of canonryMcpTools.filter(tool => tool.access === 'write')) {
+      expect(tools).not.toContain(tool.name)
+    }
+  })
+
+  it('retains property overview and evidence on the setup endpoint', async () => {
+    const tools = await toolsFor('/api/v1/mcp/x/setup/readonly', built.wildcardKey)
+    expect(tools).toEqual(expect.arrayContaining([
+      'canonry_measurement_overview', 'canonry_measurement_property_evidence',
+    ]))
   })
 
   it('a /readonly endpoint narrows even a WILDCARD key', async () => {
@@ -519,11 +553,13 @@ describe('MCP over Streamable HTTP', () => {
   })
 
   it('a toolkit endpoint adds that toolkit on top of core', async () => {
-    const core = await toolsFor('/api/v1/mcp', built.wildcardKey)
+    const core = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     const withToolkit = await toolsFor('/api/v1/mcp/x/gsc', built.wildcardKey)
     expect(withToolkit.length).toBeGreaterThan(core.length)
     // core rides along, or the toolkit's tools have no project to aim at
     for (const name of core) expect(withToolkit).toContain(name)
+    expect(withToolkit).toContain('canonry_gsc_performance')
+    expect(withToolkit).not.toContain('canonry_measurement_portfolio_summary')
   })
 
   it('refuses a session opened on a different segment', async () => {

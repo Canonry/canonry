@@ -610,7 +610,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(10)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(12)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
@@ -620,6 +620,8 @@ describe('MCP tool registry', () => {
       'canonry_doctor',
       'canonry_settings_get',
       'canonry_apply_config',
+      'canonry_measurement_overview',
+      'canonry_measurement_property_evidence',
       'canonry_run_trigger',
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
@@ -637,7 +639,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(48)
-    expect(counts.get('setup')).toBe(54)
+    expect(counts.get('setup')).toBe(52)
     expect(counts.get('gsc')).toBe(10)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(13)
@@ -822,7 +824,7 @@ describe('MCP tool registry', () => {
     const measurementOverview = canonryMcpTools.find(
       candidate => candidate.name === 'canonry_measurement_overview',
     )
-    expect(measurementOverview).toMatchObject({ access: 'read', tier: 'setup' })
+    expect(measurementOverview).toMatchObject({ access: 'read', tier: 'core' })
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toContain('canonry_measurement_overview')
     expect(measurementOverview?.inputSchema.parse({
       project: 'acme',
@@ -1107,6 +1109,8 @@ describe('Dynamic tool catalog', () => {
       'canonry_doctor',
       'canonry_settings_get',
       'canonry_apply_config',
+      'canonry_measurement_overview',
+      'canonry_measurement_property_evidence',
       'canonry_run_trigger',
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
