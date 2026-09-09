@@ -182,10 +182,10 @@ async function renderAt(
   if (measurement?.competitorLandscape) {
     const q = {
       window: measurement.competitorLandscapeKey?.window ?? '30d',
-      // Simple projects have no class control, so the card always asks for the
-      // one class a share of voice can be built on.
+      // Advanced history follows the shared query-type selection. Simple
+      // history retains its separate non-brand share-of-voice scope.
       queryClass: measurement.plan.active?.plan.schemaVersion === 2
-        ? measurement.competitorLandscapeKey?.queryClass ?? 'non-brand'
+        ? measurement.competitorLandscapeKey?.queryClass ?? 'all'
         : 'non-brand',
       ...(measurement.competitorLandscapeKey?.groupKey ? { groupKey: measurement.competitorLandscapeKey.groupKey } : {}),
       ...(measurement.competitorLandscapeKey?.scope ? { scope: measurement.competitorLandscapeKey.scope } : {}),
@@ -756,6 +756,27 @@ test.each([false, true])('Simple query results remain available behind disclosur
   expect(section!.querySelector('.evidence-table')).not.toBeNull()
 })
 
+test.each([false, true])('a clean Simple dashboard shows older saved results immediately (embed: %s)', async embed => {
+  const report = visibilityReportResponse({ mode: 'simple', queryClass: 'all', label: 'Older saved query' })
+  report.selection.provenance = { kind: 'legacy-simple', definitionRevision: null }
+  for (const population of report.populations.filter(population => population.queryClass !== 'unknown')) {
+    population.summary.queryCount = 0
+    population.summary.answerCount = 0
+    population.trend = []
+    population.queries = { items: [], total: 0, nextCursor: null }
+  }
+  const html = await renderAt('/projects/project_citypoint', embed ? { enabled: true } : undefined, {
+    plan: { active: null }, visibilityReport: report,
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  expect(doc.querySelector<HTMLSelectElement>('select[aria-label="Query type"]')?.value).toBe('all')
+  expect(doc.querySelector('[aria-label="Unclassified queries"]')?.textContent).toContain('1 of 1')
+  expect(doc.querySelector('[aria-label="Branded queries"]')).toBeNull()
+  expect(doc.querySelector('[aria-label="Non-brand queries"]')).toBeNull()
+  expect(doc.querySelector('[data-query-results="unknown"]')?.textContent).toContain('Older saved query')
+  expect(html).not.toContain('frozen query classification')
+})
+
 test('a Simple project loads pinned and historical competitors from the stored-evidence read', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, {
     plan: { active: null },
@@ -928,7 +949,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   // Global runId belongs to the run drawer. It must not silently pin this
   // report; only measurementRunId is a visibility-report filter.
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint?runId=drawer-run'] })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint?runId=drawer-run&queryClass=non-brand'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -2276,7 +2297,7 @@ test('switching query class refetches the competitor landscape under the matchin
     if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
     if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
     if (url.pathname.endsWith('/visibility-report')) {
-      const queryClass = url.searchParams.get('queryClass') === 'branded' ? 'branded' as const : 'non-brand' as const
+      const queryClass = url.searchParams.get('queryClass') === 'branded' ? 'branded' as const : 'all' as const
       return jsonResponse(visibilityReportResponse({ mode: 'advanced', queryClass }))
     }
     if (url.pathname.endsWith('/measurement-overview')) {
@@ -2318,7 +2339,7 @@ test('switching query class refetches the competitor landscape under the matchin
   expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
-    && path.includes('queryClass=non-brand')
+    && path.includes('queryClass=all')
   ))).toBe(true)
 
   fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'branded' } })

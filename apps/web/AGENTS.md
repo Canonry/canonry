@@ -117,6 +117,9 @@ For a signed-in viewer, omit Research unless the injected `research.allowViewers
 After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
 `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts.
+Default the shared URL selection to all queries for Simple and Advanced, preserving explicit query-type links.
+Simple history without query labels must show its saved unclassified results on arrival. In the all-query view, omit Simple classes with no current or historical queries when another class has results; keep Advanced unmeasured classes explicit.
+Never draw an empty trend chart when every server rate is unavailable. Preserve the history table for recorded sweeps, including dates and comparison markers for partial measurements.
 Scope changes must preserve unrelated URL state. `measurementRunId` must never write the global `runId` drawer parameter.
 Keep `Run AI sweep` project-wide and admin-gated. Do not offer scoped sweeps or expose query administration in embeds.
 Managed deployments also suppress the sweep confirmation and guard its submit handler. The separate competitor-history disclosure retains pinning, follows the shared project/group and query-class selection, and uses its own explicit history window; it stays absent for unsupported Property, Market, and unclassified scopes.
