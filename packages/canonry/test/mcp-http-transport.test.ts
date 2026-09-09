@@ -504,42 +504,30 @@ describe('MCP over Streamable HTTP', () => {
   it.each([
     ['/api/v1/mcp', false], ['/api/v1/mcp', true],
     ['/api/v1/mcp/readonly', false], ['/api/v1/mcp/readonly', true],
-    ['/api/v1/mcp/x/monitoring/readonly', false],
-  ] as const)('exposes property analysis immediately at %s (read-only key: %s)', async (url, readOnlyKey) => {
+  ] as const)('exposes the entire permitted catalog at %s (read-only key: %s)', async (url, readOnlyKey) => {
     const tools = await toolsFor(url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
+    const readOnly = readOnlyKey || url.endsWith('/readonly')
+    const expected = canonryMcpTools.filter(tool => !readOnly || tool.access === 'read').map(tool => tool.name)
+    expect(tools).toEqual([...expected, 'canonry_help'])
     expect(tools).toEqual(expect.arrayContaining([
       'canonry_project_overview', 'canonry_visibility_report',
       'canonry_measurement_overview', 'canonry_measurement_property_evidence',
       'canonry_measurement_portfolio_summary', 'canonry_measurement_property_questions',
       'canonry_measurement_question_result', 'canonry_measurement_property_competitors',
       'canonry_measurement_changes', 'canonry_measurement_data_quality',
+      'canonry_gsc_performance', 'canonry_ga_status', 'canonry_gbp_accounts',
+      'canonry_ads_status', 'canonry_traffic_sources_list', 'canonry_memory_list',
+      'canonry_research_runs_list', 'canonry_measurement_setup',
+      'canonry_google_ads_status', 'canonry_gtm_status', 'canonry_conversion_tracking_contracts',
     ]))
     expect(tools).not.toContain('canonry_load_toolkit')
-    expect(tools).not.toContain('canonry_gsc_performance')
-    expect(tools).not.toContain('canonry_measurement_draft_action')
-    expect(tools.length).toBeLessThan(80)
-    if (readOnlyKey || url.endsWith('/readonly')) {
-      for (const tool of canonryMcpTools.filter(tool => tool.access === 'write')) {
-        expect(tools).not.toContain(tool.name)
-      }
-    }
   })
 
-  it('exposes property analysis to an OAuth reader without write tools', async () => {
+  it('exposes the entire read catalog to an OAuth reader without write tools', async () => {
     const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
     const tools = await toolsFor('/api/v1/mcp', token)
-    expect(tools).toContain('canonry_measurement_portfolio_summary')
-    expect(tools).toContain('canonry_measurement_property_evidence')
-    for (const tool of canonryMcpTools.filter(tool => tool.access === 'write')) {
-      expect(tools).not.toContain(tool.name)
-    }
-  })
-
-  it('retains property overview and evidence on the setup endpoint', async () => {
-    const tools = await toolsFor('/api/v1/mcp/x/setup/readonly', built.wildcardKey)
-    expect(tools).toEqual(expect.arrayContaining([
-      'canonry_measurement_overview', 'canonry_measurement_property_evidence',
-    ]))
+    const expected = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
+    expect(tools).toEqual([...expected, 'canonry_help'])
   })
 
   it('a /readonly endpoint narrows even a WILDCARD key', async () => {

@@ -142,7 +142,7 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 ### MCP adapter
 
-Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose core plus monitoring at initialization. Property overview and evidence are core reads, also available on every specialist toolkit endpoint. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
 

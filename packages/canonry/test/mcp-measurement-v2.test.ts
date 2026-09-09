@@ -415,8 +415,7 @@ describe('Advanced Measurement v2 MCP tools', () => {
   it.each(allToolCases)('registers $name with the expected access and operation', ({ name, operation }) => {
     const tool = toolFor(name)
     const access = readToolCases.some(candidate => candidate.name === name) ? 'read' : 'write'
-    const tier = name === 'canonry_measurement_overview' ? 'core' : 'setup'
-    expect(tool).toMatchObject({ access, tier, openApiOperations: expect.arrayContaining([operation]) })
+    expect(tool).toMatchObject({ access, tier: 'setup', openApiOperations: expect.arrayContaining([operation]) })
   })
 
   it('has exactly nine read tools and seven write tools', () => {

@@ -9,7 +9,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { ApiClient } from './client.js'
 import { createCanonryMcpServer } from './mcp/server.js'
-import { CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './mcp/toolkits.js'
+import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './mcp/toolkits.js'
 
 /**
  * MCP over Streamable HTTP.
@@ -316,12 +316,11 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
   }
 
   // The directory, resolved by URL. Each endpoint is a fixed surface: stable
-  // across the whole connection, so it is a stable snapshot for a host that
-  // freezes the tool list at approval, and a short readable list for the admin
-  // who has to approve it.
-  const defaultTiers: readonly CanonryMcpTier[] = ['core', 'monitoring']
-  mount('/mcp', { id: 'default', tiers: defaultTiers, readOnly: false })
-  mount('/mcp/readonly', { id: 'default:ro', tiers: defaultTiers, readOnly: true })
+  // across the whole connection, so hosts can import the full default catalog
+  // once. Specialist endpoints remain available for clients that prefer a
+  // smaller catalog. Credential and endpoint read-only filtering still apply.
+  mount('/mcp', { id: 'default', tiers: CANONRY_MCP_TIERS, readOnly: false })
+  mount('/mcp/readonly', { id: 'default:ro', tiers: CANONRY_MCP_TIERS, readOnly: true })
   for (const toolkit of CANONRY_MCP_TOOLKIT_NAMES) {
     // `core` rides along with every toolkit: it carries project lookup and
     // search, without which a toolkit's tools have nothing to aim at.
