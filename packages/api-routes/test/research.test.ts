@@ -82,3 +82,28 @@ describe('research model defaults', () => {
     expect(settings.providerCatalog[0].knownModels).toEqual(models)
   })
 })
+
+
+describe('model catalog fallback', () => {
+  it('retains bundled choices for an unconfigured provider without attempting discovery', async () => {
+    const lookedUp: string[] = []
+    const { app } = harness({
+      providerSummary: [{ name: 'openai', configured: false }],
+      getProviderModels: async name => { lookedUp.push(name); return [] },
+    })
+    const response = await app.inject({ method: 'GET', url: '/api/v1/settings' })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().providerCatalog[0].knownModels).toMatchObject([{ id: 'gpt-4.1' }])
+    expect(lookedUp).toEqual([])
+    await app.close()
+  })
+
+  it('retains bundled choices for an empty discovered catalog', async () => {
+    const { app } = harness({ getProviderModels: async () => [], getEffectiveProviderModels: () => ({ openai: 'gpt-instance' }) })
+    const settings = (await app.inject({ method: 'GET', url: '/api/v1/settings' })).json()
+    const research = (await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })).json()
+    expect(settings.providerCatalog[0].knownModels).toMatchObject([{ id: 'gpt-4.1' }])
+    expect(research.providers[0].knownModels).toMatchObject([{ id: 'gpt-instance' }, { id: 'gpt-4.1' }])
+    await app.close()
+  })
+})

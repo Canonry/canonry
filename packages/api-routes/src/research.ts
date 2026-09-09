@@ -95,7 +95,8 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
       .map(async adapter => {
         const defaultModel = project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel
-        const models = opts.getProviderModels ? await opts.getProviderModels(adapter.name) : adapter.knownModels
+        const discovered = opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
+        const models = discovered.length ? discovered : adapter.knownModels
         return {
           name: adapter.name,
           displayName: adapter.displayName,

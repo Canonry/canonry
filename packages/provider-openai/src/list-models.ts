@@ -12,6 +12,8 @@ export function listModels(config: ProviderConfig, signal: AbortSignal): Promise
       signal.throwIfAborted()
       if (++seen > 1000) throw new Error('Model catalog exceeded the discovery limit')
       if (!/^(?:gpt-|o\d|chat-)/.test(model.id) || /audio|realtime|transcrib|tts|image|codex|search|instruct/.test(model.id)) continue
+      // These legacy families use Chat Completions, not this adapter's Responses web-search path.
+      if (/^gpt-(?:3\.5|4)(?:-|$)/.test(model.id)) continue
       models.push({ id: model.id, displayName: model.id, tier: 'standard' })
     }
     return models

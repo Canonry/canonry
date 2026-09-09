@@ -68,4 +68,17 @@ describe('provider model catalog', () => {
     expect(listModels).toHaveBeenCalledTimes(2)
   })
 
+  it.each([{ models: [] }, { models: [{ id: '   ', displayName: 'Blank', tier: 'standard' }] }])('keeps the last good catalog when a refresh has no usable model IDs: %j', async ({ models: response }) => {
+    vi.useFakeTimers()
+    const listModels = vi.fn().mockResolvedValueOnce(freshModels).mockResolvedValue(response)
+    const registry = new ProviderRegistry()
+    registry.register({ ...openaiAdapter, listModels }, config)
+    const read = createProviderModelCatalog(registry)
+    await read('openai')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(await read('openai')).toEqual(freshModels)
+    await read('openai')
+    expect(listModels).toHaveBeenCalledTimes(2)
+  })
+
 })

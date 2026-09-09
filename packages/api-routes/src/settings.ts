@@ -76,19 +76,23 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
-      providerCatalog: await Promise.all((opts.providerAdapters ?? []).map(async adapter => ({
-        name: adapter.name,
-        displayName: adapter.displayName,
-        mode: adapter.mode,
-        modelConfigurable: adapter.modelConfigurable,
-        defaultModel: adapter.defaultModel,
-        knownModels: opts.getProviderModels ? await opts.getProviderModels(adapter.name) : adapter.knownModels,
-        modelValidationPattern: {
-          source: adapter.modelValidationPattern.source,
-          flags: adapter.modelValidationPattern.flags,
-        },
-        modelValidationHint: adapter.modelValidationHint,
-      }))),
+      providerCatalog: await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
+        const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
+        const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
+        return {
+          name: adapter.name,
+          displayName: adapter.displayName,
+          mode: adapter.mode,
+          modelConfigurable: adapter.modelConfigurable,
+          defaultModel: adapter.defaultModel,
+          knownModels: discovered.length ? discovered : adapter.knownModels,
+          modelValidationPattern: {
+            source: adapter.modelValidationPattern.source,
+            flags: adapter.modelValidationPattern.flags,
+          },
+          modelValidationHint: adapter.modelValidationHint,
+        }
+      })),
       google: opts.google ?? { configured: false },
       bing: opts.bing ?? { configured: false },
     }

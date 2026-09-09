@@ -32,9 +32,10 @@ export function createProviderModelCatalog(registry: ProviderRegistry) {
       Promise.resolve().then(() => provider.adapter.listModels!(provider.config, controller.signal)),
       deadline,
     ]).then(models => {
-      if (!models.length) throw new Error('Empty model catalog')
-      current.models = [...new Map(models.filter(model => model.id.trim()).map(model => [model.id, model])).values()]
+      const usableModels = [...new Map(models.filter(model => model.id.trim()).map(model => [model.id, model])).values()]
         .sort((a, b) => b.id.localeCompare(a.id, 'en', { numeric: true }))
+      if (!usableModels.length) throw new Error('Empty model catalog')
+      current.models = usableModels
       current.expiresAt = Date.now() + TTL_MS
       return current.models
     }).catch((error: unknown) => {

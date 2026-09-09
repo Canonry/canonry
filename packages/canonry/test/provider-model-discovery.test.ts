@@ -14,9 +14,9 @@ function mock(...bodies: unknown[]) {
 
 describe('SDK model discovery', () => {
   it('reads OpenAI metadata at the configured endpoint and excludes non-answer models', async () => {
-    const fetch = mock({ object: 'list', data: [{ id: 'gpt-future', created: 1 }, { id: 'chat-latest', created: 2 }, { id: 'text-embedding-3-large' }, { id: 'gpt-image-2' }, { id: 'gpt-audio' }, { id: 'gpt-codex' }] })
+    const fetch = mock({ object: 'list', data: [{ id: 'gpt-future', created: 1 }, { id: 'chat-latest', created: 2 }, { id: 'text-embedding-3-large' }, { id: 'gpt-image-2' }, { id: 'gpt-audio' }, { id: 'gpt-codex' }, { id: 'gpt-3.5-turbo' }, { id: 'gpt-4' }, { id: 'gpt-4-turbo' }, { id: 'gpt-4-0613' }, { id: 'gpt-4.1' }] })
     const result = await openaiAdapter.listModels!({ provider: 'openai', apiKey: 'test-key', baseUrl: 'https://proxy.example/v1', quotaPolicy }, new AbortController().signal)
-    expect(result.map(model => model.id)).toEqual(['gpt-future', 'chat-latest'])
+    expect(result.map(model => model.id)).toEqual(['gpt-future', 'chat-latest', 'gpt-4.1'])
     expect(String(fetch.mock.calls[0]?.[0])).toBe('https://proxy.example/v1/models')
     expect(fetch.mock.calls[0]?.[1]?.method).toBe('GET')
   })
