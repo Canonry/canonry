@@ -185,6 +185,7 @@ function QueryResearchWorkspace({
 }) {
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: viewerResearchConfig !== null || mode === 'test',
     staleTime: 60_000,
   })
   const researchScopeOptions = useMemo<VisibilityReportScopeOption[]>(() => {
