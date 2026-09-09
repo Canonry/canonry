@@ -470,22 +470,13 @@ export function RootLayout() {
         : undefined)
     : undefined
 
-  // Evidence lookup spans two data sources because `useDashboard()` here is
-  // the slim portfolio hook — its per-project `visibilityEvidence` is
-  // intentionally empty (see use-dashboard-overview.ts). The full evidence
-  // list is only built by `useProjectDashboard`, which the ProjectPage uses
-  // to render the table whose "View" button writes `?evidenceId=…` into the
-  // URL. Without this second lookup the modal silently never opens on a
-  // project route.
-  //
-  // Subscribing to `useProjectDashboard` here is free in steady state — its
-  // query keys overlap with ProjectPage's, so React Query dedupes the
-  // fetches via the shared cache.
+  // The slim portfolio model has no answer evidence. Load it only while a
+  // drawer is requested; an idle shell must not start the full history read.
   const currentProjectName = useMemo(
     () => resolveProjectNameFromPathname(location.pathname, safeDashboard),
     [location.pathname, safeDashboard],
   )
-  const { commandCenter: currentProjectCommandCenter } = useProjectDashboard(currentProjectName)
+  const { commandCenter: currentProjectCommandCenter, evidenceLoading, evidenceError, isError: evidenceProjectError, refetch: refetchEvidence } = useProjectDashboard(evidenceId ? currentProjectName : null, { evidence: true })
 
   const selectedEvidenceContext = useMemo(() => {
     if (!evidenceId) return undefined
@@ -1063,6 +1054,18 @@ export function RootLayout() {
         </Drawer>
       ) : null}
 
+      {evidenceId && !selectedEvidenceContext ? (
+        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
+          {evidenceLoading ? (
+            <p role="status" className="text-sm text-secondary">Loading answer…</p>
+          ) : (
+            <>
+              <p role="alert" className="text-sm text-secondary">{evidenceError || evidenceProjectError ? 'Could not load this answer.' : 'This answer is not in the available query evidence.'}</p>
+              <Button type="button" variant="outline" onClick={() => { void refetchEvidence() }}>Retry</Button>
+            </>
+          )}
+        </Drawer>
+      ) : null}
       {selectedEvidenceContext ? (
         <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
       ) : null}

@@ -27,6 +27,8 @@ describe('isProjectDetailQuery', () => {
   it('matches the per-project dashboard key (current — useProjectDashboard)', () => {
     expect(isProjectDetailQuery(q(['project-dashboard-full', 'project-id', 'run-ids-key']))).toBe(true)
     expect(isProjectDetailQuery(q(['project-dashboard-full', null, 'none']))).toBe(true)
+    expect(isProjectDetailQuery(q(['project-dashboard-full', 'project-id', 'run-ids-key', 'overview']))).toBe(true)
+    expect(isProjectDetailQuery(q(['project-dashboard-full', 'project-id', 'run-ids-key', 'evidence']))).toBe(true)
   })
 
   it('matches the legacy portfolio-wide key (useDashboard)', () => {
