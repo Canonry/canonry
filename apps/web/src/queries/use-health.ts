@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchServiceStatus } from '../api.js'
+import { fetchServiceStatus, isPublicDemo } from '../api.js'
 import type { HealthSnapshot, ServiceStatus } from '../view-models.js'
 
 /**
@@ -9,9 +9,11 @@ import type { HealthSnapshot, ServiceStatus } from '../view-models.js'
  */
 const HEALTH_QUERY_KEY = ['health'] as const
 
-async function fetchHealth(): Promise<HealthSnapshot> {
+export async function fetchHealth(): Promise<HealthSnapshot> {
   const apiStatus = await fetchServiceStatus('/health', 'API')
-  const workerStatus: ServiceStatus = apiStatus.state === 'ok'
+  const workerStatus: ServiceStatus = isPublicDemo() && apiStatus.state === 'ok'
+    ? { label: 'Worker', state: 'ok', detail: 'Background execution is disabled in this public demo.' }
+    : apiStatus.state === 'ok'
     ? { label: 'Worker', state: 'ok', detail: 'In-process job runner' }
     : {
         label: 'Worker',

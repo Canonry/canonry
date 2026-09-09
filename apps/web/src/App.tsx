@@ -68,6 +68,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
@@ -871,6 +872,7 @@ export function RootLayout() {
           id="content"
           className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
         >
+          <DemoNotice />
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">
               <div className="page-skeleton-header">
