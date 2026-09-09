@@ -807,6 +807,51 @@ describe('shared production visibility view', () => {
     expect(document.activeElement?.textContent).toContain('Saved answer from beyond the first query page.')
   })
 
+  it('waits for delayed branded evidence before normalizing an off-page query-only all-class link', async () => {
+    const aggregate = reportFixture()
+    aggregate.selection.queryClass = 'all'
+    aggregate.populations = (['branded', 'non-brand', 'unknown'] as const).map(queryClass => ({
+      ...aggregate.populations[0]!, queryClass,
+      queries: { items: [], total: 100, nextCursor: 'next-query-page' },
+      evidence: { items: [], total: 0, nextCursor: null },
+    }))
+    const brandedEvidence = reportWithAnswer('branded-off-page', 'Saved branded answer beyond the aggregate page.')
+    brandedEvidence.selection.queryClass = 'branded'
+    brandedEvidence.populations[0]!.queryClass = 'branded'
+    const requests: URL[] = []
+    let releaseEvidence: ((response: Response) => void) | undefined
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      requests.push(request)
+      if (!request.searchParams.has('queryKey')) {
+        const report = structuredClone(aggregate)
+        const queryClass = request.searchParams.get('queryClass') ?? 'all'
+        report.selection.queryClass = queryClass as VisibilityReportResponse['selection']['queryClass']
+        if (queryClass !== 'all') report.populations = report.populations.filter(population => population.queryClass === queryClass)
+        return jsonResponse(report)
+      }
+      if (request.searchParams.get('queryClass') === 'all') return new Promise<Response>(resolve => { releaseEvidence = resolve })
+      return jsonResponse(brandedEvidence)
+    })
+    onTestFinished(() => { releaseEvidence?.(jsonResponse(brandedEvidence)); restore() })
+    function Harness() {
+      const [search, setSearch] = useState<Record<string, unknown>>({ queryClass: 'all', measurementQueryKey: 'branded-off-page' })
+      return <VisibilityWorkspace key={String(search.queryClass ?? 'all')} projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>)
+    await waitFor(() => expect(requests.some(request => request.searchParams.has('queryKey') && request.searchParams.get('queryClass') === 'all')).toBe(true))
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(requests.filter(request => !request.searchParams.has('queryKey')).map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
+
+    releaseEvidence!(jsonResponse(brandedEvidence))
+    await waitFor(() => expect(requests.filter(request => !request.searchParams.has('queryKey')).map(request => request.searchParams.get('queryClass'))).toEqual(['all', 'branded']))
+    expect(await screen.findByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
+    await waitFor(() => expect(requests.some(request => request.searchParams.has('queryKey') && request.searchParams.get('queryClass') === 'branded')).toBe(true))
+    expect(await screen.findByText('Saved branded answer beyond the aggregate page.')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
+  })
+
   it('keeps the report available when an answer request fails and retries only the detail', async () => {
     const requests: URL[] = []
     let failEvidence = true

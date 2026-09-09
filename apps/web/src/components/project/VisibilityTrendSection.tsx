@@ -228,12 +228,17 @@ export interface VisibilityReportViewProps {
   onEvidencePage?: (cursor: string) => void
 }
 
-function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: string, answerSelection?: VisibilityAnswerSelection) {
+function matchingReportPopulation(report: VisibilityReportResponse | undefined, queryKey?: string) {
+  return queryKey ? report?.populations.find(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey)) : undefined
+}
+
+function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: string, answerSelection?: VisibilityAnswerSelection, evidenceReport?: VisibilityReportResponse) {
   const requested = report.selection.queryClass === 'all' ? answerSelection?.queryClass : report.selection.queryClass
   const explicit = report.populations.find(population => population.queryClass === requested)
   if (explicit) return explicit
-  const matching = queryKey ? report.populations.find(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey)) : undefined
-  if (matching) return matching
+  const matching = matchingReportPopulation(evidenceReport, queryKey) ?? matchingReportPopulation(report, queryKey)
+  const matchingAggregate = report.populations.find(population => population.queryClass === matching?.queryClass)
+  if (matchingAggregate) return matchingAggregate
   // Clean URLs request all classes so older, unclassified history remains
   // discoverable. Display a single population without combining its rates.
   const ordered = (['non-brand', 'branded', 'unknown'] as const).map(queryClass => report.populations.find(population => population.queryClass === queryClass))
@@ -297,7 +302,7 @@ export function VisibilityReportFilters({ report, onSelectionChange, queryClass 
 export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
-  const selectedPopulation = selectedReportPopulation(report, queryKey, answerSelection)
+  const selectedPopulation = selectedReportPopulation(report, queryKey, answerSelection, evidenceReport)
   const answerReport = evidenceReport ?? report
   const matchingPopulations = answerReport.populations.filter(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey))
   const answerClasses = answerSelection ? [answerSelection.queryClass] : (matchingPopulations.length ? matchingPopulations : isEvidenceLoading ? [] : [selectedPopulation]).map(population => population.queryClass)
@@ -463,9 +468,15 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
   })
   useEffect(() => {
     if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData
-      || reportQuery.data.selection.availability.state === 'unsupported') return
-    onSelectionChange({ queryClass: selectedReportPopulation(reportQuery.data, selection.queryKey, selection.answer).queryClass })
-  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.isPlaceholderData, onSelectionChange])
+      || reportQuery.data.selection.availability.state === 'unsupported' || reportQuery.data.populations.length === 0) return
+    // Older links carry only a query key. Wait for its evidence when it is
+    // outside the aggregate page, including across a failed request and retry.
+    if (selection.queryKey && !selection.answer && !matchingReportPopulation(reportQuery.data, selection.queryKey) && !evidenceQuery.data) return
+    onSelectionChange({
+      queryClass: selectedReportPopulation(reportQuery.data, selection.queryKey, selection.answer, evidenceQuery.data).queryClass,
+      ...(selection.queryKey ? { measurementQueryKey: selection.queryKey, measurementAnswer: selection.answer ? JSON.stringify(selection.answer) : undefined } : {}),
+    })
+  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.isPlaceholderData, evidenceQuery.data, onSelectionChange])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {

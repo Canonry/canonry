@@ -769,7 +769,7 @@ test.each([false, true])('a clean Simple dashboard shows older saved results imm
     plan: { active: null }, visibilityReport: report,
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector<HTMLSelectElement>('select[aria-label="Query type"]')?.value).toBe('all')
+  expect(doc.querySelector<HTMLSelectElement>('select[aria-label="Query type"]')?.value).toBe('unknown')
   expect(doc.querySelector('[aria-label="Unclassified queries"]')?.textContent).toContain('1 of 1')
   expect(doc.querySelector('[aria-label="Branded queries"]')).toBeNull()
   expect(doc.querySelector('[aria-label="Non-brand queries"]')).toBeNull()
