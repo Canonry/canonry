@@ -289,6 +289,7 @@ export type QueryTrackingWorkspaceResponse = {
     }>;
     groups: Array<{
         stableKey: string;
+        parentGroupKey?: string;
         label: string;
         targetKeys: Array<string>;
     }>;

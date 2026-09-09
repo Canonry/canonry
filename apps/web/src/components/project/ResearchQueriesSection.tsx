@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Play } from 'lucide-react'
 import {
@@ -182,7 +183,7 @@ export function ResearchQueriesSection({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(360px,1.15fr)]">
+      <div className="space-y-4">
         <Card className="surface-card min-w-0">
           <div className="section-head">
             <div>
@@ -297,7 +298,7 @@ export function ResearchQueriesSection({
             <p className="mt-4 text-sm text-muted">No research batches yet. Add one or more queries to begin.</p>
           ) : (
             <div className="mt-4 overflow-x-auto">
-              <table className="evidence-table min-w-[680px]">
+              <table className="evidence-table min-w-[680px] [overflow-wrap:anywhere]">
                 <thead><tr><th>Run</th><th>Model</th><th>Location</th><th>Progress</th><th>Status</th></tr></thead>
                 <tbody>
                   {runs.map(run => (
@@ -339,7 +340,7 @@ function ResearchRunDetail({
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
 
   return (
-    <Card className="surface-card min-w-0">
+    <Card className="surface-card min-w-0" role="region" aria-label="Research results">
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>
@@ -347,19 +348,31 @@ function ResearchRunDetail({
         </div>
         {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{detail.status}</ToneBadge>}
       </div>
+      {detail && <div className="mt-3 space-y-3 text-sm text-secondary">
+        <dl className="flex flex-wrap gap-x-6 gap-y-2 [overflow-wrap:anywhere]">
+          <div><dt className="font-medium">Answer engine</dt><dd>{detail.provider}</dd></div>
+          <div><dt className="font-medium">Requested model</dt><dd className="font-mono">{detail.requestedModel ?? detail.resolvedModel}</dd></div>
+          <div><dt className="font-medium">Location</dt><dd>{detail.location?.label ?? 'No location'}</dd></div>
+        </dl>
+        <p>Research results are excluded from AI Visibility metrics.</p>
+        <details>
+          <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Project brand and domain checks. Property identity is not verified.</summary>
+          <p className="mt-2 max-w-prose leading-6">Mentions match configured project brand names or domains in answer text. A match can refer to a different business with the same name. Citations check project domains in the source links. Inspect the answer and sources to confirm the intended property.</p>
+        </details>
+      </div>}
       {!detail ? (
         <p className="mt-4 text-sm text-muted">Select a saved batch to inspect each answer and its source links.</p>
       ) : (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <div className="mt-4 space-y-4">
           <div className="overflow-x-auto">
-            <table className="evidence-table min-w-[680px]">
-              <thead><tr><th>Query</th><th>Status</th><th>Mentioned</th><th>Cited</th></tr></thead>
+            <table className="evidence-table min-w-[680px] [overflow-wrap:anywhere]">
+              <thead><tr><th>Query</th><th>Status</th><th>Brand-name match</th><th>Project domain cited</th></tr></thead>
               <tbody>
                 {detail.queries.map(item => (
                   <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
                     <td><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
                     <td><ToneBadge tone={toneForResearchQuery(item.status)}>{item.status}</ToneBadge></td>
-                    <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge></td>
+                    <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Matched' : 'No match'}</ToneBadge></td>
                     <td><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
                   </tr>
                 ))}
@@ -384,7 +397,7 @@ function ResearchAnswer({
 }) {
   if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading saved answers…' : 'Select a query to inspect its answer.'}</p>
   return (
-    <div className="space-y-4 border-t border-default pt-4 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
+    <div className="min-w-0 space-y-4 border-t border-default pt-4 [overflow-wrap:anywhere]">
       <div>
         <p className="text-[10px] uppercase tracking-wide text-muted">Selected query</p>
         <p className="mt-1 text-sm font-medium leading-6 text-heading">{query.query}</p>
@@ -402,7 +415,19 @@ function ResearchAnswer({
       ) : query.answerText ? (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-secondary">{query.answerText}</p>
+          <div className="mt-1 max-w-prose text-sm leading-6 text-secondary [&_h1]:text-base [&_h2]:text-base [&_h3]:text-sm">
+            <ReactMarkdown components={{
+              p: ({ children }) => <p className="mb-3 whitespace-pre-wrap last:mb-0">{children}</p>,
+              ul: ({ children }) => <ul className="mb-3 ml-5 list-disc space-y-1">{children}</ul>,
+              ol: ({ children }) => <ol className="mb-3 ml-5 list-decimal space-y-1">{children}</ol>,
+              pre: ({ children }) => <pre className="mb-3 overflow-x-auto whitespace-pre-wrap">{children}</pre>,
+              a: ({ children, href }) => {
+                const safeHref = safeExternalUrl(href)
+                return safeHref ? <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-link underline">{children}</a> : <span>{children}</span>
+              },
+              img: ({ alt }) => <span>{alt}</span>,
+            }}>{query.answerText}</ReactMarkdown>
+          </div>
         </div>
       ) : (
         <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>

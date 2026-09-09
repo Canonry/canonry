@@ -160,6 +160,7 @@ export type QueryTrackingTarget = z.output<typeof queryTrackingTargetSchema>
 
 export const queryTrackingGroupSchema = z.object({
   stableKey: measurementV2StableKeySchema,
+  parentGroupKey: measurementV2StableKeySchema.optional(),
   label: z.string().trim().min(1),
   targetKeys: z.array(measurementV2StableKeySchema),
 }).strict()
