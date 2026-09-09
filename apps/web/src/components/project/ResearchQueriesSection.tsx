@@ -6,10 +6,11 @@ import {
   ResearchQueryStatuses,
   ResearchRunStatuses,
   type ResearchRunDetailDto,
-  expandQueryTemplate,
+  expandResearchTemplate,
+  researchTemplateBindings,
+  deduplicateResearchQueries,
   type ResearchRunQueryDto,
   type ResearchRunStatus,
-  RESEARCH_BUILTIN_TEMPLATES,
   type ResearchRunScope,
   type ResearchTemplateSelection,
   type VisibilityReportScopeOption,
@@ -40,7 +41,6 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
 ])
 
 /** Shared so assertions describe the shipped Research interface. */
-/** Shared so assertions describe the shipped Research interface. */
 export const RESEARCH_COPY = {
   queryPlaceholder: 'One query per line',
   queryCountLimit: ' / 50 queries',
@@ -58,6 +58,8 @@ export const RESEARCH_COPY = {
   retryScope: 'Retry market or property',
   templateLabel: 'Template',
   customQuery: 'Custom query',
+  staleTemplate: 'The portfolio changed. Refresh the template or choose Custom query to keep this text.',
+  refreshTemplate: 'Refresh template',
   templateProvenance: 'Template details',
   brandedQuery: 'Branded',
   discoveryQuery: 'Discovery',
@@ -168,62 +170,30 @@ export function ResearchQueriesSection({
   }, [locationChoice, projectQuery.data, projectQuery.isError])
 
   const scopeIdentity = selectedScope ? `${selectedScope.kind}:${selectedScope.key}` : ''
-  const templateBindings = useMemo<Record<string, string>>(() => {
-    const bindings: Record<string, string> = {}
-    if (selectedScope?.kind === 'market') {
-      bindings.market = selectedScope.label
-      bindings.submarket = selectedScope.label
-    }
-    if (selectedScope?.kind === 'property') {
-      bindings.property = selectedScope.label
-      bindings.propertyBrand = selectedScope.label
-    }
-    return bindings
-  }, [selectedScope])
-  const templateOptions = useMemo<ResearchTemplateOption[]>(() => {
-    if (!selectedScope) return []
-    return [
-      ...RESEARCH_BUILTIN_TEMPLATES.map(template => ({
-        id: template.id,
-        version: template.version,
-        label: template.id === 'research-market-v1' ? 'Market query' : 'Property query',
-        pattern: template.pattern,
-        variables: template.variables,
-      })),
-      ...templates,
-    ].filter(template => template.variables.every(variable => variable in templateBindings))
-  }, [selectedScope, templateBindings, templates])
+  const templateBindings = useMemo(() => researchTemplateBindings(selectedScope), [selectedScope])
+  const templateOptions = useMemo(() => selectedScope
+    ? templates.filter(template => template.variables.every(variable => variable in templateBindings))
+    : [], [selectedScope, templateBindings, templates])
   const templateValue = selectedTemplate ? `${selectedTemplate.id}:${selectedTemplate.version}` : 'custom'
-  const templateProvenance = selectedTemplate
+  const templateProvenance = selectedScope && selectedTemplate
     ? { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } satisfies ResearchTemplateSelection
     : undefined
   const templateScopeStale = selectedTemplate !== null && templatePlanRevision !== selectedScope?.expectedPlanRevision
   const applyTemplate = (nextTemplate: ResearchTemplateOption | null) => {
     setSelectedTemplate(nextTemplate)
     setTemplatePlanRevision(nextTemplate ? selectedScope?.expectedPlanRevision ?? null : null)
-    if (nextTemplate) setQueryText(expandQueryTemplate(nextTemplate.pattern, templateBindings))
+    if (nextTemplate && selectedScope) setQueryText(expandResearchTemplate(nextTemplate, selectedScope).output)
   }
 
   useEffect(() => {
-    const defaultId = selectedScope?.kind === 'market'
-      ? 'research-market-v1:1'
-      : selectedScope?.kind === 'property'
-        ? 'research-property-v1:1'
-        : 'custom'
-    const compatibleTemplate = selectedTemplate?.variables.every(variable => variable in templateBindings)
-      ? selectedTemplate
-      : null
-    const defaultTemplate = templateOptions.find(template => `${template.id}:${template.version}` === defaultId) ?? null
-    const nextTemplate = compatibleTemplate ?? defaultTemplate
-
-    if (!nextTemplate) {
-      if (selectedTemplate) setSelectedTemplate(null)
+    if (!selectedScope || (selectedTemplate && !selectedTemplate.variables.every(variable => variable in templateBindings))) {
+      setSelectedTemplate(null)
+      setTemplatePlanRevision(null)
       return
     }
-    if (!selectedTemplate && queryText.trim()) return
-    setSelectedTemplate(nextTemplate)
-    setTemplatePlanRevision(selectedScope?.expectedPlanRevision ?? null)
-    setQueryText(expandQueryTemplate(nextTemplate.pattern, templateBindings))
+    if (!selectedTemplate) return
+    setTemplatePlanRevision(selectedScope.expectedPlanRevision)
+    setQueryText(expandResearchTemplate(selectedTemplate, selectedScope).output)
   }, [scopeIdentity])
 
   const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
@@ -340,8 +310,8 @@ export function ResearchQueriesSection({
             </label>
 
             {templateScopeStale && <div role="alert" className="text-sm text-caution">
-              <p>The portfolio changed. Refresh the template or choose Custom query to keep this text.</p>
-              <Button variant="outline" onClick={() => applyTemplate(selectedTemplate)}>Refresh template</Button>
+              <p>{RESEARCH_COPY.staleTemplate}</p>
+              <Button variant="outline" onClick={() => applyTemplate(selectedTemplate)}>{RESEARCH_COPY.refreshTemplate}</Button>
             </div>}
 
             <label className="block" htmlFor="research-queries">
@@ -624,7 +594,7 @@ function ResearchAnswer({
 }
 
 function normalizeResearchQueries(value: string): string[] {
-  return value.split(/\r?\n/).filter(item => item.trim().length > 0)
+  return deduplicateResearchQueries(value.split(/\r?\n/))
 }
 
 function formatResearchDate(value: string): string {

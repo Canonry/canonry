@@ -1,11 +1,13 @@
 import { z } from 'zod'
 import { measurementV2StableKeySchema } from './measurement-plan-v2.js'
-import { queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
+import { expandQueryTemplate, queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
 import { queryClassSchema } from './query-class.js'
 import { locationContextSchema } from './provider.js'
 import { citationStateSchema } from './run.js'
 import { groundingSourceSchema } from './run.js'
 import { userRoleSchema } from './users.js'
+import { normalizeQueryText } from './query-normalize.js'
+import { validationError } from './errors.js'
 
 export const researchRunStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
 export type ResearchRunStatus = z.infer<typeof researchRunStatusSchema>
@@ -37,10 +39,35 @@ export type ResearchRunScope = z.infer<typeof researchRunScopeSchema>
 
 export const researchQueryTextSchema = z.string().min(1).max(4000).refine(value => value.trim().length > 0, 'Research queries cannot be blank.')
 
-export const RESEARCH_BUILTIN_TEMPLATES = [
-  { id: 'research-market-v1', version: '1', pattern: 'Pet-friendly apartments in {market}', variables: ['market'] },
-  { id: 'research-property-v1', version: '1', pattern: 'Is {property} a good place to live?', variables: ['property'] },
-] as const
+/** Compare query identities without changing the first submitted question's text. */
+export function deduplicateResearchQueries(queries: readonly string[]): string[] {
+  const seen = new Set<string>()
+  return queries.filter(query => {
+    const key = normalizeQueryText(query)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+export function researchTemplateBindings(scope: Pick<ResearchRunScope, 'kind' | 'label'> | null | undefined): Record<string, string> {
+  if (!scope) return {}
+  return scope.kind === 'market'
+    ? { market: scope.label, submarket: scope.label }
+    : { property: scope.label, propertyBrand: scope.label }
+}
+
+/** Editor previews and saved provenance use the same declared variables in the same order. */
+export function expandResearchTemplate(
+  template: { pattern: string; variables: readonly string[] },
+  scope: Pick<ResearchRunScope, 'kind' | 'label'>,
+): { bindings: Record<string, string>; output: string } {
+  const available = researchTemplateBindings(scope)
+  const unavailable = template.variables.filter(variable => available[variable] === undefined)
+  if (unavailable.length) throw validationError('The selected research template requires unavailable bindings: ' + unavailable.join(', '))
+  const bindings = Object.fromEntries(template.variables.map(variable => [variable, available[variable]!]))
+  return { bindings, output: expandQueryTemplate(template.pattern, bindings) }
+}
 
 export const researchTemplateSelectionSchema = z.object({
   templateId: z.string().trim().min(1).max(256),

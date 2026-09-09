@@ -67,6 +67,18 @@ describe('research routes', () => {
     expect(db.select().from(researchRuns).all()).toHaveLength(1)
   })
 
+  it.each([
+    ['same query', 'same query'],
+    ['same query', 'SAME QUERY'],
+    ['  same query  ', 'same query'],
+  ])('rejects equivalent queries %j and %j before dispatch', async (first, second) => {
+    const { app, db, requested } = harness()
+    const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { queries: [first, second], provider: 'openai' } })
+    expect(response.statusCode).toBe(400)
+    expect(requested).toHaveLength(0)
+    expect(db.select().from(researchRuns).all()).toHaveLength(0)
+  })
+
   it('rejects an unavailable executor before creating research rows', async () => {
     const { db } = harness()
     const app = Fastify()
@@ -84,10 +96,15 @@ describe('research routes', () => {
   it('freezes market scope and template provenance while sending the editor question verbatim', async () => {
     const { app, db, requested } = harness()
     const publishedPlan = publishResearchScopePlan(db)
+    const templateVersion = '2026-09-09T11:00:00.000Z'
+    db.insert(measurementQueryTemplates).values([
+      { id: 'research-market-v1', projectId: 'alpha', name: 'Configured market', pattern: 'Services in {market}', variables: ['market'], createdAt: templateVersion, updatedAt: templateVersion },
+      { id: 'research-property-v1', projectId: 'alpha', name: 'Configured property', pattern: 'Services at {property}', variables: ['property'], createdAt: templateVersion, updatedAt: templateVersion },
+    ]).run()
     const payload = {
       queries: ['Does this market have pet-friendly apartments?'], provider: 'openai', idempotencyKey: 'market-template',
       scope: { kind: 'market', key: 'north-market', expectedPlanRevision: 1 },
-      template: { templateId: 'research-market-v1', templateVersion: '1' },
+      template: { templateId: 'research-market-v1', templateVersion },
     }
     const created = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(created.statusCode).toBe(202)
@@ -95,9 +112,9 @@ describe('research routes', () => {
       location: null,
       scope: { kind: 'market', key: 'north-market', label: 'North market', planRevision: 1 },
       template: {
-        templateId: 'research-market-v1', templateVersion: '1',
-        template: 'Pet-friendly apartments in {market}', bindings: { market: 'North market' },
-        output: 'Pet-friendly apartments in North market',
+        templateId: 'research-market-v1', templateVersion,
+        template: 'Services in {market}', bindings: { market: 'North market' },
+        output: 'Services in North market',
       },
       queries: [{ query: payload.queries[0], queryClass: 'non-brand' }],
     })
@@ -106,12 +123,12 @@ describe('research routes', () => {
     const property = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: {
       queries: ['A final question with no property name'], provider: 'openai',
       scope: { kind: 'property', key: 'harbor', expectedPlanRevision: 1 },
-      template: { templateId: 'research-property-v1', templateVersion: '1' },
+      template: { templateId: 'research-property-v1', templateVersion },
     } })
     expect(property.statusCode).toBe(202)
     expect(property.json()).toMatchObject({
       scope: { kind: 'property', label: 'Harbor Homes' },
-      template: { bindings: { property: 'Harbor Homes' }, output: 'Is Harbor Homes a good place to live?' },
+      template: { bindings: { property: 'Harbor Homes' }, output: 'Services at Harbor Homes' },
       queries: [{ query: 'A final question with no property name', queryClass: 'non-brand' }],
     })
 
@@ -140,7 +157,7 @@ describe('research routes', () => {
     db.update(measurementPlans).set({ activeVersionId: versionId, updatedAt: now }).where(eq(measurementPlans.projectId, 'alpha')).run()
     const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(replay.statusCode).toBe(200)
-    expect(replay.json()).toMatchObject({ id: created.json().id, scope: { planRevision: 1 }, template: { output: 'Pet-friendly apartments in North market' } })
+    expect(replay.json()).toMatchObject({ id: created.json().id, scope: { planRevision: 1 }, template: { output: 'Services in North market' } })
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, queries: ['different final question'] } })).statusCode).toBe(409)
   })
 
@@ -149,7 +166,7 @@ describe('research routes', () => {
     const now = '2026-09-09T12:00:00.000Z'
     publishResearchScopePlan(db)
     db.insert(measurementQueryTemplates).values({
-      id: 'saved-market', projectId: 'alpha', name: 'Saved market', pattern: 'Apartments in {submarket}',
+      id: 'saved-market', projectId: 'alpha', name: 'Saved market', pattern: 'Services in {submarket}, {market}',
       variables: ['submarket'], createdAt: now, updatedAt: now,
     }).run()
     const payload = {
@@ -160,13 +177,13 @@ describe('research routes', () => {
     const created = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(created.statusCode).toBe(202)
     expect(created.json()).toMatchObject({
-      template: { templateId: 'saved-market', templateVersion: now, bindings: { submarket: 'North market' }, output: 'Apartments in North market' },
+      template: { templateId: 'saved-market', templateVersion: now, bindings: { submarket: 'North market' }, output: 'Services in North market, {market}' },
       queries: [{ query: payload.queries[0] }],
     })
     db.update(measurementQueryTemplates).set({ pattern: 'Changed {submarket}', updatedAt: '2026-09-09T13:00:00.000Z' }).where(eq(measurementQueryTemplates.id, 'saved-market')).run()
     const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(replay.statusCode).toBe(200)
-    expect(replay.json()).toMatchObject({ id: created.json().id, template: { output: 'Apartments in North market' } })
+    expect(replay.json()).toMatchObject({ id: created.json().id, template: { output: 'Services in North market, {market}' } })
 
     const freeform = await app.inject({ method: 'POST', url: '/api/v1/projects/beta/research/runs', payload: {
       queries: ['  exact editor question  '], provider: 'openai',

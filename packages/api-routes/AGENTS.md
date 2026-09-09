@@ -109,6 +109,7 @@ Commit requires the exact workspace version and preview token. A no-op must not 
 Before changing catalog rows, commit calls `assertNoActivePlanlessSweep` inside its write transaction, including when an Advanced plan was published after a simple sweep queued. Plan-only edits and no-ops remain available.
 Query identity uses normalized text and prefers the ID already bound by the active plan.
 Publication starts zero provider calls. Existing drafts become stale through their normal base-version guard.
+Research rejects normalized duplicate queries before dispatch while preserving accepted text exactly. Research templates must be project-configured; editor and server expansion share declared bindings, and saved provenance remains immutable.
 `visibility-report` owns metrics, denominators, scope, provenance, trends, and paginated evidence.
 Groups select properties. Markets select frozen `reportingScopes` execution edges.
 Label-only revisions use the comparable chain. Material changes read prior evidence through its own frozen plan.

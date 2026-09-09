@@ -12,23 +12,14 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import type { LocationContext, ResearchRunCreate } from '@ainyc/canonry-contracts'
+import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@ainyc/canonry-contracts'
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--property <key>] [--template-id <id> --template-version <version>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
   const flagged = getStringArray(input.values, 'query') ?? []
-  const seen = new Set<string>()
-  const queries: string[] = []
-  for (const raw of [...positional, ...flagged]) {
-    const normalized = raw.trim()
-    const key = normalized.toLocaleLowerCase()
-    if (normalized && !seen.has(key)) {
-      seen.add(key)
-      queries.push(raw)
-    }
-  }
+  const queries = deduplicateResearchQueries([...positional, ...flagged])
   if (queries.length === 0) {
     throw usageError(`Error: at least one research query is required\nUsage: ${usage}`, {
       message: 'at least one research query is required',

@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { measurementQueryTemplates, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, RESEARCH_BUILTIN_TEMPLATES, compileQueryClassifier, expandQueryTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection } from '@ainyc/canonry-contracts'
+import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection } from '@ainyc/canonry-contracts'
 import { requireResearchGrant } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
@@ -60,7 +60,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const resolvedModel = requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel)
     adapter.modelValidationPattern.lastIndex = 0
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError('Invalid resolved model "' + resolvedModel + '" for provider "' + providerName + '".', { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
-    if (new Set(input.queries.map(query => query.toLocaleLowerCase())).size !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
+    if (deduplicateResearchQueries(input.queries).length !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
     const queryClasses = classifyResearchQueries(project, active?.plan ?? null, input.queries)
     const normalized = { queries: input.queries, provider: providerName, model: requestedModel, location: location ?? null, ...(scope ? { scope } : {}), ...(template ? { template } : {}) }
     const requestHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
@@ -170,33 +170,18 @@ function resolveStoredResearchTemplate(
 function resolveResearchTemplate(
   app: FastifyInstance, projectId: string, selection: ResearchTemplateSelection, scope: ResearchRunScope | null,
 ): QueryTrackingTemplateProvenance {
-  const availableBindings = researchTemplateBindings(scope)
-  const builtin = RESEARCH_BUILTIN_TEMPLATES.find(template => template.id === selection.templateId)
-  const savedTemplate = builtin ? null : app.db.select().from(measurementQueryTemplates).where(and(
+  if (!scope) throw validationError('Research templates require a selected market or property scope.')
+  const savedTemplate = app.db.select().from(measurementQueryTemplates).where(and(
     eq(measurementQueryTemplates.projectId, projectId), eq(measurementQueryTemplates.id, selection.templateId),
   )).get()
-  if (!builtin && !savedTemplate) throw validationError('Unknown or stale research template. Reload the selected template and try again.')
-  const templateVersion = builtin ? builtin.version : savedTemplate!.updatedAt
+  if (!savedTemplate) throw validationError('Unknown or stale research template. Reload the selected template and try again.')
+  const templateVersion = savedTemplate.updatedAt
   if (templateVersion !== selection.templateVersion) {
     throw validationError('The selected research template is stale. Reload it and try again.')
   }
-  const variables = builtin ? builtin.variables : savedTemplate!.variables
-  const unavailable = variables.filter(variable => availableBindings[variable] === undefined)
-  if (unavailable.length) {
-    throw validationError('The selected research template requires unavailable bindings: ' + unavailable.join(', '))
-  }
-  const bindings = Object.fromEntries(variables.map(variable => [variable, availableBindings[variable]!]))
-  const pattern = builtin ? builtin.pattern : savedTemplate!.pattern
-  const output = expandQueryTemplate(pattern, bindings)
+  const { bindings, output } = expandResearchTemplate(savedTemplate, scope)
   if (!output || output.length > 4000) throw validationError('Research template output must be between 1 and 4000 characters.')
-  return { templateId: selection.templateId, templateVersion, template: pattern, bindings, output }
-}
-
-function researchTemplateBindings(scope: ResearchRunScope | null): Record<string, string> {
-  if (!scope) throw validationError('Research templates require a selected market or property scope.')
-  return scope.kind === 'market'
-    ? { market: scope.label, submarket: scope.label }
-    : { property: scope.label, propertyBrand: scope.label }
+  return { templateId: selection.templateId, templateVersion, template: savedTemplate.pattern, bindings, output }
 }
 
 function classifyResearchQueries(
