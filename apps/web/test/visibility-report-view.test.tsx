@@ -63,7 +63,124 @@ function reportWithAnswer(queryKey: string, answerText: string): VisibilityRepor
   return report
 }
 
+function legacyReportFixture(): VisibilityReportResponse {
+  const report = reportWithAnswer('query-context', 'A saved answer from an older sweep.')
+  report.selection.mode = 'simple'
+  report.selection.queryClass = 'all'
+  report.selection.provenance = { kind: 'legacy-simple', definitionRevision: null }
+  report.selection.revision = null
+  report.selection.measurement = { ...report.selection.measurement, activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0 }
+  report.selection.scope = { ...report.selection.scope, targetCount: 1 }
+  report.scopeOptions = [report.selection.scope]
+  const saved = report.populations[0]!
+  const missing = { numerator: null, denominator: null, rate: null, reason: 'no-population' as const }
+  report.populations = (['branded', 'non-brand', 'unknown'] as const).map(queryClass => {
+    const summary = queryClass === 'unknown' ? saved.summary : { ...saved.summary, queryCount: 0, answerCount: 0, mentionCoverage: missing, citationCoverage: missing }
+    return {
+      ...saved, queryClass, summary,
+      trend: [{ runId: 'run-2', createdAt: '2026-09-01T10:00:00Z', revision: null, provenance: report.selection.provenance, queryCount: summary.queryCount, answerCount: summary.answerCount, mentionCoverage: summary.mentionCoverage, citationCoverage: summary.citationCoverage, continuity: { state: 'first' } }],
+      queries: queryClass === 'unknown' ? saved.queries : { items: [], total: 0, nextCursor: null },
+      evidence: queryClass === 'unknown' ? saved.evidence : { items: [], total: 0, nextCursor: null },
+    }
+  })
+  return report
+}
+
 describe('shared production visibility view', () => {
+  it('shows older simple results on a clean URL and opens their saved answers without a filter rescue', async () => {
+    const requests: URL[] = []
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url)
+      requests.push(request)
+      const report = legacyReportFixture()
+      const queryClass = request.searchParams.get('queryClass') ?? 'non-brand'
+      report.selection.queryClass = queryClass as VisibilityReportResponse['selection']['queryClass']
+      if (queryClass !== 'all') report.populations = report.populations.filter(population => population.queryClass === queryClass)
+      return jsonResponse(report)
+    }))
+    function Workspace() {
+      const [search, setSearch] = useState<Record<string, unknown>>({})
+      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
+    const population = await screen.findByRole('region', { name: 'Unclassified queries', exact: true })
+    expect(requests[0]!.searchParams.get('queryClass')).toBe('all')
+    expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('all')
+    expect(within(population).getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
+    expect(within(population).getAllByText('43%').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('heading', { name: 'Branded queries', exact: true })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Non-brand queries', exact: true })).toBeNull()
+    expect(screen.queryByText(/frozen query classification/)).toBeNull()
+    fireEvent.click(within(population).getByText('Query results', { selector: 'span' }).closest('summary')!)
+    fireEvent.click(within(population).getByRole('button', { name: /View answers for/ }))
+    expect(await screen.findByText('A saved answer from an older sweep.')).toBeTruthy()
+    expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown')
+    expect(requests.at(-1)!.searchParams.get('runId')).toBe('run-2')
+  })
+
+  it.each(['simple', 'advanced'] as const)('keeps historical classes visible when the latest %s sweep has no queries in that class', mode => {
+    const report = legacyReportFixture()
+    report.selection.mode = mode
+    report.populations[0]!.trend[0] = { ...report.populations[2]!.trend[0]!, provenance: { kind: 'frozen-simple', definitionRevision: null } }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(screen.getByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Unclassified queries', exact: true })).toBeTruthy()
+    if (mode === 'advanced') expect(screen.getByRole('region', { name: 'Non-brand queries', exact: true })).toBeTruthy()
+  })
+
+  it('keeps populated simple classes separate even while query search has no matches', () => {
+    const report = legacyReportFixture()
+    for (const population of report.populations) {
+      population.summary = report.populations[2]!.summary
+      population.queries = { items: [], total: 0, nextCursor: null }
+    }
+    render(<VisibilityReportView report={report} search="no match" onSelectionChange={() => {}} />)
+    for (const name of ['Branded queries', 'Non-brand queries', 'Unclassified queries']) {
+      const population = screen.getByRole('region', { name, exact: true })
+      expect(within(population).getAllByText('43%').length).toBeGreaterThan(0)
+    }
+  })
+
+  it.each(['simple', 'advanced'] as const)('replaces unavailable %s trend plots with an explicit empty state', mode => {
+    const report = legacyReportFixture()
+    report.selection.mode = mode
+    report.selection.queryClass = 'non-brand'
+    report.populations = [report.populations[1]!]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(screen.getByRole('heading', { name: 'Non-brand queries', exact: true })).toBeTruthy()
+    expect(screen.getByText('No measured trend for this selection.')).toBeTruthy()
+    expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
+  })
+
+  it.each(['simple', 'advanced'] as const)('retains %s partial-sweep dates and model changes when no rates can be plotted', mode => {
+    const report = reportFixture()
+    report.selection.mode = mode
+    report.selection.measurement.state = 'partial'
+    const population = report.populations[0]!
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' as const }
+    population.summary = { ...population.summary, queryCount: 2, answerCount: 1, mentionCoverage: unavailable, citationCoverage: unavailable }
+    population.trend = ['2026-09-03T12:00:00Z', '2026-09-04T12:00:00Z'].map((createdAt, index) => ({
+      runId: `partial-${index}`, createdAt, revision: report.selection.revision,
+      provenance: report.selection.provenance, queryCount: 2, answerCount: 1,
+      mentionCoverage: unavailable, citationCoverage: unavailable,
+      continuity: index === 0 ? { state: 'first', comparedRunId: null } : { state: 'model-changed', comparedRunId: 'partial-0' },
+    }))
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    const disclosure = screen.getByText('Trend data and comparability').closest('details')!
+    fireEvent.click(within(disclosure).getByText('Trend data and comparability'))
+    const table = within(disclosure).getByRole('table')
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
+    for (const point of population.trend) {
+      expect(within(table).getByText(new Date(point.createdAt).toLocaleDateString())).toBeTruthy()
+    }
+    expect(within(table).getByText('model changed')).toBeTruthy()
+    expect(within(table).getAllByText('Not measured')).toHaveLength(4)
+    expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Trend legend' })).toBeNull()
+  })
+
   it.each([
     { mode: 'simple' as const, showUnmeasuredFallback: true, expectsFallback: true },
     { mode: 'simple' as const, showUnmeasuredFallback: false, expectsFallback: false },
@@ -240,8 +357,9 @@ describe('shared production visibility view', () => {
     report.selection.provenance = { kind: 'legacy-simple', definitionRevision: null }
     const select = vi.fn()
     render(<VisibilityReportView report={report} onSelectionChange={select} />)
-    fireEvent.click(screen.getByRole('button', { name: 'View unclassified results' }))
-    expect(select).toHaveBeenCalledWith({ queryClass: 'unknown', measurementQueryKey: undefined })
+    expect(screen.getByText("These saved results aren't separated by query type.")).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'View all saved results' }))
+    expect(select).toHaveBeenCalledWith({ queryClass: 'all', measurementQueryKey: undefined })
   })
 
   it('keeps observed competitor names separate from unavailable historical rates', () => {

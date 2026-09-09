@@ -134,7 +134,7 @@ export function parseVisibilitySelection(search: Record<string, unknown>): Visib
   const queryClass = string('queryClass') ?? string('class')
   const result: VisibilitySelectionState = {
     measurementScope: key && (scope === 'group' || scope === 'market' || scope === 'property') ? scope : 'project',
-    queryClass: queryClass === 'all' || queryClass === 'branded' || queryClass === 'unknown' ? queryClass : 'non-brand',
+    queryClass: queryClass === 'unknown' || isQueryClass(queryClass) ? queryClass : DEFAULT_MEASUREMENT_VIEW.queryClass,
   }
   if (result.measurementScope !== 'project') result.measurementScopeKey = key
   for (const [urlKey, field] of [

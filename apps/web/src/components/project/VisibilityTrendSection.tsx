@@ -114,23 +114,26 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
       : [{ createdAt: point.createdAt, mentioned: null, cited: null }, plotted]
   })
   if (points.length === 0) return <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>
+  const hasRates = points.some(point => point.mentioned !== null || point.cited !== null)
   return <>
-    <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
-      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
-      <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
-    </ul>
-    <div className="visibility-trend-chart" role="img" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
-          <XAxis dataKey="createdAt" tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(String(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
-          <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
-          <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(String(value)).toLocaleDateString()} />
-          <Line type="linear" dataKey="mentioned" name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-          <Line type="linear" dataKey="cited" name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
-        </ComposedChart>
-      </ResponsiveContainer>
-    </div>
+    {hasRates ? <>
+      <ul aria-label="Trend legend" className="flex gap-5 py-3 text-sm text-secondary">
+        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_SERIES_COLORS[1] }} />Mentioned</li>
+        <li className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-5" style={{ backgroundColor: CHART_TONE.positive }} />Cited</li>
+      </ul>
+      <div className="visibility-trend-chart" role="img" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+            <XAxis dataKey="createdAt" tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(String(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
+            <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
+            <RechartsTooltip formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(String(value)).toLocaleDateString()} />
+            <Line type="linear" dataKey="mentioned" name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+            <Line type="linear" dataKey="cited" name="Cited" stroke={CHART_TONE.positive} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </> : <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>}
     <details className="py-3 text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">Trend data and comparability</summary>
       <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
         {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} /></td><td><ReportRate value={point.citationCoverage} /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
@@ -201,7 +204,7 @@ export function VisibilityReportFilters({ report, onSelectionChange }: Pick<Visi
         </div>
       </details>
     </div> : null}
-    {select('Query type', 'queryClass', selection.queryClass, [{ value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'all', label: 'All classes, separate' }, { value: 'unknown', label: 'Unclassified' }])}
+    {select('Query type', 'queryClass', selection.queryClass, [{ value: 'all', label: 'All queries' }, { value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
     {select('Answer engine', 'measurementProvider', selection.provider ?? '', [{ value: '', label: 'All engines' }, ...filterOptions.providers.map(provider => ({ value: provider, label: provider }))])}
     {select('Search location', 'measurementLocation', selection.location.kind === 'exact' ? selection.location.value : selection.location.kind === 'none' ? 'none' : '', [{ value: '', label: 'All locations' }, ...filterOptions.locations.filter(location => location.kind !== 'all').map(location => ({ value: location.kind === 'exact' ? location.value : 'none', label: location.kind === 'exact' ? location.value : 'No location' }))])}
   </div></div>
@@ -259,7 +262,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       </div>
       {onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null}
     </div>
-    {selection.provenance.kind === 'legacy-simple' ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default py-3 text-sm text-secondary"><p>Legacy results have no frozen query classification.</p>{selection.queryClass !== 'unknown' && selection.queryClass !== 'all' ? <Button variant="outline" onClick={() => onSelectionChange({ queryClass: 'unknown', measurementQueryKey: undefined })}>View unclassified results</Button> : null}</div> : null}
+    {selection.provenance.kind === 'legacy-simple' && selection.queryClass !== 'unknown' && selection.queryClass !== 'all' ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default py-3 text-sm text-secondary"><p>These saved results aren't separated by query type.</p><Button variant="outline" onClick={() => onSelectionChange({ queryClass: 'all', measurementQueryKey: undefined })}>View all saved results</Button></div> : null}
     <VisibilityReportFilters report={report} onSelectionChange={onSelectionChange} />
     <details className="border-b border-default text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">More filters</summary><div className="flex flex-wrap gap-4 pb-3">
       <label className="min-w-40 flex-1"><span className="mb-1 block text-sm font-medium text-heading">Start date (UTC)</span><input type="date" className={REPORT_CONTROL} value={selection.time.from?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ measurementFrom: event.target.value ? `${event.target.value}T00:00:00.000Z` : undefined })} /></label>
@@ -268,10 +271,17 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...report.populations[0]!.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
     </div></details>
     {report.populations.map(population => {
+      // Simple history can predate query labels. In the all-query view, lead
+      // with its saved results instead of empty classes that never had queries.
+      // Retain historical populations and any explicitly requested class.
+      if (selection.mode === 'simple' && selection.queryClass === 'all'
+        && population.summary.queryCount === 0 && !population.trend.some(point => point.queryCount > 0)
+        && !(queryKey && answerClasses.includes(population.queryClass))
+        && report.populations.some(other => other.summary.queryCount > 0 || other.trend.some(point => point.queryCount > 0))) return null
       const queryGroups = groupVisibilityQueryRows(population.queries.items)
       const queryColumnCount = selection.mode === 'advanced' ? 7 : 6
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
-      <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'The measured definition could not establish a query class. These answers are not included in branded or non-brand rates.'} /></div>
+      <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-default py-4">
         <div><div className="mb-2 flex items-center gap-1 text-sm text-secondary"><span>{selection.mode === 'advanced' && selection.scope.kind !== 'property' ? 'Answers mentioning a property' : 'Mentioned answers'}</span>{selection.mode === 'advanced' ? <InfoTooltip text="An answer counts when it mentions any assigned property. This does not mean every property was mentioned." /> : null}</div><ReportRate value={population.summary.mentionCoverage} unit="answers" /></div>
         <div><div className="mb-2 flex items-center gap-1 text-sm text-secondary"><span>{selection.mode === 'advanced' && selection.scope.kind !== 'property' ? 'Answers citing a property' : 'Cited answers'}</span>{selection.mode === 'advanced' ? <InfoTooltip text="An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited." /> : null}</div><ReportRate value={population.summary.citationCoverage} unit="answers" /></div>

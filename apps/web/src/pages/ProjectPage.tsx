@@ -2702,7 +2702,7 @@ function ProjectPageContent({
             selection={visibilitySelection}
             showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
               && visibilitySelection.measurementScope === 'project'
-              && visibilitySelection.queryClass === 'non-brand'
+              && visibilitySelection.queryClass === 'all'
               && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
               && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
               && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}

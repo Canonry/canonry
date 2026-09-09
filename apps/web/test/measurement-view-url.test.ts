@@ -4,6 +4,8 @@ import {
   DEFAULT_MEASUREMENT_VIEW,
   measurementViewSearch,
   parseMeasurementViewSearch,
+  parseVisibilitySelection,
+  patchVisibilitySelection,
   shouldResetMeasurementView,
 } from '../src/lib/measurement-view-url.js'
 
@@ -100,4 +102,20 @@ test('the default view is all queries', () => {
   expect(measurementViewSearch(DEFAULT_MEASUREMENT_VIEW).class).toBeUndefined()
   // And an explicit narrower choice still round-trips.
   expect(parseMeasurementViewSearch({ class: 'branded' }).queryClass).toBe('branded')
+})
+
+test('the shared visibility workspace opens all query types for clean and malformed URLs', () => {
+  for (const search of [{}, { queryClass: '' }, { queryClass: 'invalid' }, { class: 'invalid' }]) {
+    expect(parseVisibilitySelection(search)).toEqual({ measurementScope: 'project', queryClass: 'all' })
+  }
+})
+
+test('explicit query types survive navigation and reload without losing unrelated URL state', () => {
+  for (const queryClass of ['all', 'branded', 'non-brand', 'unknown'] as const) {
+    expect(parseVisibilitySelection({ queryClass }).queryClass).toBe(queryClass)
+    expect(parseVisibilitySelection({ class: queryClass }).queryClass).toBe(queryClass)
+    const next = patchVisibilitySelection({ class: 'branded', runId: 'drawer-run', measurementProvider: 'gemini' }, { queryClass })
+    expect(parseVisibilitySelection(next)).toEqual({ measurementScope: 'project', queryClass, provider: 'gemini' })
+    expect(next.runId).toBe('drawer-run')
+  }
 })
