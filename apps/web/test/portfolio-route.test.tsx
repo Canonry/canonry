@@ -2468,9 +2468,10 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       { managedSweeps: true, schedule: managedSchedule, accountRole },
     )
     const header = projectHeader(html)
-    expect(header.querySelector('button')).toBeNull()
+    expect(header.querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
     expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
-    expect(header.textContent).toContain('Next sync Tuesday 8 Sept, 06:00 UTC · managed by your Canonry team')
+    expect(header.querySelector('.info-tooltip-trigger')?.getAttribute('aria-label')).toContain('Results update after the sweep finishes')
+    expect(header.textContent).toContain('Next scheduled sweep Tue, Sep 8, 2026, 6:00 AM UTC · managed by your Canonry team')
     expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
   }
 })
@@ -2484,7 +2485,7 @@ test('managed sweeps without a schedule replaces the header action without inven
   const status = projectHeader(html).querySelector('[role="status"]')!
   expect(status.textContent).toBe('Sweeps are run by your Canonry team')
   expect(status.querySelector('time')).toBeNull()
-  expect(projectHeader(html).querySelector('button')).toBeNull()
+  expect(projectHeader(html).querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
   expect(status.textContent).not.toMatch(/Next sync|UTC|\d/)
 })
 
@@ -2500,7 +2501,8 @@ test.each(['simple', 'advanced'] as const)('managed %s project header retains qu
     const header = projectHeader(html)
     expect(header.querySelector('[role="status"]')?.textContent).toContain('AI sweep running…')
     expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
-    expect(header.querySelector('button')).toBeNull()
+    expect(header.querySelector('.info-tooltip-trigger')?.getAttribute('aria-label')).toContain('Results update after the sweep finishes')
+    expect(header.querySelector('button:not(.info-tooltip-trigger)')).toBeNull()
   }
 })
 
