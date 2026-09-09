@@ -622,6 +622,9 @@ function upsertGroup(authoring: MeasurementDraftAuthoring, body: unknown): Draft
   const next: MeasurementDraftGroup = {
     stableKey: group.stableKey,
     label: group.label,
+    ...(group.parentGroupKey === undefined
+      ? (index === -1 || groups[index].parentGroupKey === undefined ? {} : { parentGroupKey: groups[index].parentGroupKey })
+      : group.parentGroupKey === null ? {} : { parentGroupKey: group.parentGroupKey }),
     targetKeys: unique(group.targetKeys),
     competitors: group.competitors === undefined
       ? (index === -1 ? [] : groups[index]!.competitors)
@@ -641,6 +644,10 @@ function upsertGroup(authoring: MeasurementDraftAuthoring, body: unknown): Draft
 
 function removeGroup(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
   const { groupKey } = parseBody(measurementDraftRemoveGroupRequestSchema, body, 'remove-group')
+  const children = authoring.groups.filter(group => group.parentGroupKey === groupKey)
+  if (children.length) {
+    throw validationError('Cannot remove group ' + groupKey + ' while it is the explicit parent of: ' + children.map(group => group.stableKey).join(', ') + '. Reparent or remove its child groups first.', { displayToOperator: true })
+  }
   return {
     authoring: { ...authoring, groups: authoring.groups.filter(group => group.stableKey !== groupKey) },
     warnings: [],

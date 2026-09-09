@@ -163,6 +163,8 @@ export const visibilityReportScopeOptionSchema = z.object({
   label: z.string().trim().min(1),
   kind: visibilityReportScopeKindSchema,
   targetCount: z.number().int().nonnegative(),
+  /** Group and Property membership is frozen and explicit; groups have zero or one id. */
+  parentGroupIds: z.array(nonBlankIdSchema).optional(),
 }).strict()
 export type VisibilityReportScopeOption = z.output<typeof visibilityReportScopeOptionSchema>
 

@@ -13,6 +13,7 @@ export type VisibilityReportResponse = {
             label: string;
             kind: 'project' | 'group' | 'market' | 'property';
             targetCount: number;
+            parentGroupIds?: Array<string>;
         };
         provider: string | null;
         model: string | null;
@@ -66,6 +67,7 @@ export type VisibilityReportResponse = {
         label: string;
         kind: 'project' | 'group' | 'market' | 'property';
         targetCount: number;
+        parentGroupIds?: Array<string>;
     }>;
     filterOptions: {
         providers: Array<string>;
@@ -5301,6 +5303,7 @@ export type MeasurementDraftCompilePreviewResponse = {
         groups: Array<{
             stableKey: string;
             label: string;
+            parentGroupKey?: string;
             targetKeys: Array<string>;
             competitors: Array<{
                 stableKey: string;
@@ -5434,6 +5437,7 @@ export type MeasurementDraftDiffPreviewResponse = {
         groups: Array<{
             stableKey: string;
             label: string;
+            parentGroupKey?: string;
             targetKeys: Array<string>;
             competitors: Array<{
                 stableKey: string;
@@ -5552,6 +5556,7 @@ export type MeasurementDraftGroupPage = {
     items: Array<{
         stableKey: string;
         label: string;
+        parentGroupKey?: string;
         targetKeys: Array<string>;
         competitors: Array<{
             stableKey: string;
@@ -6130,6 +6135,7 @@ export type MeasurementDraftResponse = {
             groups: Array<{
                 stableKey: string;
                 label: string;
+                parentGroupKey?: string;
                 targetKeys: Array<string>;
                 competitors: Array<{
                     stableKey: string;
@@ -6215,6 +6221,7 @@ export type MeasurementDraftUpsertGroupRequest = {
     group: {
         stableKey: string;
         label: string;
+        parentGroupKey?: string | null;
         targetKeys: Array<string>;
         competitors?: Array<{
             stableKey: string;
@@ -7257,6 +7264,7 @@ export type MeasurementPlanResponse = {
             groups: Array<{
                 stableKey: string;
                 label: string;
+                parentGroupKey?: string;
                 targetKeys: Array<string>;
                 competitors: Array<{
                     stableKey: string;
@@ -7368,6 +7376,7 @@ export type MeasurementPlanV2PublishResponse = {
             groups: Array<{
                 stableKey: string;
                 label: string;
+                parentGroupKey?: string;
                 targetKeys: Array<string>;
                 competitors: Array<{
                     stableKey: string;
@@ -7561,6 +7570,7 @@ export type MeasurementPlanVersionResponse = {
             groups: Array<{
                 stableKey: string;
                 label: string;
+                parentGroupKey?: string;
                 targetKeys: Array<string>;
                 competitors: Array<{
                     stableKey: string;

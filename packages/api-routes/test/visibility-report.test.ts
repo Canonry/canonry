@@ -395,3 +395,22 @@ describe('visibility report route', () => {
     expect(mismatchedQuery.status).toBe(500)
   })
 })
+
+describe('visibility report hierarchy scopes', () => {
+  it('returns explicit frozen group parents and every property membership without inferred hierarchy', async () => {
+    const frozenPlan = measurementPlanV2Fixture({
+      groups: [
+        { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+        { stableKey: 'submarket', label: 'Submarket', parentGroupKey: 'metro', targetKeys: ['harbor'], competitors: [] },
+      ],
+    })
+    activate(seedVersion(1, frozenPlan))
+    const result = await report('queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const scopes = (result.body as VisibilityReportResponse).scopeOptions
+    expect(scopes.find(scope => scope.id === 'metro')?.parentGroupIds).toBeUndefined()
+    expect(scopes.find(scope => scope.id === 'submarket')?.parentGroupIds).toEqual(['metro'])
+    expect(scopes.find(scope => scope.id === 'harbor')?.parentGroupIds).toEqual(['metro', 'submarket'])
+    expect(scopes.find(scope => scope.id === 'bayside')?.parentGroupIds).toEqual(['metro'])
+  })
+})

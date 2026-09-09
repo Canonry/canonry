@@ -277,6 +277,7 @@ function seedAuthoring(
       groups: active.groups.map((group): MeasurementDraftGroup => ({
         stableKey: group.stableKey,
         label: group.label,
+        ...(group.parentGroupKey === undefined ? {} : { parentGroupKey: group.parentGroupKey }),
         targetKeys: [...group.targetKeys],
         competitors: group.competitors.map(competitor => ({ ...competitor })),
       })),

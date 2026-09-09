@@ -396,6 +396,7 @@ export function compileMeasurementDraft(
     compiledGroups.push({
       stableKey: group.stableKey,
       label: group.label,
+      ...(group.parentGroupKey === undefined ? {} : { parentGroupKey: group.parentGroupKey }),
       targetKeys: canonicalStrings(group.targetKeys),
       competitors: [...group.competitors]
         .map(competitor => ({ ...competitor, aliases: canonicalStrings(competitor.aliases) }))

@@ -1843,3 +1843,22 @@ describe('measurement draft compiled checksum', () => {
     expect(accepted.json()).toMatchObject({ published: true, active: { revision: 1 } })
   })
 })
+
+describe('measurement draft hierarchy publish round-trip', () => {
+  it('seeds a published hierarchy, retains it through a harmless edit, and republishes it', async () => {
+    const initial = await readyDraft()
+    await initial.run('upsert-group', { group: { stableKey: 'metro', label: 'Metro', targetKeys: ['widgets'], competitors: [] } })
+    await initial.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', parentGroupKey: 'metro', targetKeys: ['widgets'], competitors: [] } })
+    const first = await publish(initial, null)
+    expect(first.statusCode, first.body).toBe(200)
+
+    const seeded = await DraftSession.start(1)
+    const before = (await request('GET', '/measurement-plan/draft')).json().draft.authoring
+    expect(before.groups.find((group: { stableKey: string }) => group.stableKey === 'submarket').parentGroupKey).toBe('metro')
+    await seeded.run('rename-target', { targetKey: 'widgets', label: 'Widgets refreshed' })
+    const second = await publish(seeded, 1)
+    expect(second.statusCode, second.body).toBe(200)
+    const active = (await request('GET', '/measurement-plan')).json().active.plan
+    expect(active.groups.find((group: { stableKey: string }) => group.stableKey === 'submarket')).toMatchObject({ parentGroupKey: 'metro', targetKeys: ['widgets'] })
+  })
+})

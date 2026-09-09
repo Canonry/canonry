@@ -419,3 +419,15 @@ describe('the cross product cap', () => {
     expect(result.authoring.assignments).toHaveLength(6)
   })
 })
+
+describe('measurement draft group hierarchy', () => {
+  it('preserves a parent across legacy group edits and rejects removing it while children remain', () => {
+    const authoring = audienceFixture()
+    const withChild = applyDraftAction('upsert-group', authoring, { group: { stableKey: 'downtown', label: 'Downtown', parentGroupKey: 'dallas', targetKeys: ['dallas-1'] } }, audienceContext).authoring
+    const legacyEdit = applyDraftAction('upsert-group', withChild, { group: { stableKey: 'downtown', label: 'Downtown', targetKeys: ['dallas-1'] } }, audienceContext).authoring
+    expect(legacyEdit.groups.find(group => group.stableKey === 'downtown')?.parentGroupKey).toBe('dallas')
+    const detached = applyDraftAction('upsert-group', legacyEdit, { group: { stableKey: 'downtown', label: 'Downtown', parentGroupKey: null, targetKeys: ['dallas-1'] } }, audienceContext).authoring
+    expect(detached.groups.find(group => group.stableKey === 'downtown')?.parentGroupKey).toBeUndefined()
+    expect(() => applyDraftAction('remove-group', legacyEdit, { groupKey: 'dallas' }, audienceContext)).toThrow(/explicit parent/)
+  })
+})

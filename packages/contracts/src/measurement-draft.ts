@@ -100,6 +100,8 @@ export type MeasurementDraftCompetitor = z.output<typeof measurementDraftCompeti
 export const measurementDraftGroupSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   label: z.string().trim().min(1),
+  /** Explicit reporting navigation only; no geographic hierarchy is inferred. */
+  parentGroupKey: measurementV2StableKeySchema.optional(),
   targetKeys: z.array(measurementV2StableKeySchema),
   competitors: z.array(measurementDraftCompetitorSchema),
 }).strict()
@@ -423,6 +425,8 @@ export const measurementDraftUpsertGroupRequestSchema = z.object({
   group: z.object({
     stableKey: measurementV2StableKeySchema,
     label: z.string().trim().min(1),
+    /** Omission preserves the existing parent for older clients; null explicitly detaches. */
+    parentGroupKey: measurementV2StableKeySchema.nullable().optional(),
     targetKeys: z.array(measurementV2StableKeySchema),
     /** Omission preserves existing competitors; presence replaces the complete list. */
     competitors: z.array(measurementDraftCompetitorSchema).optional(),

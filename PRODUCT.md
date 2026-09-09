@@ -8,7 +8,7 @@ AI Visibility shows measured trends, query performance, answers, sources, and co
 Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
-Groups collect properties. Markets select explicit execution-context edges.
+Groups collect properties and can declare a parent Group for navigation. Start with top-level Groups, then browse their subgroups and Properties. Parent membership contains every child Property; overlap between sibling Groups is allowed. Markets select explicit execution-context edges.
 
 ## Product purpose
 
