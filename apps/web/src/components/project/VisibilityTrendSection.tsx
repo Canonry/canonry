@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { buildModelChangeNotice, describeError } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
 import type { VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation } from '@ainyc/canonry-contracts'
@@ -36,7 +36,7 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { DataTablePagination, useClientTable } from '../shared/DataTableControls.js'
-import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
+import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
   buildSelectedTrendRows,
   CITED_KEY,
@@ -413,15 +413,17 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
   const [cursor, setCursor] = useState<string | undefined>()
   const [search, setSearch] = useState('')
   const [answerCursor, setAnswerCursor] = useState<{ selection: string; cursor: string }>()
-  const sharedQuery = {
+  const queryClient = useQueryClient()
+  const sharedQuery = useMemo(() => ({
     scope: selection.measurementScope, scopeKey: selection.measurementScopeKey, queryClass: selection.queryClass,
     provider: selection.provider, model: selection.model, location: selection.location,
     from: selection.from, to: selection.to, revision: selection.revision, runId: selection.measurementRunId,
-  }
+  }), [selection.measurementScope, selection.measurementScopeKey, selection.queryClass, selection.provider, selection.model, selection.location, selection.from, selection.to, selection.revision, selection.measurementRunId])
   const reportQuery = useQuery({
     ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: {
       ...sharedQuery, limit: 25, cursor, search: search || undefined,
     } }),
+    staleTime: DEFAULT_QUERY_STALE_MS,
     retry: false,
     // The parent keys this workspace by every aggregate filter, but opening
     // or closing answers does not replace the summary or query search.
@@ -448,16 +450,30 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     retry: false,
   })
   useEffect(() => {
-    if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData
+    if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData || reportQuery.isFetching || reportQuery.isError
       || reportQuery.data.selection.availability.state === 'unsupported' || reportQuery.data.populations.length === 0) return
     // Older links carry only a query key. Wait for its evidence when it is
     // outside the aggregate page, including across a failed request and retry.
     if (selection.queryKey && !selection.answer && !matchingReportPopulation(reportQuery.data, selection.queryKey) && !evidenceQuery.data) return
+    const population = selectedReportPopulation(reportQuery.data, selection.queryKey, selection.answer, evidenceQuery.data)
+    if (!cursor && !search) {
+      // The server's all-class response contains the exact independently paged
+      // population. Keep its timestamp so normalization neither repeats the
+      // read nor makes old evidence fresh. A changed scope/search still fetches.
+      const { queryKey } = getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: {
+        ...sharedQuery, queryClass: population.queryClass, limit: 25,
+      } })
+      queryClient.setQueryData(queryKey, {
+        ...reportQuery.data,
+        selection: { ...reportQuery.data.selection, queryClass: population.queryClass },
+        populations: [population],
+      }, { updatedAt: reportQuery.dataUpdatedAt })
+    }
     onSelectionChange({
-      queryClass: selectedReportPopulation(reportQuery.data, selection.queryKey, selection.answer, evidenceQuery.data).queryClass,
+      queryClass: population.queryClass,
       ...(selection.queryKey ? { measurementQueryKey: selection.queryKey, measurementAnswer: selection.answer ? JSON.stringify(selection.answer) : undefined } : {}),
     })
-  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.isPlaceholderData, evidenceQuery.data, onSelectionChange])
+  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {

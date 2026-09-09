@@ -8,6 +8,7 @@ import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.j
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VisibilityReportView, VisibilityWorkspace } from '../src/components/project/VisibilityTrendSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 
 afterEach(cleanup)
 
@@ -110,6 +111,36 @@ describe('shared production visibility view', () => {
     expect(requests.at(-1)!.searchParams.get('scope')).toBe('project')
   })
 
+  it.each(['non-brand', 'branded', 'unknown'] as const)('reuses the measured %s population across URL normalization and still refreshes after invalidation', async queryClass => {
+    const requests: URL[] = []
+    let queryCount = 7
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url)
+      requests.push(request)
+      const report = reportFixture()
+      report.selection.queryClass = request.searchParams.get('queryClass') as VisibilityReportResponse['selection']['queryClass']
+      report.populations[0]!.queryClass = queryClass
+      report.populations[0]!.summary.queryCount = queryCount
+      return jsonResponse(report)
+    }))
+    const client = createQueryClient()
+    onTestFinished(() => client.clear())
+    function Workspace() {
+      const [search, setSearch] = useState<Record<string, unknown>>({ measurementScope: 'group', measurementScopeKey: 'metro-alpha', measurementProvider: 'gemini' })
+      return <VisibilityWorkspace key={String(search.queryClass ?? 'all')} projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+    }
+    render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
+    await waitFor(() => expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe(queryClass))
+    await waitFor(() => expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('7'))
+    expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
+    expect(requests[0]!.searchParams.get('scopeKey')).toBe('metro-alpha')
+    expect(requests[0]!.searchParams.get('provider')).toBe('gemini')
+    queryCount = 8
+    await client.invalidateQueries()
+    await waitFor(() => expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('8'))
+    expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all', queryClass])
+  })
+
   it('loads legacy simple history as all classes once, then normalizes a clean URL to its saved unclassified population', async () => {
     const requests: URL[] = []
     onTestFinished(mockFetch(url => {
@@ -129,7 +160,7 @@ describe('shared production visibility view', () => {
     render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
     const population = await screen.findByRole('region', { name: 'Unclassified queries', exact: true })
     expect(requests[0]!.searchParams.get('queryClass')).toBe('all')
-    await waitFor(() => expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown'))
+    expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
     expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('unknown')
     expect([...((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).options)].map(option => option.value)).not.toContain('all')
     expect(within(population).getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
@@ -868,10 +899,10 @@ describe('shared production visibility view', () => {
     expect(requests.filter(request => !request.searchParams.has('queryKey')).map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
 
     releaseEvidence!(jsonResponse(brandedEvidence))
-    await waitFor(() => expect(requests.filter(request => !request.searchParams.has('queryKey')).map(request => request.searchParams.get('queryClass'))).toEqual(['all', 'branded']))
     expect(await screen.findByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
     await waitFor(() => expect(requests.some(request => request.searchParams.has('queryKey') && request.searchParams.get('queryClass') === 'branded')).toBe(true))
     expect(await screen.findByText('Saved branded answer beyond the aggregate page.')).toBeTruthy()
+    expect(requests.filter(request => !request.searchParams.has('queryKey')).map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
     expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
   })
 

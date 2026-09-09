@@ -1109,6 +1109,8 @@ test('pinning a market competitor writes only a draft action and refetches that 
     </QueryClientProvider>,
   )
 
+  expect(calls.some(call => call.path.includes('/analytics/competitors?'))).toBe(false)
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
   expect(await page.findByRole('button', { name: 'Pin observed.example' })).toBeTruthy()
   fireEvent.click(page.getByRole('button', { name: 'Pin observed.example' }))
 
@@ -1506,6 +1508,8 @@ test('cached competitor history remains visible when its background refresh fail
       </DashboardProvider>
     </QueryClientProvider>,
   )
+
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
 
   await waitFor(() => expect(queryClient.getQueryState(
     getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
@@ -2319,7 +2323,7 @@ test('a query class in the URL selects that class on first paint', async () => {
   expect(html).toContain('Branded market rival')
 })
 
-test('switching query class refetches the competitor landscape under the matching cache key', async () => {
+test('collapsed competitor history starts on demand and follows query class', async () => {
   const observed: string[] = []
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -2371,22 +2375,25 @@ test('switching query class refetches the competitor landscape under the matchin
     </QueryClientProvider>,
   )
 
+  expect(observed.some(path => path.includes('/analytics/competitors?'))).toBe(false)
+
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
   expect(await page.findByText('All-query rival')).toBeTruthy()
-  expect(observed.some(path => (
+  await waitFor(() => expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
-    && path.includes('queryClass=all')
-  ))).toBe(true)
+    && path.includes('queryClass=non-brand')
+  ))).toBe(true))
 
   fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'branded' } })
 
   expect(await page.findByRole('heading', { name: 'Branded queries' })).toBeTruthy()
   expect(await page.findByText('Branded rival')).toBeTruthy()
-  expect(observed.some(path => (
+  await waitFor(() => expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
     && path.includes('queryClass=branded')
-  ))).toBe(true)
+  ))).toBe(true))
   expect(router.state.location.search).toMatchObject({ queryClass: 'branded' })
 })
 

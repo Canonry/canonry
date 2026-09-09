@@ -1443,6 +1443,14 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     ?? null
   const embed = getEmbedConfig()
   const resolvedTab = resolveEmbedProjectTab(props.tab, embed ? filterEmbedProjectTabs(embed.projectTabs) : undefined)
+  // The server overview supplies Simple's primary metrics, but Advanced only
+  // exposes it through the collapsed Project signals disclosure. Wait until
+  // the plan resolves (or that disclosure opens) before starting the read.
+  const [overviewRequestedForProject, setOverviewRequestedForProject] = useState<string | null>(null)
+  const overviewRequested = lookupProjectName !== null && overviewRequestedForProject === lookupProjectName
+  const requestOverview = useCallback(() => {
+    if (lookupProjectName) setOverviewRequestedForProject(lookupProjectName)
+  }, [lookupProjectName])
   const {
     commandCenter: model,
     isLoading: dashboardLoading,
@@ -1452,7 +1460,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     latestVisibilityRevision,
     competitorHistoryRevision,
     refetch,
-  } = useProjectDashboard(lookupProjectName, { overview: resolvedTab === 'overview' })
+  } = useProjectDashboard(lookupProjectName, { overview: resolvedTab === 'overview' && overviewRequested })
   const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
 
   // Not-found state: both context and the projects-list query resolved
@@ -1519,6 +1527,8 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     competitorHistoryRevision={competitorHistoryRevision}
     overviewLoading={overviewLoading}
     overviewError={overviewError}
+    overviewRequested={overviewRequested}
+    onRequestOverview={requestOverview}
     {...props}
   />
 }
@@ -1735,6 +1745,8 @@ function ProjectPageContent({
   competitorHistoryRevision,
   overviewLoading,
   overviewError,
+  overviewRequested,
+  onRequestOverview,
 }: {
   tab: ProjectPageTab
   model: ProjectCommandCenterVm
@@ -1743,6 +1755,8 @@ function ProjectPageContent({
   competitorHistoryRevision: string
   overviewLoading: boolean
   overviewError: boolean
+  overviewRequested: boolean
+  onRequestOverview: () => void
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -1751,6 +1765,7 @@ function ProjectPageContent({
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
   const projectName = model.project.name
+  const hasInitialProjectDashboard = initialDashboard?.dashboard.projects.some(entry => entry.project.name === projectName) ?? false
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
     // Readiness drives the page-header sweep control on every project tab.
@@ -2022,6 +2037,9 @@ function ProjectPageContent({
     measurementSetupQuery.data === undefined
     && activeMeasurementPlanQuery.data === undefined
     && (activeMeasurementPlanQuery.isLoading || measurementSetupQuery.isLoading)
+  useEffect(() => {
+    if (tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved) onRequestOverview()
+  }, [isMeasurementModeUnresolved, isSimpleOverview, onRequestOverview, tab])
   const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
   const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
   const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
@@ -2061,14 +2079,24 @@ function ProjectPageContent({
       ...(isAdvancedAllMarkets ? { scope: 'all-markets' as const } : {}),
     },
   } as const
-  const competitorLandscapeReadEnabled = tab === 'overview'
+  const competitorLandscapeAvailable = tab === 'overview'
     && Boolean(projectName)
+    && (isSimpleOverview || planGroupKeysLoaded)
     && !isMeasurementModeUnresolved
     && (isSimpleOverview || (
       (visibilitySelection.measurementScope === 'project' || activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.measurementScope === 'group')
       && visibilitySelection.queryClass !== 'unknown'
       && (activeMeasurementPlanSchemaVersion === 2 || visibilitySelection.queryClass !== 'branded')
     ))
+  const [competitorHistoryOpenForProject, setCompetitorHistoryOpenForProject] = useState<string | null>(null)
+  useEffect(() => {
+    if (!competitorLandscapeAvailable) setCompetitorHistoryOpenForProject(null)
+  }, [competitorLandscapeAvailable])
+  useEffect(() => {
+    setCompetitorHistoryOpenForProject(null)
+  }, [projectName])
+  const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
+  const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -2737,7 +2765,7 @@ function ProjectPageContent({
           }}
         />
       ) : tab === 'overview' ? (
-        isMeasurementModeUnresolved || (isSimpleOverview && overviewLoading) ? (
+        isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>
             <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
@@ -3029,9 +3057,11 @@ function ProjectPageContent({
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
           />)}
-          {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
+          {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details key={projectName} className="page-section-divider" onToggle={event => {
+            if (event.currentTarget.open) onRequestOverview()
+          }}>
             <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
-            {overviewLoading ? (
+            {!overviewRequested || overviewLoading ? (
               <p role="status" className="text-sm text-secondary">Loading project signals…</p>
             ) : overviewError ? (
               <div role="alert" className="text-sm text-secondary">
@@ -3046,8 +3076,8 @@ function ProjectPageContent({
               />
             )}
           </details> : null}
-          {competitorLandscapeReadEnabled ? (
-            <details className="page-section-divider">
+          {competitorLandscapeAvailable ? (
+            <details className="page-section-divider" open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Competitor history</summary>
               <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
               <CompetitorLandscape
