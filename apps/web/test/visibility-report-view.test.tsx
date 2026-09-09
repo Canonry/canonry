@@ -285,7 +285,7 @@ describe('shared production visibility view', () => {
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
     expect(within(table).getByText('gpt-5.6')).toBeTruthy()
-    expect(within(table).getByText('Detroit')).toBeTruthy()
+    expect(within(table).getByText('Search location: Detroit')).toBeTruthy()
     if (showsProperties) {
       expect(within(table).getByText('Northstar Alpha 01')).toBeTruthy()
       expect(within(table).getByText('Harbor House')).toBeTruthy()
@@ -293,8 +293,35 @@ describe('shared production visibility view', () => {
       expect(within(table).queryByRole('columnheader', { name: 'Properties' })).toBeNull()
     }
     expect(within(table).getByText('1 of 3')).toBeTruthy()
-    expect(within(table).getByText('0 of 1')).toBeTruthy()
+    expect(within(table).getByText('No')).toBeTruthy()
+    expect(within(table).getByText('Yes')).toBeTruthy()
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
+  })
+
+  it.each(['simple', 'advanced'] as const)('shares identical query context once and distinguishes a negative answer from missing evidence in %s reports', mode => {
+    const report = reportFixture()
+    report.selection.mode = mode
+    const first = { ...report.populations[0]!.queries.items[0]!, answerCount: 1, targetKeys: ['p1', 'p2'], model: 'gemini-test', mentionCoverage: { numerator: 0, denominator: 1, rate: 0 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' as const } }
+    report.populations[0]!.queries.items = [first, { ...first, provider: 'openai', model: 'gpt-test', targetKeys: ['p2', 'p1'], mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } }]
+    report.scopeOptions.push({ id: 'p1', label: 'Park House', kind: 'property', targetCount: 1 }, { id: 'p2', label: 'Lake House', kind: 'property', targetCount: 1 })
+    const select = vi.fn()
+    render(<VisibilityReportView report={report} onSelectionChange={select} />)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    expect(within(table).getAllByText('apartments near transit')).toHaveLength(1)
+    expect(within(table).getAllByText('No location targeting')).toHaveLength(1)
+    expect(within(table).getAllByText('No')).toHaveLength(2)
+    expect(within(table).getByText('Yes')).toBeTruthy()
+    expect(within(table).getByText('Not measured')).toBeTruthy()
+    expect(within(table).queryByText('0%')).toBeNull()
+    expect(within(table).getByRole('button', { name: /The saved evidence is incomplete/ })).toBeTruthy()
+    if (mode === 'advanced') {
+      expect(within(table).getAllByText('2 properties')).toHaveLength(1)
+      expect(within(table).getByText('Park House')).toBeTruthy()
+      expect(within(table).getByText('Lake House')).toBeTruthy()
+    } else expect(within(table).queryByText('2 properties')).toBeNull()
+    fireEvent.click(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' }))
+    expect(JSON.parse(select.mock.lastCall![0].measurementAnswer)).toMatchObject({ queryKey: 'query-context', provider: 'openai', model: 'gpt-test', location: null, runId: 'run-2', revision: 2 })
   })
 
   it('explains frozen prior measurement without claiming new assignments have answers', () => {
@@ -407,6 +434,24 @@ describe('shared production visibility view', () => {
     ])
   })
 
+  it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    population.trend = ['first', state].map((continuity, index) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T10:00:00Z`, revision: index + 1,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage,
+      citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' },
+      continuity: { state: continuity as typeof state | 'first', comparedRunId: index === 0 ? null : 'run-0' },
+    }))
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const chart = screen.getByRole('img', { name: /mention and citation trend/ })
+    const explanation = document.getElementById(chart.getAttribute('aria-describedby')!)!
+    expect(explanation.textContent).toContain(state === 'definition-changed' ? 'changes to what was measured' : state === 'model-changed' ? 'changes to answer engines or models' : 'Older runs lack')
+    expect(explanation.textContent).toContain('Missing citation results mean the saved evidence is incomplete.')
+    expect(explanation.closest('details')).toBeNull()
+  })
+
   it('uses plain labels for saved-result filters without changing the selection contract', () => {
     const report = reportFixture()
     report.populations[0]!.trend = ['run-1', 'run-2'].map((runId, index) => ({
@@ -504,7 +549,7 @@ describe('shared production visibility view', () => {
     report.populations[0]!.queries.items[0]!.targetKeys = ['p1', 'p2']
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
-    expect(screen.getByRole('columnheader', { name: 'Properties' })).toBeTruthy()
+    expect(screen.getByRole('table', { name: 'Non-brand queries engine results' }).querySelector('[data-query-key="query-context"]')?.textContent).toContain('2 properties')
     const targets = screen.getByText('2 properties', { selector: 'summary' })
     expect(targets.closest('details')!.open).toBe(false)
     fireEvent.click(targets)

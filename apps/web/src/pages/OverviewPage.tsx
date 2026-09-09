@@ -11,6 +11,7 @@ import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-help
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useDrawer } from '../hooks/use-drawer.js'
+import { useAccount } from '../contexts/account-context.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import type { PortfolioProjectVm } from '../view-models.js'
 
@@ -38,7 +39,7 @@ function OverviewProjectCard({
       <div className="project-row-stat">
         <div className="metric-inline-block">
           <p className="metric-inline-label">Mentioned</p>
-          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.mentionScore}</p>
+          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.hasMeasurement === false ? 'Not measured' : project.mentionScore}</p>
           {/* `providerCoverage` is only set when the sweep covered a SUBSET of
               configured providers, and it is why the tone shifted to caution:
               the score above is built on incomplete data and is not comparable
@@ -66,7 +67,7 @@ function OverviewProjectCard({
             <span aria-hidden="true">Pressure</span>
             <span className="sr-only">Competitor pressure</span>
           </p>
-          <p className="metric-inline-value">{project.competitorPressureLabel}</p>
+          <p className="metric-inline-value">{project.hasMeasurement === false ? 'Not measured' : project.competitorPressureLabel}</p>
           {/* Empty caption slot, always rendered (not conditionally omitted) so
               this cell keeps the same three-row template as the "Mentioned"
               cell above — that's what keeps the two VALUES on a shared
@@ -82,6 +83,7 @@ function OverviewProjectCard({
 }
 
 export function OverviewPage() {
+  const { isAdmin } = useAccount()
   const contextDashboard = useInitialDashboard()
   const { dashboard, isLoading, isError, refetch } = useDashboard()
   const safeDashboard = dashboard ?? contextDashboard?.dashboard
@@ -141,9 +143,13 @@ export function OverviewPage() {
   }
 
   const model = safeDashboard.portfolioOverview
+  const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
+  const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
+    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first sweep.' }
+    : item)
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
-  const systemHealth = buildSystemHealthCards(model.systemHealth, healthSnapshot, safeDashboard.settings)
+  const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
 
   return (
     <div className="page-container">
@@ -173,7 +179,7 @@ export function OverviewPage() {
       )}
 
       <div className="overview-secondary-grid">
-        {model.attentionItems.length > 0 && (
+        {attentionItems.length > 0 && (
           <section className="overview-secondary-section">
             <div className="section-head section-head-inline">
               <div>
@@ -182,7 +188,7 @@ export function OverviewPage() {
               </div>
             </div>
             <div className="attention-list attention-list-scrollable">
-              {model.attentionItems.map((item) =>
+              {attentionItems.map((item) =>
                 item.href ? (
                   <Link
                     key={item.id}

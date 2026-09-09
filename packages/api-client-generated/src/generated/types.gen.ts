@@ -2875,6 +2875,32 @@ export type ResearchRunListDto = {
         finishedAt: string | null;
         createdAt: string;
     }>;
+    providers?: Array<{
+        name: string;
+        displayName: string;
+        modelConfigurable: boolean;
+        defaultModel: string;
+        knownModels: Array<{
+            id: string;
+            displayName: string;
+        }>;
+    }>;
+};
+
+export type ResultsClearRequest = {
+    runIds: Array<string>;
+    researchRunIds: Array<string>;
+    confirm: boolean;
+};
+
+export type ResultsClearResponse = {
+    dryRun: boolean;
+    runIds: Array<string>;
+    researchRunIds: Array<string>;
+    querySnapshots: number;
+    researchQueries: number;
+    insights: number;
+    healthSnapshots: number;
 };
 
 export type DoctorReportDto = {
@@ -14978,6 +15004,48 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitResponses = {
 };
 
 export type PostApiV1ProjectsByNameQueryTrackingCommitResponse = PostApiV1ProjectsByNameQueryTrackingCommitResponses[keyof PostApiV1ProjectsByNameQueryTrackingCommitResponses];
+
+export type PostApiV1ProjectsByNameResultsClearData = {
+    body: ResultsClearRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/results/clear';
+};
+
+export type PostApiV1ProjectsByNameResultsClearErrors = {
+    /**
+     * Invalid selection or unsupported run kind.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Administrator or runs.write scope required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected run not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Visibility or research work is active.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameResultsClearError = PostApiV1ProjectsByNameResultsClearErrors[keyof PostApiV1ProjectsByNameResultsClearErrors];
+
+export type PostApiV1ProjectsByNameResultsClearResponses = {
+    /**
+     * Selected history previewed or cleared.
+     */
+    200: ResultsClearResponse;
+};
+
+export type PostApiV1ProjectsByNameResultsClearResponse = PostApiV1ProjectsByNameResultsClearResponses[keyof PostApiV1ProjectsByNameResultsClearResponses];
 
 export type GetApiV1ProjectsByNameResearchRunsByRunIdData = {
     body?: never;

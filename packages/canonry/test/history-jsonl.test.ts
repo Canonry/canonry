@@ -1,12 +1,14 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import type { AuditLogEntry } from '@ainyc/canonry-contracts'
 
+const mockClearResults = vi.fn()
 const mockGetHistory = vi.fn()
 const mockGetGlobalHistory = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getHistory: mockGetHistory,
+    clearResults: mockClearResults,
     getGlobalHistory: mockGetGlobalHistory,
   }),
 }))
@@ -22,7 +24,7 @@ function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: ()
   return { run, lines: () => buf.split('\n').filter(Boolean) }
 }
 
-const { showHistory } = await import('../src/commands/history.js')
+const { clearResults, showHistory } = await import('../src/commands/history.js')
 
 const entries: AuditLogEntry[] = [
   {
@@ -106,5 +108,21 @@ describe('showHistory --format jsonl', () => {
       console.log = origLog
     }
     expect(JSON.parse(logs.join(''))).toEqual(entries)
+  })
+})
+
+describe('results clear', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('sends only exact IDs and explicit confirmation through the client, with machine-readable output', async () => {
+    const result = { dryRun: true, runIds: ['saved'], researchRunIds: ['research'], querySnapshots: 3, researchQueries: 1, insights: 0, healthSnapshots: 0 }
+    mockClearResults.mockResolvedValue(result)
+    const cap = captureStdout(() => clearResults('demo', { runIds: ['saved'], researchRunIds: ['research'], confirm: false, format: 'jsonl' }))
+    await cap.run
+    expect(mockClearResults).toHaveBeenCalledWith('demo', { runIds: ['saved'], researchRunIds: ['research'], confirm: false })
+    expect(cap.lines().map(line => JSON.parse(line))).toEqual([result])
+  })
+  it('refuses an empty selection before contacting the server', async () => {
+    await expect(clearResults('demo', { runIds: [], researchRunIds: [], confirm: true })).rejects.toMatchObject({ exitCode: 1 })
+    expect(mockClearResults).not.toHaveBeenCalled()
   })
 })

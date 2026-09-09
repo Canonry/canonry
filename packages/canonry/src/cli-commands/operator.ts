@@ -4,10 +4,10 @@ import { showSources } from '../commands/sources.js'
 import { showEvidence } from '../commands/evidence.js'
 import { exportProject } from '../commands/export-cmd.js'
 import { exportResults } from '../commands/results-export.js'
-import { showHistory } from '../commands/history.js'
+import { clearResults, showHistory } from '../commands/history.js'
 import { showStatus } from '../commands/status.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 const RESULTS_EXPORT_USAGE = 'canonry results export <project> [--format json|csv] [--since <ISO>] [--until <ISO>] [--include-probes] [--output <path>|-]'
@@ -18,7 +18,22 @@ function parseResultsExportFormat(value: string | undefined): 'json' | 'csv' {
   throw usageError(`Error: --format must be "json" or "csv"\n\nUsage: ${RESULTS_EXPORT_USAGE}`)
 }
 
+const RESULTS_CLEAR_USAGE = 'canonry results clear <project> [--run <id> ...] [--research-run <id> ...] [--confirm] [--format json|jsonl]'
+
 export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['results', 'clear'],
+    usage: RESULTS_CLEAR_USAGE,
+    options: { run: multiStringOption(), 'research-run': multiStringOption(), confirm: { type: 'boolean', default: false } },
+    run: async input => {
+      await clearResults(requireProject(input, 'results.clear', RESULTS_CLEAR_USAGE), {
+        runIds: getStringArray(input.values, 'run') ?? [],
+        researchRunIds: getStringArray(input.values, 'research-run') ?? [],
+        confirm: getBoolean(input.values, 'confirm'),
+        format: input.format,
+      })
+    },
+  },
   {
     path: ['results', 'export'],
     usage: RESULTS_EXPORT_USAGE,

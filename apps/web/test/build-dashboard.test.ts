@@ -1359,6 +1359,8 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
 
   // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
   expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
+  expect(buildPortfolioProject({ ...base, overview: null }).hasMeasurement).toBe(false)
+  expect(buildPortfolioProject(base).hasMeasurement).toBe(true)
 
   // Quiet-project fallback (#761 class): the capped, 30-day-windowed global runs
   // list yields NO runs for a project quiet for >30 days (`data.runs` empty), so

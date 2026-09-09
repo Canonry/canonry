@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -26,6 +27,7 @@ beforeAll(async () => {
 
 async function renderOverview(
   mutate?: (fixture: ReturnType<typeof createDashboardFixture>) => void,
+  viewer = false,
 ): Promise<Document> {
   const fixture = createDashboardFixture({})
   mutate?.(fixture)
@@ -35,9 +37,9 @@ async function renderOverview(
 
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+      <AccountProvider account={viewer ? { name: 'viewer', role: 'viewer' } : null}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
         <RouterProvider router={router} />
-      </DashboardProvider>
+      </DashboardProvider></AccountProvider>
     </QueryClientProvider>,
   )
 
@@ -135,4 +137,21 @@ test('a project with providerCoverage and one without it render the same number 
   // the caption slot alongside the delta, not vanish or grow a 4th slot.
   const caption = withCoverageMention!.querySelector('.metric-inline-caption')!
   expect(caption.textContent).toMatch(/gemini only/)
+})
+
+test('does not report unconfigured providers to a viewer whose settings are unavailable', async () => {
+  const doc = await renderOverview(fixture => { fixture.dashboard.settings.providerStatuses = [] }, true)
+  expect(doc.body.textContent).not.toContain('None configured')
+  expect(doc.body.textContent).not.toContain('0 of 0 configured')
+  expect(doc.body.textContent).toContain('Infrastructure')
+})
+
+test('shows an awaiting-baseline state rather than zero performance or stable results', async () => {
+  const doc = await renderOverview(fixture => {
+    fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionScore = 0 })
+    fixture.dashboard.portfolioOverview.attentionItems = [{ id: 'attention_stable', tone: 'positive', title: 'All projects stable', detail: 'No changes' }]
+  }, true)
+  expect([...doc.querySelectorAll('.metric-inline-value')].map(node => node.textContent)).toEqual(Array(6).fill('Not measured'))
+  expect(doc.body.textContent).toContain('Awaiting first measurement')
+  expect(doc.body.textContent).not.toContain('All projects stable')
 })

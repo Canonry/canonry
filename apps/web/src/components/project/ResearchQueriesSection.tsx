@@ -88,12 +88,13 @@ export function ResearchQueriesSection({
   const submittedQueries = useMemo(() => normalizeResearchQueries(queryText), [queryText])
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
+    if (isViewerResearch) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
     return (settingsQuery.data?.providers ?? [])
       .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: catalog.get(item.name)! }))
-  }, [settingsQuery.data])
-  const noConfiguredApiProviders = !settingsQuery.isLoading && providerOptions.length === 0
+  }, [isViewerResearch, runsQuery.data?.providers, settingsQuery.data])
+  const noConfiguredApiProviders = !(isViewerResearch ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
@@ -116,9 +117,7 @@ export function ResearchQueriesSection({
     || selectedProvider?.catalog.defaultModel
   const payload = selectedLocation === undefined
     ? null
-    : isViewerResearch
-      ? { queries: submittedQueries, location: selectedLocation }
-      : selectedProvider && resolvedModel
+    : selectedProvider && resolvedModel
         ? {
             queries: submittedQueries,
             provider: selectedProvider.name,
@@ -126,10 +125,13 @@ export function ResearchQueriesSection({
             location: selectedLocation,
           }
         : null
+  const modelOptions = selectedProvider
+    ? [...new Map([{ id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel }, ...selectedProvider.catalog.knownModels].map(item => [item.id, item])).values()]
+    : []
   const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
   const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
     && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
-    && (isViewerResearch || (!settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching))
+    && (isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching)
     && submittedQueries.length > 0 && submittedQueries.length <= 50
 
   useEffect(() => {
@@ -181,7 +183,7 @@ export function ResearchQueriesSection({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(360px,1.15fr)]">
-        <Card className="surface-card">
+        <Card className="surface-card min-w-0">
           <div className="section-head">
             <div>
               <h3>Test queries</h3>
@@ -199,15 +201,14 @@ export function ResearchQueriesSection({
                 onChange={(event) => setQueryText(event.target.value)}
                 aria-describedby="research-query-count"
               />
-              <span id="research-query-count" className={`mt-1 block text-[11px] ${submittedQueries.length > 50 ? 'text-negative' : 'text-faint'}`}>
+              <span id="research-query-count" className={`mt-1 block text-sm ${submittedQueries.length > 50 ? 'text-negative' : 'text-secondary'}`}>
                 {submittedQueries.length} {submittedQueries.length === 1 ? 'query' : 'queries'}, duplicates and blank lines are removed. Maximum 50.
               </span>
             </label>
 
-            <div className={`grid gap-3 ${isViewerResearch ? '' : 'sm:grid-cols-2'}`}>
-              {!isViewerResearch ? (
-                <label className="block" htmlFor="research-provider">
-                  <span className="text-xs font-medium text-secondary">API provider</span>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block" htmlFor="research-provider">
+                  <span className="text-xs font-medium text-secondary">Answer engine</span>
                   <select
                     id="research-provider"
                     className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
@@ -217,8 +218,7 @@ export function ResearchQueriesSection({
                     <option value="" disabled>Choose a provider</option>
                     {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
                   </select>
-                </label>
-              ) : null}
+              </label>
               <label className="block" htmlFor="research-location">
                 <span className="text-xs font-medium text-secondary">Location</span>
                 <select
@@ -234,7 +234,15 @@ export function ResearchQueriesSection({
               </label>
             </div>
 
-            {!isViewerResearch ? <label className="block" htmlFor="research-model">
+            {isViewerResearch ? <label className="block" htmlFor="research-model">
+              <span className="text-sm font-medium text-secondary">Model</span>
+              <select id="research-model" aria-label="Model" className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                value={resolvedModel ?? ''} disabled={!selectedProvider || !configurableModel}
+                onChange={event => setModel(event.target.value)}>
+                {!selectedProvider && <option value="">Choose an answer engine</option>}
+                {modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}{item.id === selectedProvider?.catalog.defaultModel ? ' (default)' : ''}</option>)}
+              </select>
+            </label> : <label className="block" htmlFor="research-model">
               <span className="text-xs font-medium text-secondary">Exact model <span className="font-normal text-muted">(optional)</span></span>
               <input
                 id="research-model"
@@ -248,7 +256,7 @@ export function ResearchQueriesSection({
               <datalist id="research-known-models">
                 {(selectedProvider?.catalog.knownModels ?? []).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
               </datalist>
-            </label> : null}
+            </label>}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
               {!isEmbed() && (isViewerResearch ? (
@@ -262,20 +270,22 @@ export function ResearchQueriesSection({
                   {researchMutation.isPending ? 'Starting research…' : `Run ${submittedQueries.length || ''} research ${submittedQueries.length === 1 ? 'query' : 'queries'}`}
                 </WriteButton>
               ))}
-              <p className="text-xs leading-5 text-muted">Saved to research history. Nothing is added to tracked queries.</p>
+              <p className="text-sm leading-5 text-secondary">Saved to research history. Nothing is added to tracked queries.</p>
+              {submittedQueries.length === 0 && <p className="text-sm text-secondary">Enter at least one query to enable Run.</p>}
             </div>
-            {isViewerResearch ? <p className="text-xs text-secondary">{viewerResearchConfig.viewerDailyRunLimit} research runs per project each day.</p> : payload && 'provider' in payload ? <p className="text-xs text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p> : null}
+            {payload && <p className="text-sm text-secondary">{selectedProvider?.displayName ?? payload.provider} · {resolvedModel} · {selectedLocation?.label ?? 'No location'}</p>}
+            {isViewerResearch && <p className="text-sm text-secondary">Up to {viewerResearchConfig.viewerDailyRunLimit} research batches per project each day. Each batch can contain up to 50 queries.</p>}
             {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
             {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-            {!isViewerResearch && !settingsQuery.isError && noConfiguredApiProviders && (
+            {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && (
               <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
-                Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.
+                {isViewerResearch ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}
               </p>
             )}
           </div>
         </Card>
 
-        <Card className="surface-card">
+        <Card className="surface-card min-w-0">
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">History</p>
@@ -329,7 +339,7 @@ function ResearchRunDetail({
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
 
   return (
-    <Card className="surface-card">
+    <Card className="surface-card min-w-0">
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>

@@ -134,6 +134,7 @@ describe('buildAllTools', () => {
 
     expect(tools).toHaveLength(expectedCount)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_agent_clear)
+    expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_results_clear)
     // Spot-check that every other tool from the registry is exposed.
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_project_overview)
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_overview)

@@ -532,3 +532,10 @@ top-level envelope:
 - `packages/api-routes/` — the route handlers this server mounts
 - `packages/contracts/` — DTOs returned by the API client
 - `docs/architecture.md` — how CLI, server, and job runner interact
+
+### Saved-result cleanup
+
+`canonry results clear <project> --run <id> --research-run <id>` previews exact saved IDs.
+`--confirm` deletes those visibility/research results after the operator backs them up.
+The MCP equivalent is `canonry_results_clear`; exclude it from the in-product Aero agent.
+Site Health, backlinks, configuration, audit records, and usage accounting remain intact.
