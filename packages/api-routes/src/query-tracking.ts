@@ -13,6 +13,7 @@ import {
   canonicalMeasurementPlanV2Json,
   compileQueryClassifier,
   effectiveBrandNames,
+  expandQueryTemplate,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
   measurementV2UsageEdgeKey,
@@ -981,9 +982,9 @@ function templateRecords(
   const needsMarket = template.variables.includes('market')
   const needsProperty = template.variables.includes('property')
   const expand = (bindings: Record<string, string>, scopedAudience: ResolvedAudience) => {
-    let queryText = template.pattern
-    for (const variable of template.variables) queryText = queryText.split(`{${variable}}`).join(bindings[variable] ?? '')
-    queryText = queryText.trim()
+    const queryText = expandQueryTemplate(template.pattern, Object.fromEntries(
+      template.variables.map(variable => [variable, bindings[variable] ?? '']),
+    ))
     if (!queryText) throw validationError('Template expansion produced an empty query.')
     return {
       queryText,

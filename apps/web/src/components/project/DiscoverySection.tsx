@@ -39,7 +39,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { ResearchQueriesSection, type ResearchScopeOption } from './ResearchQueriesSection.js'
+import { ResearchQueriesSection, type ResearchScopeOption, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -183,29 +183,50 @@ function QueryResearchWorkspace({
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
+  const researchWorkspaceEnabled = viewerResearchConfig !== null || mode === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: viewerResearchConfig !== null || mode === 'test',
+    enabled: researchWorkspaceEnabled,
+    staleTime: 60_000,
+  })
+  const researchTemplatesQuery = useQuery({
+    ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: researchWorkspaceEnabled,
     staleTime: 60_000,
   })
   const researchScopeOptions = useMemo<VisibilityReportScopeOption[]>(() => {
     const workspace = workspaceQuery.data
-    if (!workspace) return []
+    if (!workspace) return [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 0 }]
     const groupIdsByTarget = new Map(workspace.targets.map(target => [target.stableKey, [] as string[]]))
     for (const group of workspace.groups) for (const targetKey of group.targetKeys) groupIdsByTarget.get(targetKey)?.push(group.stableKey)
+    const groupIdsByMarket = new Map(workspace.markets.map(market => [market.stableKey, new Set<string>()]))
+    for (const market of workspace.markets) {
+      for (const edge of market.usageEdges) for (const groupId of groupIdsByTarget.get(edge.targetKey) ?? []) groupIdsByMarket.get(market.stableKey)?.add(groupId)
+    }
     return [
       { id: 'project', label: 'Whole site', kind: 'project', targetCount: workspace.targets.length },
       ...workspace.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length, ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}) })),
-      ...workspace.markets.map(market => ({ id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0 })),
+      ...workspace.markets.map(market => {
+        const parentGroupIds = [...(groupIdsByMarket.get(market.stableKey) ?? [])]
+        return { id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0, ...(parentGroupIds.length ? { parentGroupIds } : {}) }
+      }),
       ...workspace.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1, ...(groupIdsByTarget.get(target.stableKey)?.length ? { parentGroupIds: groupIdsByTarget.get(target.stableKey) } : {}) })),
     ]
   }, [workspaceQuery.data])
+  const researchTemplates = useMemo<ResearchTemplateOption[]>(() => (researchTemplatesQuery.data?.templates ?? []).map(template => ({
+    id: template.id,
+    version: template.updatedAt,
+    label: template.name,
+    pattern: template.pattern,
+    variables: template.variables,
+  })), [researchTemplatesQuery.data])
   const selectedScopeOption = researchScopeOptions.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey))
-  const selectedResearchScope: ResearchScopeOption | null = selectedScopeOption && selectedScopeOption.kind !== 'project' && workspaceQuery.data?.active
+  const selectedResearchScope: ResearchScopeOption | null = selectedScopeOption && (selectedScopeOption.kind === 'market' || selectedScopeOption.kind === 'property') && workspaceQuery.data?.active
     ? { kind: selectedScopeOption.kind, key: selectedScopeOption.id, label: selectedScopeOption.label, planRevision: workspaceQuery.data.active.revision, expectedPlanRevision: workspaceQuery.data.active.revision }
     : null
-  const scopePending = workspaceQuery.isPending || workspaceQuery.isFetching
-  const scopeError = workspaceQuery.isError || (selection.measurementScope !== 'project' && !scopePending && selectedResearchScope === null)
+  const wantsExplicitScope = selection.measurementScope === 'market' || selection.measurementScope === 'property'
+  const scopePending = wantsExplicitScope && (workspaceQuery.isPending || workspaceQuery.isFetching)
+  const scopeError = wantsExplicitScope && (workspaceQuery.isError || (!scopePending && selectedResearchScope === null))
   const researchProps = {
     projectName,
     scopeOptions: researchScopeOptions,
@@ -214,6 +235,7 @@ function QueryResearchWorkspace({
     scopeError,
     onRetryScope: () => { void workspaceQuery.refetch() },
     onScopeChange: (scope: VisibilityReportScopeOption) => onSelectionChange?.({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id }),
+    templates: researchTemplates,
   }
   if (viewerResearchConfig) {
     return (

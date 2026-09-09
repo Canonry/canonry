@@ -29,6 +29,7 @@ export interface ResearchRunOptions {
   provider?: string
   model?: string
   scope?: ResearchRunCreate['scope']
+  template?: ResearchRunCreate['template']
   location?: LocationContext | null
   idempotencyKey?: string
   wait?: boolean
@@ -43,6 +44,7 @@ export async function researchRun(project: string, opts: ResearchRunOptions): Pr
     provider: opts.provider,
     model: opts.model,
     scope: opts.scope,
+    template: opts.template,
     location: opts.location,
     idempotencyKey: opts.idempotencyKey,
   }

@@ -55,7 +55,7 @@ test('research binds explicit context and reuses the same key after an uncertain
   await waitFor(() => expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.runAction }))
   await waitFor(() => expect(state.posts).toHaveLength(2))
-  expect(state.posts[0]).toMatchObject({ provider: 'openai', model: 'project-model', location: state.project.locations[0], idempotencyKey: expect.any(String) })
+  expect(state.posts[0]).toMatchObject({ queries: ['best apartments near transit'], provider: 'openai', model: 'project-model', location: state.project.locations[0], idempotencyKey: expect.any(String) })
   expect(state.posts[1]).toEqual(state.posts[0])
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'pet friendly apartments' } })
   await waitFor(() => expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(false))
@@ -87,9 +87,9 @@ test('blocks research while a selected scope is stale or cannot be verified', as
   const state = setup({
     scopeOptions: [
       { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
-      { id: 'regional', label: 'Regional comparison', kind: 'group', targetCount: 1 },
+      { id: 'harbor', label: 'Harbor Homes', kind: 'property', targetCount: 1 },
     ],
-    selectedScope: { kind: 'group', key: 'regional', label: 'Regional comparison', planRevision: 7, expectedPlanRevision: 7 },
+    selectedScope: { kind: 'property', key: 'harbor', label: 'Harbor Homes', planRevision: 7, expectedPlanRevision: 7 },
     scopeError: true,
   })
   await screen.findByRole('option', { name: 'OpenAI' })

@@ -2794,9 +2794,13 @@ export type ResearchRunCreate = {
         timezone?: string;
     } | null;
     scope?: {
-        kind: 'market' | 'group' | 'property';
+        kind: 'market' | 'property';
         key: string;
         expectedPlanRevision?: number;
+    };
+    template?: {
+        templateId: string;
+        templateVersion: string;
     };
     idempotencyKey?: string;
 };
@@ -2816,10 +2820,19 @@ export type ResearchRunDetailDto = {
         timezone?: string;
     } | null;
     scope?: {
-        kind: 'market' | 'group' | 'property';
+        kind: 'market' | 'property';
         key: string;
         label: string;
         planRevision: number;
+    } | null;
+    template?: {
+        templateId: string;
+        templateVersion: string;
+        template: string;
+        bindings: {
+            [key: string]: string;
+        };
+        output: string;
     } | null;
     totalQueries: number;
     completedQueries: number;
@@ -2838,6 +2851,7 @@ export type ResearchRunDetailDto = {
         id: string;
         position: number;
         query: string;
+        queryClass?: 'branded' | 'non-brand';
         status: 'queued' | 'running' | 'completed' | 'failed';
         requestedModel: string | null;
         resolvedModel: string;
@@ -2876,10 +2890,19 @@ export type ResearchRunListDto = {
             timezone?: string;
         } | null;
         scope?: {
-            kind: 'market' | 'group' | 'property';
+            kind: 'market' | 'property';
             key: string;
             label: string;
             planRevision: number;
+        } | null;
+        template?: {
+            templateId: string;
+            templateVersion: string;
+            template: string;
+            bindings: {
+                [key: string]: string;
+            };
+            output: string;
         } | null;
         totalQueries: number;
         completedQueries: number;
@@ -6246,6 +6269,19 @@ export type MeasurementDraftUpsertGroupRequest = {
             label: string;
             domain: string;
             aliases: Array<string>;
+        }>;
+    };
+};
+
+export type MeasurementDraftUpsertMarketRequest = {
+    market: {
+        stableKey: string;
+        label: string;
+        kind: 'market';
+        usageEdges: Array<{
+            executionNodeKey: string;
+            targetKey: string;
+            queryId: string;
         }>;
     };
 };
@@ -13302,6 +13338,66 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroupRespons
 };
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroupResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroupResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroupResponses];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketData = {
+    body: MeasurementDraftUpsertMarketRequest;
+    headers: {
+        /**
+         * Current draft ETag. Missing returns 428; stale returns 412.
+         */
+        'If-Match': string;
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-market';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The idempotency key was already used with a different request body.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The draft changed since it was loaded.
+     */
+    412: ErrorEnvelope;
+    /**
+     * The draft ETag was not supplied in `If-Match`.
+     */
+    428: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketResponses = {
+    /**
+     * Draft mutated; the new ETag and counts are returned.
+     */
+    200: MeasurementDraftMutationResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarketResponses];
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveGroupData = {
     body: MeasurementDraftRemoveGroupRequest;

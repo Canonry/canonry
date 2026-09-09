@@ -10,6 +10,7 @@ import {
   brandKeyFromText,
   brandLabelFromDomain,
   effectiveBrandNames,
+  expandQueryTemplate,
   MEASUREMENT_PAGE_DEFAULT_LIMIT,
   MEASUREMENT_PAGE_MAX_LIMIT,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
@@ -1517,9 +1518,9 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (missing.length) {
         throw validationError(`Binding ${index} does not supply ${missing.map(name => `"${name}"`).join(', ')}.`)
       }
-      let text = template.pattern
-      for (const variable of template.variables) text = text.split(`{${variable}}`).join(binding[variable])
-      const trimmed = text.trim()
+      const trimmed = expandQueryTemplate(template.pattern, Object.fromEntries(
+        template.variables.map(variable => [variable, binding[variable]!]),
+      ))
       if (!trimmed) throw validationError(`Binding ${index} expands to an empty question.`)
       if (!expansions.includes(trimmed)) expansions.push(trimmed)
     })

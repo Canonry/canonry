@@ -20,6 +20,7 @@ import {
   measurementDraftRenameTargetRequestSchema,
   measurementDraftUpsertCompetitorRequestSchema,
   measurementDraftUpsertGroupRequestSchema,
+  measurementDraftUpsertMarketRequestSchema,
   measurementDraftUpsertTargetRequestSchema,
 } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
@@ -66,6 +67,7 @@ export const measurementDraftOperationSchema = z.discriminatedUnion('action', [
   mutationOperationSchema('clear-assignments', measurementDraftClearAssignmentsRequestSchema),
   mutationOperationSchema('classify-assignments', measurementDraftClassifyAssignmentsRequestSchema),
   mutationOperationSchema('upsert-group', measurementDraftUpsertGroupRequestSchema),
+  mutationOperationSchema('upsert-market', measurementDraftUpsertMarketRequestSchema),
   mutationOperationSchema('remove-group', measurementDraftRemoveGroupRequestSchema),
   z.object({
     action: z.literal('preview-group-membership'),
@@ -124,6 +126,8 @@ export function runMeasurementDraftAction(
       return client.classifyMeasurementDraftAssignments(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'upsert-group':
       return client.upsertMeasurementDraftGroup(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
+    case 'upsert-market':
+      return client.upsertMeasurementDraftMarket(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'remove-group':
       return client.removeMeasurementDraftGroup(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'preview-group-membership':

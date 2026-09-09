@@ -1137,6 +1137,12 @@ const routeCatalog: OpenApiOperation[] = [
     request: 'MeasurementDraftUpsertGroupRequest',
   }),
   measurementDraftAction({
+    action: 'upsert-market',
+    summary: 'Configure an explicit market name and frozen membership',
+    description: 'Adds or updates a reporting market using existing frozen assignment edges. It never infers geography from groups or creates query executions. Requires draft review and publication before Research can select it.',
+    request: 'MeasurementDraftUpsertMarketRequest',
+  }),
+  measurementDraftAction({
     action: 'remove-group',
     summary: 'Remove a draft group',
     request: 'MeasurementDraftRemoveGroupRequest',
@@ -1602,7 +1608,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/research/runs',
     summary: 'Start an isolated research query batch',
-    description: 'Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. An optional published Advanced Measurement market, group, or property scope is frozen with the batch and appended as explicit query context; it never infers geographic provider location. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.',
+    description: 'Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. An optional published Advanced Measurement market or property scope and optional template provenance are frozen with the batch. The provider receives the exact submitted editor question; scope never infers geographic provider location. Research never creates tracked queries, shared runs, snapshots, insights, or notifications. Administrators are always allowed; signed-in viewers require the deployment opt-in and a per-project daily allowance. Read-only and narrowly scoped API keys are refused.',
     tags: ['research'], parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchRunCreate' } } } },
     responses: { 200: jsonResponse('Idempotent request returned its existing research run.', 'ResearchRunDetailDto'), 202: jsonResponse('Research batch queued.', 'ResearchRunDetailDto'), 400: errorResponse('Invalid provider, model, location, or request.'), 403: errorResponse('Paid research was not granted to this principal.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key was reused with a different payload.'), 422: errorResponse('Research executor is unavailable on this deployment.'), 429: errorResponse('The viewer reached the per-project UTC-day research limit.') },

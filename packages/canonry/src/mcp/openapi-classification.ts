@@ -76,6 +76,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-group': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/upsert-market': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-group': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-group-membership': 'included',

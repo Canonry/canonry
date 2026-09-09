@@ -2302,6 +2302,7 @@ export const researchRuns = sqliteTable('research_runs', {
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(),
   location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
   scope: text('scope', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunScope | null>(),
+  template: text('template', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').QueryTrackingTemplateProvenance | null>(),
   totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
   idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
   initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunPrincipal | null>(),
@@ -2310,7 +2311,7 @@ export const researchRuns = sqliteTable('research_runs', {
 
 export const researchRunQueries = sqliteTable('research_run_queries', {
   id: text('id').primaryKey(), researchRunId: text('research_run_id').notNull().references(() => researchRuns.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull(), queryText: text('query_text').notNull(), status: text('status').notNull().default('queued'),
+  position: integer('position').notNull(), queryText: text('query_text').notNull(), queryClass: text('query_class').$type<import('@ainyc/canonry-contracts').QueryClass | null>(), status: text('status').notNull().default('queued'),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(), servedModel: text('served_model'), answerText: text('answer_text'),
   groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').GroundingSource[]>().notNull().default([]),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]), searchQueries: text('search_queries', { mode: 'json' }).$type<string[]>().notNull().default([]),

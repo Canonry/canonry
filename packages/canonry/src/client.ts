@@ -594,6 +594,7 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClassifyAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarket,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewGroupMembership,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyGroupMembership,
@@ -770,6 +771,7 @@ type MeasurementPlanDraftRemoveAssignmentRequest = Parameters<typeof postApiV1Pr
 type MeasurementPlanDraftClearAssignmentsRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments>[0]['body']
 type MeasurementPlanDraftClassifyAssignmentsRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsClassifyAssignments>[0]['body']
 type MeasurementPlanDraftUpsertGroupRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup>[0]['body']
+type MeasurementPlanDraftUpsertMarketRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarket>[0]['body']
 type MeasurementPlanDraftRemoveGroupRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveGroup>[0]['body']
 type MeasurementPlanDraftUpsertCompetitorRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitor>[0]['body']
 type MeasurementPlanDraftRemoveCompetitorRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveCompetitor>[0]['body']
@@ -1785,6 +1787,22 @@ export class ApiClient {
   ): Promise<DraftMutationResponse> {
     return this.invoke<DraftMutationResponse>(() =>
       postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+        headers: this.measurementDraftMutationHeaders(idempotencyKey, etag) as never,
+      }),
+    )
+  }
+
+  async upsertMeasurementDraftMarket(
+    project: string,
+    request: MeasurementPlanDraftUpsertMarketRequest,
+    idempotencyKey: string,
+    etag?: string,
+  ): Promise<DraftMutationResponse> {
+    return this.invoke<DraftMutationResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarket({
         client: this.heyClient,
         path: { name: project },
         body: request,

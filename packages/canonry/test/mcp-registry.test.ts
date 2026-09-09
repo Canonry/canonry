@@ -975,8 +975,13 @@ describe('MCP tool registry', () => {
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS['POST /api/v1/projects/{name}/research/runs']).toBe('included')
     expect(tool.inputSchema.safeParse({
       project: 'acme',
-      request: { queries: ['best AEO software'], provider: 'openai', scope: { kind: 'group', key: 'retail' } },
+      request: { queries: ['best AEO software'], provider: 'openai', scope: { kind: 'market', key: 'retail' }, template: { templateId: 'template-1', templateVersion: 'v3' } },
     }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({
+      project: 'acme', request: { queries: ['best AEO software'], scope: { kind: 'group', key: 'retail' } },
+    }).success).toBe(false)
+    expect(tool.description).toMatch(/final free-form queries/i)
+    expect(tool.description).toMatch(/Scope never changes query text/i)
   })
 
   it('maps Canonry client errors to isError tool results', async () => {

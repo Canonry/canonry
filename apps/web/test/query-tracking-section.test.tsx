@@ -970,7 +970,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   const added = {
     ...data.tracked[1]!, queryId: 'query-promoted', queryText, normalizedText: queryText.toLowerCase(),
     provenance: { source, sourceId: source === 'research' ? 'research-query-1' : 'discovery-probe-1', capturedAt: '2026-09-04T12:00:00.000Z' },
-    assignments: [{ ...data.tracked[1]!.assignments[0]!, groupKeys: ['north-east'] }],
+    assignments: [{ ...data.tracked[1]!.assignments[0]!, groupKeys: [], marketKeys: ['new-york'] }],
   }
   const reviewed = preview({
     tracked: [...data.tracked, added],
@@ -978,7 +978,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   })
   const run = {
     id: 'research-run-1', projectId: 'project-demo', status: 'completed', provider: 'openai', requestedModel: 'gpt-5', resolvedModel: 'gpt-5',
-    scope: source === 'research' ? { kind: 'group', key: 'north-east', label: 'North East', planRevision: 4 } : null, location: context.location, totalQueries: 2, completedQueries: 2, failedQueries: 0, error: null,
+    scope: source === 'research' ? { kind: 'market', key: 'new-york', label: 'New York', planRevision: 4 } : null, location: context.location, totalQueries: 2, completedQueries: 2, failedQueries: 0, error: null,
     startedAt: '2026-09-04T10:00:00.000Z', finishedAt: '2026-09-04T10:01:00.000Z', createdAt: '2026-09-04T10:00:00.000Z',
   }
   const researchQuery = (id: string, text: string) => ({
@@ -1035,16 +1035,21 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
   expect(screen.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
   expect((screen.getByLabelText(source === 'research' ? 'Saved research query' : 'Discovery query') as HTMLSelectElement).value).toBe(source === 'research' ? 'research-query-1' : 'discovery-probe-1')
-  if (source === 'research') expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
-  expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
-  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
-  chooseContext()
+  if (source === 'research') {
+    expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'market', measurementScopeKey: 'new-york' })
+    expect(screen.queryByLabelText('Location and engines')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
+  } else {
+    expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
+    expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
+    chooseContext()
+  }
   expect(writes).toEqual([])
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 added')
   expect(writes).toEqual([{
     path: '/api/v1/projects/demo/query-tracking/preview',
-    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: source === 'research' ? { groupKeys: ['north-east'] } : { targetKeys: ['acme'] }, contexts: [selectedContext] }], removals: [] },
+    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: sourceInput, audience: source === 'research' ? { marketKeys: ['new-york'] } : { targetKeys: ['acme'] }, ...(source === 'research' ? {} : { contexts: [selectedContext] }) }], removals: [] },
   }])
   fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
   await waitFor(() => expect(writes).toHaveLength(2))
