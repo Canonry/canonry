@@ -8,7 +8,7 @@ function refuseMutation(): never { throw new Error('The public demo stores are v
 
 /** Synthetic connection metadata, with no usable provider credential. */
 export function demoReadOptions(db: DatabaseClient, context: DemoSeedContext): Pick<ApiRoutesOptions,
-  'googleConnectionStore' | 'googleStateSecret' | 'bingConnectionStore' | 'ga4CredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'> {
+  'googleConnectionStore' | 'googleStateSecret' | 'bingConnectionStore' | 'ga4CredentialStore' | 'googleMarketingCredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'> {
   const mapGoogle = (row: typeof googleConnections.$inferSelect) => ({
     domain: row.domain, connectionType: row.connectionType as 'gsc' | 'ga4' | 'gbp',
     propertyId: row.propertyId, createdByProjectId: row.createdByProjectId,
@@ -39,6 +39,22 @@ export function demoReadOptions(db: DatabaseClient, context: DemoSeedContext): P
         return project ? { projectName, propertyId: 'demo-property', clientEmail: 'sample@analytics.example', privateKey: '', createdAt: context.now.toISOString(), updatedAt: context.now.toISOString() } : undefined
       },
       upsertConnection: refuseMutation, deleteConnection: refuseMutation,
+    },
+    googleMarketingCredentialStore: {
+      get: (project, provider) => {
+        const knownProject = [context.simple, context.portfolio]
+          .some(item => item.id === project.id && item.name === project.name)
+        if (!knownProject) return undefined
+        return {
+          // This only satisfies the status route's connection-state seam. It
+          // is deliberately unusable for OAuth or any provider request.
+          accessToken: `demo-status-only-${provider}-not-a-real-token`,
+          refreshToken: null, expiresAt: null, scopes: [], developerToken: null,
+          createdAt: context.now.toISOString(), updatedAt: context.now.toISOString(),
+        }
+      },
+      upsert: refuseMutation, delete: refuseMutation,
+      hasGoogleAdsDeveloperToken: () => false,
     },
     assessConversionTrackingIntegrity: ({ contract, googleAdsSnapshot, gtmSnapshot }) => assessConversionTrackingIntegrity({
       contract,

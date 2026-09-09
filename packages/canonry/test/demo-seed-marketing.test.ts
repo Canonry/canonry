@@ -38,6 +38,14 @@ describe('seedDemoMarketing', () => {
       expect(ads.statusCode).toBe(200)
       expect(ads.json()).toMatchObject({ totals: { impressions: expect.any(Number), conversions: expect.any(Number) } })
       expect(ads.json<{ totals: { impressions: number } }>().totals.impressions).toBeGreaterThan(0)
+      const adsStatus = await app.inject({ method: 'GET', url: `/api/v1/projects/${project}/google-ads/status` })
+      expect(adsStatus.statusCode).toBe(200)
+      expect(adsStatus.json()).toMatchObject({
+        connected: true, status: 'connected', selectedCustomer: { customerId: 'demo-customer' },
+      })
+      const gtmStatus = await app.inject({ method: 'GET', url: `/api/v1/projects/${project}/gtm/status` })
+      expect(gtmStatus.statusCode).toBe(200)
+      expect(gtmStatus.json()).toMatchObject({ connected: true, status: 'connected' })
       const integrity = await app.inject({ method: 'GET', url: `/api/v1/projects/${project}/conversion-tracking/contracts/demo-signals-${context.portfolio.id}-conversion/integrity` })
       expect(integrity.statusCode).toBe(200)
       expect(integrity.json()).toMatchObject({ assessment: { status: 'runtime-unverified' }, googleAdsSnapshot: { kind: 'inventory' }, gtmSnapshot: { kind: 'container' } })

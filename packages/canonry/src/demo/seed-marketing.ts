@@ -30,6 +30,7 @@ function seedProjectMarketing(db: DatabaseClient, project: DemoSeedProject, now:
   const gtmConnectionId = `${prefix}-gtm`
   const adsRunId = `${prefix}-google-ads-run`
   const gtmRunId = `${prefix}-gtm-run`
+  const customerSnapshotId = `${prefix}-customers`
   const inventorySnapshotId = `${prefix}-inventory`
   const metricsSnapshotId = `${prefix}-metrics`
   const gtmSnapshotId = `${prefix}-gtm-live`
@@ -49,7 +50,8 @@ function seedProjectMarketing(db: DatabaseClient, project: DemoSeedProject, now:
     id: adsConnectionId, projectId: project.id, selectedCustomerId: 'demo-customer',
     selectedCustomerName: 'Sample Google Ads account', selectedCustomerCurrencyCode: 'USD',
     selectedCustomerTimeZone: 'UTC', selectedCustomerStatus: 'enabled', scopes: [],
-    lastValidatedAt: capturedAt, lastInventorySnapshotAt: capturedAt, lastInventorySnapshotId: inventorySnapshotId,
+    lastValidatedAt: capturedAt, lastCustomerSnapshotId: customerSnapshotId,
+    lastInventorySnapshotAt: capturedAt, lastInventorySnapshotId: inventorySnapshotId,
     lastMetricsSnapshotAt: capturedAt, lastMetricsSnapshotId: metricsSnapshotId,
     createdAt: capturedAt, updatedAt: capturedAt,
   }).run()
@@ -62,6 +64,23 @@ function seedProjectMarketing(db: DatabaseClient, project: DemoSeedProject, now:
   }).run()
 
   db.insert(googleAdsRawSnapshots).values([
+    {
+      id: customerSnapshotId, projectId: project.id, connectionId: adsConnectionId, runId: adsRunId,
+      kind: 'accessible-customers', customerId: 'demo-customer', payloadChecksum: checksum, rawPayloadSha256: null,
+      rawPayloadBytes: null, redactedFieldCount: 0, capturedAt, createdAt: capturedAt,
+      payload: {
+        kind: 'accessible-customers', data: {
+          customers: [{
+            resourceName: 'customers/demo-customer', customerId: 'demo-customer', parentCustomerId: null,
+            descriptiveName: 'Sample Google Ads account', currencyCode: 'USD', timeZone: 'UTC',
+            manager: false, hidden: false, testAccount: true, level: 0, status: 'enabled',
+          }],
+          totalAccessible: 1, truncated: false,
+          selection: { loginCustomerId: null, customerId: 'demo-customer', selectedAt: capturedAt },
+          fetchedAt: capturedAt,
+        },
+      },
+    },
     {
       id: inventorySnapshotId, projectId: project.id, connectionId: adsConnectionId, runId: adsRunId,
       kind: 'inventory', customerId: 'demo-customer', payloadChecksum: checksum, rawPayloadSha256: null,
