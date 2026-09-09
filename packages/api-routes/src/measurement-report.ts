@@ -320,6 +320,18 @@ export interface MeasurementOverviewBuildOptions extends MeasurementPreparationB
   onEvidenceIndexed?: (rows: number) => void
 }
 
+/**
+ * Reuses a run's prepared attribution evidence and indexes while evaluating
+ * several reporting scopes. A portfolio summary needs this for its overall
+ * scope plus every market: each scope changes only its selected Properties.
+ */
+export interface MeasurementOverviewEvaluator {
+  evaluate(
+    scopeTargetIds: readonly string[],
+    namedIdentities?: readonly MeasurementNamedIdentityInput[],
+  ): MeasurementOverview
+}
+
 interface ParsedSourceUrl {
   normalizedUrl: string
   host: string
@@ -1347,59 +1359,70 @@ function scopeNamedShareOfVoice(
  * kernel only has to reach the unique slots the selected Properties share. Two
  * Properties reusing one execution contribute one slot, never two.
  */
+export function createMeasurementOverviewEvaluator(
+  input: MeasurementOverviewInput,
+  options: MeasurementOverviewBuildOptions = {},
+): MeasurementOverviewEvaluator {
+  const prepared = prepareReport(input, options)
+  const indexes = buildMeasurementOverviewIndexes(input, prepared, options.onEvidenceIndexed)
+  return {
+    evaluate(scopeTargetIds, namedIdentities = input.namedIdentities) {
+      const targetIds = new Set(scopeTargetIds)
+      const edges = indexedScopeEdges(indexes, targetIds)
+      const slots = indexedSlotsForEdges(edges, indexes)
+      const answered = indexedAnsweredSlots(slots, indexes)
+
+      const properties = sortedUnique([...targetIds]).map(targetId => {
+        const ownEdges = indexes.targetEdgesByTargetId.get(targetId) ?? []
+        const ownSlots = indexedSlotsForEdges(ownEdges, indexes)
+        const ownAnswered = indexedAnsweredSlots(ownSlots, indexes)
+        const ownTargets = indexes.targetsById.get(targetId)
+        return {
+          targetId,
+          mentionCoverage: targetMentionRate(ownTargets, ownSlots, ownAnswered, indexes),
+          citationCoverage: indexedScopeCitationRate(ownSlots, ownEdges, indexes),
+          // Each engine is measured over the slots it owns, using exactly the
+          // functions the Property total uses. A per-engine reading is therefore
+          // withheld for the same reasons the total is, never rounded down to zero.
+          providers: providersFor(ownSlots).map(provider => {
+            const providerSlots = ownSlots.filter(slot => slot.provider === provider)
+            return {
+              provider,
+              mentionCoverage: targetMentionRate(
+                ownTargets,
+                providerSlots,
+                indexedAnsweredSlots(providerSlots, indexes),
+                indexes,
+              ),
+              citationCoverage: indexedScopeCitationRate(providerSlots, ownEdges, indexes),
+            }
+          }),
+          flags: indexes.ambiguousEvidenceKeysByTargetId.get(targetId)?.size ?? 0,
+        }
+      })
+
+      return {
+        eligibleSlots: slots.length,
+        answeredSlots: answered.length,
+        includesHistoricalData: prepared.diagnostics.bridgedObservationIds.length > 0
+          || prepared.diagnostics.historicalObservationIds.length > 0,
+        propertiesMentioned: scopePropertiesMentioned(input, targetIds, slots, answered, prepared),
+        mentionCoverage: scopeMentionRate(input, targetIds, slots, answered, prepared),
+        citationCoverage: indexedScopeCitationRate(slots, edges, indexes),
+        brandPresence: scopeBrandPresence(input, slots, answered, prepared),
+        namedShareOfVoice: scopeNamedShareOfVoice(namedIdentities ?? [], answered, prepared),
+        properties,
+        flags: properties.reduce((total, row) => total + row.flags, 0),
+      }
+    },
+  }
+}
+
 export function buildMeasurementOverview(
   input: MeasurementOverviewInput,
   options: MeasurementOverviewBuildOptions = {},
 ): MeasurementOverview {
-  const prepared = prepareReport(input, options)
-  const indexes = buildMeasurementOverviewIndexes(input, prepared, options.onEvidenceIndexed)
-  const targetIds = new Set(input.scopeTargetIds)
-  const edges = indexedScopeEdges(indexes, targetIds)
-  const slots = indexedSlotsForEdges(edges, indexes)
-  const answered = indexedAnsweredSlots(slots, indexes)
-
-  const properties = sortedUnique([...targetIds]).map(targetId => {
-    const ownEdges = indexes.targetEdgesByTargetId.get(targetId) ?? []
-    const ownSlots = indexedSlotsForEdges(ownEdges, indexes)
-    const ownAnswered = indexedAnsweredSlots(ownSlots, indexes)
-    const ownTargets = indexes.targetsById.get(targetId)
-    return {
-      targetId,
-      mentionCoverage: targetMentionRate(ownTargets, ownSlots, ownAnswered, indexes),
-      citationCoverage: indexedScopeCitationRate(ownSlots, ownEdges, indexes),
-      // Each engine is measured over the slots it owns, using exactly the
-      // functions the Property total uses. A per-engine reading is therefore
-      // withheld for the same reasons the total is, never rounded down to zero.
-      providers: providersFor(ownSlots).map(provider => {
-        const providerSlots = ownSlots.filter(slot => slot.provider === provider)
-        return {
-          provider,
-          mentionCoverage: targetMentionRate(
-            ownTargets,
-            providerSlots,
-            indexedAnsweredSlots(providerSlots, indexes),
-            indexes,
-          ),
-          citationCoverage: indexedScopeCitationRate(providerSlots, ownEdges, indexes),
-        }
-      }),
-      flags: indexes.ambiguousEvidenceKeysByTargetId.get(targetId)?.size ?? 0,
-    }
-  })
-
-  return {
-    eligibleSlots: slots.length,
-    answeredSlots: answered.length,
-    includesHistoricalData: prepared.diagnostics.bridgedObservationIds.length > 0
-      || prepared.diagnostics.historicalObservationIds.length > 0,
-    propertiesMentioned: scopePropertiesMentioned(input, targetIds, slots, answered, prepared),
-    mentionCoverage: scopeMentionRate(input, targetIds, slots, answered, prepared),
-    citationCoverage: indexedScopeCitationRate(slots, edges, indexes),
-    brandPresence: scopeBrandPresence(input, slots, answered, prepared),
-    namedShareOfVoice: scopeNamedShareOfVoice(input.namedIdentities ?? [], answered, prepared),
-    properties,
-    flags: properties.reduce((total, row) => total + row.flags, 0),
-  }
+  return createMeasurementOverviewEvaluator(input, options).evaluate(input.scopeTargetIds, input.namedIdentities)
 }
 
 export interface MeasurementEvidenceResult {

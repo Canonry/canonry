@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildMeasurementOverview,
+  createMeasurementOverviewEvaluator,
   buildMeasurementReport,
   classifyCitedUrl,
   normalizeMeasurementLocation,
@@ -607,6 +608,25 @@ describe('scoped overview', () => {
 
     expect(overview.properties.map(row => [row.targetId, row.flags])).toEqual([['shared-a', 1], ['shared-b', 1]])
     expect(overview.flags).toBe(2)
+  })
+
+  it('reuses prepared attribution indexes across a portfolio of market scopes', () => {
+    const input = overviewInput()
+    const evidencePasses: number[] = []
+    const expected = buildMeasurementOverview({ ...input, scopeTargetIds: ['north'] })
+    const evaluator = createMeasurementOverviewEvaluator(input, {
+      onEvidenceIndexed: rows => evidencePasses.push(rows),
+    })
+
+    // A large portfolio evaluates its main scope plus every market. The work
+    // that walks every attributed source must remain one preparation pass.
+    for (let index = 0; index < 157; index++) {
+      const targetIds = index % 2 === 0 ? ['north'] : ['harbor', 'north']
+      const overview = evaluator.evaluate(targetIds)
+      if (index === 0) expect(overview).toEqual(expected)
+    }
+
+    expect(evidencePasses).toEqual([6])
   })
 
   it('indexes shared attribution evidence once before deriving every Property row', () => {

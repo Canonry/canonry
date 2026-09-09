@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildMeasurementExecutionIdentity,
   canonicalMeasurementPlanV2Json,
@@ -24,6 +24,26 @@ import {
   runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
+const portfolioReadWork = vi.hoisted(() => ({
+  evaluatorBuilds: 0,
+  targetMentionChecks: 0,
+}))
+
+vi.mock('../src/measurement-report.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/measurement-report.js')>()
+  return {
+    ...actual,
+    createMeasurementOverviewEvaluator: (...args: Parameters<typeof actual.createMeasurementOverviewEvaluator>) => {
+      portfolioReadWork.evaluatorBuilds++
+      return actual.createMeasurementOverviewEvaluator(...args)
+    },
+    targetMentionedInAnswer: (...args: Parameters<typeof actual.targetMentionedInAnswer>) => {
+      portfolioReadWork.targetMentionChecks++
+      return actual.targetMentionedInAnswer(...args)
+    },
+  }
+})
+
 import { apiRoutes } from '../src/index.js'
 import { compareWeakestMarket } from '../src/measurement-portfolio-reads.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
@@ -191,6 +211,8 @@ beforeEach(async () => {
     updatedAt: NOW,
   }).run()
   plan = measurementPlanV2Fixture()
+  portfolioReadWork.evaluatorBuilds = 0
+  portfolioReadWork.targetMentionChecks = 0
 
   app = Fastify()
   app.register(apiRoutes, { db, skipAuth: true })
@@ -257,6 +279,28 @@ describe('measurement portfolio reads', () => {
     const harbor = await portfolio(`groupKey=regional&runId=${measured}&limit=2`)
     expect(harbor.body.weakestProperties.find(row => row.targetKey === 'harbor')?.recommendedInstead)
       .toEqual([{ name: 'Rival One', occurrences: 1 }])
+  })
+
+  it('prepares the filtered run once and reads recommendations only for displayed Properties', async () => {
+    plan = {
+      ...plan,
+      groups: [
+        ...plan.groups,
+        { stableKey: 'harbor-only', label: 'Harbor only', targetKeys: ['harbor'], competitors: [] },
+      ],
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId)
+
+    const { status, body } = await portfolio('limit=1')
+
+    expect(status).toBe(200)
+    expect(body.weakestProperties).toHaveLength(1)
+    expect(portfolioReadWork.evaluatorBuilds).toBe(1)
+    // One non-brand execution is shared by both Properties on two providers.
+    // A limit of one therefore reads two target-answer states, not all four.
+    expect(portfolioReadWork.targetMentionChecks).toBe(2)
   })
 
   it('scopes each market to its own members, worst-first, and agrees with a group-scoped read', async () => {
