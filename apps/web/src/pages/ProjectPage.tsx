@@ -1981,6 +1981,7 @@ function ProjectPageContent({
     activePlanSchemaVersion: measurementSetupQuery.data?.activeSchemaVersion ?? activeMeasurementPlanSchemaVersion,
     hasDraft: measurementSetupQuery.data?.draft !== null && measurementSetupQuery.data?.draft !== undefined,
   })
+  const isSimpleOverview = advancedMeasurementMode.surface === 'simple-overview'
   /**
    * Which overview to show is not known until one of the two plan reads lands.
    * Until then the expression above is `undefined ?? null`, and `null` is what
@@ -2033,9 +2034,11 @@ function ProjectPageContent({
   const competitorLandscapeReadEnabled = tab === 'overview'
     && Boolean(projectName)
     && !isMeasurementModeUnresolved
-    && (visibilitySelection.measurementScope === 'project' || activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.measurementScope === 'group')
-    && visibilitySelection.queryClass !== 'unknown'
-    && (activeMeasurementPlanSchemaVersion === 2 || visibilitySelection.queryClass !== 'branded')
+    && (isSimpleOverview || (
+      (visibilitySelection.measurementScope === 'project' || activeMeasurementPlanSchemaVersion === 2 && visibilitySelection.measurementScope === 'group')
+      && visibilitySelection.queryClass !== 'unknown'
+      && (activeMeasurementPlanSchemaVersion === 2 || visibilitySelection.queryClass !== 'branded')
+    ))
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -2563,6 +2566,28 @@ function ProjectPageContent({
     ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
     : null
 
+  function renderVisibilityOverview(overview: React.ReactNode) {
+    // Simple keeps its own layout even when a unified report is available.
+    // Advanced retains the report workspace and its existing legacy fallback.
+    if (isSimpleOverview) return overview
+    return (
+      <VisibilityWorkspace
+        key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
+        projectName={projectName}
+        selection={visibilitySelection}
+        showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
+          && visibilitySelection.measurementScope === 'project'
+          && visibilitySelection.queryClass === 'all'
+          && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
+          && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
+          && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}
+        onSelectionChange={updateVisibilitySearch}
+        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+        fallback={overview}
+      />
+    )
+  }
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -2584,7 +2609,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          <p className="text-sm text-muted">{tab === 'overview' ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
+          <p className="text-sm text-muted">{tab === 'overview' && !isSimpleOverview ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p>
           {!isEmbed() && (isDashboardManagedSweeps() ? (
             <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (
@@ -2696,19 +2721,7 @@ function ProjectPageContent({
               </Button>
             </div>
           ) : null}
-          <VisibilityWorkspace
-            key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
-            projectName={projectName}
-            selection={visibilitySelection}
-            showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
-              && visibilitySelection.measurementScope === 'project'
-              && visibilitySelection.queryClass === 'all'
-              && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
-              && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
-              && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}
-            onSelectionChange={updateVisibilitySearch}
-            onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
-            fallback={<AdvancedMeasurementLanding
+          {renderVisibilityOverview(<AdvancedMeasurementLanding
             key={`${projectName}:${activeMeasurementRevision}`}
             mode={advancedMeasurementMode}
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
@@ -2973,8 +2986,8 @@ function ProjectPageContent({
             isLoadingMore={advancedMeasurementOverviewQuery.isFetchingNextPage}
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
-          />} />
-          {visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
+          />)}
+          {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details className="page-section-divider">
             <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
             <OverviewSignals
               insights={model.insights}
