@@ -750,9 +750,10 @@ function advancedReaderInput(
     throw validationError(`Measurement run "${query.runId}" is not an eligible advanced result.`)
   }
   const candidates = sourceCandidates.map(candidate => {
-    // #1062's link is emitted only for an execution-identical label-only
-    // republish. In that case the active/requested frozen plan is the report
-    // definition; a material predecessor keeps its own definition instead.
+    // Continuity links are emitted only for an execution-identical display-only
+    // republish (labels or group navigation metadata). In that case the
+    // active/requested frozen plan is the report definition; a material
+    // predecessor keeps its own definition instead.
     // The source already uses that exact frozen revision, so rebuilding its
     // manifest/evidence would only duplicate a large portfolio read.
     if (candidate.source.row.id === presentationVersion.id) return candidate.own

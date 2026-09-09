@@ -253,13 +253,15 @@ function TrackedQueriesWorkspace({
   const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
   const editorHeadingRef = useRef<HTMLHeadingElement>(null)
   const handledRouteAction = useRef<string | null>(null)
-  const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection), [selection, workspace.tracked])
+  const unavailableScope = unavailableTrackingScope(workspace, selection)
+  const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection, workspace.mode), [selection, workspace.mode, workspace.tracked])
   const table = useClientTable({
     rows: rowsInScope,
     getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? 'legacy'} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
   })
 
   useEffect(() => {
+    if (unavailableScope) return
     if (!trackingQueryId) {
       handledRouteAction.current = null
       return
@@ -272,9 +274,10 @@ function TrackedQueriesWorkspace({
     setAction({ kind: 'edit', row, audience: workspace.mode === 'advanced' ? audienceForSelection(selection) : undefined, scopeLabel: selectionScopeLabel(selection, workspace) })
     setDraft(draftForRow(row, selection))
     setReviewedMutation(null)
-  }, [selection, trackingQueryId, workspace])
+  }, [selection, trackingQueryId, unavailableScope, workspace])
 
   useEffect(() => {
+    if (unavailableScope) return
     if (!pendingTrackingSource) return
     const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection)
     setAction({ kind: 'add' })
@@ -283,7 +286,14 @@ function TrackedQueriesWorkspace({
       : { ...next, source: 'discovery', discoveryProbeId: pendingTrackingSource.discoveryProbeId })
     setReviewedMutation(null)
     onPendingTrackingSourceHandled()
-  }, [onPendingTrackingSourceHandled, pendingTrackingSource, selection])
+  }, [onPendingTrackingSourceHandled, pendingTrackingSource, selection, unavailableScope])
+
+  useEffect(() => {
+    if (!unavailableScope) return
+    setAction(null)
+    setReviewedMutation(null)
+    if (trackingQueryId !== undefined) onTrackingQueryIdChange?.(undefined)
+  }, [onTrackingQueryIdChange, trackingQueryId, unavailableScope])
 
   useEffect(() => {
     if (!action || action.kind === 'remove') return
@@ -328,12 +338,19 @@ function TrackedQueriesWorkspace({
     && !hasMarketOnlyAudience(draft)
   const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
 
+  if (unavailableScope) {
+    return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">
+      <p>This saved {selection.measurementScope} filter is unavailable in the current measurement.</p>
+      <Button type="button" variant="outline" className="mt-3" onClick={() => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })}>Show whole site</Button>
+    </section></div>
+  }
+
   return (
     <div className="query-tracking-workspace space-y-4">
       <section aria-label="Tracked queries">
         <div className="flex flex-wrap items-end gap-3">
           <TrackingScopePicker workspace={workspace} selection={selection} onSelectionChange={onSelectionChange} />
-          <TrackingQueryTypeFilter selection={selection} onSelectionChange={onSelectionChange} />
+          {workspace.mode === 'advanced' ? <TrackingQueryTypeFilter selection={selection} onSelectionChange={onSelectionChange} /> : null}
           <DataTableSearch
             value={table.query}
             onChange={table.setQuery}
@@ -363,14 +380,14 @@ function TrackedQueriesWorkspace({
           <div className="mt-5 overflow-x-auto">
             <table className="evidence-table measurement-responsive-table min-w-[760px] table-auto">
               <thead>
-                <tr><th>Query</th><th>Scope</th><th>Class</th><th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
+                <tr><th>Query</th><th>Scope</th>{workspace.mode === 'advanced' ? <th>Class</th> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
               </thead>
               <tbody>
                 {table.rows.map(row => (
                   <tr key={row.queryId}>
                     <td className="tracking-query-cell break-words font-medium text-heading">{row.queryText}</td>
                     <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td>
-                    <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td>
+                    {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
                     <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
                     <td className="whitespace-nowrap"><MeasurementStateBadge row={row} outsidePlan={workspace.mode === 'advanced' && row.assignments.length === 0} /></td>
                     <td className="measurement-table-actions whitespace-nowrap text-right">
@@ -549,6 +566,20 @@ function audienceForSelection(selection: NonNullable<QueriesSectionProps['select
   return undefined
 }
 
+function unavailableTrackingScope(
+  workspace: QueryTrackingWorkspaceResponse,
+  selection: NonNullable<QueriesSectionProps['selection']>,
+): boolean {
+  if (selection.measurementScope === 'project') return false
+  if (!selection.measurementScopeKey) return true
+  const scopes = selection.measurementScope === 'group'
+    ? workspace.groups
+    : selection.measurementScope === 'property'
+      ? workspace.targets
+      : workspace.markets
+  return !scopes.some(scope => scope.stableKey === selection.measurementScopeKey)
+}
+
 function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selection']>, workspace: QueryTrackingWorkspaceResponse): string {
   const collection = selection.measurementScope === 'property' ? workspace.targets : selection.measurementScope === 'group' ? workspace.groups : selection.measurementScope === 'market' ? workspace.markets : []
   const label = collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label
@@ -570,7 +601,11 @@ function assignmentMatchesSelection(
 function filterTrackedRows(
   rows: readonly QueryTrackingTrackedRow[],
   selection: NonNullable<QueriesSectionProps['selection']>,
+  mode: QueryTrackingWorkspaceResponse['mode'],
 ): QueryTrackingTrackedRow[] {
+  // Simple workspaces do not store per-row class assignments. The shared
+  // report URL can retain its class filter, but it cannot classify this list.
+  if (mode === 'simple') return [...rows]
   return rows.filter(row => {
     // Legacy project-wide records have no assignment to inspect. They remain
     // reachable through Unclassified, rather than silently becoming non-brand.

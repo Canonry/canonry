@@ -31,6 +31,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
@@ -397,6 +398,38 @@ describe('visibility report route', () => {
 })
 
 describe('visibility report hierarchy scopes', () => {
+  it('uses current navigation parents with comparable saved evidence and preserves historical topology', async () => {
+    const firstPlan = measurementPlanV2Fixture({
+      groups: [
+        { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+        { stableKey: 'submarket', label: 'Submarket', targetKeys: ['harbor'], competitors: [] },
+      ],
+    })
+    const firstVersion = seedVersion(1, firstPlan)
+    const runId = seedAdvancedRun({ versionId: firstVersion, frozenPlan: firstPlan, createdAt: FIRST })
+    activate(firstVersion)
+    const before = await report('scope=group&scopeKey=submarket&queryClass=non-brand')
+    expect(before.status).toBe(200)
+
+    const nestedPlan = measurementPlanV2Fixture({
+      ...firstPlan,
+      groups: firstPlan.groups.map(group => group.stableKey === 'submarket'
+        ? { ...group, parentGroupKey: 'metro' } : group),
+    })
+    activate(seedVersion(2, nestedPlan, plansAreLabelOnlyVariants(firstPlan, nestedPlan) ? firstVersion : null))
+    const result = await report('scope=group&scopeKey=submarket&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const body = result.body as VisibilityReportResponse
+    expect(body.selection.run).toEqual({ id: runId, explicit: false })
+    expect(body.selection.measurement).toMatchObject({ activeRevision: 2, measuredRevision: 2, awaitingSweep: false, pendingAssignmentCount: 0 })
+    expect(body.populations[0]!.summary).toEqual((before.body as VisibilityReportResponse).populations[0]!.summary)
+    expect(body.scopeOptions.find(scope => scope.id === 'submarket')?.parentGroupIds).toEqual(['metro'])
+
+    const historical = await report('revision=1&scope=group&scopeKey=submarket&queryClass=non-brand')
+    expect(historical.status).toBe(200)
+    expect((historical.body as VisibilityReportResponse).scopeOptions.find(scope => scope.id === 'submarket')?.parentGroupIds).toBeUndefined()
+  })
+
   it('returns explicit frozen group parents and every property membership without inferred hierarchy', async () => {
     const frozenPlan = measurementPlanV2Fixture({
       groups: [

@@ -8,6 +8,7 @@ import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
+  getApiV1ProjectsByNameQueryTrackingQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
@@ -100,7 +101,7 @@ function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSecti
   }
   const all = { ...base, ...props }
   render(<QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>)
-  return all
+  return { ...all, queryClient }
 }
 
 function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
@@ -1163,6 +1164,20 @@ test('requires a market for a saved market template before sending its identity 
   })
 })
 
+test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visible when the shared URL carries %s', async queryClass => {
+  const data = workspace()
+  data.mode = 'simple'
+  data.tracked = data.tracked.map(row => ({ ...row, assignments: [] }))
+  installWorkspaceApi(undefined, [], data)
+  renderWorkspace({ selection: { measurementScope: 'project', queryClass } })
+
+  expect(await screen.findByText('Acme pricing')).toBeTruthy()
+  expect(screen.getByText('Best AEO platform')).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Query type' })).toBeNull()
+  expect(screen.queryByRole('columnheader', { name: 'Class' })).toBeNull()
+  expect(screen.queryByText('Unknown')).toBeNull()
+})
+
 test('keeps simple measurements classifier-only and never submits an operator override', async () => {
   let previewBody: Record<string, unknown> | undefined
   installWorkspaceApi((path, body) => {
@@ -1252,6 +1267,46 @@ test.each(['preview', 'commit'] as const)('refreshes a stale workspace after %s 
   expect(reviewedVersions).toEqual([workspaceVersion, refreshedVersion])
 })
 
+
+test.each([
+  ['group', 'north-east'],
+  ['property', 'acme'],
+  ['market', 'new-york'],
+] as const)('offers explicit recovery for a retired tracked-query %s scope', async (measurementScope, measurementScopeKey) => {
+  const data = workspace()
+  if (measurementScope === 'group') data.groups = []
+  if (measurementScope === 'property') data.targets = []
+  if (measurementScope === 'market') data.markets = []
+  installWorkspaceApi(undefined, [], data)
+  const props = renderWorkspace({ selection: { measurementScope, measurementScopeKey, queryClass: 'branded' } })
+
+  expect(await screen.findByText(`This saved ${measurementScope} filter is unavailable in the current measurement.`)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Edit Acme pricing' })).toBeNull()
+  expect(props.onTrackingQueryIdChange).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Show whole site' }))
+  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'project', measurementScopeKey: undefined })
+})
+
+test('hides an open scoped action when a workspace publication retires its group', async () => {
+  const data = workspace()
+  installWorkspaceApi(undefined, [], data)
+  const props = renderWorkspace({
+    selection: { measurementScope: 'group', measurementScopeKey: 'north-east', queryClass: 'branded' },
+    trackingQueryId: 'query-acme',
+  })
+
+  await screen.findByRole('heading', { name: 'Edit query' })
+  data.groups = []
+  await props.queryClient.invalidateQueries({
+    queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: 'demo' } }),
+  })
+
+  expect(await screen.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Edit query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(props.onTrackingQueryIdChange).toHaveBeenCalledWith(undefined)
+})
 
 test('unassigned legacy records remain accessible without promising a future portfolio measurement', async () => {
   const data = workspace()

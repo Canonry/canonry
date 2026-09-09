@@ -5,10 +5,10 @@ register: product
 ## Query control and visibility
 
 AI Visibility shows measured trends, query performance, answers, sources, and competitors.
-Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Tracked query type and scope filters follow the URL; assignment details expose property and group memberships. Research reports brand-name matches and project-domain citations separately from verified property measurement.
+Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio tracked query type and scope filters follow the URL; assignment details expose property and group memberships. Research reports brand-name matches and project-domain citations separately from verified property measurement.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
-Groups collect properties and can declare a parent Group for navigation. Start with top-level Groups, then show their Properties immediately with subgroups collapsed. Parent membership contains every child Property; overlap between sibling Groups is allowed. Markets select explicit execution-context edges.
+Groups collect properties and can declare a parent Group for navigation. Start with top-level Groups, then show their Properties immediately with subgroups collapsed. Parent membership contains every child Property; overlap between sibling Groups is allowed. Changing only group navigation parents preserves measurement comparability. Markets select explicit execution-context edges.
 
 ## Product purpose
 

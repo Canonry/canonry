@@ -776,9 +776,9 @@ export function diffCompiledPlans(
  */
 export function plansAreLabelOnlyVariants(active: MeasurementPlanV2, candidate: MeasurementPlanV2): boolean {
   /**
-   * Continuity is promised ONLY for a label-only republish, so the comparison
-   * is the FULL canonical document with display labels neutralized - not the
-   * execution nodes alone. Execution-node equality looked sufficient and was
+   * Continuity is promised only when labels or navigation parents change.
+   * Compare the full canonical document with those display fields neutralized,
+   * not the execution nodes alone. Execution-node equality looked sufficient and was
    * not: queryClass lives on assignments, aliases and urlMatchers on targets,
    * brand names on identities, competitors on groups - all invisible to the
    * node comparison, and every one of them changes what stored evidence MEANS
@@ -791,12 +791,13 @@ export function plansAreLabelOnlyVariants(active: MeasurementPlanV2, candidate: 
     const doc = canonicalMeasurementPlanV2(plan)
     const stripped = {
       ...doc,
-      // compiledChecksum is DERIVED over the full document, labels included,
-      // so keeping it would smuggle the stripped labels back into the
-      // comparison. Everything else in the doc is semantic and stays.
+      // The checksum includes labels and navigation parents. Neutralize it
+      // with those display fields; all measurement semantics stay in the comparison.
       compiledChecksum: '',
       targets: doc.targets.map((target) => ({ ...target, label: '' })),
-      groups: doc.groups.map((group) => ({
+      groups: doc.groups.map(({ parentGroupKey: _parentGroupKey, ...group }) => ({
+        // Parentage changes navigation only. It changes the frozen document and
+        // checksum, but never an execution, target population, or metric.
         ...group,
         label: '',
         competitors: group.competitors.map((competitor) => ({ ...competitor, label: '' })),
