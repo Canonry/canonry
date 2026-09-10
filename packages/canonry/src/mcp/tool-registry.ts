@@ -153,7 +153,7 @@ const measurementOverviewInputSchema = z.object({
   scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one reporting group, or one Property.'),
   groupKey: measurementOverviewQuerySchema.shape.groupKey.describe('Group stable key. Required only for group scope.'),
   targetKey: measurementOverviewQuerySchema.shape.targetKey.describe('Property stable key. Required only for property scope.'),
-  queryClass: measurementOverviewQuerySchema.shape.queryClass,
+  queryClass: measurementOverviewQuerySchema.shape.queryClass.describe('Select non-brand for acquisition performance or branded for brand awareness. Omitted means all classes combined; always name the class in the report.'),
   provider: measurementOverviewQuerySchema.shape.provider,
   location: measurementOverviewQuerySchema.shape.location,
   from: measurementOverviewQuerySchema.shape.from,
@@ -2314,7 +2314,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
-    description: 'Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
+    description: 'For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementOverviewInputSchema,
@@ -2342,7 +2342,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_portfolio_summary',
     title: 'Summarize measured Properties',
-    description: 'Start here to rank the weakest measured Properties and their stored replacement names, and to compare every named market worst-first. Each market is scoped to the displayed run; markets may share Properties, so they never sum to the portfolio totals. Reads stored data only; it never starts provider work.',
+    description: 'Start here for best/worst Property mention performance. Defaults to non-brand questions; state the returned queryClass and keep branded comparisons separate unless all was requested. mentionRanking.strongest and .weakest rank every Property with an available mention rate before applying limit, independently of citation availability or an unavailable portfolio aggregate. mentionRanking.excluded names every excluded Property and its reason; flag those separately, never call all mention rankings unavailable because one identity is ambiguous. Report numerator/denominator with each rate. Rates may tie (stable label/key order); this is descriptive coverage, not a confidence-adjusted or unique-winner claim. weakestProperties retains combined mention/citation weaknesses with stored replacement names; markets compares every named market worst-first. Each market is scoped to the displayed run; markets may share Properties, so they never sum to portfolio totals. Reads stored data only; it never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPortfolioSummaryInputSchema,

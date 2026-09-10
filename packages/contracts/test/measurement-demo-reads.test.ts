@@ -4,6 +4,7 @@ import {
   measurementChangesResponseSchema,
   measurementDataQualityQuerySchema,
   measurementDataQualityResponseSchema,
+  measurementPortfolioMentionRankingSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPortfolioSummaryResponseSchema,
   measurementPropertyCompetitorsQuerySchema,
@@ -38,6 +39,7 @@ describe('advanced measurement demo reads', () => {
         mentionCoverage: METRIC,
         citationCoverage: METRIC,
       },
+      mentionRanking: { eligiblePropertyCount: 1, strongest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], weakest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], excluded: [], truncated: false },
       weakestProperties: [{
         ...PROPERTY,
         mentionCoverage: METRIC,
@@ -65,6 +67,13 @@ describe('advanced measurement demo reads', () => {
       queryClass: 'non-brand',
       metrics: { propertiesMentioned: METRIC, mentionCoverage: METRIC, citationCoverage: METRIC },
       weakestProperties: [], markets: [], totalProperties: 0, truncated: false, extra: true,
+    }).success).toBe(false)
+  })
+
+  it('refuses to present an ambiguous mention as a ranked Property even when its citations are known', () => {
+    const uncertain = { ...PROPERTY, mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' }, citationCoverage: METRIC }
+    expect(measurementPortfolioMentionRankingSchema.safeParse({
+      eligiblePropertyCount: 1, strongest: [uncertain], weakest: [], excluded: [], truncated: false,
     }).success).toBe(false)
   })
 

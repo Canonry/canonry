@@ -31,6 +31,7 @@ import {
   type MeasurementMetricUnavailableReason,
   type MeasurementPlanV2,
   type MeasurementPortfolioMarket,
+  type MeasurementPortfolioMentionRanking,
   type MeasurementPortfolioSummaryQuery,
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsQuery,
@@ -456,6 +457,34 @@ export function compareWeakestMarket(a: MeasurementPortfolioMarket, b: Measureme
   return compareText(a.label, b.label) || compareText(a.groupKey, b.groupKey)
 }
 
+function mentionRanking(
+  rows: readonly { targetKey: string; label: string; mentionCoverage: MetricValue; citationCoverage: MetricValue }[],
+  limit: number,
+): MeasurementPortfolioMentionRanking {
+  const eligible: MeasurementPortfolioMentionRanking['strongest'] = []
+  const excluded: MeasurementPortfolioMentionRanking['excluded'] = []
+  for (const { targetKey, label, mentionCoverage, citationCoverage } of rows) {
+    if (mentionCoverage.state === 'unavailable') {
+      excluded.push({ targetKey, label, reason: mentionCoverage.reason })
+    } else {
+      eligible.push({ targetKey, label, mentionCoverage, citationCoverage })
+    }
+  }
+  const byLabel = (a: { label: string; targetKey: string }, b: { label: string; targetKey: string }) =>
+    compareText(a.label, b.label) || compareText(a.targetKey, b.targetKey)
+  const byRate = (direction: number) => (a: typeof eligible[number], b: typeof eligible[number]) =>
+    direction * (a.mentionCoverage.value - b.mentionCoverage.value) || byLabel(a, b)
+  // Rank the entire scoped population before applying limit. Citation evidence
+  // cannot disqualify a known mention rate or break a mention-rate tie.
+  return {
+    eligiblePropertyCount: eligible.length,
+    strongest: [...eligible].sort(byRate(-1)).slice(0, limit),
+    weakest: eligible.sort(byRate(1)).slice(0, limit),
+    excluded: excluded.sort(byLabel),
+    truncated: eligible.length > limit,
+  }
+}
+
 function portfolioResponse(
   db: DatabaseClient,
   active: ActiveMeasurementPlan,
@@ -495,6 +524,7 @@ function portfolioResponse(
         citationCoverage: unavailable('no_completed_run'),
       },
       weakestProperties: rows.slice(0, limit),
+      mentionRanking: mentionRanking(rows, limit),
       // Sorted through the same comparator as the measured branch. Plan order
       // is `stableKey`, so emitting it raw put markets in an order the schema
       // documents as worst-first and that changes the moment a run lands.
@@ -547,6 +577,7 @@ function portfolioResponse(
       citationCoverage: coverageMetric(overview.citationCoverage),
     },
     weakestProperties: rows.slice(0, limit),
+    mentionRanking: mentionRanking(ranked, limit),
     markets: marketRollup(plan, run, evaluator, group !== undefined),
     totalProperties: ranked.length,
     truncated: ranked.length > limit,

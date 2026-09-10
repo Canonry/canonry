@@ -227,6 +227,72 @@ afterEach(async () => {
 })
 
 describe('measurement portfolio reads', () => {
+  it('ranks usable mentions independently of aggregate ambiguity, citation capture and the list limit', async () => {
+    const uncertain = { ...structuredClone(plan.targets[0]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
+    plan.targets.push(uncertain)
+    for (const assignment of plan.assignments.filter(row => row.targetKey === 'harbor')) {
+      plan.assignments.push({ ...assignment, targetKey: uncertain.stableKey })
+      plan.usageEdges.push({ targetKey: uncertain.stableKey, queryId: assignment.queryId, executionNodeKey: assignment.executionNodeKey })
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ captureStatus: 'partial' }).where(eq(querySnapshots.runId, runId)).run()
+    db.update(querySnapshots).set({ answerText: `${plan.targets[0]!.label} is listed.` })
+      .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+    db.update(querySnapshots).set({ answerText: `Which ${uncertain.label} do you mean?` })
+      .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-brand'))).run()
+
+    const mixed = await portfolio('queryClass=all&limit=1')
+    expect(mixed.status).toBe(200)
+    expect(mixed.body.metrics.mentionCoverage).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
+    expect(mixed.body.mentionRanking).toMatchObject({
+      eligiblePropertyCount: 2, truncated: true,
+      strongest: [{ targetKey: 'harbor', mentionCoverage: { state: 'available', numerator: 2, denominator: 4, value: 0.5 }, citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' } }],
+      weakest: [{ targetKey: 'bayside', mentionCoverage: { state: 'available', value: 0 } }],
+      excluded: [{ targetKey: uncertain.stableKey, label: uncertain.label, reason: 'identity_ambiguous' }],
+    })
+    expect(mixed.body.mentionRanking.strongest).toHaveLength(1)
+    expect(mixed.body.mentionRanking.weakest).toHaveLength(1)
+
+    // The ambiguous answer was branded. Default non-brand reporting must not
+    // inherit its warning or count it in any Property's denominator.
+    const nonBrand = await portfolio('limit=1')
+    expect(nonBrand.body.queryClass).toBe('non-brand')
+    expect(nonBrand.body.mentionRanking).toMatchObject({
+      eligiblePropertyCount: 3, excluded: [],
+      strongest: [{ targetKey: 'harbor', mentionCoverage: { numerator: 2, denominator: 2, value: 1 } }],
+    })
+    const scoped = await portfolio('groupKey=regional&queryClass=all&provider=openai')
+    expect(scoped.body.mentionRanking).toMatchObject({
+      eligiblePropertyCount: 2, excluded: [], truncated: false,
+      strongest: [{ targetKey: 'harbor', mentionCoverage: { numerator: 1, denominator: 2 } }, { targetKey: 'bayside' }],
+    })
+  })
+
+  it('keeps tied mention rankings stable without promoting citation coverage as a tie-break', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ citedUrls: ['https://northstar.example/locations/bayside'] }).where(eq(querySnapshots.runId, runId)).run()
+    const { body } = await portfolio('limit=1')
+    expect(body.mentionRanking.strongest.map(row => row.targetKey)).toEqual(['bayside'])
+    expect(body.mentionRanking.weakest.map(row => row.targetKey)).toEqual(['bayside'])
+    expect(body.mentionRanking.weakest[0]?.citationCoverage).toMatchObject({ state: 'available', value: 1 })
+    expect(body.mentionRanking.weakest[0]?.mentionCoverage).toMatchObject({ state: 'available', value: 0 })
+    expect(body.mentionRanking.eligiblePropertyCount).toBe(2)
+  })
+
+  it('returns no mention winners before measurement and keeps exclusions outside the list limit', async () => {
+    activate(seedVersion(1))
+    const { status, body } = await portfolio('limit=1')
+    expect(status).toBe(200)
+    expect(body.mentionRanking).toEqual({
+      eligiblePropertyCount: 0, strongest: [], weakest: [], truncated: false,
+      excluded: [...plan.targets].sort((a, b) => a.label.localeCompare(b.label)).map(target => ({ targetKey: target.stableKey, label: target.label, reason: 'no_completed_run' })),
+    })
+  })
+
   it.each(['complete', 'missing-answer', 'partial-citation'] as const)('keeps summary, dashboard and client coverage consistent for %s evidence', async scenario => {
     const versionId = seedVersion(1)
     activate(versionId)

@@ -358,6 +358,16 @@ describe('MCP tool registry', () => {
     }
   })
 
+  it('defaults MCP portfolio comparisons to non-brand without overriding an explicit class', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
+    const getMeasurementPortfolioSummary = vi.fn().mockResolvedValue({})
+    const client = { getMeasurementPortfolioSummary } as unknown as ApiClient
+    for (const queryClass of [undefined, 'branded', 'all'] as const) {
+      await tool.handler(client, tool.inputSchema.parse({ project: 'acme', queryClass }))
+      expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: queryClass ?? 'non-brand' })
+    }
+  })
+
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
     const client = {
       getMeasurementPlan: vi.fn().mockResolvedValue({ active: null }),
