@@ -263,7 +263,7 @@ describe('buildVisibilityReport', () => {
     expect(report.populations[0]!.trend.map(point => point.answerCount)).toEqual([0, 1])
   })
 
-  it('uses a group’s single explicit market for its project-level breakdown row', () => {
+  it.each([undefined, 'alpha', 'beta'])('keeps group rows and direct summaries on the same population with market %s', marketKey => {
     const selected = run()
     selected.definition = {
       ...selected.definition,
@@ -271,14 +271,16 @@ describe('buildVisibilityReport', () => {
         ? { ...option, marketKeys: ['alpha'] }
         : option),
     }
-    const report = buildVisibilityReport(input({
-      runs: [selected],
-      selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50 },
-    }))
+    const selection = { queryClass: 'non-brand' as const, scope: 'project' as const, marketKey, location: { kind: 'all' as const }, limit: 50 }
+    const report = buildVisibilityReport(input({ runs: [selected], selection }))
+    const direct = buildVisibilityReport(input({ runs: [selected], selection: { ...selection, scope: 'group', scopeKey: 'collection' } }))
+    const summary = direct.populations[0]!.summary
+    expect(summary.mentionCoverage.rate).toBe(marketKey === undefined ? 0.5 : marketKey === 'alpha' ? 1 : 0)
     expect(report.populations[0]!.breakdown.groups).toEqual([expect.objectContaining({
-      id: 'collection',
-      mentionCoverage: { numerator: 1, denominator: 1, rate: 1 },
+      id: 'collection', queryCount: summary.queryCount,
+      mentionCoverage: summary.mentionCoverage, citationCoverage: summary.citationCoverage,
     })])
+    expect(direct.populations[0]!.breakdown.groups).toEqual(report.populations[0]!.breakdown.groups)
   })
 
   it('narrows a group’s shared-answer signals to the group’s own target edges', () => {

@@ -195,12 +195,34 @@ describe('market context through property navigation', () => {
     expect(screen.queryByRole('button', { name: MARKET_SCOPE_COPY.select(sibling.label) })).toBeNull()
   })
 
-  it('selects the exact question market for a group', () => {
+  it('keeps a group selection free of an implicit market filter', () => {
     const group = marketScopes.find(scope => scope.id === 'center')!
     const view = openPicker(vi.fn(), marketScopes)
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(region.label) }))
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(group.label) }))
-    expect(view.onSelect).toHaveBeenLastCalledWith(group, group.marketKeys![0])
+    expect(view.onSelect).toHaveBeenLastCalledWith(group)
+  })
+
+  it.each(['market', 'property', 'group'] as const)('retains an explicit market from a %s selection within a group containing multiple markets', kind => {
+    const group = { ...marketScopes.find(scope => scope.id === 'center')!, marketKeys: property.marketKeys }
+    const market = { ...marketScopes.find(scope => scope.id === 'market-waterfront')!, parentGroupIds: [group.id] }
+    const options = marketScopes.map(scope => scope.id === group.id ? group : scope.id === market.id ? market : scope)
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={options} selected={kind === 'market' ? market : kind === 'group' ? group : property} marketKey={kind === 'market' ? undefined : market.id} onSelect={onSelect} />)
+    fireEvent.click(view.container.querySelector('summary')!)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) }))
+    expect(onSelect).toHaveBeenCalledWith(property, market.id)
+  })
+
+  it.each(['root', 'region', 'group'])('finds nested markets by their exact name from the %s', level => {
+    const market = marketScopes.find(scope => scope.id === 'market-center')!
+    const view = openPicker(vi.fn(), marketScopes)
+    if (level !== 'root') fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(region.label) }))
+    if (level === 'group') fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(marketScopes.find(scope => scope.id === market.parentGroupIds![0])!.label) }))
+    expect(screen.queryByRole('button', { name: MARKET_SCOPE_COPY.select(market.label) })).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: market.label } })
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(market.label) }))
+    expect(view.onSelect).toHaveBeenCalledWith(market)
   })
 
   it('opens a direct property selection across all its markets and clears a previous market', () => {

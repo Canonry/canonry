@@ -10,7 +10,7 @@ import { heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
 import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus } from 'lucide-react'
-import { VisibilityScopePicker, marketForGroup } from './VisibilityScopePicker.js'
+import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
@@ -410,7 +410,7 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSe
       <div className="flex gap-2">{(['groups', 'properties'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Properties'}</Button>)}</div>
       <input type="search" aria-label="Search breakdown" placeholder="Search" value={table.query} onChange={event => table.setQuery(event.target.value)} className={`${REPORT_CONTROL} max-w-sm`} />
     </div>
-    <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Property'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: kind === 'groups' ? marketForGroup(groupOptions.get(row.id)) : marketKey })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
+    <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Property'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: marketKey })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
     {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No {kind} match this search.</p> : null}
     <DataTablePagination page={table.page} pageSize={table.pageSize} visibleRows={table.rows.length} totalRows={table.totalRows} itemLabel={kind} onPageChange={table.setPage} />
   </section>
@@ -463,13 +463,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     enabled: Boolean(selection.queryKey) && Boolean(reportQuery.data) && !reportQuery.isPlaceholderData,
     retry: false,
   })
-  const linkedGroupMarket = selection.measurementScope === 'group' && !selection.marketKey && reportQuery.data
-    ? marketForGroup(reportQuery.data.selection.scope) : undefined
   useEffect(() => {
-    if (linkedGroupMarket && !reportQuery.isPlaceholderData && !reportQuery.isFetching && !reportQuery.isError) {
-      onSelectionChange({ measurementMarketKey: linkedGroupMarket })
-      return
-    }
     if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData || reportQuery.isFetching || reportQuery.isError
       || reportQuery.data.selection.availability.state === 'unsupported' || reportQuery.data.populations.length === 0) return
     // Older links carry only a query key. Wait for its evidence when it is
@@ -493,7 +487,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
       queryClass: population.queryClass,
       ...(selection.queryKey ? { measurementQueryKey: selection.queryKey, measurementAnswer: selection.answer ? JSON.stringify(selection.answer) : undefined } : {}),
     })
-  }, [linkedGroupMarket, selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
+  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {
@@ -505,7 +499,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
         : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
     </section>
   }
-  if (!reportQuery.data || linkedGroupMarket) return <section className="page-section-divider" role="status" aria-label="Loading AI visibility"><div className="h-64 animate-pulse rounded-md bg-surface" /></section>
+  if (!reportQuery.data) return <section className="page-section-divider" role="status" aria-label="Loading AI visibility"><div className="h-64 animate-pulse rounded-md bg-surface" /></section>
   return <div aria-busy={reportQuery.isFetching}><VisibilityReportView
     report={reportQuery.data}
     isRefreshing={reportQuery.isFetching}

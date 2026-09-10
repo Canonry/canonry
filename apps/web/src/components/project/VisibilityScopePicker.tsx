@@ -11,7 +11,7 @@ export const MARKET_SCOPE_COPY = {
   select: (label: string) => `Select ${label}`,
   browseAll: 'Browse all properties',
 }
-export const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 'group' && scope.marketKeys?.length === 1 ? scope.marketKeys[0] : undefined
+const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 'group' && scope.marketKeys?.length === 1 ? scope.marketKeys[0] : undefined
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
@@ -54,10 +54,20 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   const visibleGroups = (allProperties ? [] : current
     ? groups.filter(group => query ? isDescendant(group) : group.parentGroupIds?.includes(current.id))
     : query ? groups : roots).filter(matches)
-  const currentMarketKey = allowGroupSelect ? marketForGroup(current) : undefined
+  const selectedMarket = options.find(option => option.kind === 'market' && option.id === (marketKey ?? (selected.kind === 'market' ? selected.id : undefined)))
+  const explicitCurrentMarketKey = current && selectedMarket && (current.marketKeys?.includes(selectedMarket.id) || selectedMarket.parentGroupIds?.includes(current.id)) ? selectedMarket.id : undefined
+  const currentMarketKey = allowGroupSelect ? explicitCurrentMarketKey ?? marketForGroup(current) : undefined
   const visibleProperties = (current ? properties.filter(property => property.parentGroupIds?.includes(current.id) && (!currentMarketKey || property.marketKeys?.includes(currentMarketKey)))
     : query || allProperties || groups.length === 0 ? properties : []).filter(matches)
-  const markets = allProperties || (allowGroupSelect && current?.marketKeys?.length === 1) ? [] : options.filter(scope => scope.kind === 'market' && (allowGroupSelect || current || query || groups.length === 0) && (current ? scope.parentGroupIds?.includes(current.id) : !scope.parentGroupIds?.some(key => groupById.has(key))) && matches(scope))
+  const markets = options.filter(scope => {
+    if (scope.kind !== 'market' || allProperties) return false
+    if (!allowGroupSelect && !current && !query && groups.length > 0) return false
+    if (allowGroupSelect && current?.marketKeys?.length === 1 && !query) return false
+    const withinSearch = current
+      ? query ? isDescendant(scope) : scope.parentGroupIds?.includes(current.id)
+      : query || !scope.parentGroupIds?.some(key => groupById.has(key))
+    return withinSearch && matches(scope)
+  })
   const projects = current || allProperties ? [] : options.filter(scope => scope.kind === 'project' && matches(scope))
 
   useEffect(() => {
@@ -70,7 +80,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
 
   const choose = (scope: VisibilityReportScopeOption) => {
     if (picker.current) { picker.current.open = false; picker.current.querySelector('summary')?.focus() }
-    const selectedMarketKey = allowGroupSelect ? scope.kind === 'property' ? marketForGroup(current) : marketForGroup(scope) : undefined
+    const selectedMarketKey = allowGroupSelect ? scope.kind === 'property' ? currentMarketKey : scope.kind === 'group' && scope.id === current?.id ? explicitCurrentMarketKey : undefined : undefined
     if (selectedMarketKey) onSelect(scope, selectedMarketKey)
     else onSelect(scope)
   }
@@ -85,7 +95,6 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   }
   const restoreSelection = () => {
     const selectedGroup = selected.kind === 'group' ? groupById.get(selected.id) : undefined
-    const selectedMarket = options.find(option => option.kind === 'market' && option.id === (marketKey ?? (selected.kind === 'market' ? selected.id : undefined)))
     const marketGroup = groupById.get(selectedMarket?.parentGroupIds?.[0] ?? '')
     const memberPaths = (selected.parentGroupIds ?? []).flatMap(key => {
       const group = groupById.get(key)

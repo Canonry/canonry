@@ -1021,6 +1021,18 @@ describe('market-aware report selection', () => {
     expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'property', measurementScopeKey: property.id, measurementMarketKey: market.id })
   })
 
+  it.each([undefined, 'market-one', 'market-two'])('keeps the displayed market filter when opening a group row: %s', marketKey => {
+    const report = reportFixture()
+    const group = { id: 'group-one', label: 'Group One', kind: 'group' as const, targetCount: 1, marketKeys: [market.id] }
+    if (marketKey) report.selection.market = { ...market, id: marketKey }
+    report.scopeOptions.push(group, market, property)
+    report.populations[0]!.breakdown = { properties: [], groups: [{ id: group.id, label: group.label, queryCount: 1, mentionCoverage: report.populations[0]!.summary.mentionCoverage, citationCoverage: report.populations[0]!.summary.citationCoverage }] }
+    const onSelectionChange = vi.fn()
+    render(<VisibilityReportView report={report} onSelectionChange={onSelectionChange} />)
+    fireEvent.click(screen.getByRole('button', { name: group.label, exact: true }))
+    expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: group.id, measurementMarketKey: marketKey })
+  })
+
   it('groups a standalone property question list by saved market without repeating shared questions', () => {
     const report = reportFixture()
     report.selection.scope = property
@@ -1067,7 +1079,7 @@ describe('market-aware report selection', () => {
 })
 
 
-it('upgrades a saved group-only URL to its explicit market before showing its report', async () => {
+it('keeps a saved group-only URL on its original population after linking a market', async () => {
   const group = { id: 'saved-group', kind: 'group' as const, label: 'Saved group', targetCount: 1, marketKeys: ['saved-market'] }
   const market = { id: 'saved-market', kind: 'market' as const, label: 'Saved market', targetCount: 1, parentGroupIds: [group.id] }
   const requests: URL[] = []
@@ -1086,7 +1098,9 @@ it('upgrades a saved group-only URL to its explicit market before showing its re
   }
   const client = createQueryClient()
   onTestFinished(() => client.clear())
-  render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
-  await waitFor(() => expect(requests.some(request => request.searchParams.get('marketKey') === market.id)).toBe(true))
-  expect(currentSearch.measurementMarketKey).toBe(market.id)
+  const view = render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
+  await waitFor(() => expect(view.container.querySelector('.visibility-report')).toBeTruthy())
+  expect(requests).toHaveLength(1)
+  expect(requests[0]!.searchParams.has('marketKey')).toBe(false)
+  expect(currentSearch.measurementMarketKey).toBeUndefined()
 })

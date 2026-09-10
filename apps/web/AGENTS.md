@@ -122,7 +122,10 @@ server-declared market keys; never infer query geography from a label or shared
 property membership. Standalone property questions are grouped by saved market.
 Query administration remains an assignment editor; entering it clears the report's
 market intersection instead of silently widening a scoped edit. Linked markets
-stay under their explicit groups in both pickers.
+stay under their explicit groups in both pickers; searches include nested markets.
+An explicitly selected market survives property navigation even when its group has
+multiple markets. Group rows and saved group URLs retain the report's existing
+filters; a navigation link alone must not change their totals.
 
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.

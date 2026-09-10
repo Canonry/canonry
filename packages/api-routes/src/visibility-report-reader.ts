@@ -656,12 +656,9 @@ function breakdown(
     .filter(({ targetKeys }) => targetKeys.length > 0)
     .map(({ group, targetKeys }) => {
       const groupTargetKeys = new Set(targetKeys)
-      const explicitMarkets = definition.scopeOptions.find(option => option.kind === 'group' && option.id === group.id)?.marketKeys
-      const groupCandidates = explicitMarkets?.length === 1
-        ? candidates.map(candidate => ({ ...candidate, edges: candidate.edges.filter(edge => edge.marketKeys.includes(explicitMarkets[0]!)) }))
-          .filter(candidate => candidate.edges.length > 0)
-        : candidates
-      const own = groupCandidates
+      // Candidates already carry the selected market and other report filters.
+      // A navigation link must not change this group's measured population.
+      const own = candidates
         .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
         .filter((candidate): candidate is Candidate => candidate !== null)
       const metrics = mentionRate(own, targets)
