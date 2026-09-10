@@ -424,7 +424,11 @@ test('distills the integrated view to a score and its actionable findings', asyn
   expect(screen.queryByText('Recover unavailable Page health')).toBeNull()
 
   const failingFactor = screen.getByRole('button', { name: 'AI Crawler Access' })
-  await waitFor(() => expect(failingFactor.getAttribute('aria-expanded')).toBe('true'))
+  expect(failingFactor.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText('Allow GPTBot in robots.txt')).toBeNull()
+  expect(screen.queryByRole('link', { name: 'https://citypoint.example/services' })).toBeNull()
+  fireEvent.click(failingFactor)
+  expect(failingFactor.getAttribute('aria-expanded')).toBe('true')
   expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
   expect(screen.getByRole('link', { name: 'https://citypoint.example/services' })).not.toBeNull()
 
@@ -445,6 +449,9 @@ test('keeps the integrated findings table readable while affected pages load', a
     </QueryClientProvider>,
   )
 
+  const factorButton = screen.getByRole('button', { name: 'AI Crawler Access' })
+  expect(factorButton.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(factorButton)
   expect(await screen.findByText('Loading affected pages...')).not.toBeNull()
   expect(screen.getByRole('table').className).toContain('min-w-[42rem]')
   expect(screen.queryByText('Page details are not available in the loaded audit sample.')).toBeNull()
@@ -590,6 +597,9 @@ test('shows a focused retry when integrated affected pages fail to load', async 
     </QueryClientProvider>,
   )
 
+  const factorButton = screen.getByRole('button', { name: 'AI Crawler Access' })
+  expect(factorButton.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(factorButton)
   expect(await screen.findByText('Affected pages could not load')).not.toBeNull()
   expect(screen.queryByText('Page details are not available in the loaded audit sample.')).toBeNull()
   expect(screen.queryByText(/Showing the worst 0 audited pages/)).toBeNull()
@@ -620,7 +630,9 @@ test('keeps recommendation-free integrated findings truthful and single-column',
   expect(screen.queryByRole('heading', { name: 'Recommended fixes' })).toBeNull()
 
   const factorButton = screen.getByRole('button', { name: 'AI Crawler Access' })
-  await waitFor(() => expect(factorButton.getAttribute('aria-expanded')).toBe('true'))
+  expect(factorButton.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(factorButton)
+  expect(factorButton.getAttribute('aria-expanded')).toBe('true')
   expect(factorButton.hasAttribute('aria-controls')).toBe(false)
   const affectedPagesHeading = screen.getByRole('heading', { name: 'Affected pages (2)' })
   expect(affectedPagesHeading.closest('.grid')?.className).not.toContain('lg:grid-cols-2')

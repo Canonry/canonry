@@ -195,8 +195,13 @@ export const SITE_GRAPH_LABEL_BUDGETS = [
   { maxRatio: 0.45, budget: 60 },
   { maxRatio: SITE_GRAPH_OVERVIEW_CAMERA_RATIO, budget: 24 },
 ] as const
-/** The fitted overview: the root plus the best-linked handful. */
-export const SITE_GRAPH_OVERVIEW_LABEL_BUDGET = 10
+/**
+ * The fitted overview names only the crawl root. Even a small ranked handful
+ * can land in the same dense part of a real site's layout, which turns their
+ * long paths into unreadable overlapping text. Search, hover, selection, and
+ * zoom reveal every other page name when the reader asks for it.
+ */
+export const SITE_GRAPH_OVERVIEW_LABEL_BUDGET = 1
 
 export function siteGraphLabelBudget(cameraRatio: number): number {
   for (const tier of SITE_GRAPH_LABEL_BUDGETS) {

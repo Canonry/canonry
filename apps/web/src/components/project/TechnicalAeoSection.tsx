@@ -276,15 +276,12 @@ export function TechnicalAeoSection({
     getSearchText: siteAuditPageSearchText,
   })
   const pagesCapped = score ? score.pagesAudited > allPages.length : false
-  const primaryFactorId = score?.crossCuttingIssues[0]?.factorId
-    ?? score?.factors.find((factor) => factor.pagesPartial + factor.pagesFailing > 0)?.id
-    ?? null
-
   useEffect(() => {
     setErrorsOnly(false)
-    // Onboarding uses the same closed-by-default disclosures as page findings.
-    setExpandedFactor(integrated && !compactCopy ? primaryFactorId : null)
-  }, [compactCopy, effectiveRunId, integrated, primaryFactorId])
+    // Every Page Health check begins closed. Its table row already gives the
+    // score, status, and affected-page count needed to choose what to inspect.
+    setExpandedFactor(null)
+  }, [compactCopy, effectiveRunId, integrated])
 
   if (scoreQuery.isLoading) {
     return (
