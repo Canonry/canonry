@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import { Button } from '../ui/button.js'
@@ -40,17 +40,22 @@ function rebaseAnswerHeadings({ headingLevel }: { headingLevel: number }) {
 
 function CopyAnswerButton({ answer }: { answer: string }) {
   const [state, setState] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle')
+  const copying = useRef(false)
   const copyAnswer = async () => {
+    if (copying.current) return
+    copying.current = true
     setState('copying')
     try {
       await navigator.clipboard.writeText(answer)
       setState('copied')
     } catch {
       setState('failed')
+    } finally {
+      copying.current = false
     }
   }
   return <div className="mt-3 flex flex-wrap items-center gap-x-3">
-    <Button type="button" variant="ghost" className="min-h-11 px-2" disabled={state === 'copying'} aria-busy={state === 'copying'} onClick={() => { void copyAnswer() }}>
+    <Button type="button" variant="ghost" className="min-h-11 px-2" aria-disabled={state === 'copying'} aria-busy={state === 'copying'} onClick={() => { void copyAnswer() }}>
       {state === 'copying' ? ANSWER_MARKDOWN_COPY.copying : ANSWER_MARKDOWN_COPY.copy}
     </Button>
     <span role="status" className="text-sm text-secondary">{state === 'copied' ? ANSWER_MARKDOWN_COPY.copied : state === 'failed' ? ANSWER_MARKDOWN_COPY.failed : ''}</span>
@@ -68,7 +73,7 @@ export function AnswerMarkdown({ children, headingLevel = 4, copyable = false }:
       <ReactMarkdown remarkPlugins={[[rebaseAnswerHeadings, { headingLevel }]]} components={{
         p: ({ children }) => <p className="mb-3 whitespace-pre-wrap last:mb-0">{children}</p>,
         ul: ({ children }) => <ul className="mb-3 ml-5 list-disc space-y-1">{children}</ul>,
-        ol: ({ children }) => <ol className="mb-3 ml-5 list-decimal space-y-1">{children}</ol>,
+        ol: ({ children, start }) => <ol start={start} className="mb-3 ml-5 list-decimal space-y-1">{children}</ol>,
         pre: ({ children }) => <pre className="mb-3 overflow-x-auto whitespace-pre-wrap">{children}</pre>,
         a: ({ children, href }) => {
           const safeHref = safeExternalUrl(href)

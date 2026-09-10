@@ -41,6 +41,14 @@ describe('AnswerMarkdown', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
+  test.each([
+    { answer: '3. Third option\n4. Fourth option', starts: [3] },
+    { answer: '1. First option\n2. Second option\n\nOther options:\n\n3. Third option\n4. Fourth option', starts: [1, 3] },
+  ])('preserves the starting and resumed numbers in $starts', ({ answer, starts }) => {
+    render(<AnswerMarkdown>{answer}</AnswerMarkdown>)
+    expect(screen.getAllByRole('list').map(list => (list as HTMLOListElement).start)).toEqual(starts)
+  })
+
   test('uses parsed headings, including setext headings, without treating fenced code as structure', () => {
     const markdown = [
       '```md', '# Not a heading', '```', '',
@@ -87,10 +95,47 @@ describe('AnswerMarkdown', () => {
     expect(button.getAttribute('type')).toBe('button')
     fireEvent.click(button)
     expect(writeText).toHaveBeenCalledExactlyOnceWith(answer)
-    expect(screen.getByRole('button', { name: ANSWER_MARKDOWN_COPY.copying })).toHaveProperty('disabled', true)
+    expect(button).toHaveProperty('disabled', false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
     await act(async () => { completeCopy() })
     expect(screen.getByRole('status').textContent).toBe(ANSWER_MARKDOWN_COPY.copied)
     expect(screen.getByRole('button', { name: ANSWER_MARKDOWN_COPY.copy })).toHaveProperty('disabled', false)
+  })
+
+  test.each(['copied', 'failed'] as const)('preserves focus, blocks duplicate copies, and allows retry after %s', async outcome => {
+    let finishCopy!: () => void
+    const writeText = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finishCopy = () => { if (outcome === 'copied') resolve(); else reject(new Error('denied')) }
+    })).mockResolvedValue(undefined)
+    setClipboard({ writeText })
+    render(<AnswerMarkdown copyable>{headingFixture}</AnswerMarkdown>)
+    const button = screen.getByRole('button', { name: ANSWER_MARKDOWN_COPY.copy })
+    button.focus()
+    act(() => { button.click(); button.click() })
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(headingFixture)
+    expect(button).toHaveProperty('disabled', false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    await act(async () => { finishCopy() })
+    expect(document.activeElement).toBe(button)
+    expect(button.getAttribute('aria-disabled')).toBe('false')
+    expect(screen.getByRole('status').textContent).toBe(ANSWER_MARKDOWN_COPY[outcome])
+    await act(async () => { button.click() })
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('status').textContent).toBe(ANSWER_MARKDOWN_COPY.copied)
+  })
+
+  test('does not move focus back when the user leaves a pending copy', async () => {
+    let finishCopy!: () => void
+    setClipboard({ writeText: () => new Promise<void>(resolve => { finishCopy = resolve }) })
+    render(<><AnswerMarkdown copyable>{headingFixture}</AnswerMarkdown><a href="#details">Details</a></>)
+    const button = screen.getByRole('button', { name: ANSWER_MARKDOWN_COPY.copy })
+    button.focus()
+    fireEvent.click(button)
+    const nextControl = screen.getByRole('link')
+    nextControl.focus()
+    await act(async () => { finishCopy() })
+    expect(document.activeElement).toBe(nextControl)
   })
 
   test.each(['denied', 'unavailable'] as const)('keeps the answer available when clipboard access is %s', async failure => {
