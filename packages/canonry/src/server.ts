@@ -2508,6 +2508,7 @@ export async function createServer(opts: {
     });
   };
 
+  const providerModelCatalog = createProviderModelCatalog(registry);
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
@@ -2904,7 +2905,8 @@ export async function createServer(opts: {
       includeCanonryLocal: true,
     },
     providerSummary,
-    getProviderModels: createProviderModelCatalog(registry),
+    getProviderModels: providerModelCatalog,
+    getCachedProviderModels: providerModelCatalog.cached,
     providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map((a) => ({
       name: a.name,
       displayName: a.displayName,

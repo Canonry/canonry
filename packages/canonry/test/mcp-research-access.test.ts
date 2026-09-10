@@ -6,15 +6,18 @@ import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
+import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
 import { apiKeys, createClient, migrate, oauthClients, oauthTokens, projects, researchRuns, users } from '@ainyc/canonry-db'
+import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { ApiClient } from '../src/client.js'
 import { registerMcpHttpRoutes, type McpHttpOptions } from '../src/mcp-http.js'
+import { createProviderModelCatalog } from '../src/provider-model-catalog.js'
+import { ProviderRegistry } from '../src/provider-registry.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 
-async function harness(allowViewers = true) {
+async function harness(allowViewers = true, catalogOptions: Pick<ApiRoutesOptions, 'getProviderModels' | 'getCachedProviderModels'> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-mcp-research-'))
   const db = createClient(path.join(dir, 'test.db'))
   migrate(db)
@@ -37,6 +40,7 @@ async function harness(allowViewers = true) {
     onResearchRunRequested: dispatch,
     providerSummary: [{ name: 'openai', configured: true }],
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [], modelValidationPattern: /^gpt-[\w.-]+$/, modelValidationHint: 'gpt model' }],
+    ...catalogOptions,
     registerAuthenticatedRoutes: scope => registerMcpHttpRoutes(scope, mcpOptions),
   })
   await app.listen({ host: '127.0.0.1', port: 0 })
@@ -45,13 +49,26 @@ async function harness(allowViewers = true) {
   const origin = `http://127.0.0.1:${address.port}`
   mcpOptions.selfApiUrl = origin
   cleanups.push(async () => { await app.close(); db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })
-  async function connect(token: string, suffix = '') {
+  async function connectWithSession(token: string, suffix = '') {
     const client = new Client({ name: 'research-test', version: '1' })
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/api/v1/mcp${suffix}`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }))
+    const transport = new StreamableHTTPClientTransport(new URL(`${origin}/api/v1/mcp${suffix}`), { requestInit: { headers: { authorization: `Bearer ${token}` } } })
+    await client.connect(transport)
     cleanups.push(() => client.close())
-    return client
+    return { client, sessionId: transport.sessionId! }
   }
-  return { app, db, origin, connect, dispatch }
+  async function connect(token: string, suffix = '') {
+    return (await connectWithSession(token, suffix)).client
+  }
+  async function reuseSession(token: string, sessionId: string, method = 'POST') {
+    const response = await fetch(`${origin}/api/v1/mcp`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, 'mcp-session-id': sessionId, accept: 'application/json, text/event-stream', ...(method === 'POST' ? { 'content-type': 'application/json' } : {}) },
+      ...(method === 'POST' ? { body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('reused-session') } } }) } : {}),
+    })
+    await response.text()
+    return response.status
+  }
+  return { app, db, origin, connect, connectWithSession, reuseSession, dispatch }
 }
 
 function request(idempotencyKey: string) {
@@ -64,6 +81,77 @@ function content(result: Awaited<ReturnType<Client['callTool']>>) {
 }
 
 describe('research capability across the real MCP and REST boundary', () => {
+  it('follows help into research history without live provider discovery', async () => {
+    const listModels = vi.fn().mockResolvedValue([{ id: 'gpt-new', displayName: 'New GPT', tier: 'standard' }])
+    const registry = new ProviderRegistry()
+    registry.register({ ...openaiAdapter, listModels }, { provider: 'openai', apiKey: 'test-key', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 10, maxRequestsPerDay: 100 } })
+    const catalog = createProviderModelCatalog(registry)
+    const { connect, dispatch } = await harness(true, { getProviderModels: catalog, getCachedProviderModels: catalog.cached })
+    const mcp = await connect('oauth-read')
+    const help = content(await mcp.callTool({ name: 'canonry_help', arguments: { intent: 'research' } }))
+    expect(help.next).toContain('canonry_research_runs_list')
+    const history = content(await mcp.callTool({ name: 'canonry_research_runs_list', arguments: { project: 'demo' } }))
+    expect(history.runs).toEqual([])
+    expect(history.providers[0].knownModels.length).toBeGreaterThan(0)
+    expect(listModels).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+    // Simulate discovery performed by a separately authorized operation.
+    await catalog('openai')
+    const warmHistory = content(await mcp.callTool({ name: 'canonry_research_runs_list', arguments: { project: 'demo' } }))
+    expect(warmHistory.providers[0].knownModels).toContainEqual({ id: 'gpt-new', displayName: 'New GPT' })
+    expect(listModels).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['POST', 'GET', 'DELETE'])('binds OAuth sessions to the bearer, not the person, for %s', async method => {
+    const { db, connect, connectWithSession, reuseSession, dispatch } = await harness()
+    const { client: research, sessionId } = await connectWithSession('oauth-research')
+    const reader = await connect('oauth-read')
+    expect((await reader.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('read-only') } })).isError).toBe(true)
+    expect(await reuseSession('oauth-read', sessionId, method)).toBe(404)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(db.select().from(researchRuns).all()).toHaveLength(0)
+    // A foreign token must not close or alter the legitimate session.
+    expect((await research.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('authorized') } })).isError).not.toBe(true)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['revoked', 'expired'])('cannot revive a session with another token after the original is %s', async state => {
+    const { db, connectWithSession, reuseSession, dispatch } = await harness()
+    const { sessionId } = await connectWithSession('oauth-research')
+    db.update(oauthTokens).set(state === 'revoked'
+      ? { revokedAt: new Date().toISOString() }
+      : { expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where(eq(oauthTokens.tokenHash, hashApiKey('oauth-research'))).run()
+    expect(await reuseSession('oauth-research', sessionId)).toBe(401)
+    expect(await reuseSession('oauth-read', sessionId)).toBe(404)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(db.select().from(researchRuns).all()).toHaveLength(0)
+  })
+
+  it.each(['agent', 'other-agent'])('requires initialization for a replacement token from %s even with identical scopes', async clientId => {
+    const { db, connect, connectWithSession, reuseSession, dispatch } = await harness()
+    const { sessionId } = await connectWithSession('oauth-research')
+    const now = new Date().toISOString()
+    if (clientId !== 'agent') db.insert(oauthClients).values({ id: clientId, name: 'Other agent', redirectUris: ['https://other.example/callback'], createdAt: now }).run()
+    db.insert(oauthTokens).values({ tokenHash: hashApiKey('replacement'), kind: 'access', clientId, userId: 'analyst', resource: 'https://instance.example/api/v1/mcp', scope: 'read research.run', createdAt: now, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }).run()
+    expect(await reuseSession('replacement', sessionId)).toBe(404)
+    expect(dispatch).not.toHaveBeenCalled()
+    const replacement = await connect('replacement')
+    expect((await replacement.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('replacement') } })).isError).not.toBe(true)
+  })
+
+  it.each(['oauth-research', 'cnry_research'])('rejects stale session authority when %s scopes are narrowed', async token => {
+    const { db, connect, connectWithSession, reuseSession, dispatch } = await harness()
+    const { sessionId } = await connectWithSession(token)
+    if (token === 'oauth-research') db.update(oauthTokens).set({ scope: 'read' }).where(eq(oauthTokens.tokenHash, hashApiKey(token))).run()
+    else db.update(apiKeys).set({ scopes: ['read'] }).where(eq(apiKeys.id, token)).run()
+    expect(await reuseSession(token, sessionId)).toBe(404)
+    const narrowed = await connect(token)
+    expect((await narrowed.listTools()).tools.some(tool => tool.name === 'canonry_research_run_start')).toBe(false)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(db.select().from(researchRuns).all()).toHaveLength(0)
+  })
+
   it('runs, lists, and inspects research while sharing browser/API/MCP budgets and attribution', async () => {
     const { app, db, origin, connect, dispatch } = await harness()
     const mcp = await connect('oauth-research')

@@ -7,10 +7,11 @@ import { canRunResearch, requireResearchGrant } from './auth.js'
 import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
-import type { ProviderAdapterInfo, SettingsRoutesOptions } from './settings.js'
+import type { ProviderAdapterInfo } from './settings.js'
 
 export interface ResearchRoutesOptions {
-  getProviderModels?: SettingsRoutesOptions['getProviderModels']
+  /** Local cached/bundled choices only; must never discover models live. */
+  getCachedProviderModels?: (name: string) => ProviderAdapterInfo['knownModels']
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
   providerAdapters?: ProviderAdapterInfo[]
   configuredProviderNames?: readonly string[]
@@ -106,12 +107,12 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const runs = app.db.select().from(researchRuns).where(eq(researchRuns.projectId, project.id)).orderBy(desc(researchRuns.createdAt)).limit(limit).all().map(serializeRun)
     const configured = new Set(opts.configuredProviderNames ?? [])
     const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
-    const providers = await Promise.all((opts.providerAdapters ?? [])
+    const providers = (opts.providerAdapters ?? [])
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
-      .map(async adapter => {
+      .map(adapter => {
         const defaultModel = project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel
-        const discovered = opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
-        const models = discovered.length ? discovered : adapter.knownModels
+        const cached = opts.getCachedProviderModels?.(adapter.name) ?? []
+        const models = cached.length ? cached : adapter.knownModels
         return {
           name: adapter.name,
           displayName: adapter.displayName,
@@ -119,7 +120,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
           defaultModel,
           knownModels: [...new Map([{ id: defaultModel, displayName: defaultModel }, ...models].map(model => [model.id, { id: model.id, displayName: model.displayName }])).values()],
         }
-      }))
+      })
     const canRun = canRunResearch(request, opts.allowViewers ?? false)
     const limited = request.principal !== undefined && !request.principal.scopes.includes(WILDCARD_SCOPE)
     return { runs, providers, access: { canRun, dailyRunLimit: canRun && limited ? viewerDailyRunLimit : null } } satisfies ResearchRunListDto

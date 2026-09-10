@@ -143,6 +143,11 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 ### MCP adapter
 
+HTTP sessions bind the exact bearer and current effective scopes/project boundary,
+not a user ID alone. Changed credentials or authority require re-initialization.
+Research history uses the model catalog's cached-only read; live discovery stays
+out of stored-evidence workflows, including on cold or expired caches.
+
 Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 MCP is the universal guide; skills are optional upgrades. Initialization must

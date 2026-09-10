@@ -53,8 +53,8 @@ interface Segment {
 interface McpSession {
   transport: StreamableHTTPServerTransport
   close: () => Promise<void>
-  /** The api key id that created this session. A different key may not reuse it. */
-  keyId: string
+  /** Fingerprint of the bearer and effective authority that opened this session. */
+  authorizationId: string
   /** The endpoint that opened it. A session may not be replayed against a wider segment. */
   segmentId: string
   lastSeenAt: number
@@ -188,7 +188,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
 
   async function openSession(
     request: FastifyRequest,
-    keyId: string,
+    authorizationId: string,
     segment: Segment,
   ): Promise<McpSession | null> {
     const bearer = callerBearer(request)
@@ -238,7 +238,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id: string) => {
-        sessions.set(id, { transport, close, keyId, segmentId: segment.id, lastSeenAt: now() })
+        sessions.set(id, { transport, close, authorizationId, segmentId: segment.id, lastSeenAt: now() })
       },
     })
 
@@ -261,7 +261,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     }
 
     await server.connect(transport)
-    return { transport, close, keyId, segmentId: segment.id, lastSeenAt: now() }
+    return { transport, close, authorizationId, segmentId: segment.id, lastSeenAt: now() }
   }
 
   async function handle(
@@ -269,14 +269,28 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     reply: FastifyReply,
     segment: Segment,
   ): Promise<void> {
-    const keyId = request.principal?.id ?? request.apiKey?.id
-    if (!keyId) {
+    const principal = request.principal ?? request.apiKey
+    const bearer = callerBearer(request)
+    if (!principal || !bearer) {
       // The onSend hook above attaches the RFC 9728 challenge to any 401 on
       // this route, including this one. Reachable only when auth is skipped
       // entirely, since otherwise the auth hook rejects before we get here.
       await reply.status(401).send({ error: { code: 'AUTH_REQUIRED', message: 'Authentication required.' } })
       return
     }
+
+    // OAuth principal IDs identify people, not grants. Bind the actual bearer
+    // AND its current effective authority so another token for the same person
+    // cannot reuse the stronger internal credential captured by this session.
+    // Refreshes and scope/project changes require a new initialize (404 below).
+    // Store only a fingerprint, never another copy of the raw bearer.
+    const authorizationId = hashApiKey(JSON.stringify({
+      bearerHash: hashApiKey(bearer),
+      kind: request.principal?.kind ?? 'api-key',
+      id: principal.id,
+      scopes: [...new Set(principal.scopes)].sort(),
+      projectId: principal.projectId ?? null,
+    }))
 
     const sessionId = request.headers['mcp-session-id']
     const existing = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined
@@ -285,7 +299,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       // A session belongs to the credential that opened it. Without this a
       // leaked session id would let any authenticated caller ride another
       // caller's server — including its tool scope.
-      if (existing.keyId !== keyId || existing.segmentId !== segment.id) {
+      if (existing.authorizationId !== authorizationId || existing.segmentId !== segment.id) {
         await reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Unknown MCP session.' } })
         return
       }
@@ -301,7 +315,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       return
     }
 
-    const opened = await openSession(request, keyId, segment)
+    const opened = await openSession(request, authorizationId, segment)
     if (!opened) {
       await reply.status(401).send({ error: { code: 'AUTH_REQUIRED', message: 'Authentication required.' } })
       return

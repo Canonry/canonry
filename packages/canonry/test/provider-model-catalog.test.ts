@@ -10,6 +10,38 @@ const config = { provider: 'openai', apiKey: 'test-key', quotaPolicy: { maxConcu
 afterEach(() => vi.useRealTimers())
 
 describe('provider model catalog', () => {
+  it('reads bundled, cached, and expired choices without discovering models', async () => {
+    vi.useFakeTimers()
+    const listModels = vi.fn().mockResolvedValue(freshModels)
+    const registry = new ProviderRegistry()
+    registry.register({ ...openaiAdapter, listModels }, config)
+    const read = createProviderModelCatalog(registry)
+    expect(read.cached('missing')).toEqual([])
+    expect(read.cached('openai')).toEqual(oldModels)
+    expect(listModels).not.toHaveBeenCalled()
+    await read('openai')
+    expect(read.cached('openai')).toEqual(freshModels)
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(read.cached('openai')).toEqual(freshModels)
+    expect(listModels).toHaveBeenCalledTimes(1)
+    registry.register({ ...openaiAdapter, listModels }, { ...config, apiKey: 'another-key' })
+    expect(read.cached('openai')).toEqual(oldModels)
+    expect(listModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('never waits for in-flight discovery on a stored-only read', async () => {
+    vi.useFakeTimers()
+    const listModels = vi.fn(() => new Promise<never>(() => {}))
+    const registry = new ProviderRegistry()
+    registry.register({ ...openaiAdapter, listModels }, config)
+    const read = createProviderModelCatalog(registry)
+    const pending = read('openai')
+    expect(read.cached('openai')).toEqual(oldModels)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(await pending).toEqual(oldModels)
+    expect(listModels).toHaveBeenCalledTimes(1)
+  })
+
   it('coalesces requests, caches discovery, refreshes, and preserves last good data on failure', async () => {
     vi.useFakeTimers()
     const listModels = vi.fn().mockResolvedValue(freshModels)

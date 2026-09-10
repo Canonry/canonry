@@ -107,9 +107,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "canonry",
     path: "SKILL.md",
     title: "canonry skill",
-    description: "Navigate Canonry through connected MCP tools or the Canonry CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Optional host-native guidance; MCP users can operate through canonry_help without installing a skill.",
+    description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 6826,
+    characters: 6900,
     content: canonrySkillPart0,
   },
   {

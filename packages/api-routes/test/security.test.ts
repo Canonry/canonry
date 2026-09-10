@@ -405,7 +405,7 @@ test.each([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE])(
       payload: {},
     })
     expect(unrelated.statusCode).toBe(403)
-    expect(JSON.parse(unrelated.body).error.message).toContain('only perform OpenAI Ads')
+    expect(JSON.parse(unrelated.body).error.message).toContain('only perform operations explicitly granted by its scopes')
 
     const adsWrite = await app.inject({
       method: 'POST',

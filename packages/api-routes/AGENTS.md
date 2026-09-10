@@ -288,6 +288,8 @@ visibility/research work, sibling-project IDs, and any other run kind. Keep quer
 schedules, audit history, Site Health, backlinks, and usage accounting. Require an administrator
 session or `runs.write` key. `GET research/runs` also returns safe configured API model choices;
 never include credentials, quotas, or provider connection settings in that catalog.
+History reads use `getCachedProviderModels` or bundled choices, never the live
+`getProviderModels` callback. Cold or expired caches must not trigger discovery.
 
 ### Narrow research authority
 

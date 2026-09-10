@@ -96,13 +96,19 @@ Configure that key in the normal Canonry client config. Then use
 REST uses `POST /api/v1/projects/demo/research/runs` and the matching list/detail
 GET routes. Research history also returns safe provider/model choices and
 `access: { canRun, dailyRunLimit }`, so agents can discover their permission
-without trial runs.
+without trial runs. Model choices use the configured provider's cached catalog
+or bundled defaults; listing history never triggers or waits for live model
+discovery, including on a cold or expired cache.
 
 For hosted OAuth, request `read research.run` (optionally `offline_access`) and
 approve the research permission. Viewer accounts also require the deployment's
 `research.allowViewers` opt-in. Re-authorize existing connections with the new
 scope; a token approved for `read` remains read-only, including for admins.
 Current account authority is rechecked on every request.
+Each HTTP session is bound to its exact bearer token and effective scopes and
+project boundary, not just the signed-in account. A replacement/refreshed token
+or changed authority must initialize a new session; reuse returns HTTP 404.
+Revoked or expired tokens remain rejected by authentication.
 
 Use `/api/v1/mcp` or `/api/v1/mcp/x/discovery`. Authorized catalogs include
 `canonry_research_run_start`, `canonry_research_runs_list`, and

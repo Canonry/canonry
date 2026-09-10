@@ -4,39 +4,20 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 interface CanonrySkillFrontmatter {
-  compatibility?: unknown
-  metadata?: { agent?: unknown }
-}
-
-interface CanonryAgentMetadata {
-  requires?: { bins?: unknown }
-  install?: Array<{ package?: unknown; command?: unknown }>
+  description?: unknown
 }
 
 describe('canonry skill metadata', () => {
-  it('requires the global package and keeps initialization in the operator terminal', () => {
+  it('keeps connected MCP usable without a local runtime or installed skill', () => {
     const skillPath = fileURLToPath(new URL('../../../skills/canonry/SKILL.md', import.meta.url))
     const body = fs.readFileSync(skillPath, 'utf-8')
     const frontmatterMatch = /^---\n([\s\S]*?)\n---/.exec(body)
     expect(frontmatterMatch).not.toBeNull()
     const frontmatter = parse(frontmatterMatch![1]!) as CanonrySkillFrontmatter
-    expect(frontmatter.compatibility).toContain('Node.js 22.14+')
-    expect(typeof frontmatter.metadata?.agent).toBe('string')
-    const agent = JSON.parse(frontmatter.metadata!.agent as string) as CanonryAgentMetadata
-
-    expect(agent.requires?.bins).toEqual(['canonry'])
-    expect(agent.install).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        package: '@canonry/canonry',
-        command: 'npm install -g @canonry/canonry',
-      }),
-    ]))
-    expect(body).not.toContain('"command": "npx @canonry/canonry@latest init"')
-    expect(body).toContain('cnry bootstrap')
-    expect(body).toContain('Use `cnry init` only as an optional interactive first-time')
-    expect(agent.install).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ package: 'canonry' }),
-    ]))
+    expect(frontmatter.description).toContain('Use this optional host-native skill')
+    expect(body).toContain('MCP is the universal entry')
+    expect(body).toContain('Do not install a plugin, local runtime, or skill merely to use connected MCP.')
+    expect(frontmatter.description).toContain('without installing a local runtime or skill')
   })
 
   it('keeps agent site-readiness guidance score-first and uses overview only for crawl metadata', () => {
@@ -47,8 +28,8 @@ describe('canonry skill metadata', () => {
     const canonryReference = fs.readFileSync(canonryReferencePath, 'utf-8')
     const aeroReference = fs.readFileSync(aeroReferencePath, 'utf-8')
 
-    expect(canonrySkill).toContain('then `cnry technical-aeo score <project> --format json`')
-    expect(canonrySkill).toContain('only to add crawl metadata')
+    expect(canonrySkill).toContain('[CLI commands and JSON return shapes](references/canonry-cli.md)')
+    expect(canonrySkill).toContain('[Server-side traffic setup and diagnosis](references/server-side-traffic.md)')
     expect(canonryReference).toContain('begin with `cnry technical-aeo score <project> --format json`')
     expect(canonryReference).toContain('only to add crawl metadata')
     expect(aeroReference).toContain('then `cnry technical-aeo score <project> --format json` for site readiness')
@@ -65,8 +46,7 @@ describe('canonry skill metadata', () => {
     const canonryReference = fs.readFileSync(canonryReferencePath, 'utf-8')
     const trafficReference = fs.readFileSync(trafficReferencePath, 'utf-8')
 
-    expect(canonrySkill).toContain('queue-pull')
-    expect(canonrySkill).toContain('cnry traffic activate')
+    expect(canonrySkill).toContain('[Server-side traffic setup and diagnosis](references/server-side-traffic.md)')
     expect(aeroSkill).toContain('traffic.source.queue-backlog')
     expect(canonryReference).toContain('## Server-Side Traffic')
     expect(canonryReference).toContain('--delivery-mode queue-pull')
