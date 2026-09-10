@@ -1093,6 +1093,7 @@ export function MeasurementPropertyPage() {
                               variant="ghost"
                               className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
                               aria-expanded={expanded}
+                              aria-label={expanded ? `Hide the answer for ${item.queryText}` : `Read the answer for ${item.queryText}`}
                               aria-controls={expanded ? detailId : undefined}
                               onClick={() => setExpandedAnswers(current => {
                                 const next = new Set(current)
@@ -1100,7 +1101,7 @@ export function MeasurementPropertyPage() {
                                 return next
                               })}
                             >
-                              {expanded ? `Hide the answer for ${item.queryText}` : `Read the answer for ${item.queryText}`}
+                              {expanded ? 'Hide answer' : 'Read answer'}
                             </Button>
                           </td>
                         </tr>

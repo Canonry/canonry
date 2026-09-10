@@ -2299,8 +2299,7 @@
     .property-evidence-table > thead { @apply sr-only; }
     .property-answer-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .property-answer-summary > td { @apply px-3 py-2; min-width: 0; overflow-wrap: anywhere; }
-    .property-answer-summary > td:first-child,
-    .property-answer-summary > td:last-child { grid-column: 1 / -1; text-align: left; }
+    .property-answer-summary > td:first-child { grid-column: 1 / -1; text-align: left; }
     .property-answer-detail,
     .property-answer-detail > td { display: block; width: 100%; min-width: 0; }
     .property-answer-detail > td { @apply px-3 py-4; }
