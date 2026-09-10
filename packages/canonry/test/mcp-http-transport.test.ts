@@ -268,6 +268,40 @@ describe('MCP over OAuth', () => {
     expect(tools).not.toContain('canonry_measurement_query_template_upsert')
   })
 
+  it.each([
+    { method: 'POST', payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' } },
+    { method: 'POST', payload: { ...INIT, params: {} } },
+    { method: 'GET', payload: undefined },
+    { method: 'DELETE', payload: undefined },
+  ])('does not mint an OAuth session key for an invalid opening request ($method)', async ({ method, payload }) => {
+    const token = await mintAccessToken(built)
+    const response = await request(built, {
+      method,
+      url: '/api/v1/mcp',
+      headers: { authorization: `Bearer ${token}`, accept: MCP_ACCEPT },
+      payload,
+    })
+    expect(response.statusCode).toBe(400)
+    expect(built.sessionKeys()).toEqual([])
+    // A failed opening attempt must not poison a later valid initialization.
+    const valid = await initRequest(built, token)
+    expect(valid.statusCode).toBe(200)
+    expect(built.sessionKeys()).toEqual([{ scopes: ['read'], revokedAt: null }])
+  })
+
+  it('revokes the temporary OAuth key when the transport refuses initialization', async () => {
+    const token = await mintAccessToken(built)
+    const response = await request(built, {
+      method: 'POST',
+      url: '/api/v1/mcp',
+      // Valid initialize body, but an unsupported transport response format.
+      headers: { authorization: `Bearer ${token}`, accept: 'text/plain' },
+      payload: INIT,
+    })
+    expect(response.statusCode).toBe(406)
+    expect(built.sessionKeys().filter(key => key.revokedAt === null)).toEqual([])
+  })
+
   it('reports MCP availability without opening a session', async () => {
     const res = await request(built, { method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)

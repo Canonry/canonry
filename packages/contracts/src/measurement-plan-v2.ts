@@ -72,6 +72,8 @@ export const measurementV2TargetSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   label: z.string().trim().min(1),
   aliases: z.array(z.string().min(1)),
+  /** Explicit qualified identity phrases for names shared with other places/businesses. */
+  identityAliases: z.array(z.string().trim().min(1)).optional(),
   urlMatchers: z.array(measurementV2UrlMatcherSchema),
   /** An aliasless Target can be cited but never mentioned; the flag keeps that out of a 0% reading. */
   mentionNotApplicable: z.boolean(),
@@ -385,6 +387,7 @@ export function canonicalMeasurementPlanV2(plan: MeasurementPlanV2): Measurement
       .map(target => ({
         ...target,
         aliases: [...target.aliases].sort(compareText),
+        ...(target.identityAliases === undefined ? {} : { identityAliases: [...target.identityAliases].sort(compareText) }),
         urlMatchers: [...target.urlMatchers].sort((left, right) => compareText(matcherOrderKey(left), matcherOrderKey(right))),
       }))
       .sort((left, right) => compareText(left.stableKey, right.stableKey)),
@@ -461,6 +464,7 @@ export const measurementMetricUnavailableReasonSchema = z.enum([
   'plan_v1',
   'no_population',
   'evidence_incomplete',
+  'identity_ambiguous',
   'not_applicable',
 ])
 export type MeasurementMetricUnavailableReason = z.output<typeof measurementMetricUnavailableReasonSchema>

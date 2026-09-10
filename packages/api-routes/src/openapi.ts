@@ -1650,7 +1650,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/research/runs', summary: 'List saved research query batches', tags: ['research'],
-    parameters: [nameParameter, { name: 'limit', in: 'query', description: 'Max runs, default 20 and maximum 100.', schema: integerSchema }],
+    parameters: [nameParameter, { name: 'limit', in: 'query', description: 'Max runs, default 20 and maximum 100.', schema: integerSchema }, { name: 'cursor', in: 'query', description: 'Opaque cursor from the previous page.', schema: stringSchema }],
     responses: { 200: jsonResponse('Research runs returned newest first.', 'ResearchRunListDto'), 404: errorResponse('Project not found.') },
   },
   {

@@ -340,6 +340,15 @@ export function compileMeasurementDraft(
       aliasClaims.set(identity, target.stableKey)
     })
     const aliases = canonicalStrings(target.aliases)
+    const aliasKeys = aliases.map(measurementMentionAliasKey).filter(Boolean)
+    target.identityAliases?.forEach((identityAlias, index) => {
+      const identityKey = measurementMentionAliasKey(identityAlias)
+      const qualifiesAlias = aliasKeys.some(aliasKey => identityKey !== aliasKey
+        && (`\u0000${identityKey}\u0000`).includes(`\u0000${aliasKey}\u0000`))
+      if (!qualifiesAlias) {
+        sink.fail('target-identity-alias-unqualified', 'An identity phrase must include a Property alias and additional identifying context.', ['targets', targetIndex, 'identityAliases', index])
+      }
+    })
     if (aliases.length === 0) {
       sink.warn('target-without-aliases', `Target "${target.label}" has no aliases, so it can be cited but never mentioned.`, ['targets', targetIndex, 'aliases'])
     }
@@ -348,6 +357,7 @@ export function compileMeasurementDraft(
         stableKey: target.stableKey,
         label: target.label,
         aliases,
+        ...(target.identityAliases === undefined ? {} : { identityAliases: canonicalStrings(target.identityAliases) }),
         urlMatchers: matchers,
         mentionNotApplicable: aliases.length === 0,
         discoveryIdentity: target.discoveryIdentity ?? null,

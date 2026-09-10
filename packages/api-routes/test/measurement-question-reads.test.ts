@@ -352,13 +352,13 @@ describe('measurement question reads', () => {
     expect(final.body.truncated).toBe(false)
   })
 
-  it('filters frozen slots and makes an incomplete capture unknown rather than false', async () => {
+  it.each([true, null])('preserves partial source evidence as %s after filtering frozen slots', async expectedCitation => {
     const versionId = seedVersion(1)
     activate(versionId)
     const runId = seedRun(versionId)
     seedSnapshot(runId, 'exec-brand', 'openai', {
       captureStatus: 'partial',
-      citedUrls: ['https://northstar.example/locations/harbor/details'],
+      citedUrls: expectedCitation ? ['https://northstar.example/locations/harbor/details'] : [],
     })
 
     const { status, body } = await questions('targetKey=harbor&queryClass=branded&provider=openai&location=Harbor&limit=1')
@@ -371,7 +371,7 @@ describe('measurement question reads', () => {
       class: 'branded',
       resultId: expect.any(String),
       mentioned: true,
-      cited: null,
+      cited: expectedCitation,
     })
   })
 
@@ -580,7 +580,7 @@ describe('targetMentionedInAnswer', () => {
     expect(targetMentionedInAnswer(null, 'harbor', targets)).toBeNull()
     expect(targetMentionedInAnswer('Harbor Homes is open.', 'harbor', targets)).toBe(true)
     expect(targetMentionedInAnswer('Harbor Homes is open.', 'bayside', targets)).toBe(false)
-    expect(targetMentionedInAnswer('Harbor is open.', 'harbor', targets)).toBe(false)
-    expect(targetMentionedInAnswer('Harbor is open.', 'bayside', targets)).toBe(false)
+    expect(targetMentionedInAnswer('Harbor is open.', 'harbor', targets)).toBeNull()
+    expect(targetMentionedInAnswer('Harbor is open.', 'bayside', targets)).toBeNull()
   })
 })

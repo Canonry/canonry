@@ -298,9 +298,9 @@ describe('measurement portfolio reads', () => {
     expect(status).toBe(200)
     expect(body.weakestProperties).toHaveLength(1)
     expect(portfolioReadWork.evaluatorBuilds).toBe(1)
-    // One non-brand execution is shared by both Properties on two providers.
-    // A limit of one therefore reads two target-answer states, not all four.
-    expect(portfolioReadWork.targetMentionChecks).toBe(2)
+    // Recommendation rows reuse the already prepared per-target tri-state,
+    // including identity uncertainty, without repeating lexical attribution.
+    expect(portfolioReadWork.targetMentionChecks).toBe(0)
   })
 
   it('scopes each market to its own members, worst-first, and agrees with a group-scoped read', async () => {

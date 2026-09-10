@@ -125,7 +125,7 @@ export const visibilityReportRateSchema = z.object({
   numerator: z.number().int().nonnegative().nullable(),
   denominator: z.number().int().nonnegative().nullable(),
   rate: z.number().min(0).max(1).nullable(),
-  reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'not-applicable']).optional(),
+  reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'identity-ambiguous', 'not-applicable']).optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
@@ -250,6 +250,7 @@ export const visibilityReportEvidenceRowSchema = z.object({
   location: z.string().nullable(),
   targetKeys: z.array(nonBlankIdSchema),
   mentioned: z.boolean().nullable(),
+  mentionUnavailableReason: z.literal('identity-ambiguous').optional(),
   cited: z.boolean().nullable(),
   /** Present only for a query-key detail reading; aggregate listings never return answer bodies. */
   answerText: z.string().nullable(),

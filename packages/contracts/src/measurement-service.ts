@@ -161,6 +161,7 @@ export type MeasurementUsageEdgeType = z.infer<typeof measurementUsageEdgeTypeSc
 export const measurementMetricReasonSchema = z.enum([
   'incomplete',
   'evidence-incomplete',
+  'identity-ambiguous',
   'no-population',
   'aliasless',
   'no-competitors',

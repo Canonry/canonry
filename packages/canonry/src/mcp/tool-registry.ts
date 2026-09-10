@@ -892,6 +892,7 @@ const researchRunStartInputSchema = z.object({
 const researchRunsListInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(100).optional().describe('Max saved research runs returned. Default 20.'),
+  cursor: z.string().min(1).optional().describe('Opaque cursor from the previous page.'),
 })
 
 const researchBatchStartInputSchema = z.object({
@@ -2865,7 +2866,7 @@ export const canonryMcpTools = [
     inputSchema: researchRunsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/research/runs'],
-    handler: (client, input) => client.listResearchRuns(input.project, input.limit === undefined ? undefined : { limit: input.limit }),
+    handler: (client, input) => client.listResearchRuns(input.project, input.limit === undefined && input.cursor === undefined ? undefined : { limit: input.limit, cursor: input.cursor }),
   }),
   defineTool({
     name: 'canonry_research_run_get',

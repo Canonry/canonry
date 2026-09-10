@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Play, RefreshCw } from 'lucide-react'
 import {
   MAX_RESEARCH_BATCH_QUERIES,
@@ -17,6 +17,7 @@ import {
   type ResearchRunScope,
   type ResearchBatchDto,
   type ResearchBatchCreate,
+  type ResearchTemplateSelection,
   type VisibilityReportScopeOption,
 } from '@ainyc/canonry-contracts'
 
@@ -24,7 +25,7 @@ import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
-  getApiV1ProjectsByNameResearchRunsOptions,
+  getApiV1ProjectsByNameResearchRunsInfiniteOptions,
   getApiV1SettingsOptions,
   getApiV1ProjectsByNameMeasurementQueryTemplatesQueryKey,
   postApiV1ProjectsByNameResearchBatchesMutation,
@@ -53,6 +54,10 @@ export const RESEARCH_COPY = {
   runAction: 'Run queries',
   savedNote: 'Saved separately from tracked queries and AI Visibility metrics.',
   historyTitle: 'Research history',
+  historyMore: 'Load older runs',
+  historyLoading: 'Loading older runs…',
+  historyMoreError: 'Could not load older research. Try again.',
+  resultsTitle: 'Research results',
   emptyHistory: 'No saved research.',
   resultsEmpty: 'Choose a saved run.',
   methodologySummary: 'How matching works',
@@ -113,17 +118,23 @@ export function ResearchQueriesSection({
     enabled: !limitedAccess,
     staleTime: 60_000,
   })
-  const runsQuery = useQuery({
-    ...getApiV1ProjectsByNameResearchRunsOptions({
-      client: heyClient,
-      path: { name: projectName },
-      query: { limit: 20 },
-    }),
-    refetchInterval: (query) => query.state.data?.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status)) ? 3000 : false,
+  const historyInput = { client: heyClient, path: { name: projectName }, query: { limit: 20 } }
+  const runsQuery = useInfiniteQuery({
+    ...getApiV1ProjectsByNameResearchRunsInfiniteOptions(historyInput),
+    initialData: undefined,
+    initialPageParam: historyInput,
+    getNextPageParam: lastPage => lastPage.nextCursor
+      ? { path: historyInput.path, query: { ...historyInput.query, cursor: lastPage.nextCursor } }
+      : undefined,
+    refetchInterval: query => query.state.data?.pages.some(page => page.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status))) ? 3000 : false,
   })
-  const runs = runsQuery.isError ? [] : runsQuery.data?.runs ?? []
-  const canRun = runsQuery.data?.access?.canRun ?? (canWrite || isViewerResearch)
-  const dailyRunLimit = runsQuery.data?.access ? runsQuery.data.access.dailyRunLimit : (isViewerResearch ? viewerResearchConfig.viewerDailyRunLimit : null)
+  // An older-page failure must leave loaded history and the selected answer usable.
+  // Failed authoritative refreshes still close the Research admission UI.
+  const historyError = runsQuery.isError && !runsQuery.isFetchNextPageError
+  const historyPolicy = runsQuery.data?.pages.at(-1)
+  const runs = historyError ? [] : [...new Map((runsQuery.data?.pages.flatMap(page => page.runs) ?? []).map(run => [run.id, run])).values()]
+  const canRun = historyPolicy?.access?.canRun ?? (canWrite || isViewerResearch)
+  const dailyRunLimit = historyPolicy?.access ? historyPolicy.access.dailyRunLimit : (isViewerResearch ? viewerResearchConfig.viewerDailyRunLimit : null)
 
   useEffect(() => {
     if (!selectedRunId && runs[0]) setSelectedRunId(runs[0].id)
@@ -135,19 +146,19 @@ export function ResearchQueriesSection({
       client: heyClient,
       path: { name: projectName, runId: selectedRunId ?? '' },
     }),
-    enabled: !runsQuery.isError && Boolean(selectedRunId),
+    enabled: !historyError && Boolean(selectedRunId),
     refetchInterval: selectedRun && ACTIVE_RESEARCH_STATUSES.has(selectedRun.status) ? 3000 : false,
   })
-  const detail = runsQuery.isError || detailQuery.isError ? null : detailQuery.data ?? null
+  const detail = historyError || detailQuery.isError ? null : detailQuery.data ?? null
 
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
-    if (limitedAccess) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
+    if (limitedAccess) return (historyPolicy?.providers ?? []).map(item => ({ ...item, catalog: item }))
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
     return (settingsQuery.data?.providers ?? [])
       .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
-  }, [limitedAccess, runsQuery.data?.providers, settingsQuery.data])
+  }, [limitedAccess, historyPolicy?.providers, settingsQuery.data])
   const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
@@ -203,7 +214,7 @@ export function ResearchQueriesSection({
           key={`${projectName}:${composerVersion}`}
           projectName={projectName}
           canWrite={canWrite}
-          researchAllowed={canRun && !runsQuery.isError}
+          researchAllowed={canRun && !historyError}
           limitedAccess={limitedAccess}
           isEmbed={isEmbed()}
           scopeOptions={scopeOptions ?? []}
@@ -224,12 +235,12 @@ export function ResearchQueriesSection({
           model={model}
           onModelChange={setModel}
           modelOptions={modelOptions}
-          settingsReady={limitedAccess ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
+          settingsReady={limitedAccess ? !runsQuery.isPending && !historyError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
           projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
           isPending={researchMutation.isPending}
           errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
           onSubmit={(body, fingerprint) => {
-            if (!canRun || runsQuery.isError || isEmbed() || submitInFlight.current) return
+            if (!canRun || historyError || isEmbed() || submitInFlight.current) return
             if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
             submitInFlight.current = true
             researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
@@ -238,7 +249,7 @@ export function ResearchQueriesSection({
         {dailyRunLimit !== null && <p className="text-sm text-secondary">Up to {dailyRunLimit} destination runs per project per day.</p>}
         {!limitedAccess && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
         {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-        {!(limitedAccess ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
+        {!(limitedAccess ? historyError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
         {createdRuns.length > 0 && <p role="status" className="text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{run.scope?.label ?? 'Whole site'}{run.location ? `, ${run.location.label}` : ', No location'}</a></span>)}</p>}
 
         <Card className="surface-card min-w-0">
@@ -248,7 +259,7 @@ export function ResearchQueriesSection({
             </div>
             {runsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
           </div>
-          {runsQuery.isError ? <div role="alert" className="mt-4 text-sm text-negative"><p>Could not load research history.</p><Button variant="outline" onClick={() => { void runsQuery.refetch() }}>Retry history</Button></div> : runsQuery.isPending ? <p role="status">Loading research history…</p> : runs.length === 0 ? (
+          {historyError ? <div role="alert" className="mt-4 text-sm text-negative"><p>Could not load research history.</p><Button variant="outline" onClick={() => { void runsQuery.refetch() }}>Retry history</Button></div> : runsQuery.isPending ? <p role="status">Loading research history…</p> : runs.length === 0 ? (
             <p className="mt-4 text-sm text-muted">{RESEARCH_COPY.emptyHistory}</p>
           ) : (
             <div className="mt-4 overflow-x-auto">
@@ -269,16 +280,18 @@ export function ResearchQueriesSection({
               </table>
             </div>
           )}
+          {runsQuery.isFetchNextPageError && <p role="alert" className="mt-3 text-sm text-negative">{RESEARCH_COPY.historyMoreError}</p>}
+          {runsQuery.hasNextPage && <Button className="mt-3" variant="outline" disabled={runsQuery.isFetching} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : RESEARCH_COPY.historyMore}</Button>}
         </Card>
       </div>
 
-      {!runsQuery.isError && detailQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !runsQuery.isError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={onReviewForTracking} /> : null}
+      {!historyError && detailQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={onReviewForTracking} /> : null}
     </div>
   )
 }
 
 type ResearchMode = 'once' | 'markets' | 'properties' | 'locations'
-type PreviewRow = { id: string; query: string; scope: ResearchRunScope | null; location: LocationContext | null }
+type PreviewRow = { id: string; query: string; scope: ResearchRunScope | null; location: LocationContext | null; template?: ResearchTemplateSelection }
 type ResearchDestination = VisibilityReportScopeOption & { kind: 'market' | 'property' }
 type ComposerProps = {
   projectName: string
@@ -397,13 +410,14 @@ function ResearchBatchComposer(props: ComposerProps) {
   const buildRequest = (): Omit<ResearchBatchCreate, 'idempotencyKey'> => ({ runs: groups.map(group => ({
     queries: group.queries, provider, model: resolvedModel!, location: group.location,
     ...(group.scope ? { scope: { kind: group.scope.kind, key: group.scope.key, expectedPlanRevision: group.scope.planRevision } } : {}),
-    ...(selectedTemplate ? { template: { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } } : {}),
+    ...(group.template ? { template: group.template } : {}),
   })) })
   const createPreview = () => {
     setShowErrors(true)
     if (setupErrors.length) return
     const nextRows = contexts.flatMap((context, contextIndex) => sourceLines.map((line, lineIndex): PreviewRow => ({
       id: `${contextIndex}:${lineIndex}`, scope: context!.scope, location: context!.location!,
+      ...(selectedTemplate ? { template: { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version, bindingLocation: context!.location! } } : {}),
       query: expandResearchTemplate({ pattern: line, variables: [...new Set([...line.matchAll(/\{([^{}]+)\}/g)].map(match => match[1]!))] }, context!.scope, context!.location).output,
     })))
     setPreview({ signature, rows: nextRows })
@@ -556,10 +570,10 @@ function InlineErrors({ errors }: { errors: readonly string[] }) {
   return <div role="alert" className="text-sm text-negative"><ul className="list-disc space-y-1 pl-5">{errors.map(error => <li key={error}>{error}</li>)}</ul></div>
 }
 function groupPreviewRows(rows: readonly PreviewRow[]) {
-  const groups = new Map<string, { scope: ResearchRunScope | null; location: LocationContext | null; queries: string[] }>()
+  const groups = new Map<string, { scope: ResearchRunScope | null; location: LocationContext | null; queries: string[]; template?: ResearchTemplateSelection }>()
   for (const row of rows) {
-    const key = JSON.stringify({ scope: row.scope, location: row.location })
-    const group = groups.get(key) ?? { scope: row.scope, location: row.location, queries: [] }
+    const key = JSON.stringify({ scope: row.scope, location: row.location, template: row.template })
+    const group = groups.get(key) ?? { scope: row.scope, location: row.location, queries: [], ...(row.template ? { template: row.template } : {}) }
     group.queries.push(row.query)
     groups.set(key, group)
   }
@@ -583,7 +597,7 @@ function ResearchRunDetail({
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
 
   return (
-    <Card id={detail ? `research-run-${detail.id}` : undefined} className="surface-card min-w-0" role="region" aria-label="Research results">
+    <Card id={detail ? `research-run-${detail.id}` : undefined} className="surface-card min-w-0" role="region" aria-label={RESEARCH_COPY.resultsTitle}>
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>

@@ -23,6 +23,7 @@ export type MeasurementUrlMatchMode = 'exact' | 'prefix' | 'host'
 export type MeasurementMetricReason =
   | 'incomplete'
   | 'evidence-incomplete'
+  | 'identity-ambiguous'
   | 'no-population'
   | 'aliasless'
   | 'no-competitors'
@@ -40,6 +41,8 @@ export interface MeasurementTargetInput {
   id: string
   label: string
   aliases: readonly string[]
+  /** Explicit, revision-frozen qualified names. Absent preserves legacy aliases. */
+  identityAliases?: readonly string[]
   urls: readonly MeasurementTargetUrlInput[]
 }
 
@@ -368,6 +371,8 @@ interface PreparedObservation {
   sourceComplete: boolean
   sourceUrls: string[]
   mentionedTargetIds: ReadonlySet<string>
+  unknownMentionTargetIds: ReadonlySet<string>
+  citedTargetIds: ReadonlySet<string>
 }
 
 interface PreparedReport {
@@ -562,7 +567,9 @@ export function normalizeMeasurementLocation(value: string | null): string | nul
 }
 
 function words(value: string): string[] {
-  return value.normalize('NFKC').toLocaleLowerCase('en').match(/[\p{L}\p{N}]+/gu) ?? []
+  // Unicode's default lowercasing is locale-independent and matches the en
+  // mapping used here; avoid invoking locale resolution for every answer.
+  return value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 }
 
 /** The exact token identity used when deciding whether two Target aliases are ambiguous. */
@@ -611,10 +618,12 @@ function indexMentionAliases(aliases: readonly MentionAlias[]): ReadonlyMap<stri
 function mentionedTargetsForAliases(
   answerText: string | null,
   aliases: ReadonlyMap<string, readonly MentionAlias[]>,
-): ReadonlySet<string> {
+  preparedWords?: readonly string[],
+): { mentioned: Set<string>; unknown: Set<string> } {
   const result = new Set<string>()
-  if (answerText === null) return result
-  const textWords = words(answerText)
+  const unknown = new Set<string>()
+  if (answerText === null) return { mentioned: result, unknown }
+  const textWords = preparedWords ?? words(answerText)
 
   for (let start = 0; start < textWords.length;) {
     const matches = (aliases.get(textWords[start]!) ?? []).filter(alias => aliasMatchesAt(textWords, alias.words, start))
@@ -625,13 +634,58 @@ function mentionedTargetsForAliases(
     const longest = Math.max(...matches.map(match => match.words.length))
     const owners = sortedUnique(matches.filter(match => match.words.length === longest).map(match => match.targetId))
     if (owners.length === 1) result.add(owners[0]!)
+    else for (const owner of owners) unknown.add(owner)
     start += longest
   }
-  return result
+  for (const owner of result) unknown.delete(owner)
+  return { mentioned: result, unknown }
 }
 
-function mentionedTargets(answerText: string | null, targets: readonly MeasurementTargetInput[]): ReadonlySet<string> {
-  return mentionedTargetsForAliases(answerText, indexMentionAliases(compiledMentionAliases(targets)))
+/** Only explicit identity uncertainty is inferred for old revisions: no guessed geography. */
+function identityAmbiguityPatterns(aliases: readonly string[]) {
+  const patterns = aliases.flatMap(alias => {
+    const name = words(alias).join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    if (!name) return []
+    // The input is normalized tokens joined by spaces. Space/end boundaries
+    // also support names whose final token is not an ASCII word character.
+    return [{
+      clarification: new RegExp(`(?:^| )which (?:specific )?${name} (?:(?:(?:do|did) )?you mean|(?:(?:are|were) you|you(?: re| are| were)?) (?:asking about|referring to|talking about))(?= |$)`, 'u'),
+      multipleEntities: [new RegExp(`(?:^| )${name} (?:turns out to |can |could |may )?refers? to (?:a )?(?:few |several |multiple |different )`, 'u'),
+      new RegExp(`(?:^| )${name} is (?:a |the )?name shared by(?= |$)`, 'u'),
+      new RegExp(`(?:^| )(?:several|multiple|different) (?:places|properties|businesses|communities|entities) (?:called|named) ${name}(?= |$)`, 'u')],
+    }]
+  })
+  return {
+    clarification: patterns.map(pattern => pattern.clarification),
+    multipleEntities: patterns.flatMap(pattern => pattern.multipleEntities),
+  }
+}
+
+function resolveMentionIdentity(
+  text: string | null,
+  targets: readonly MeasurementTargetInput[],
+  aliases: ReadonlyMap<string, readonly MentionAlias[]>,
+  citedTargetIds: ReadonlySet<string>,
+  ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)])),
+) {
+  const textWords = text === null ? [] : words(text)
+  const state = mentionedTargetsForAliases(text, aliases, textWords)
+  if (text === null) return state
+  const normalized = textWords.join(' ')
+  for (const target of targets) {
+    if (!state.mentioned.has(target.id)) continue
+    // Repeating a name in a clarification question does not resolve identity.
+    // A multi-entity discussion can still identify this Property through its
+    // own source URL or an explicitly configured qualified identity phrase.
+    const patterns = ambiguityPatterns.get(target.id)
+    const qualified = citedTargetIds.has(target.id)
+      || ((target.identityAliases?.length ?? 0) > 0 && containsAnyAlias(text, target.identityAliases!))
+    const unresolved = patterns?.clarification.some(pattern => pattern.test(normalized))
+      || (!qualified && (patterns?.multipleEntities.some(pattern => pattern.test(normalized))
+        || (target.identityAliases?.length ?? 0) > 0))
+    if (unresolved) { state.mentioned.delete(target.id); state.unknown.add(target.id) }
+  }
+  return state
 }
 
 /**
@@ -647,7 +701,8 @@ export function targetMentionedInAnswer(
   targets: readonly MeasurementTargetInput[],
 ): boolean | null {
   if (answerText === null) return null
-  return mentionedTargets(answerText, targets).has(targetId)
+  const state = resolveMentionIdentity(answerText, targets, indexMentionAliases(compiledMentionAliases(targets)), new Set())
+  return state.unknown.has(targetId) ? null : state.mentioned.has(targetId)
 }
 
 function observationSource(observation: MeasurementObservationInput): {
@@ -672,6 +727,7 @@ function observationSource(observation: MeasurementObservationInput): {
 function prepareReport(
   input: MeasurementReportInput,
   options: MeasurementPreparationBuildOptions = {},
+  detailedEvidence = true,
 ): PreparedReport {
   const ambiguous = new Set<string>()
   const unmatched = new Set<string>()
@@ -683,15 +739,22 @@ function prepareReport(
   // answer while preserving the same longest/ambiguous matching algorithm.
   const mentionAliases = compiledMentionAliases(input.targets)
   const aliasesByFirstWord = indexMentionAliases(mentionAliases)
+  const ambiguityPatterns = new Map(input.targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)]))
+  const slotsByIdentity = new Map<string, MeasurementExpectedSlotInput[]>()
+  const slotsByLegacyIdentity = new Map<string, MeasurementExpectedSlotInput[]>()
+  for (const slot of input.expectedSlots) {
+    for (const [index, key] of [
+      [slotsByIdentity, JSON.stringify([slot.executionId, slot.provider])],
+      [slotsByLegacyIdentity, JSON.stringify([slot.queryText, slot.provider, normalizeMeasurementLocation(slot.location)])],
+    ] as const) {
+      const slots = index.get(key) ?? []; slots.push(slot); index.set(key, slots)
+    }
+  }
 
   for (const observation of input.observations) {
-    const slots = observation.executionId !== null
-      ? input.expectedSlots.filter(slot => slot.executionId === observation.executionId && slot.provider === observation.provider)
-      : input.expectedSlots.filter(slot => (
-        slot.queryText === observation.queryText
-        && slot.provider === observation.provider
-        && normalizeMeasurementLocation(slot.location) === normalizeMeasurementLocation(observation.location)
-      ))
+    const slots = (observation.executionId !== null
+      ? slotsByIdentity.get(JSON.stringify([observation.executionId, observation.provider]))
+      : slotsByLegacyIdentity.get(JSON.stringify([observation.queryText, observation.provider, normalizeMeasurementLocation(observation.location)]))) ?? []
     if (slots.length === 0) {
       unmatched.add(observation.id)
       continue
@@ -729,7 +792,9 @@ function prepareReport(
       historical: source.historical,
       sourceComplete: source.complete,
       sourceUrls: source.urls,
-      mentionedTargetIds: mentionedTargetsForAliases(observation.answerText, aliasesByFirstWord),
+      mentionedTargetIds: new Set(),
+      unknownMentionTargetIds: new Set(),
+      citedTargetIds: new Set(),
     })
   }
 
@@ -765,6 +830,15 @@ function prepareReport(
     mentionAliases.map(alias => alias.targetId),
   )
   for (const observation of observationsBySlot.values()) {
+    const citedTargetIds = new Set(observation.sourceUrls.flatMap(url => {
+      const source = sourceAttribution(url)
+      return source.classification === 'matched' ? source.matchedTargetIds : []
+    }))
+    const mentions = resolveMentionIdentity(observation.input.answerText, input.targets, aliasesByFirstWord, citedTargetIds, ambiguityPatterns)
+    observation.mentionedTargetIds = mentions.mentioned
+    observation.unknownMentionTargetIds = mentions.unknown
+    observation.citedTargetIds = citedTargetIds
+    if (!detailedEvidence) continue
     const edges = [...(edgesByExecution.get(observation.slot.executionId) ?? [])]
       .sort((left, right) => compareText(left.id, right.id))
     for (const edge of edges) {
@@ -851,6 +925,19 @@ function prepareReport(
       unmatchedObservationIds: sortedUnique([...unmatched]),
     },
   }
+}
+
+/** Compact projection of the same attribution kernel, without per-edge source rows. */
+export function buildMeasurementObservationSignals(input: MeasurementReportInput) {
+  const prepared = prepareReport(input, {}, false)
+  return [...prepared.observationsBySlot.values()].map(observation => ({
+    observationId: observation.input.id,
+    mentionedTargetIds: [...observation.mentionedTargetIds],
+    unknownMentionTargetIds: [...observation.unknownMentionTargetIds],
+    citedTargetIds: [...observation.citedTargetIds],
+    sourceComplete: observation.sourceComplete,
+    sourceUrls: observation.sourceUrls,
+  }))
 }
 
 function slotsForEdges(
@@ -956,6 +1043,9 @@ function mentionRate(
   const status = completeness(slots, prepared)
   if (!status.complete || !status.answerComplete) {
     return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
+  }
+  if (slots.some(slot => prepared.observationsBySlot.get(slot.id)?.unknownMentionTargetIds.has(target.id))) {
+    return unavailable('identity-ambiguous')
   }
   return { numerator, denominator: slots.length, rate: numerator / slots.length }
 }
@@ -1087,6 +1177,7 @@ interface MeasurementOverviewIndexes {
   answeredSlotIds: ReadonlySet<string>
   sourceCompleteSlotIds: ReadonlySet<string>
   mentionedSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
+  unknownMentionSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
   assignedSlotIdsByEdgeId: ReadonlyMap<string, ReadonlySet<string>>
   ambiguousEvidenceKeysByTargetId: ReadonlyMap<string, ReadonlySet<string>>
 }
@@ -1128,12 +1219,16 @@ function buildMeasurementOverviewIndexes(
   const answeredSlotIds = new Set<string>()
   const sourceCompleteSlotIds = new Set<string>()
   const mentionedSlotIdsByTargetId = new Map<string, Set<string>>()
+  const unknownMentionSlotIdsByTargetId = new Map<string, Set<string>>()
   for (const [slotId, observation] of prepared.observationsBySlot) {
     if (observation.sourceComplete) sourceCompleteSlotIds.add(slotId)
     if (observation.input.answerText === null) continue
     answeredSlotIds.add(slotId)
     for (const targetId of observation.mentionedTargetIds) {
       addToSet(mentionedSlotIdsByTargetId, targetId, slotId)
+    }
+    for (const targetId of observation.unknownMentionTargetIds) {
+      addToSet(unknownMentionSlotIdsByTargetId, targetId, slotId)
     }
   }
 
@@ -1164,6 +1259,7 @@ function buildMeasurementOverviewIndexes(
     answeredSlotIds,
     sourceCompleteSlotIds,
     mentionedSlotIdsByTargetId,
+    unknownMentionSlotIdsByTargetId,
     assignedSlotIdsByEdgeId,
     ambiguousEvidenceKeysByTargetId,
   }
@@ -1216,6 +1312,7 @@ function mentionedForEdge(
   if (edge.type !== 'target') return null
   if (observation.input.answerText === null) return null
   if (!mentionableIds.has(edge.targetId)) return null
+  if (observation.unknownMentionTargetIds.has(edge.targetId)) return null
   return observation.mentionedTargetIds.has(edge.targetId)
 }
 
@@ -1234,17 +1331,23 @@ function scopeMentionRate(
   slots: readonly MeasurementExpectedSlotInput[],
   answered: readonly MeasurementExpectedSlotInput[],
   prepared: PreparedReport,
+  edges: readonly MeasurementTargetUsageEdge[],
 ): MeasurementRate {
   const mentionable = mentionableTargets(input, targetIds)
   if (mentionable.length === 0) return unavailable('aliasless')
   if (slots.length === 0) return unavailable('no-population')
   if (answered.length === 0) return unavailable('evidence-incomplete')
 
-  const ids = mentionable.map(target => target.id)
-  const numerator = answered.filter(slot => {
-    const mentioned = prepared.observationsBySlot.get(slot.id)?.mentionedTargetIds
-    return mentioned !== undefined && ids.some(id => mentioned.has(id))
-  }).length
+  const mentionableIds = new Set(mentionable.map(target => target.id))
+  const idsByExecution = new Map<string, Set<string>>()
+  for (const edge of edges) if (mentionableIds.has(edge.targetId)) addToSet(idsByExecution, edge.executionId, edge.targetId)
+  let numerator = 0
+  for (const slot of answered) {
+    const observation = prepared.observationsBySlot.get(slot.id)!
+    const ids = [...(idsByExecution.get(slot.executionId) ?? [])]
+    if (ids.some(id => observation.mentionedTargetIds.has(id))) numerator++
+    else if (ids.some(id => observation.unknownMentionTargetIds.has(id))) return unavailable('identity-ambiguous')
+  }
   return { numerator, denominator: answered.length, rate: numerator / answered.length }
 }
 
@@ -1277,6 +1380,8 @@ function targetMentionRate(
   if (answered.length === 0) return unavailable('evidence-incomplete')
 
   const mentioned = indexes.mentionedSlotIdsByTargetId.get(mentionable[0]!.id) ?? new Set<string>()
+  const unknown = indexes.unknownMentionSlotIdsByTargetId.get(mentionable[0]!.id)
+  if (unknown && answered.some(slot => unknown.has(slot.id))) return unavailable('identity-ambiguous')
   const numerator = answered.filter(slot => mentioned.has(slot.id)).length
   return { numerator, denominator: answered.length, rate: numerator / answered.length }
 }
@@ -1316,17 +1421,21 @@ function scopePropertiesMentioned(
   targetIds: ReadonlySet<string>,
   slots: readonly MeasurementExpectedSlotInput[],
   answered: readonly MeasurementExpectedSlotInput[],
-  prepared: PreparedReport,
+  indexes: MeasurementOverviewIndexes,
 ): MeasurementRate {
   const mentionable = mentionableTargets(input, targetIds)
   if (mentionable.length === 0) return unavailable('aliasless')
   if (slots.length === 0) return unavailable('no-population')
   if (answered.length === 0) return unavailable('evidence-incomplete')
 
-  const mentioned = new Set(answered.flatMap(slot => (
-    [...(prepared.observationsBySlot.get(slot.id)?.mentionedTargetIds ?? [])]
-  )))
-  const numerator = mentionable.filter(target => mentioned.has(target.id)).length
+  let numerator = 0
+  for (const target of mentionable) {
+    const own = indexedSlotsForEdges(indexes.targetEdgesByTargetId.get(target.id) ?? [], indexes)
+    const mentioned = indexes.mentionedSlotIdsByTargetId.get(target.id)
+    if (mentioned && own.some(slot => mentioned.has(slot.id))) { numerator++; continue }
+    const unknown = indexes.unknownMentionSlotIdsByTargetId.get(target.id)
+    if (unknown && own.some(slot => unknown.has(slot.id))) return unavailable('identity-ambiguous')
+  }
   return { numerator, denominator: mentionable.length, rate: numerator / mentionable.length }
 }
 
@@ -1406,8 +1515,8 @@ export function createMeasurementOverviewEvaluator(
         answeredSlots: answered.length,
         includesHistoricalData: prepared.diagnostics.bridgedObservationIds.length > 0
           || prepared.diagnostics.historicalObservationIds.length > 0,
-        propertiesMentioned: scopePropertiesMentioned(input, targetIds, slots, answered, prepared),
-        mentionCoverage: scopeMentionRate(input, targetIds, slots, answered, prepared),
+        propertiesMentioned: scopePropertiesMentioned(input, targetIds, slots, answered, indexes),
+        mentionCoverage: scopeMentionRate(input, targetIds, slots, answered, prepared, edges),
         citationCoverage: indexedScopeCitationRate(slots, edges, indexes),
         brandPresence: scopeBrandPresence(input, slots, answered, prepared),
         namedShareOfVoice: scopeNamedShareOfVoice(namedIdentities ?? [], answered, prepared),

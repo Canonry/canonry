@@ -25,7 +25,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
   Link: ({ to, children }: { to: string; children?: React.ReactNode }) => <a href={to}>{children}</a>,
 }))
 
-import { GscSection } from '../src/components/project/GscSection.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
+import { GscSection, GSC_MANAGED_EMPTY_COPY } from '../src/components/project/GscSection.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 afterEach(() => {
@@ -45,10 +46,12 @@ afterEach(() => {
  * Asserting "this paragraph is gone" against a state that never rendered it
  * passes identically before and after the change.
  */
-function renderSection({ connected, googleConfigured = true }: { connected: boolean; googleConfigured?: boolean }) {
+function renderSection({ connected, googleConfigured = true, viewer = false }: { connected: boolean; googleConfigured?: boolean; viewer?: boolean }) {
+  const settingsRead = vi.fn()
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
     if (path === '/api/v1/settings') {
+      settingsRead()
       return jsonResponse({
         providers: [], providerCatalog: [],
         google: { configured: googleConfigured }, bing: { configured: false },
@@ -88,11 +91,14 @@ function renderSection({ connected, googleConfigured = true }: { connected: bool
   onTestFinished(restoreFetch)
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
-      <GscSection projectName="test-project" refreshNonce={0} />
+      <AccountProvider account={viewer ? { name: 'analyst', role: 'viewer' } : null}>
+        <GscSection projectName="test-project" refreshNonce={0} />
+      </AccountProvider>
     </QueryClientProvider>,
   )
+  return { ...result, settingsRead }
 }
 
 /**
@@ -162,4 +168,12 @@ test('the connect-state line stays inline, asserted in the state that renders it
 
   expect(screen.getByText(/shared across all projects/)).not.toBeNull()
   expect(screen.queryByRole('button', { name: /shared across all projects/ })).toBeNull()
+})
+
+
+test('restricted readers see managed setup without requesting administrator settings', async () => {
+  const { container, settingsRead } = renderSection({ connected: false, viewer: true })
+  await screen.findByText(GSC_MANAGED_EMPTY_COPY)
+  expect(settingsRead).not.toHaveBeenCalled()
+  expect(container.querySelector('a[href="/settings"]')).toBeNull()
 })

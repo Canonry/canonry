@@ -123,6 +123,7 @@ Simple portfolios can repeat across configured locations without a measurement p
 Authorized writers can save named patterns in the browser.
 Saved patterns are optional authoring aids, not active measurement templates.
 When a saved pattern is used, each run retains its version and resolved text separately from the final edited query.
+Its original name-binding location is frozen at preview time; editing the answer engine location does not change that provenance.
 Viewers with Research access can reuse patterns, but cannot save patterns or change tracking.
 
 A reviewed batch contains at most 20 destination runs and 50 total query executions.
@@ -130,7 +131,9 @@ Two queries across three destinations produce six executions.
 The API saves all destination runs together or saves none.
 The existing runner processes each saved run independently, so individual results can fail.
 Every destination run counts toward the viewer's daily limit.
-Retries with the unchanged request and key return the same saved runs.
+Retries with the unchanged request and key return the same saved runs, even after provider, location, or template defaults change.
+Research history loads older runs on demand. API and MCP list responses include an opaque `nextCursor`; pass it as `cursor` to continue.
+The CLI accepts `research list --cursor <cursor>`. Its JSON output preserves the full response, including engine choices, access limits, and pagination.
 
 The operator's project-wide **Run AI sweep** remains admin-gated.
 Group and property selection does not start a scoped sweep.
@@ -195,3 +198,10 @@ For Advanced destinations, add `scope: {kind, key, expectedPlanRevision}` to eac
 If a response is uncertain, retry the unchanged file with the same key.
 For a different batch, use a new key.
 `--wait` waits for all accepted runs. `--format jsonl` emits one complete record per destination.
+
+
+Advanced Property identities may include `identityAliases`: explicit qualified phrases containing the Property alias plus identifying context. They survive draft edits and publication; changing them creates a material comparison boundary. The reader keeps unresolved identity as unknown for that Property. A multi-entity answer can establish a mention through a qualified phrase or a source URL belonging to that Property; a direct unresolved identity question remains unverified. The raw answer and its citation evidence remain available.
+
+Client and HTML reports expose canonical frozen, class-separated coverage under `visibility`. Advanced portfolios return null for the deprecated project/query coverage scalars in `executiveSummary`, with `visibilityBasis: frozen-populations`; these scalars cannot describe assignment-aware answer coverage. Simple legacy query coverage uses measured queries, while canonical unknown historical classifications remain explicitly unclassified. Each history window preserves comparison boundaries and the latest summary retains its measurement date.
+
+A saved positive citation remains visible in answer details even when source capture was incomplete. Aggregate citation coverage still requires complete evidence. Property reach is existential: one verified occurrence establishes reach even when a different answer is uncertain.

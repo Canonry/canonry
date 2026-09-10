@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import type { ProjectReportDto } from '@ainyc/canonry-contracts'
-import { formatLandingPageHtml, renderReportHtml } from '../src/report-renderer.js'
+import { REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
+import { formatLandingPageHtml, renderReportHtml, renderReportVisibility } from '../src/report-renderer.js'
 
 function emptyReport(): ProjectReportDto {
   return {
@@ -1567,4 +1567,67 @@ test('does not call an observed comparison below the floor a zero denominator', 
   const html = renderReportHtml(report, { audience: 'agency' })
   expect(html).toContain('Requires 3 observed competitors mentioned in at least 3 answers each.')
   expect(html).not.toContain('denominator is 0')
+})
+
+
+test('client and agency HTML use canonical query-class populations instead of the legacy headline', () => {
+  const report = richReport()
+  const missing = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' as const }
+  const selection: ReportVisibility['selection'] = {
+    mode: 'advanced', queryClass: 'all', scope: { id: 'project', label: 'Example portfolio', kind: 'project', targetCount: 2 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: 1,
+    run: { id: 'baseline', explicit: false }, provenance: { kind: 'frozen-advanced', definitionRevision: 1 },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: 1, measuredRevision: 1,
+      awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T12:00:00.000Z' },
+  }
+  report.visibility = { selection, populations: [
+    { queryClass: 'non-brand', trend: [], summary: { queryCount: 2, answerCount: 6,
+      mentionCoverage: { numerator: 2, denominator: 6, rate: 1 / 3 }, citationCoverage: { numerator: 1, denominator: 6, rate: 1 / 6 },
+      propertyReach: { numerator: 1, denominator: 2, rate: 0.5 }, outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 1, notMeasured: 0, total: 2 } } },
+    { queryClass: 'branded', trend: [], summary: { queryCount: 1, answerCount: 3,
+      mentionCoverage: missing, citationCoverage: { numerator: 0, denominator: 3, rate: 0 }, propertyReach: missing,
+      outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 2 } } },
+  ] }
+  report.meta.location = { label: 'Unrelated scoped location', city: 'Elsewhere', region: '', country: 'US', otherConfiguredLabels: [] }
+  for (const audience of ['client', 'agency'] as const) {
+    const html = renderReportHtml(report, { audience }).split('<script')[0]!
+    expect(html.split('</header>')[0]).not.toContain(report.meta.location.label)
+    expect(html.split('</header>')[0]).toContain(reportVisibilityLocationLabel(report.visibility))
+    expect(html).toContain(REPORT_VISIBILITY_COPY.title)
+    expect(html).toContain(REPORT_VISIBILITY_COPY.description)
+    for (const population of report.visibility.populations) {
+      expect(html).toContain(reportQueryClassLabel(population.queryClass))
+      expect(html).toContain(reportVisibilityRate(population.summary.mentionCoverage))
+      expect(html).toContain(reportVisibilityEvidence(population.summary.mentionCoverage))
+    }
+    expect(html).toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    expect(html).not.toContain('id="citation-scorecard"')
+  }
+})
+
+
+test('HTML report keeps unclassified history even when the latest population is empty', () => {
+  const empty = { numerator: null, denominator: null, rate: null, reason: 'no-population' as const }
+  const date = '2026-08-15T10:00:00Z'
+  const visibility: ReportVisibility = { selection: {
+    mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Example', kind: 'project', targetCount: 1 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+    run: { id: 'latest', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: null,
+      measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T10:00:00Z' },
+  }, populations: [{ queryClass: 'unknown', summary: { queryCount: 0, answerCount: 0, mentionCoverage: empty,
+    citationCoverage: empty, propertyReach: empty, outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 1 } },
+    trend: [{ runId: 'prior', createdAt: date, revision: null, provenance: { kind: 'legacy-simple', definitionRevision: null },
+      queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: empty,
+      continuity: { state: 'legacy-unknown', comparedRunId: 'outside-period' } }],
+  }] }
+  visibility.historyWindow = { from: '2026-08-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z' }
+  const html = renderReportVisibility(visibility)
+  expect(html).toContain(reportVisibilityMeasurementLabel(visibility))
+  expect(html).toContain(reportVisibilityHistoryLabel(visibility))
+  expect(html).toContain(REPORT_VISIBILITY_COPY.previousOutsideWindow)
+  const [summary, history] = html.split('<details>')
+  expect(summary).not.toContain(reportQueryClassLabel('unknown'))
+  expect(history).toContain(reportQueryClassLabel('unknown'))
+  expect(history).toContain(date.slice(0, 10))
 })

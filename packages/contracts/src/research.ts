@@ -86,6 +86,8 @@ export function expandResearchTemplate(
 export const researchTemplateSelectionSchema = z.object({
   templateId: z.string().trim().min(1).max(256),
   templateVersion: z.string().trim().min(1).max(256),
+  /** Original preview context used to expand names, independent of the final engine location. */
+  bindingLocation: locationContextSchema.nullable().optional(),
 }).strict()
 export type ResearchTemplateSelection = z.infer<typeof researchTemplateSelectionSchema>
 
@@ -176,6 +178,8 @@ export type ResearchProviderOption = z.infer<typeof researchProviderOptionSchema
 
 export const researchRunListSchema = z.object({
   runs: z.array(researchRunSummarySchema),
+  /** Opaque continuation after the last returned (createdAt, id); null ends history. */
+  nextCursor: z.string().nullable().optional(),
   providers: z.array(researchProviderOptionSchema).optional(),
   /** Credential-specific admission policy, shared by UI, CLI and MCP consumers. */
   access: z.object({ canRun: z.boolean(), dailyRunLimit: z.number().int().positive().nullable() }).optional(),

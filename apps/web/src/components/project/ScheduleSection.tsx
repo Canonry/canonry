@@ -12,6 +12,8 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 
+export const SCHEDULE_COPY = { edit: 'Edit schedule', pause: 'Pause', resume: 'Resume', save: 'Save schedule' } as const
+
 // --- Schedule helpers ---
 const FREQ_OPTIONS = [
   { value: 'daily', label: 'Every day' },
@@ -187,6 +189,8 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       const effectiveTz = tzOther ? tzOtherValue.trim() || 'UTC' : timezone
       const body: Parameters<typeof saveSchedule>[1] = {
         timezone: effectiveTz,
+        enabled: latestSchedule?.enabled ?? true,
+        providers: latestSchedule?.providers ?? [],
         expectedUpdatedAt: editingVersion,
       }
       if (freq === 'calendar') {
@@ -230,6 +234,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       const body: Parameters<typeof saveSchedule>[1] = {
         timezone: latestSchedule.timezone,
         enabled: !latestSchedule.enabled,
+        providers: latestSchedule.providers,
         expectedUpdatedAt: editingScheduleVersion,
       }
       if (latestSchedule.recurrence) body.recurrence = latestSchedule.recurrence
@@ -284,7 +289,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         </div>
         {canManageSchedule && !scheduleLoading && !loadFailed && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
-            {schedule ? 'Edit schedule' : '+ Set schedule'}
+            {schedule ? SCHEDULE_COPY.edit : '+ Set schedule'}
           </Button>
         )}
       </div>
@@ -336,7 +341,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               </ToneBadge>
               {canManageSchedule && (
                 <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
-                  {schedule.enabled ? 'Pause' : 'Resume'}
+                  {schedule.enabled ? SCHEDULE_COPY.pause : SCHEDULE_COPY.resume}
                 </Button>
               )}
               {canManageSchedule && (
@@ -453,7 +458,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               disabled={saving || schedulesQuery.isFetching || loadFailed || scheduleChangedElsewhere || (freq === 'custom' && !customCron.trim()) || (freq === 'calendar' && (!Number.isInteger(recurrenceEveryDays) || recurrenceEveryDays < 1 || recurrenceEveryDays > 3650 || !recurrenceStartDate || !recurrenceTime))}
               onClick={asyncHandler(handleSave)}
             >
-              {saving ? 'Saving...' : 'Save schedule'}
+              {saving ? 'Saving...' : SCHEDULE_COPY.save}
             </Button>
           </div>
         </div>

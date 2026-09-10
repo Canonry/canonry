@@ -1,3 +1,4 @@
+import { REPORT_VISIBILITY_COPY as visibilityCopy, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityComparison, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility } from '@ainyc/canonry-contracts'
 import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
 import type {
   AiSourceCategoryBucket,
@@ -1077,16 +1078,16 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const trendTone = s.trend === 'up' ? 'positive' : s.trend === 'down' ? 'negative' : 'neutral'
 
   const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
-  const citedFragment = s.totalQueryCount > 0
+  const citedFragment = (s.totalQueryCount ?? 0) > 0
     ? `${s.citedQueryCount}/${s.totalQueryCount} ${queryNoun} cited`
     : 'no queries'
-  const mentionedFragment = s.totalQueryCount > 0
+  const mentionedFragment = (s.totalQueryCount ?? 0) > 0
     ? `${s.mentionedQueryCount}/${s.totalQueryCount} ${queryNoun} mentioned`
     : 'no queries'
-  const headlineTitle = s.totalQueryCount > 0
+  const headlineTitle = (s.totalQueryCount ?? 0) > 0
     ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} cite ${report.meta.project.displayName}`
     : 'No AI citation data yet'
-  const headlineSubtitle = s.totalQueryCount > 0
+  const headlineSubtitle = (s.totalQueryCount ?? 0) > 0
     ? `${s.citationRate}% citation coverage and ${s.mentionRate}% mention coverage across ${s.providerCount} ${pluralize(s.providerCount, 'provider')}.`
     : 'Run a check to populate the first citation and mention baseline.'
   const priorityActions = report.agencyDiagnostics.priorities.length > 0
@@ -2447,10 +2448,10 @@ function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudi
 function renderClientSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
   const sc = report.citationScorecard
-  const totalQ = s.totalQueryCount
+  const totalQ = s.totalQueryCount ?? 0
   const heroNumber = totalQ > 0 ? `${s.mentionRate}%` : '—'
   const heroSentence = totalQ > 0
-    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'query', 'queries')} about your industry, AI mentioned you in ${s.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'query', 'queries')} about your industry, AI mentioned you in ${s.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those queries'}.`
     : 'No AI check has been run yet. Run a check to see how AI tools answer customer queries about your business.'
   const trend = clientTrendCopy(report.whatsChanged.mentionRate)
   const heroTrend = trend
@@ -2471,12 +2472,12 @@ function renderClientSummary(report: ProjectReportDto): string {
     <div class="client-metric-tile">
       <div class="label">AI mentions your name</div>
       <div class="value">${s.mentionRate}%</div>
-      <div class="subtitle">${totalQ > 0 ? `Says your name in ${s.mentionedQueryCount} of ${totalQ} ${pluralize(totalQ, 'answer')}` : 'No data yet'}</div>
+      <div class="subtitle">${totalQ > 0 ? `Says your name in ${s.mentionedQueryCount} of ${totalQ} ${pluralize(totalQ, 'query', 'queries')}` : 'No data yet'}</div>
     </div>
     <div class="client-metric-tile">
       <div class="label">AI links to your website</div>
       <div class="value">${s.citationRate}%</div>
-      <div class="subtitle">${totalQ > 0 ? `Cites your site as a source in ${s.citedQueryCount} of ${totalQ} ${pluralize(totalQ, 'answer')}` : 'No data yet'}</div>
+      <div class="subtitle">${totalQ > 0 ? `Cites your site as a source in ${s.citedQueryCount} of ${totalQ} ${pluralize(totalQ, 'query', 'queries')}` : 'No data yet'}</div>
     </div>
     <div class="client-metric-tile">
       <div class="label">AI tools tested</div>
@@ -2661,9 +2662,9 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   const title = opts.title ?? `Canonry ${audience} report — ${report.meta.project.displayName}`
   const sections = audience === 'client'
     ? [
-        renderClientSummary(report),
-        renderReportShareOfVoice(report),
-        renderWhatsChanged(report, 'client'),
+        report.visibility ? renderReportVisibility(report.visibility) : renderClientSummary(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderReportShareOfVoice(report),
+        report.visibility ? '' : renderWhatsChanged(report, 'client'),
         // Server-side AI visibility runs between WhatsChanged and the action
         // plan in BOTH the SPA and HTML so clients see the same ordered set
         // of sections in either surface (per the report-parity rule).
@@ -2672,13 +2673,13 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
         renderClientEvidenceSummary(report),
       ].join('\n')
     : [
-        renderExecutiveSummary(report),
-        renderReportShareOfVoice(report),
-        renderWhatsChanged(report, 'agency'),
+        report.visibility ? renderReportVisibility(report.visibility) : renderExecutiveSummary(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderReportShareOfVoice(report),
+        report.visibility ? '' : renderWhatsChanged(report, 'agency'),
         renderAudienceActionPlan(report, 'agency'),
-        renderAgencyDiagnostics(report),
-        renderCitationScorecard(report),
-        renderCompetitorLandscape(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderAgencyDiagnostics(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderCitationScorecard(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderCompetitorLandscape(report),
         renderAiSourceOrigin(report),
         renderGsc(report),
         renderGa(report),
@@ -2686,7 +2687,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
         renderAiReferrals(report),
         renderServerActivity(report, 'agency'),
         renderIndexingHealth(report),
-        renderCitationsTrend(report),
+        report.visibility?.selection.mode === 'advanced' ? '' : renderCitationsTrend(report),
         renderInsights(report),
         renderOpportunities(report),
         renderContentGaps(report),
@@ -2726,7 +2727,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   <header class="header">
     <div class="eyebrow">AI Visibility Report</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
-    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Last ${report.meta.periodDays} days · Generated ${formatDate(report.meta.generatedAt)}</div>
+    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${report.visibility?.selection.mode === 'advanced' ? ` · ${escapeHtml(reportVisibilityLocationLabel(report.visibility))}` : renderHeaderLocationFragment(report.meta.location)} · Last ${report.meta.periodDays} days · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
   <footer class="footer">Generated by <a href="https://canonry.ai">canonry</a> · ${escapeHtml(formatIsoDate(report.meta.generatedAt))}</footer>
@@ -2734,4 +2735,15 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 <script type="application/json" id="canonry-report-data">${json}</script>
 </body>
 </html>`
+}
+
+
+export function renderReportVisibility(visibility: ReportVisibility): string {
+  const populations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.summary.answerCount > 0)
+  const historyPopulations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.trend.some(point => point.answerCount > 0))
+  const rateCell = (rate: ReportVisibility['populations'][number]['summary']['mentionCoverage']) => `<td><strong>${escapeHtml(reportVisibilityRate(rate))}</strong><p class="muted">${escapeHtml(reportVisibilityEvidence(rate))}</p></td>`
+  const headers = (labels: string[]) => `<thead><tr>${labels.map(label => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>`
+  const summary = `<table>${headers([visibilityCopy.queryType, visibilityCopy.queries, visibilityCopy.answers, visibilityCopy.mentioned, visibilityCopy.cited])}<tbody>${populations.map(population => `<tr><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td><td>${population.summary.queryCount}</td><td>${population.summary.answerCount}</td>${rateCell(population.summary.mentionCoverage)}${rateCell(population.summary.citationCoverage)}</tr>`).join('')}</tbody></table>`
+  const trend = `<details><summary>${escapeHtml(reportVisibilityHistoryLabel(visibility))}</summary><div class="table-scroll"><table>${headers([visibilityCopy.date, visibilityCopy.queryType, visibilityCopy.mentioned, visibilityCopy.cited, visibilityCopy.comparison])}<tbody>${historyPopulations.flatMap(population => population.trend.map(point => `<tr><td><time datetime="${escapeHtml(point.createdAt)}">${escapeHtml(point.createdAt.slice(0, 10))}</time></td><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td>${rateCell(point.mentionCoverage)}${rateCell(point.citationCoverage)}<td>${escapeHtml(reportVisibilityComparison(point.continuity.state, point.continuity.comparedRunId !== null && !population.trend.some(previous => previous.runId === point.continuity.comparedRunId)))}</td></tr>`)).join('')}</tbody></table></div></details>`
+  return `<section id="client-summary" class="report-section" aria-label="${escapeHtml(visibilityCopy.title)}"><h2>${escapeHtml(visibilityCopy.title)}</h2><p>${escapeHtml(visibility.selection.mode === 'advanced' ? visibilityCopy.description : visibilityCopy.simpleDescription)}</p><p>${escapeHtml(reportVisibilityMeasurementLabel(visibility))}</p><div class="table-scroll">${summary}</div>${trend}</section>`
 }

@@ -1,3 +1,4 @@
+import { useAccount } from '../../contexts/account-context.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { Link } from '@tanstack/react-router'
@@ -67,6 +68,8 @@ import {
 } from '../../queries/mutations.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+
+export const GSC_MANAGED_EMPTY_COPY = 'Search Console is not connected yet. Your Canonry team can set this up.'
 
 const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 const EXPANDED_PERFORMANCE_LIMIT = 500
@@ -242,6 +245,7 @@ export function GscSection({
   refreshNonce: number
 }) {
   const queryClient = useQueryClient()
+  const { isAdmin } = useAccount()
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
   const [properties, setProperties] = useState<ApiGoogleProperty[]>([])
@@ -801,7 +805,7 @@ export function GscSection({
     setError(null)
     try {
       const [settings, conns] = await Promise.all([
-        fetchSettings().catch(() => null),
+        isAdmin ? fetchSettings().catch(() => null) : Promise.resolve(null),
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
@@ -828,7 +832,7 @@ export function GscSection({
   // bumps refreshNonce (after it syncs Google data and invalidates the cache).
   useEffect(() => {
     void loadSection()
-  }, [projectName, refreshNonce])
+  }, [projectName, refreshNonce, isAdmin])
 
   useEffect(() => {
     setPerformanceOffset(0)
@@ -1114,6 +1118,8 @@ export function GscSection({
                 Disconnect
               </button>
             </div>
+          ) : !isAdmin ? (
+            <Card className="surface-card"><p className="text-sm text-secondary">{GSC_MANAGED_EMPTY_COPY}</p></Card>
           ) : (
             <Card className="surface-card">
               <div className="section-head section-head-inline">

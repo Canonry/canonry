@@ -1,4 +1,5 @@
-import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
+import { ReportVisibilitySummary } from '../components/project/ReportVisibilitySummary.js'
+import { reportVisibilityLocationLabel, shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
 import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
@@ -119,9 +120,9 @@ export function ReportPage({ projectName }: { projectName: string }) {
           <h1 className="page-title">{report.meta.project.displayName}</h1>
           <p className="page-subtitle">
             {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
-            {report.meta.location
-              ? ` · Location: ${formatLocationLabel(report.meta.location)}`
-              : ' · No location set'}
+            {report.visibility?.selection.mode === 'advanced'
+              ? ` · ${reportVisibilityLocationLabel(report.visibility)}`
+              : report.meta.location ? ` · Location: ${formatLocationLabel(report.meta.location)}` : ' · No location set'}
             {' · '}Last {report.meta.periodDays} days
             {' · '}Generated {formatDate(report.meta.generatedAt)}
           </p>
@@ -141,9 +142,9 @@ export function ReportPage({ projectName }: { projectName: string }) {
         </div>
       </div>
 
-      <ClientSummarySection report={report} />
-      <ReportShareOfVoice report={report} />
-      <WhatsChangedSection report={report} audience="client" />
+      {report.visibility ? <ReportVisibilitySummary visibility={report.visibility} /> : <ClientSummarySection report={report} />}
+      {report.visibility?.selection.mode !== 'advanced' && <ReportShareOfVoice report={report} />}
+      {!report.visibility && <WhatsChangedSection report={report} audience="client" />}
       <ServerActivityClientView report={report} />
       <ActionPlanSection report={report} audience="client" projectName={projectName} />
       <ClientEvidenceSection report={report} />
@@ -350,10 +351,10 @@ function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']
 function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   const sc = report.citationScorecard
-  const totalQ = exec.totalQueryCount
+  const totalQ = exec.totalQueryCount ?? 0
   const heroNumber = totalQ > 0 ? `${exec.mentionRate}%` : '—'
   const heroSentence = totalQ > 0
-    ? `When customers asked AI ${totalQ} ${totalQ === 1 ? 'query' : 'queries'} about your industry, AI mentioned you in ${exec.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    ? `When customers asked AI ${totalQ} ${totalQ === 1 ? 'query' : 'queries'} about your industry, AI mentioned you in ${exec.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those queries'}.`
     : 'No AI check has been run yet. Run a check to see how AI tools answer customer queries about your business.'
   const trend = clientTrendCopy(report.whatsChanged.mentionRate)
   const providerSubtitle = sc.providers.length > 0
@@ -377,12 +378,12 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
         <BigMetricTile
           label="AI mentions your name"
           value={`${exec.mentionRate}%`}
-          subtitle={totalQ > 0 ? `Says your name in ${exec.mentionedQueryCount} of ${totalQ} ${totalQ === 1 ? 'answer' : 'answers'}` : 'No data yet'}
+          subtitle={totalQ > 0 ? `Says your name in ${exec.mentionedQueryCount} of ${totalQ} ${totalQ === 1 ? 'query' : 'queries'}` : 'No data yet'}
         />
         <BigMetricTile
           label="AI links to your website"
           value={`${exec.citationRate}%`}
-          subtitle={totalQ > 0 ? `Cites your site as a source in ${exec.citedQueryCount} of ${totalQ} ${totalQ === 1 ? 'answer' : 'answers'}` : 'No data yet'}
+          subtitle={totalQ > 0 ? `Cites your site as a source in ${exec.citedQueryCount} of ${totalQ} ${totalQ === 1 ? 'query' : 'queries'}` : 'No data yet'}
         />
         <BigMetricTile
           label="AI tools tested"

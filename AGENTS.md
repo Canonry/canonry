@@ -202,7 +202,7 @@ canonry discover eval [--baseline <path>] [--update-baseline] [--shape <slug>...
 
 # Research — run saved free-form query batches without changing tracking
 canonry research run <project> "query one" "query two" [--provider openai] [--model <id>] [--location <label>|--no-location] [--wait] [--format json|jsonl]
-canonry research list <project> [--limit 20] [--format json|jsonl]
+canonry research list <project> [--limit 20] [--cursor <opaque>] [--format json|jsonl]
 canonry research show <project> <run-id> [--format json|jsonl]
 
 # OpenAI ads (ChatGPT ads) — paid-surface data for the connected ad account

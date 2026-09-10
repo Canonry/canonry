@@ -247,6 +247,39 @@ afterEach(async () => {
 })
 
 describe('visibility report route', () => {
+  it('keeps historical evidence selectable and re-reads changed or removed history without stale summaries', async () => {
+    const frozenPlan = plan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    const historicalAnswer = 'Harbor Homes remains available.'
+    const historicalId = seedAdvancedRun({ versionId, frozenPlan, createdAt: FIRST, answerText: historicalAnswer })
+    const latestId = seedAdvancedRun({ versionId, frozenPlan, createdAt: SECOND })
+    const initial = await report('queryClass=non-brand')
+    expect(initial.status).toBe(200)
+    const first = initial.body as VisibilityReportResponse
+    const population = first.populations[0]!
+    expect(first.selection.run.id).toBe(latestId)
+    expect(population.trend.map(point => point.runId)).toEqual([historicalId, latestId])
+    const queryKey = population.queries.items[0]!.queryKey
+    const detail = await report(`runId=${historicalId}&queryClass=non-brand&queryKey=${encodeURIComponent(queryKey)}`)
+    expect(detail.status).toBe(200)
+    const oldEvidence = (detail.body as VisibilityReportResponse).populations[0]!.evidence.items
+    expect(oldEvidence.length).toBeGreaterThan(0)
+    expect(oldEvidence.every(answer => answer.answerText === historicalAnswer && answer.sources.length > 0)).toBe(true)
+
+    db.update(querySnapshots).set({ answerText: 'No property names are supplied.', citedUrls: [], captureStatus: 'complete' })
+      .where(eq(querySnapshots.runId, historicalId)).run()
+    const refreshed = (await report('queryClass=non-brand')).body as VisibilityReportResponse
+    expect(refreshed.populations[0]!.trend[0]!.mentionCoverage.rate).toBe(0)
+    expect(refreshed.populations[0]!.trend[0]!.citationCoverage.rate).toBe(0)
+    expect(refreshed.populations[0]!.summary).toEqual(population.summary)
+
+    db.delete(runs).where(eq(runs.id, historicalId)).run()
+    const afterClear = (await report('queryClass=non-brand')).body as VisibilityReportResponse
+    expect(afterClear.populations[0]!.trend.map(point => point.runId)).toEqual([latestId])
+    expect(afterClear.populations[0]!.summary).toEqual(population.summary)
+  })
+
   it('uses the prior run’s own frozen plan after a material publish and keeps a market to exact usage edges', async () => {
     const market = [{
       stableKey: 'harbor-market', label: 'Harbor market', kind: 'market' as const,

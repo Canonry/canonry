@@ -152,13 +152,14 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['research', 'list'],
-    usage: 'canonry research list <project> [--limit <n>] [--format json|jsonl]',
-    options: { limit: stringOption() },
+    usage: 'canonry research list <project> [--limit <n>] [--cursor <cursor>] [--format json|jsonl]',
+    options: { limit: stringOption(), cursor: stringOption() },
     run: async (input) => {
-      const usage = 'canonry research list <project> [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry research list <project> [--limit <n>] [--cursor <cursor>] [--format json|jsonl]'
       const project = requireProject(input, 'research.list', usage)
       await researchList(project, {
         limit: parseResearchLimit(input, usage),
+        cursor: getString(input.values, 'cursor'),
         format: input.format,
       })
     },

@@ -6,6 +6,53 @@ import {
 
 const AT = '2026-09-04T12:00:00.000Z'
 
+describe('per-target uncertain identity and positive citation evidence', () => {
+  it('keeps a known citation when source capture is partial, without fabricating a negative', () => {
+    const selected = run()
+    selected.observations[0]!.citationComplete = false
+    const report = buildVisibilityReport(input({ runs: [selected], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', queryKey: 'nearby:alpha', location: { kind: 'all' }, limit: 50 } }))
+    const population = report.populations[0]!
+    expect(population.summary.citationCoverage.reason).toBe('evidence-incomplete')
+    expect(population.queries.items[0]!.citationCoverage.reason).toBe('evidence-incomplete')
+    expect(population.breakdown.properties[0]!.citationCoverage.reason).toBe('evidence-incomplete')
+    expect(population.breakdown.groups[0]!.citationCoverage.reason).toBe('evidence-incomplete')
+    expect(report.populations[0]!.evidence.items[0]!.cited).toBe(true)
+    selected.observations[0]!.citedTargetKeys = []
+    const absent = buildVisibilityReport(input({ runs: [selected], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', queryKey: 'nearby:alpha', location: { kind: 'all' }, limit: 50 } }))
+    expect(absent.populations[0]!.summary.citationCoverage.reason).toBe('evidence-incomplete')
+    expect(absent.populations[0]!.evidence.items[0]!.cited).toBeNull()
+  })
+
+  it('retains property reach established by one answer when another has uncertain identity', () => {
+    const selected = run()
+    const observations = selected.observations.map((observation, index) => ({
+      ...observation,
+      ...(index === 1 ? { unknownMentionTargetKeys: ['north'] } : {}),
+    }))
+    const report = buildVisibilityReport(input({
+      runs: [{ ...selected, observations }],
+      selection: { queryClass: 'non-brand', scope: 'property', scopeKey: 'north', location: { kind: 'all' }, limit: 50 },
+    }))
+    const summary = report.populations[0]!.summary
+    expect(summary.mentionCoverage.reason).toBe('identity-ambiguous')
+    expect(summary.propertyReach).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(summary.outcomes).toMatchObject({ bothSignals: 1, notMeasured: 0, total: 1 })
+  })
+
+  it('retains per-property uncertainty and its reason in summary and answer evidence', () => {
+    const selected = run()
+    selected.observations[0]!.mentionedTargetKeys = []
+    const observations = selected.observations.map((observation, index) => ({ ...observation, ...(index === 0 ? { unknownMentionTargetKeys: ['north'] } : {}) }))
+    const report = buildVisibilityReport(input({ runs: [{ ...selected, observations }], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', queryKey: 'nearby:alpha', location: { kind: 'all' }, limit: 50 } }))
+    expect(report.populations[0]!.summary.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })
+    expect(report.populations[0]!.evidence.items[0]).toMatchObject({ mentioned: null, mentionUnavailableReason: 'identity-ambiguous', cited: true })
+    observations[0]!.unknownMentionTargetKeys = ['south']
+    observations[0]!.mentionedTargetKeys = ['north']
+    const known = buildVisibilityReport(input({ runs: [{ ...selected, observations }], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', location: { kind: 'all' }, limit: 50 } }))
+    expect(known.populations[0]!.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+})
+
 function input(overrides: Partial<VisibilityReportReaderInput> = {}): VisibilityReportReaderInput {
   return {
     mode: 'advanced',

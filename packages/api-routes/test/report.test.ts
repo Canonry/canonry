@@ -36,7 +36,8 @@ import {
   measurementPlanVersions,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
+import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
+import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-report-'))
@@ -115,7 +116,7 @@ function insertRun(
 function insertSnapshot(
   db: ReturnType<typeof createClient>,
   runId: string,
-  queryId: string,
+  queryId: string | null,
   overrides: Partial<typeof querySnapshots.$inferInsert> = {},
 ) {
   const id = crypto.randomUUID()
@@ -542,6 +543,117 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.clientSummary.actionItems.some(a => a.category === 'competitors')).toBe(false)
     expect(body.agencyDiagnostics.priorities.some(a => a.category === 'competitors')).toBe(true)
     expect(body.agencyDiagnostics.priorities.some(a => a.category === 'provider')).toBe(true)
+  })
+
+  test('report populations match frozen dashboard answers and never pool portfolio query classes', async () => {
+    const projectId = insertProject(ctx.db, 'frozen-report')
+    const unusedQueryId = insertQuery(ctx.db, projectId, 'unused catalog query')
+    const frozen = measurementPlanV2Fixture()
+    // Only Harbor is assigned to the non-brand query. Its sibling is named in
+    // one answer, deliberately disagreeing with the legacy project-level flag.
+    frozen.assignments = frozen.assignments.filter(edge => edge.queryId !== 'q-nearby' || edge.targetKey === 'harbor')
+    frozen.usageEdges = frozen.usageEdges.filter(edge => edge.queryId !== 'q-nearby' || edge.targetKey === 'harbor')
+    const versionId = crypto.randomUUID()
+    ctx.db.insert(measurementPlanVersions).values({
+      id: versionId, projectId, revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(frozen),
+      checksum: 'a'.repeat(64), schemaVersion: 2, compiledChecksum: frozen.compiledChecksum,
+      createdAt: new Date().toISOString(),
+    }).run()
+    ctx.db.insert(measurementPlans).values({ projectId, activeVersionId: versionId,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).run()
+    const manifest = buildMeasurementPlanV2Manifest(frozen)
+    const sourceDomain = 'rental-journal.example'
+    const runId = insertRun(ctx.db, projectId, { measurementPlanVersionId: versionId,
+      measurementManifest: { schemaVersion: 1, expectedSlots: manifest.expectedSlots } })
+    for (const slot of manifest.expectedSlots) {
+      const nonBrand = slot.executionId === 'exec-nearby'
+      const assignedMention = !nonBrand || slot.provider === 'openai'
+      insertSnapshot(ctx.db, runId, null, {
+        queryText: slot.queryText, provider: slot.provider, answerMentioned: true,
+        measurementExecutionId: slot.executionId, location: HARBOR_CONTEXT.label,
+        requestedContext: HARBOR_CONTEXT, supportedContext: { status: 'applied', resolved: HARBOR_CONTEXT },
+        answerText: assignedMention ? 'Harbor Homes offers apartments.' : 'Bayside Homes offers apartments.',
+        citedUrls: assignedMention ? ['https://northstar.example/locations/harbor'] : [],
+        captureStatus: 'complete', citedDomains: [sourceDomain],
+      })
+    }
+    await ctx.app.ready()
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/frozen-report/report' })
+    expect(response.statusCode, response.body).toBe(200)
+    const report = response.json<ProjectReportDto>()
+    const dashboard = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/frozen-report/visibility-report?queryClass=all' })).json()
+    expect(report.visibility?.selection).toEqual(dashboard.selection)
+    expect(report.visibility?.populations).toEqual(dashboard.populations.map(({ queryClass, summary, trend }: NonNullable<ProjectReportDto['visibility']>['populations'][number]) => ({ queryClass, summary, trend })))
+    const nonBrand = report.visibility?.populations.find(population => population.queryClass === 'non-brand')
+    expect(nonBrand?.summary.queryCount).toBe(1)
+    expect(nonBrand?.summary.answerCount).toBe(2)
+    expect(nonBrand?.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
+    expect(nonBrand?.summary.citationCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
+    expect(report.visibility?.populations.find(population => population.queryClass === 'branded')?.summary.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+    expect(report.executiveSummary.visibilityBasis).toBe('frozen-populations')
+    expect(report.executiveSummary.mentionRate).toBeNull()
+    expect(report.executiveSummary.totalQueryCount).toBeNull()
+    expect(report.citationsTrend).toEqual([])
+    expect(report.aiSourceOrigin.topDomains).toContainEqual({ domain: sourceDomain, count: manifest.expectedSlots.length, isCompetitor: false })
+    insertProject(ctx.db, 'unmeasured-comparison')
+    const unmeasured = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/unmeasured-comparison/report' })).json<ProjectReportDto>()
+    const monitoring = report.actionPlan.find(action => action.category === 'monitoring')!
+    expect(monitoring.title).not.toBe(unmeasured.actionPlan.find(action => action.category === 'monitoring')?.title)
+    expect(report.meta.periodEnd).toBe(report.visibility?.selection.measurement.completedAt)
+    for (const [index, scoped] of [false, true].entries()) {
+      const laterDate = new Date(Date.now() + (index + 1) * 60_000).toISOString()
+      const unrelatedRun = insertRun(ctx.db, projectId, { createdAt: laterDate, finishedAt: laterDate, location: 'Elsewhere',
+        ...(scoped ? { measurementPlanVersionId: versionId, measurementScope: { groups: [], targets: ['harbor'], queries: [], resolvedTargets: ['harbor'] } } : {}),
+      })
+      insertSnapshot(ctx.db, unrelatedRun, scoped ? null : unusedQueryId, { provider: 'claude', citedDomains: ['unrelated.example'] })
+      const afterUnrelated = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/frozen-report/report' })).json<ProjectReportDto>()
+      expect(afterUnrelated.visibility?.selection.run.id).toBe(runId)
+      expect(afterUnrelated.meta.location).toBeNull()
+      expect(afterUnrelated.meta.providerLocationHandling.map(item => item.provider).sort()).toEqual([...new Set(manifest.expectedSlots.map(slot => slot.provider))].sort())
+      expect(afterUnrelated.executiveSummary.providerCount).toBe(new Set(manifest.expectedSlots.map(slot => slot.provider)).size)
+      expect(afterUnrelated.aiSourceOrigin).toEqual(report.aiSourceOrigin)
+    }
+  })
+
+  test('report history honors its period while keeping the most recent baseline outside the window', async () => {
+    const projectId = insertProject(ctx.db, 'windowed-report')
+    const queryId = insertQuery(ctx.db, projectId, 'windowed question')
+    const oldDate = new Date(Date.now() - 20 * 86_400_000).toISOString()
+    const oldRun = insertRun(ctx.db, projectId, { createdAt: oldDate, finishedAt: oldDate })
+    insertSnapshot(ctx.db, oldRun, queryId)
+    await ctx.app.ready()
+    const read = async (period: number) => (await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/windowed-report/report?period=${period}` })).json<ProjectReportDto>()
+    const baseline = await read(7)
+    expect(baseline.visibility?.selection.run.id).toBe(oldRun)
+    expect(baseline.visibility?.populations.find(population => population.queryClass === 'unknown')?.summary.answerCount).toBe(1)
+    expect(baseline.visibility?.populations.every(population => population.trend.length === 0)).toBe(true)
+    const recentDate = new Date(Date.now() - 86_400_000).toISOString()
+    const recentRun = insertRun(ctx.db, projectId, { createdAt: recentDate, finishedAt: recentDate })
+    insertSnapshot(ctx.db, recentRun, queryId)
+    const short = await read(7)
+    const long = await read(90)
+    const shortPopulation = short.visibility?.populations.find(population => population.queryClass === 'unknown')
+    const longPopulation = long.visibility?.populations.find(population => population.queryClass === 'unknown')
+    expect(shortPopulation?.trend.map(point => point.runId)).toEqual([recentRun])
+    expect(longPopulation?.trend.map(point => point.runId)).toEqual([oldRun, recentRun])
+    expect(shortPopulation?.summary).toEqual(longPopulation?.summary)
+    expect(shortPopulation?.trend[0]?.continuity.comparedRunId).toBe(oldRun)
+  })
+
+  test('legacy project coverage excludes catalog queries that were not measured', async () => {
+    const projectId = insertProject(ctx.db, 'measured-only')
+    const measured = insertQuery(ctx.db, projectId, 'measured question')
+    insertQuery(ctx.db, projectId, 'unmeasured question')
+    const runId = insertRun(ctx.db, projectId)
+    insertSnapshot(ctx.db, runId, measured)
+    await ctx.app.ready()
+    const report = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/measured-only/report' })).json<ProjectReportDto>()
+    expect(report.executiveSummary.totalQueryCount).toBe(1)
+    expect(report.executiveSummary.mentionedQueryCount).toBe(1)
+    expect(report.executiveSummary.mentionRate).toBe(100)
+    expect(report.citationsTrend[0]?.totalQueryCount).toBe(1)
+    // Legacy provenance remains unclassified; the report does not invent a brand split.
+    expect(report.visibility?.populations.find(population => population.queryClass === 'unknown')?.summary.answerCount).toBe(1)
   })
 
   test('does not recommend competitors already configured by the active measurement plan', async () => {

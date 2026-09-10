@@ -1060,6 +1060,29 @@ async function publish(session: DraftSession, expectedActiveRevision: number | n
 }
 
 describe('measurement draft publish', () => {
+  it('preserves qualified identity phrases through publish and draft seeding, and treats changes as material', async () => {
+    const session = await readyDraft()
+    const identityAliases = ['Northwind Widgets in Eastport', 'Eastport Northwind Widgets']
+    await session.run('upsert-target', { target: { ...WIDGETS_TARGET, identityAliases } })
+    const before = (await action('compile-preview')).json().plan
+    const published = await publish(session, null)
+    expect(published.statusCode, published.body).toBe(200)
+    const seeded = await DraftSession.start(1)
+    const authoring = (await request('GET', '/measurement-plan/draft')).json().draft.authoring
+    expect(authoring.targets[0].identityAliases).toEqual([...identityAliases].sort())
+    const recompiled = (await action('compile-preview')).json().plan
+    expect(recompiled.compiledChecksum).toBe(before.compiledChecksum)
+    expect(plansAreLabelOnlyVariants(before, recompiled)).toBe(true)
+    await seeded.run('upsert-target', { target: { ...authoring.targets[0], identityAliases: ['Northwind Widgets in Westhaven'] } })
+    const changed = (await action('compile-preview')).json().plan
+    expect(changed.compiledChecksum).not.toBe(before.compiledChecksum)
+    expect(plansAreLabelOnlyVariants(before, changed)).toBe(false)
+    const next = await publish(seeded, 1)
+    expect(next.statusCode, next.body).toBe(200)
+    const versions = db.select().from(measurementPlanVersions).all()
+    expect(versions.find(version => version.revision === 2)?.comparableToVersionId).toBeNull()
+  })
+
   it.each(['changed', 'removed'])('refuses automatic pin seeding when a frozen location was %s, but permits an explicit draft review', async change => {
     const session = await readyDraft()
     await session.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })

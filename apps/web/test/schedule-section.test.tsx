@@ -1,10 +1,10 @@
 import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
 
-import { ScheduleSection } from '../src/components/project/ScheduleSection.js'
+import { ScheduleSection, SCHEDULE_COPY } from '../src/components/project/ScheduleSection.js'
 import { heyClient, type ApiSchedule } from '../src/api.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -520,4 +520,21 @@ test('pauses a calendar schedule while preserving its recurrence payload', async
   expect(await screen.findByText('Paused')).toBeTruthy()
   expect(screen.getByText('Every 14 days starting Sep 23, 2026 at 12:00 AM · New York')).toBeTruthy()
   expect(screen.queryByText(/Cron:/)).toBeNull()
+})
+
+test.each(['pause', 'edit'] as const)('preserves the pinned engines and unrelated state during schedule %s', async action => {
+  const initial = makeSchedule({ providers: ['openai'], enabled: action === 'pause', cronExpr: '', preset: null, recurrence: { everyDays: 14, startDate: '2026-09-23', time: '00:00' }, timezone: 'America/New_York' })
+  let payload: Record<string, unknown> | undefined
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'PUT') { payload = JSON.parse(String(init.body)); return jsonResponse({ ...initial, ...payload }) }
+    return jsonResponse([initial])
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+  if (action === 'pause') fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.pause }))
+  else { fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.edit })); fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save })) }
+  await waitFor(() => expect(payload).toBeDefined())
+  expect(payload).toMatchObject({ providers: initial.providers, enabled: false, recurrence: initial.recurrence, timezone: initial.timezone, expectedUpdatedAt: initial.updatedAt })
 })

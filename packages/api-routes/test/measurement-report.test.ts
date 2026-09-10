@@ -432,7 +432,7 @@ describe('report kernel', () => {
     ]
     const answer = 'Ｎｏｒｔｈｓｔａｒ Harbor and Northstar North.'
     expect(mentionTargets.map(target => targetMentionedInAnswer(answer, target.id, mentionTargets)))
-      .toEqual([false, false, false, false, true])
+      .toEqual([false, null, null, false, true])
     expect(targetMentionedInAnswer('Northstar Harbor. Harbor.', 'inner', mentionTargets)).toBe(true)
   })
 
