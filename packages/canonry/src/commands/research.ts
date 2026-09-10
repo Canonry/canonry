@@ -1,15 +1,17 @@
+import { readFileSync } from 'node:fs'
 import { createApiClient } from '../client.js'
 import type { ApiClient } from '../client.js'
 import {
   CitationStates,
   ResearchRunStatuses,
+  researchBatchCreateSchema,
   type LocationContext,
   type ResearchRunCreate,
   type ResearchRunDetailDto,
   type ResearchRunStatus,
   type ResearchRunSummaryDto,
 } from '@ainyc/canonry-contracts'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 const TERMINAL_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
@@ -67,6 +69,45 @@ export async function researchRun(project: string, opts: ResearchRunOptions): Pr
   printDetail(project, detail, opts.format)
 }
 
+/** Accept only reviewed concrete destinations; retries reuse the key in the input file. */
+export async function researchBatch(project: string, source: string, opts: { wait?: boolean; format?: string }): Promise<void> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(source === '-' ? 0 : source, 'utf8')) as unknown
+  } catch {
+    throw usageError('Research batch input must be a readable JSON file (or - for stdin).', {
+      message: 'Research batch input must be a readable JSON file (or - for stdin).',
+      details: { command: 'research.batch' },
+    })
+  }
+  const parsed = researchBatchCreateSchema.safeParse(raw)
+  if (!parsed.success) {
+    const message = parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ')
+    throw usageError(`Invalid research batch: ${message}`, {
+      message: `Invalid research batch: ${message}`,
+      details: { command: 'research.batch' },
+    })
+  }
+  const client = getClient()
+  const started = await client.startResearchBatch(project, parsed.data)
+  const runs = opts.wait
+    ? await Promise.all(started.runs.map(run => TERMINAL_RESEARCH_STATUSES.has(run.status)
+      ? Promise.resolve(run)
+      : pollResearchRun(client, project, run.id, true)))
+    : started.runs
+  if (opts.format === 'jsonl') {
+    emitJsonl(runs.map(run => ({ project, ...run })))
+  } else if (opts.format === 'json') {
+    console.log(JSON.stringify({ runs }, null, 2))
+  } else {
+    console.log(`Research saved for ${runs.length} destinations (${runs.reduce((count, run) => count + run.totalQueries, 0)} queries).`)
+    for (const run of runs) {
+      if (opts.wait) printDetail(project, run)
+      else printStarted(project, run)
+    }
+  }
+}
+
 export async function researchList(project: string, opts: { limit?: number; format?: string }): Promise<void> {
   const client = getClient()
   const { runs } = await client.listResearchRuns(project, opts.limit === undefined ? undefined : { limit: opts.limit })
@@ -121,6 +162,7 @@ function printStarted(project: string, run: ResearchRunSummaryDto): void {
   console.log(`  Status:   ${run.status}`)
   console.log(`  Queries:  ${run.totalQueries}`)
   console.log(`  Scope:    ${formatScope(run.scope)}`)
+  console.log(`  Location: ${run.location?.label ?? 'No location context'}`)
   console.log(`  Provider: ${run.provider}${run.resolvedModel ? ` / ${run.resolvedModel}` : ''}`)
   console.log(`  Inspect:  canonry research show ${project} ${run.id}`)
   console.log('  Nothing was added to tracked queries.')

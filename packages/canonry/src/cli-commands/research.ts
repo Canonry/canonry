@@ -1,4 +1,4 @@
-import { researchList, researchRun, researchShow } from '../commands/research.js'
+import { researchBatch, researchList, researchRun, researchShow } from '../commands/research.js'
 import type { CliCommandSpec, CliCommandInput } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -15,6 +15,7 @@ import { createApiClient } from '../client.js'
 import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@ainyc/canonry-contracts'
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--property <key>] [--template-id <id> --template-version <version>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
+const BATCH_USAGE = 'canonry research batch <project> <json-file|-> [--wait] [--format json|jsonl]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
@@ -98,6 +99,18 @@ function resolveTemplate(input: CliCommandInput, usage: string): NonNullable<Res
 }
 
 export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['research', 'batch'],
+    usage: BATCH_USAGE,
+    options: { wait: { type: 'boolean', default: false } },
+    run: async (input) => {
+      const project = requireProject(input, 'research.batch', BATCH_USAGE)
+      const source = requirePositional(input, 1, {
+        command: 'research.batch', usage: BATCH_USAGE, message: 'reviewed research batch JSON file is required',
+      })
+      await researchBatch(project, source, { wait: getBoolean(input.values, 'wait'), format: input.format })
+    },
+  },
   {
     path: ['research', 'run'],
     usage: RUN_USAGE,

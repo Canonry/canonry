@@ -112,6 +112,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-query-templates/{templateId}/apply': 'included',
   'POST /api/v1/projects/{name}/results/clear': 'included',
   'POST /api/v1/projects/{name}/research/runs': 'included',
+  'POST /api/v1/projects/{name}/research/batches': 'included',
   'GET /api/v1/projects/{name}/research/runs': 'included',
   'GET /api/v1/projects/{name}/research/runs/{runId}': 'included',
   'GET /api/v1/projects/{name}/report': 'included',

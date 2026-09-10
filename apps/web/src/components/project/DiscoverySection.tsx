@@ -39,7 +39,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { ResearchQueriesSection, type ResearchScopeOption, type ResearchTemplateOption } from './ResearchQueriesSection.js'
+import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -170,7 +170,6 @@ function QueryResearchWorkspace({
   projectName,
   selection,
   mode,
-  onSelectionChange,
   onModeChange,
   onReviewSavedSource,
   viewerResearchConfig,
@@ -220,21 +219,22 @@ function QueryResearchWorkspace({
     pattern: template.pattern,
     variables: template.variables,
   })), [researchTemplatesQuery.data])
-  const selectedScopeOption = researchScopeOptions.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey))
-  const selectedResearchScope: ResearchScopeOption | null = selectedScopeOption && (selectedScopeOption.kind === 'market' || selectedScopeOption.kind === 'property') && workspaceQuery.data?.active
-    ? { kind: selectedScopeOption.kind, key: selectedScopeOption.id, label: selectedScopeOption.label, planRevision: workspaceQuery.data.active.revision, expectedPlanRevision: workspaceQuery.data.active.revision }
-    : null
-  const wantsExplicitScope = selection.measurementScope === 'market' || selection.measurementScope === 'property'
-  const scopePending = wantsExplicitScope && (workspaceQuery.isPending || workspaceQuery.isFetching)
-  const scopeError = wantsExplicitScope && (workspaceQuery.isError || (!scopePending && selectedResearchScope === null))
   const researchProps = {
     projectName,
     scopeOptions: researchScopeOptions,
-    selectedScope: selectedResearchScope,
-    scopePending,
-    scopeError,
+    planRevision: workspaceQuery.data?.active?.revision ?? null,
+    selectedScope: (() => {
+      const option = researchScopeOptions.find(item => item.kind === selection.measurementScope && item.id === selection.measurementScopeKey)
+      const revision = workspaceQuery.data?.active?.revision
+      return option && revision && (option.kind === 'market' || option.kind === 'property')
+        ? { kind: option.kind, key: option.id, label: option.label, planRevision: revision, expectedPlanRevision: revision }
+        : (selection.measurementScope === 'market' || selection.measurementScope === 'property') && selection.measurementScopeKey
+          ? { kind: selection.measurementScope, key: selection.measurementScopeKey, label: selection.measurementScopeKey, planRevision: revision ?? 0, expectedPlanRevision: revision ?? 0 }
+        : null
+    })(),
+    scopePending: workspaceQuery.isPending || workspaceQuery.isFetching,
+    scopeError: workspaceQuery.isError,
     onRetryScope: () => { void workspaceQuery.refetch() },
-    onScopeChange: (scope: VisibilityReportScopeOption) => onSelectionChange?.({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id }),
     templates: researchTemplates,
   }
   if (viewerResearchConfig) {

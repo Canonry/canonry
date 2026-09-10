@@ -23,6 +23,7 @@ import {
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   researchRunCreateSchema,
+  researchBatchCreateSchema,
   resultsClearRequestSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
@@ -888,6 +889,11 @@ const researchRunStartInputSchema = z.object({
 const researchRunsListInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(100).optional().describe('Max saved research runs returned. Default 20.'),
+})
+
+const researchBatchStartInputSchema = z.object({
+  project: projectNameSchema,
+  request: researchBatchCreateSchema.describe('Reviewed concrete runs, at most 20 destinations and 50 total queries. Specify provider, model and location (null means none) for every run. Pin the plan revision for each market or Property. Reuse the same idempotencyKey and unchanged request after an uncertain response.'),
 })
 
 const researchRunIdInputSchema = z.object({
@@ -2831,6 +2837,18 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/research/runs'],
     handler: (client, input) => client.startResearchRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_research_batch_start',
+    title: 'Start reviewed research across destinations',
+    description:
+      'Accept a reviewed research batch across explicit markets, Properties, or configured locations. Submit fully expanded, editable final queries with explicit provider/model/location for each destination; the API does not expand patterns or groups. All runs are saved together or none are saved, then processed independently. The required idempotencyKey prevents duplicate work on retries; changed input with the same key conflicts. Each run retains its scope, location and optional pattern provenance. Uses paid answer engines, never adds tracked queries or affects visibility measurements.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: researchBatchStartInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/research/batches'],
+    handler: (client, input) => client.startResearchBatch(input.project, input.request),
   }),
   defineTool({
     name: 'canonry_research_runs_list',

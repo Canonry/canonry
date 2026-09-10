@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Play } from 'lucide-react'
+import { ExternalLink, Play, RefreshCw } from 'lucide-react'
 import {
+  MAX_RESEARCH_BATCH_QUERIES,
+  MAX_RESEARCH_BATCH_RUNS,
   ResearchQueryStatuses,
   ResearchRunStatuses,
-  type ResearchRunDetailDto,
+  deduplicateResearchQueries,
   expandResearchTemplate,
   researchTemplateBindings,
-  deduplicateResearchQueries,
+  type LocationContext,
   type ResearchRunQueryDto,
+  type ResearchRunDetailDto,
   type ResearchRunStatus,
   type ResearchRunScope,
-  type ResearchTemplateSelection,
+  type ResearchBatchDto,
+  type ResearchBatchCreate,
   type VisibilityReportScopeOption,
-  type ResearchScopeSelection,
 } from '@ainyc/canonry-contracts'
 
 import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
@@ -23,7 +26,9 @@ import {
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
   getApiV1ProjectsByNameResearchRunsOptions,
   getApiV1SettingsOptions,
-  postApiV1ProjectsByNameResearchRunsMutation,
+  getApiV1ProjectsByNameMeasurementQueryTemplatesQueryKey,
+  postApiV1ProjectsByNameResearchBatchesMutation,
+  putApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdMutation,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
@@ -32,7 +37,6 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
-import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { useAccount } from '../../contexts/account-context.js'
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
@@ -43,46 +47,37 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
 /** Shared so assertions describe the shipped Research interface. */
 export const RESEARCH_COPY = {
   queryPlaceholder: 'Write one research query per line',
-  queryGuidance: 'Research is separate from tracked queries. You can edit every query before you run it.',
-  queryCountLimit: ' / 50 queries',
+  patternPlaceholder: 'best {market} apartments near transit',
+  patternGuidance: 'Write one query pattern per line. For example, “best {market} apartments near transit”.',
   inheritedModel: 'Use AI Visibility model',
   runAction: 'Run queries',
   savedNote: 'Saved separately from tracked queries and AI Visibility metrics.',
   historyTitle: 'Research history',
   emptyHistory: 'No saved research.',
-  resultsEmpty: 'Choose a saved batch.',
+  resultsEmpty: 'Choose a saved run.',
   methodologySummary: 'How matching works',
   methodology: 'Brand-name matches use configured project names or domains in answer text. Project-domain citations use source links. Neither verifies property identity.',
-  queryContextLabel: 'Market or property',
-  scopeLoading: 'Loading market or property…',
-  scopeError: 'Could not verify market or property.',
-  retryScope: 'Retry market or property',
-  templateLabel: 'Saved query pattern',
-  customQuery: 'Write queries yourself',
-  templateHelp: 'A saved query pattern fills in the selected market or property. You can edit the queries before you run them.',
-  staleTemplate: 'The selected market or property changed. Refresh the query pattern or write queries yourself to keep this text.',
-  refreshTemplate: 'Refresh queries',
+  stalePreview: 'The plan or saved pattern changed after this preview. Your edits are preserved. Regenerate before starting research.',
+  refreshPreview: 'Regenerate preview',
   templateProvenance: 'Query pattern details',
   brandedQuery: 'Branded',
   discoveryQuery: 'Discovery',
   unclassifiedQuery: 'Unclassified',
 } as const
 
-export type ResearchScopeOption = ResearchRunScope & { expectedPlanRevision: number }
-
 export type ResearchTemplateOption = { id: string; version: string; label: string; pattern: string; variables: readonly string[] }
+export type ResearchScopeOption = ResearchRunScope & { expectedPlanRevision: number }
 
 export type ResearchTrackingSource = { researchRunQueryId: string; scope?: ResearchRunScope | null }
 export function ResearchQueriesSection({
   projectName,
   onReviewForTracking,
   scopeOptions,
+  planRevision,
   selectedScope,
-  onScopeChange,
-  scopePending = false,
-  scopeError = false,
+  scopePending,
+  scopeError,
   onRetryScope,
-  allowGroupSelect = false,
   templates = [],
   viewerResearchConfig = null,
 }: {
@@ -90,26 +85,23 @@ export function ResearchQueriesSection({
   onReviewForTracking?: (source: ResearchTrackingSource) => void
   viewerResearchConfig?: ViewerResearchConfig | null
   scopeOptions?: VisibilityReportScopeOption[]
+  planRevision?: number | null
   selectedScope?: ResearchScopeOption | null
-  onScopeChange?: (scope: VisibilityReportScopeOption) => void
   scopePending?: boolean
   scopeError?: boolean
   onRetryScope?: () => void
-  allowGroupSelect?: boolean
   templates?: readonly ResearchTemplateOption[]
 }) {
   const queryClient = useQueryClient()
   const { account, canWrite } = useAccount()
   const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
-  const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
-  const [locationChoice, setLocationChoice] = useState('')
-  const [selectedTemplate, setSelectedTemplate] = useState<ResearchTemplateOption | null>(null)
-  const [templatePlanRevision, setTemplatePlanRevision] = useState<number | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [createdRuns, setCreatedRuns] = useState<ResearchRunDetailDto[]>([])
   const retryRequest = useRef<{ fingerprint: string; key: string } | null>(null)
   const submitInFlight = useRef(false)
+  const [composerVersion, setComposerVersion] = useState(0)
 
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
@@ -145,8 +137,6 @@ export function ResearchQueriesSection({
   })
   const detail = runsQuery.isError || detailQuery.isError ? null : detailQuery.data ?? null
 
-  const submittedQueries = useMemo(() => normalizeResearchQueries(queryText), [queryText])
-  const selectedScopeOption = scopeOptions?.find(option => option.kind === selectedScope?.kind && option.id === selectedScope.key) ?? scopeOptions?.find(option => option.kind === 'project')
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
     if (isViewerResearch) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
@@ -165,58 +155,11 @@ export function ResearchQueriesSection({
     }
   }, [provider, providerOptions, projectQuery.data, projectQuery.isError, settingsQuery.isError])
 
-  useEffect(() => {
-    if (!locationChoice && projectQuery.data && !projectQuery.isError) {
-      setLocationChoice(projectQuery.data.defaultLocation ?? '__none__')
-    }
-  }, [locationChoice, projectQuery.data, projectQuery.isError])
-
-  const scopeIdentity = selectedScope ? `${selectedScope.kind}:${selectedScope.key}` : ''
-  const templateBindings = useMemo(() => researchTemplateBindings(selectedScope), [selectedScope])
-  const templateOptions = useMemo(() => selectedScope
-    ? templates.filter(template => template.variables.every(variable => variable in templateBindings))
-    : [], [selectedScope, templateBindings, templates])
-  const hasApplicableQueryPatterns = templateOptions.length > 0
-  const templateValue = selectedTemplate ? `${selectedTemplate.id}:${selectedTemplate.version}` : 'custom'
-  const templateProvenance = selectedScope && selectedTemplate
-    ? { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } satisfies ResearchTemplateSelection
-    : undefined
-  const templateScopeStale = selectedTemplate !== null && templatePlanRevision !== selectedScope?.expectedPlanRevision
-  const applyTemplate = (nextTemplate: ResearchTemplateOption | null) => {
-    setSelectedTemplate(nextTemplate)
-    setTemplatePlanRevision(nextTemplate ? selectedScope?.expectedPlanRevision ?? null : null)
-    if (nextTemplate && selectedScope) setQueryText(expandResearchTemplate(nextTemplate, selectedScope).output)
-  }
-
-  useEffect(() => {
-    if (!selectedScope || (selectedTemplate && !selectedTemplate.variables.every(variable => variable in templateBindings))) {
-      setSelectedTemplate(null)
-      setTemplatePlanRevision(null)
-      return
-    }
-    if (!selectedTemplate) return
-    setTemplatePlanRevision(selectedScope.expectedPlanRevision)
-    setQueryText(expandResearchTemplate(selectedTemplate, selectedScope).output)
-  }, [scopeIdentity])
-
-  const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
   const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
   const visibilityModel = isViewerResearch
     ? selectedProvider?.catalog.defaultModel
     : (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '') || selectedProvider?.catalog.defaultModel
   const resolvedModel = (configurableModel ? model.trim() : '') || visibilityModel
-  const payload = selectedLocation === undefined
-    ? null
-    : selectedProvider && resolvedModel
-        ? {
-            queries: submittedQueries,
-            provider: selectedProvider.name,
-            ...(configurableModel ? { model: resolvedModel } : {}),
-            ...(selectedScope ? { scope: { kind: selectedScope.kind, key: selectedScope.key, expectedPlanRevision: selectedScope.expectedPlanRevision } satisfies ResearchScopeSelection } : {}),
-            ...(templateProvenance ? { template: templateProvenance } : {}),
-            location: selectedLocation,
-          }
-        : null
   const modelOptions = selectedProvider
     ? [...new Map([
         { id: selectedProvider.catalog.defaultModel, displayName: selectedProvider.catalog.defaultModel },
@@ -224,31 +167,19 @@ export function ResearchQueriesSection({
         ...selectedProvider.catalog.knownModels,
       ].map(item => [item.id, item])).values()]
     : []
-  const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
-  const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
-    && !scopePending && !scopeError && !templateScopeStale
-    && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
-    && (isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching)
-    && submittedQueries.length > 0 && submittedQueries.length <= 50
-
-  useEffect(() => {
-    if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = null
-  }, [fingerprint])
-
   const researchMutation = useMutation({
-    ...postApiV1ProjectsByNameResearchRunsMutation(),
-    onSuccess: async (run) => {
+    ...postApiV1ProjectsByNameResearchBatchesMutation(),
+    onSuccess: async (batch: ResearchBatchDto) => {
       retryRequest.current = null
-      setSelectedRunId(run.id)
-      setQueryText('')
-      setSelectedTemplate(null)
-      setModel('')
+      setComposerVersion(value => value + 1)
+      setCreatedRuns(batch.runs)
+      setSelectedRunId(batch.runs[0]?.id ?? null)
       await refreshResearch(queryClient)
       addToast({
         title: 'Research batch saved',
-        detail: `${run.totalQueries} quer${run.totalQueries === 1 ? 'y is' : 'ies are'} in research history. Nothing was added to tracked queries.`,
+        detail: `${batch.runs.length} ${batch.runs.length === 1 ? 'run is' : 'runs are'} in research history. Nothing was added to tracked queries.`,
         tone: 'positive',
-        dedupeKey: `research:start:${run.id}`,
+        dedupeKey: `research:start:${batch.runs.map(run => run.id).join(':')}`,
         dedupeMode: 'replace',
       })
     },
@@ -262,158 +193,49 @@ export function ResearchQueriesSection({
     onSettled: () => { submitInFlight.current = false },
   })
 
-  function submitResearch() {
-    if (!canSubmit || researchMutation.isPending || submitInFlight.current || !payload || !fingerprint) return
-    submitInFlight.current = true
-    if (retryRequest.current?.fingerprint !== fingerprint) {
-      retryRequest.current = { fingerprint, key: crypto.randomUUID() }
-    }
-    researchMutation.mutate({
-      client: heyClient,
-      path: { name: projectName },
-      body: {
-        ...payload,
-        idempotencyKey: retryRequest.current.key,
-      },
-    })
-  }
-
   return (
     <div className="space-y-4">
       <div className="space-y-4">
-        <Card className="surface-card min-w-0">
-          <div className="section-head">
-            <div>
-              <h3>Research queries</h3>
-            </div>
-          </div>
-          <div className="mt-4 space-y-4">
-            {scopeOptions && selectedScopeOption && onScopeChange && <VisibilityScopePicker
-              label={RESEARCH_COPY.queryContextLabel}
-              options={scopeOptions}
-              selected={selectedScopeOption}
-              onSelect={onScopeChange}
-              allowGroupSelect={allowGroupSelect}
-            />}
-            {scopePending && <p role="status" className="text-sm text-secondary">{RESEARCH_COPY.scopeLoading}</p>}
-            {scopeError && <div role="alert" className="text-sm text-negative"><p>{RESEARCH_COPY.scopeError}</p>{onRetryScope && <Button variant="outline" onClick={onRetryScope}>{RESEARCH_COPY.retryScope}</Button>}</div>}
-
-            {hasApplicableQueryPatterns && <div>
-              <label className="block" htmlFor="research-template">
-                <span className="text-xs font-medium text-secondary">{RESEARCH_COPY.templateLabel}</span>
-                <select
-                  id="research-template"
-                  aria-describedby="research-template-help"
-                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                  value={templateValue}
-                  onChange={event => applyTemplate(event.target.value === 'custom' ? null : templateOptions.find(template => `${template.id}:${template.version}` === event.target.value) ?? null)}
-                >
-                  <option value="custom">{RESEARCH_COPY.customQuery}</option>
-                  {selectedTemplate && !templateOptions.some(template => `${template.id}:${template.version}` === templateValue) && <option value={templateValue}>{selectedTemplate.label}</option>}
-                  {templateOptions.map(template => <option key={`${template.id}:${template.version}`} value={`${template.id}:${template.version}`}>{template.label}</option>)}
-                </select>
-              </label>
-              <p id="research-template-help" className="mt-2 text-sm leading-6 text-secondary">{RESEARCH_COPY.templateHelp}</p>
-            </div>}
-
-            {templateScopeStale && <div role="alert" className="text-sm text-caution">
-              <p>{RESEARCH_COPY.staleTemplate}</p>
-              <Button variant="outline" onClick={() => applyTemplate(selectedTemplate)}>{RESEARCH_COPY.refreshTemplate}</Button>
-            </div>}
-
-            <div>
-              <p id="research-query-guidance" className="text-sm leading-6 text-secondary">{RESEARCH_COPY.queryGuidance}</p>
-              <label className="mt-2 block" htmlFor="research-queries">
-                <span className="text-xs font-medium text-secondary">Research queries</span>
-                <textarea
-                  id="research-queries"
-                  className="mt-1 min-h-36 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  placeholder={RESEARCH_COPY.queryPlaceholder}
-                  value={queryText}
-                  onChange={(event) => setQueryText(event.target.value)}
-                  aria-describedby="research-query-guidance research-query-count"
-                />
-              </label>
-              <span id="research-query-count" className={`mt-1 block text-sm ${submittedQueries.length > 50 ? 'text-negative' : 'text-secondary'}`}>
-                {submittedQueries.length}{RESEARCH_COPY.queryCountLimit}
-              </span>
-            </div>
-            <div className={`grid gap-3 ${locations.length > 0 ? 'sm:grid-cols-2' : ''}`}>
-              <label className="block" htmlFor="research-provider">
-                  <span className="text-xs font-medium text-secondary">Answer engine</span>
-                  <select
-                    id="research-provider"
-                    className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                    value={provider}
-                    onChange={(event) => { setProvider(event.target.value); setModel('') }}
-                  >
-                    <option value="" disabled>Choose a provider</option>
-                    {providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}
-                  </select>
-              </label>
-              {locations.length > 0 && <label className="block" htmlFor="research-location">
-                <span className="text-xs font-medium text-secondary">Location</span>
-                <select
-                  id="research-location"
-                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                  value={locationChoice}
-                  onChange={(event) => setLocationChoice(event.target.value)}
-                >
-                  <option value="" disabled>Choose a location</option>
-                  <option value="__none__">No location</option>
-                  {locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}
-                </select>
-              </label>}
-            </div>
-
-            {isViewerResearch ? <label className="block" htmlFor="research-model">
-              <span className="text-sm font-medium text-secondary">Model</span>
-              <select id="research-model" aria-label="Model" className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                value={model} disabled={!selectedProvider || !configurableModel}
-                onChange={event => setModel(event.target.value)}>
-                <option value="">{selectedProvider ? `${RESEARCH_COPY.inheritedModel} · ${visibilityModel}` : 'Choose an answer engine'}</option>
-                {modelOptions.filter(item => item.id !== visibilityModel || item.id === model).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
-              </select>
-            </label> : <label className="block" htmlFor="research-model">
-              <span className="text-xs font-medium text-secondary">Exact model <span className="font-normal text-muted">(optional)</span></span>
-              <input
-                id="research-model"
-                list="research-known-models"
-                className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder={visibilityModel ? `${RESEARCH_COPY.inheritedModel}: ${visibilityModel}` : 'Choose an answer engine'}
-                value={model}
-                disabled={!selectedProvider || !configurableModel}
-                onChange={(event) => setModel(event.target.value)}
-              />
-              <datalist id="research-known-models">
-                {(selectedProvider?.catalog.knownModels ?? []).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
-              </datalist>
-            </label>}
-
-            <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
-              {!isEmbed() && (isViewerResearch ? (
-                <Button type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
-                  <Play size={14} />
-                  {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
-                </Button>
-              ) : (
-                <WriteButton type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
-                  <Play size={14} />
-                  {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
-                </WriteButton>
-              ))}
-              <p className="text-sm leading-5 text-secondary">{RESEARCH_COPY.savedNote}</p>
-            </div>
-            {isViewerResearch && <p className="text-sm text-secondary">{viewerResearchConfig.viewerDailyRunLimit} batches per project per day.</p>}
-            {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
-            {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-            {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && (
-              <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
-                {isViewerResearch ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}
-              </p>
-            )}
-          </div>
-        </Card>
+        <ResearchBatchComposer
+          key={`${projectName}:${composerVersion}`}
+          projectName={projectName}
+          canWrite={canWrite}
+          isViewerResearch={isViewerResearch}
+          isEmbed={isEmbed()}
+          scopeOptions={scopeOptions ?? []}
+          planRevision={planRevision ?? selectedScope?.planRevision ?? null}
+          initialScope={selectedScope}
+          scopePending={scopePending}
+          scopeError={scopeError}
+          onRetryScope={onRetryScope}
+          templates={templates}
+          locations={locations}
+          defaultLocation={projectQuery.data?.defaultLocation ?? null}
+          providerOptions={providerOptions}
+          provider={provider}
+          onProviderChange={(next) => { setProvider(next); setModel('') }}
+          resolvedModel={resolvedModel}
+          visibilityModel={visibilityModel}
+          configurableModel={configurableModel}
+          model={model}
+          onModelChange={setModel}
+          modelOptions={modelOptions}
+          settingsReady={isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
+          projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
+          isPending={researchMutation.isPending}
+          errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
+          onSubmit={(body, fingerprint) => {
+            if (submitInFlight.current) return
+            if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
+            submitInFlight.current = true
+            researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
+          }}
+        />
+        {isViewerResearch && <p className="text-sm text-secondary">Up to {viewerResearchConfig.viewerDailyRunLimit} destination runs per project per day.</p>}
+        {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+        {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
+        {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{isViewerResearch ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
+        {createdRuns.length > 0 && <p role="status" className="text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{run.scope?.label ?? 'Whole site'}{run.location ? `, ${run.location.label}` : ', No location'}</a></span>)}</p>}
 
         <Card className="surface-card min-w-0">
           <div className="section-head section-head-inline">
@@ -450,6 +272,294 @@ export function ResearchQueriesSection({
     </div>
   )
 }
+
+type ResearchMode = 'once' | 'markets' | 'properties' | 'locations'
+type PreviewRow = { id: string; query: string; scope: ResearchRunScope | null; location: LocationContext | null }
+type ResearchDestination = VisibilityReportScopeOption & { kind: 'market' | 'property' }
+type ComposerProps = {
+  projectName: string
+  canWrite: boolean
+  isViewerResearch: boolean
+  isEmbed: boolean
+  scopeOptions: readonly VisibilityReportScopeOption[]
+  planRevision: number | null
+  initialScope?: ResearchScopeOption | null
+  scopePending?: boolean
+  scopeError?: boolean
+  onRetryScope?: () => void
+  templates: readonly ResearchTemplateOption[]
+  locations: readonly LocationContext[]
+  defaultLocation: string | null
+  providerOptions: readonly { name: string; displayName?: string; catalog: { modelConfigurable: boolean; defaultModel: string; knownModels: readonly { id: string; displayName: string }[] } }[]
+  provider: string
+  onProviderChange: (provider: string) => void
+  resolvedModel: string | undefined
+  visibilityModel: string | undefined
+  configurableModel: boolean
+  model: string
+  onModelChange: (model: string) => void
+  modelOptions: readonly { id: string; displayName: string }[]
+  settingsReady: boolean
+  projectReady: boolean
+  isPending: boolean
+  errorMessage?: string
+  onSubmit: (body: Omit<ResearchBatchCreate, 'idempotencyKey'>, fingerprint: string) => void
+}
+const INPUT_CLASS = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
+const NO_LOCATION = '__none__'
+
+function ResearchBatchComposer(props: ComposerProps) {
+  const { projectName, locations, provider, resolvedModel, planRevision } = props
+  const queryClient = useQueryClient()
+  const [mode, setMode] = useState<ResearchMode>('once')
+  const [queryText, setQueryText] = useState('')
+  const [pattern, setPattern] = useState('')
+  const [scopeKey, setScopeKey] = useState(props.initialScope ? `${props.initialScope.kind}:${props.initialScope.key}` : 'project')
+  const [directLocation, setDirectLocation] = useState<string | null>(null)
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+  const [destinationLocations, setDestinationLocations] = useState<Record<string, string>>({})
+  const [selectedTemplate, setSelectedTemplate] = useState<ResearchTemplateOption | null>(null)
+  const [localTemplates, setLocalTemplates] = useState<ResearchTemplateOption[]>([])
+  const [preview, setPreview] = useState<{ signature: string; rows: PreviewRow[] } | null>(null)
+  const [showErrors, setShowErrors] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const saveReceipt = useRef<{ fingerprint: string; id: string } | null>(null)
+  const saveInFlight = useRef(false)
+  const patternRef = useRef<HTMLTextAreaElement>(null)
+  const initialScopeIdentity = props.initialScope ? `${props.initialScope.kind}:${props.initialScope.key}` : 'project'
+  useEffect(() => { setScopeKey(initialScopeIdentity); setSelectedTemplate(null) }, [initialScopeIdentity])
+
+  const allDestinations = props.scopeOptions.filter((option): option is ResearchDestination => option.kind === 'market' || option.kind === 'property')
+  const destinationKind = mode === 'markets' ? 'market' : 'property'
+  const destinations = allDestinations.filter(option => option.kind === destinationKind)
+  const scopeFor = (option: ResearchDestination): ResearchRunScope => ({ kind: option.kind, key: option.id, label: option.label, planRevision: planRevision ?? props.initialScope?.planRevision ?? 0 })
+  const locationFor = (label: string): LocationContext | null | undefined => label === NO_LOCATION ? null : locations.find(location => location.label === label)
+  const directLocationLabel = directLocation ?? props.defaultLocation ?? NO_LOCATION
+  const directScopeOption = allDestinations.find(option => `${option.kind}:${option.id}` === scopeKey)
+  const directScope = directScopeOption ? scopeFor(directScopeOption) : null
+  const contexts = mode === 'once'
+    ? [{ scope: directScope, location: locationFor(directLocationLabel) }]
+    : mode === 'locations'
+      ? selectedKeys.map(label => ({ scope: null, location: locationFor(label) }))
+      : selectedKeys.map(key => destinations.find(option => `${option.kind}:${option.id}` === key)).map(option => option
+        ? { scope: scopeFor(option), location: locationFor(destinationLocations[`${option.kind}:${option.id}`] ?? NO_LOCATION) }
+        : null)
+  const templates = [...new Map([...localTemplates, ...props.templates].map(template => [template.id, template])).values()]
+  const currentTemplate = selectedTemplate ? templates.find(template => template.id === selectedTemplate.id) : null
+  const templateStale = selectedTemplate !== null && currentTemplate?.version !== selectedTemplate.version
+  const source = mode === 'once' ? queryText : pattern
+  const sourceLines = source.split(/\r?\n/).filter(line => line.trim())
+  const directQueries = deduplicateResearchQueries(sourceLines)
+  const patternVariables = [...new Set([...pattern.matchAll(/\{([^{}]+)\}/g)].map(match => match[1]!))]
+  const patternSyntaxError = /[{}]/.test(pattern.replace(/\{(?:market|submarket|property|propertyBrand|location)\}/g, ''))
+  const setupErrors: string[] = []
+  if (!sourceLines.length) setupErrors.push(mode === 'once' ? 'Enter at least one query.' : 'Enter at least one query pattern.')
+  if (sourceLines.some(line => line.length > 4000)) setupErrors.push('Keep each query under 4,001 characters.')
+  if (mode !== 'once' && patternSyntaxError) setupErrors.push('Use the name buttons to insert a supported variable. Remove unknown or incomplete braces.')
+  if (!contexts.length) setupErrors.push(mode === 'locations' ? 'Select at least one location.' : 'Select at least one destination.')
+  if (contexts.some(context => !context || context.location === undefined)) setupErrors.push('A selected destination or location is no longer available. Update your selection.')
+  const requiresScope = (mode === 'once' && scopeKey !== 'project') || mode === 'markets' || mode === 'properties'
+  if (requiresScope && (props.scopePending || props.scopeError || !planRevision || contexts.some(context => !context?.scope))) setupErrors.push('Load the current published markets and properties before running scoped research.')
+  const total = (mode === 'once' ? directQueries.length : sourceLines.length) * contexts.length
+  if (contexts.length > MAX_RESEARCH_BATCH_RUNS) setupErrors.push(`Select at most ${MAX_RESEARCH_BATCH_RUNS} destinations.`)
+  if (total > MAX_RESEARCH_BATCH_QUERIES) setupErrors.push(`${total} queries selected. Reduce the selection to ${MAX_RESEARCH_BATCH_QUERIES} or fewer.`)
+  if (templateStale) setupErrors.push('This saved pattern changed. Select its current version from Saved patterns.')
+  if (mode !== 'once' && !patternSyntaxError) {
+    for (const context of contexts) {
+      if (!context || context.location === undefined) continue
+      try { expandResearchTemplate(selectedTemplate ?? { pattern, variables: patternVariables }, context.scope, context.location) }
+      catch { setupErrors.push(`Choose a location for {location}, or use only variables available for ${mode === 'markets' ? 'markets' : mode === 'properties' ? 'properties' : 'locations'}.`); break }
+    }
+  }
+  const signature = JSON.stringify({ mode, source, contexts, provider, resolvedModel, template: selectedTemplate, ...(requiresScope ? { planRevision } : {}) })
+  const previewStale = preview !== null && preview.signature !== signature
+  const rows = mode === 'once'
+    ? directQueries.map((query, index): PreviewRow => ({ id: String(index), query, scope: directScope, location: contexts[0]?.location ?? null }))
+    : preview?.rows ?? []
+  const groups = groupPreviewRows(rows)
+  const rowErrors: string[] = []
+  if (mode !== 'once' && preview) {
+    if (previewStale) rowErrors.push('Setup changed. Your edited queries are preserved. Regenerate the preview to use the new setup.')
+    if (rows.some(row => !row.query.trim() || row.query.length > 4000 || /\{(?:market|submarket|property|propertyBrand|location)\}/.test(row.query))) rowErrors.push('Every preview row needs a complete query of 1 to 4,000 characters, with no unresolved variables.')
+    if (rows.some(row => row.location && !locations.some(location => JSON.stringify(location) === JSON.stringify(row.location)))) rowErrors.push('A preview location changed. Regenerate the preview.')
+    if (groups.some(group => deduplicateResearchQueries(group.queries).length !== group.queries.length)) rowErrors.push('Remove duplicate queries within each destination and location.')
+    if (groups.length > MAX_RESEARCH_BATCH_RUNS) rowErrors.push(`The preview exceeds ${MAX_RESEARCH_BATCH_RUNS} runs.`)
+  }
+  const canRun = (props.canWrite || props.isViewerResearch) && !props.isEmbed && !props.isPending && props.settingsReady && props.projectReady && Boolean(provider && resolvedModel) && !setupErrors.length && !rowErrors.length && (mode === 'once' || preview !== null)
+  const buildRequest = (): Omit<ResearchBatchCreate, 'idempotencyKey'> => ({ runs: groups.map(group => ({
+    queries: group.queries, provider, model: resolvedModel!, location: group.location,
+    ...(group.scope ? { scope: { kind: group.scope.kind, key: group.scope.key, expectedPlanRevision: group.scope.planRevision } } : {}),
+    ...(selectedTemplate ? { template: { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } } : {}),
+  })) })
+  const createPreview = () => {
+    setShowErrors(true)
+    if (setupErrors.length) return
+    const nextRows = contexts.flatMap((context, contextIndex) => sourceLines.map((line, lineIndex): PreviewRow => ({
+      id: `${contextIndex}:${lineIndex}`, scope: context!.scope, location: context!.location!,
+      query: expandResearchTemplate({ pattern: line, variables: [...new Set([...line.matchAll(/\{([^{}]+)\}/g)].map(match => match[1]!))] }, context!.scope, context!.location).output,
+    })))
+    setPreview({ signature, rows: nextRows })
+  }
+  const changeMode = (next: ResearchMode) => { setMode(next); setSelectedKeys([]); setSelectedTemplate(null); setSearch(''); setShowErrors(false) }
+  const chooseTemplate = (template: ResearchTemplateOption) => {
+    setSaveError('')
+    if (mode === 'once') {
+      try { setQueryText(expandResearchTemplate(template, directScope, locationFor(directLocationLabel)).output) }
+      catch { setSaveError('Select a matching market, property, or location before using this pattern.'); return }
+    } else setPattern(template.pattern)
+    setSelectedTemplate(template)
+  }
+  const insertToken = (token: string) => {
+    const editor = patternRef.current
+    const start = editor?.selectionStart ?? pattern.length
+    const end = editor?.selectionEnd ?? start
+    setPattern(`${pattern.slice(0, start)}{${token}}${pattern.slice(end)}`)
+    setSelectedTemplate(null)
+    requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + token.length + 2, start + token.length + 2) })
+  }
+  const saveMutation = useMutation({
+    ...putApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdMutation(),
+    onSuccess: async saved => {
+      const template = { id: saved.id, version: saved.updatedAt, label: saved.name, pattern: saved.pattern, variables: saved.variables }
+      setLocalTemplates(current => [...current.filter(item => item.id !== saved.id), template])
+      setSelectedTemplate(template)
+      setSaveOpen(false); setSaveName(''); setSaveError(''); saveReceipt.current = null
+      await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameMeasurementQueryTemplatesQueryKey({ client: heyClient, path: { name: projectName } }) })
+      addToast({ title: 'Pattern saved', detail: 'Available in Saved patterns. Tracking was not changed.', tone: 'positive' })
+    },
+    onError: () => setSaveError('Could not save the pattern. Your text is preserved. Retry to save the same pattern.'),
+    onSettled: () => { saveInFlight.current = false },
+  })
+  const savePattern = () => {
+    if (!props.canWrite || props.isEmbed || saveInFlight.current) return
+    const savedSource = mode === 'once' ? queryText : pattern
+    const variables = mode === 'once' ? [] : patternVariables
+    if (!saveName.trim() || !savedSource.trim() || savedSource.length > 4000 || (mode !== 'once' && patternSyntaxError)) {
+      setSaveError('Enter a name and a valid pattern of 1 to 4,000 characters.'); return
+    }
+    const body = { name: saveName.trim(), pattern: savedSource, variables }
+    const fingerprint = JSON.stringify(body)
+    if (saveReceipt.current?.fingerprint !== fingerprint) saveReceipt.current = { fingerprint, id: crypto.randomUUID() }
+    saveInFlight.current = true
+    saveMutation.mutate({ client: heyClient, path: { name: projectName, templateId: saveReceipt.current.id }, body })
+  }
+  const visibleErrors = [...new Set([...(showErrors || source.trim() ? setupErrors : []), ...rowErrors])]
+  const selectableTemplates = templates.filter(template => {
+    const available = mode === 'once' ? researchTemplateBindings(directScope, locationFor(directLocationLabel))
+      : researchTemplateBindings(mode === 'markets' ? { kind: 'market', label: 'Market' } : mode === 'properties' ? { kind: 'property', label: 'Property' } : null, { label: 'Location' })
+    return template.variables.every(variable => available[variable] !== undefined)
+  })
+
+  return <Card className="surface-card min-w-0">
+    <div className="section-head"><div><h3>Test queries</h3><p className="mt-1 max-w-prose text-sm text-secondary">See how an answer engine responds. Results are saved separately from tracked queries and AI Visibility metrics.</p></div></div>
+    <fieldset aria-label="Research setup" className="mt-5 min-w-0 space-y-5" disabled={props.isPending || saveMutation.isPending}>
+      <label className="block"><span className="text-sm font-medium text-heading">Run mode</span>
+        <select className={INPUT_CLASS} value={mode} disabled={props.isPending} onChange={event => changeMode(event.target.value as ResearchMode)}>
+          <option value="once">Run once</option>
+          <option value="markets" disabled={!allDestinations.some(item => item.kind === 'market')}>Repeat across markets</option>
+          <option value="properties" disabled={!allDestinations.some(item => item.kind === 'property')}>Repeat across properties</option>
+          <option value="locations" disabled={!locations.length}>Repeat across locations</option>
+        </select>
+      </label>
+      {mode === 'once' && <div className="grid gap-4 sm:grid-cols-2">
+        {(allDestinations.length > 0 || scopeKey !== 'project') && <label className="block"><span className="text-sm font-medium text-heading">Save results under</span>
+          <select className={INPUT_CLASS} value={scopeKey} onChange={event => { setScopeKey(event.target.value); setSelectedTemplate(null) }}>
+            <option value="project">Whole site</option>
+            {scopeKey !== 'project' && !directScopeOption && <option value={scopeKey} disabled>Selected destination unavailable</option>}
+            {allDestinations.map(option => <option key={`${option.kind}:${option.id}`} value={`${option.kind}:${option.id}`}>{option.label} ({option.kind})</option>)}
+          </select>
+        </label>}
+        <LocationSelect label="Answer engine location" value={directLocationLabel} locations={locations} onChange={value => { setDirectLocation(value); setSelectedTemplate(null) }} />
+      </div>}
+      {mode !== 'once' && <fieldset className="space-y-3">
+        <legend className="text-sm font-medium text-heading">{mode === 'locations' ? 'Select locations' : `Select ${mode}`}</legend>
+        <p className="text-sm text-secondary">Choose each destination explicitly. Each selected destination gets its own saved research run.</p>
+        <input type="search" aria-label="Search destinations" className={INPUT_CLASS} placeholder={`Search ${mode}`} value={search} onChange={event => setSearch(event.target.value)} />
+        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+          {(mode === 'locations' ? locations.map(location => ({ key: location.label, label: location.label })) : destinations.map(option => ({ key: `${option.kind}:${option.id}`, label: option.label })))
+            .filter(option => option.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(option => {
+              const checked = selectedKeys.includes(option.key)
+              return <div key={option.key} className="grid items-center gap-2 border-b border-default pb-2 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                <label className="flex min-h-11 items-center gap-3 text-sm text-heading"><input type="checkbox" checked={checked} onChange={() => setSelectedKeys(current => checked ? current.filter(key => key !== option.key) : [...current, option.key])} />{option.label}</label>
+                {checked && mode !== 'locations' && <LocationSelect label={`Answer engine location for ${option.label}`} value={destinationLocations[option.key] ?? NO_LOCATION} locations={locations} onChange={value => setDestinationLocations(current => ({ ...current, [option.key]: value }))} />}
+              </div>
+            })}
+        </div>
+        <p className="text-sm text-secondary">{selectedKeys.length} selected. A market or property name changes query text, not the answer engine's location.</p>
+      </fieldset>}
+      {props.scopeError && <p className="text-sm text-caution">Markets and properties could not load. Whole-site and location research remain available. <Button variant="outline" onClick={props.onRetryScope}>Retry destinations</Button></p>}
+      <div>
+        <label className="block" htmlFor="research-query-editor"><span className="text-sm font-medium text-heading">{mode === 'once' ? 'Queries' : 'Query pattern'}</span></label>
+        <p id="research-query-guidance" className="mt-1 text-sm text-secondary">{mode === 'once' ? 'Enter one query per line. The answer engine receives exactly this text.' : `Use {${mode === 'markets' ? 'market' : mode === 'properties' ? 'property' : 'location'}} where each name belongs. Preview the resolved queries before running.`}</p>
+        <textarea id="research-query-editor" ref={patternRef} className={`${INPUT_CLASS} min-h-32`} aria-describedby="research-query-guidance research-query-count" value={source} placeholder={mode === 'once' ? RESEARCH_COPY.queryPlaceholder : mode === 'markets' ? 'Best apartments in {market}' : mode === 'properties' ? 'What amenities does {property} offer?' : 'Best apartments in {location}'} onChange={event => {
+          if (mode === 'once') setQueryText(event.target.value)
+          else { setPattern(event.target.value); setSelectedTemplate(null) }
+        }} />
+        {mode !== 'once' && <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => insertToken(mode === 'markets' ? 'market' : mode === 'properties' ? 'property' : 'location')}>Insert {mode === 'markets' ? 'market' : mode === 'properties' ? 'property' : 'location'} name</Button>
+          <span className="self-center text-sm text-secondary">One pattern per line.</span>
+        </div>}
+        <p id="research-query-count" className="mt-2 text-sm text-secondary">{total} / {MAX_RESEARCH_BATCH_QUERIES} queries{mode === 'once' ? '' : ` across ${contexts.length} destinations`}</p>
+      </div>
+      {mode !== 'once' && <details className="border-t border-default pt-3"><summary className="cursor-pointer text-sm font-medium text-heading focus-visible:outline focus-visible:outline-2">Saved patterns <span className="font-normal text-secondary">(optional)</span></summary>
+        <div className="mt-3 space-y-3"><p className="text-sm text-secondary">Reusable starting text, not active measurement templates. Saving a pattern does not run or track queries.</p>
+          {!selectableTemplates.length ? <p className="text-sm text-secondary">No saved patterns for this selection.</p> : <div className="flex flex-wrap gap-2">{selectableTemplates.map(template => <Button size="sm" variant="outline" key={template.id} onClick={() => chooseTemplate(template)}>{template.label}</Button>)}</div>}
+          {selectedTemplate && <p className="text-sm text-secondary">Using: {selectedTemplate.label}</p>}
+          {props.canWrite && !props.isEmbed && <><Button size="sm" variant="outline" onClick={() => setSaveOpen(!saveOpen)}>{saveOpen ? 'Cancel save' : 'Save as a pattern'}</Button>
+            {saveOpen && <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm text-heading">Pattern name<input className={INPUT_CLASS} value={saveName} maxLength={120} onChange={event => setSaveName(event.target.value)} /></label><Button size="sm" disabled={saveMutation.isPending || !saveName.trim() || !source.trim()} onClick={savePattern}>{saveMutation.isPending ? 'Saving…' : 'Save pattern'}</Button></div>}
+          </>}
+          {saveError && <p role="alert" className="text-sm text-negative">{saveError}</p>}
+        </div>
+      </details>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm font-medium text-heading">Answer engine<select className={INPUT_CLASS} value={provider} onChange={event => props.onProviderChange(event.target.value)}><option value="" disabled>Choose an answer engine</option>{props.providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}</select></label>
+        <label className="block text-sm font-medium text-heading">Model
+          {props.isViewerResearch ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model · {props.visibilityModel}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
+            : <><input aria-label="Model" className={INPUT_CLASS} list="research-known-models" placeholder={resolvedModel ?? 'Choose an answer engine'} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)} /><datalist id="research-known-models">{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
+        </label>
+      </div>
+      {visibleErrors.length > 0 && <InlineErrors errors={visibleErrors} />}
+      {mode !== 'once' && <div className="space-y-4 border-t border-default pt-4">
+        <Button variant="outline" size="sm" disabled={props.isPending || !props.projectReady} onClick={createPreview}><RefreshCw size={14} />{preview ? RESEARCH_COPY.refreshPreview : 'Preview queries'}</Button>
+        {preview && <><h4 className="font-medium text-heading">Queries to run</h4><p className="text-sm text-secondary">{rows.length} query executions in {groups.length} saved runs · {provider} · {resolvedModel}. Edit any query or location below.</p>
+          <ConcretePreview rows={rows} locations={locations} onChange={(id, changes) => setPreview(current => current ? { ...current, rows: current.rows.map(row => row.id === id ? { ...row, ...changes } : row) } : current)} />
+        </>}
+      </div>}
+      {props.errorMessage && <p role="alert" className="text-sm text-negative">{props.errorMessage} Your entries are preserved. Retry unchanged entries to avoid duplicate work.</p>}
+      <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
+        {!props.isEmbed && <Button size="sm" disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : RESEARCH_COPY.runAction}</Button>}
+        <p className="text-sm text-secondary">{mode === 'once' ? `${directQueries.length} queries` : `${rows.length} reviewed queries`} · {provider || 'Choose an engine'} · {resolvedModel || 'Choose a model'}. Uses your configured answer engine.</p>
+      </div>
+    </fieldset>
+  </Card>
+}
+
+function LocationSelect({ label, value, locations, onChange }: { label: string; value: string; locations: readonly LocationContext[]; onChange: (value: string) => void }) {
+  return <label className="block"><span className="text-sm font-medium text-heading">{label}</span><select className={INPUT_CLASS} value={value} onChange={event => onChange(event.target.value)}><option value={NO_LOCATION}>No location context</option>{locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}</select></label>
+}
+function ConcretePreview({ rows, locations, onChange }: { rows: readonly PreviewRow[]; locations: readonly LocationContext[]; onChange: (id: string, changes: Partial<Pick<PreviewRow, 'query' | 'location'>>) => void }) {
+  return <ol className="divide-y divide-default">{rows.map((row, index) => <li key={row.id} className="grid gap-3 py-4 md:grid-cols-[10rem_minmax(0,1fr)_15rem]">
+    <div className="text-sm"><span className="block text-secondary">Query {index + 1}</span><span className="font-medium text-heading">{row.scope?.label ?? row.location?.label ?? 'Whole site'}</span>{row.scope && <span className="block text-secondary">{row.scope.kind}</span>}</div>
+    <label className="block text-sm font-medium text-heading">Query<textarea className={`${INPUT_CLASS} min-h-20`} aria-label={`Query ${index + 1} for ${row.scope?.label ?? row.location?.label ?? 'Whole site'}`} value={row.query} onChange={event => onChange(row.id, { query: event.target.value })} /></label>
+    <LocationSelect label={`Location for query ${index + 1}`} value={row.location?.label ?? NO_LOCATION} locations={locations} onChange={value => onChange(row.id, { location: locations.find(location => location.label === value) ?? null })} />
+  </li>)}</ol>
+}
+function InlineErrors({ errors }: { errors: readonly string[] }) {
+  return <div role="alert" className="text-sm text-negative"><ul className="list-disc space-y-1 pl-5">{errors.map(error => <li key={error}>{error}</li>)}</ul></div>
+}
+function groupPreviewRows(rows: readonly PreviewRow[]) {
+  const groups = new Map<string, { scope: ResearchRunScope | null; location: LocationContext | null; queries: string[] }>()
+  for (const row of rows) {
+    const key = JSON.stringify({ scope: row.scope, location: row.location })
+    const group = groups.get(key) ?? { scope: row.scope, location: row.location, queries: [] }
+    group.queries.push(row.query)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+}
 function ResearchRunDetail({
   detail,
   isLoading,
@@ -468,7 +578,7 @@ function ResearchRunDetail({
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
 
   return (
-    <Card className="surface-card min-w-0" role="region" aria-label="Research results">
+    <Card id={detail ? `research-run-${detail.id}` : undefined} className="surface-card min-w-0" role="region" aria-label="Research results">
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>
@@ -485,6 +595,12 @@ function ResearchRunDetail({
         </dl>
         {detail.template && <details>
           <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">{RESEARCH_COPY.templateProvenance}</summary>
+          <dl className="mt-2 space-y-2">
+            <div><dt className="font-medium">Saved pattern</dt><dd className="whitespace-pre-wrap">{detail.template.template}</dd></div>
+            <div><dt className="font-medium">Names used</dt><dd>{Object.entries(detail.template.bindings).map(([key, value]) => `${key}: ${value}`).join(' · ') || 'No variables'}</dd></div>
+            <div><dt className="font-medium">Original resolved text</dt><dd className="whitespace-pre-wrap">{detail.template.output}</dd></div>
+          </dl>
+          <p className="mt-2">The queries below are the final text sent to the answer engine, including any edits.</p>
           <p className="mt-2 font-mono text-xs">{detail.template.templateId} · {detail.template.templateVersion}</p>
         </details>}
         <details>
@@ -493,7 +609,7 @@ function ResearchRunDetail({
         </details>
       </div>}
       {!detail ? (
-        <p className="mt-4 text-sm text-muted">Select a saved batch to inspect each answer and its source links.</p>
+        <p className="mt-4 text-sm text-muted">Select a saved run to inspect each answer and its source links.</p>
       ) : (
         <div className="mt-4 space-y-4">
           <div className="overflow-x-auto">
@@ -600,10 +716,6 @@ function ResearchAnswer({
       )}
     </div>
   )
-}
-
-function normalizeResearchQueries(value: string): string[] {
-  return deduplicateResearchQueries(value.split(/\r?\n/))
 }
 
 function formatResearchDate(value: string): string {

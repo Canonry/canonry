@@ -92,9 +92,45 @@ It does not open the global `runId` drawer.
 ## Research and operator controls
 
 **Research → Find queries** uses the existing ICP discovery process.
-**Research → Test queries** uses saved, bounded query batches. `canonry research run` can save one configured `--market` or `--property` destination without changing its final query text. Paired `--template-id` and `--template-version` retain provenance for a template the editor already expanded. A destination may still use `--location` or `--no-location` for geographic provider context.
+**Research → Test queries** starts with direct query entry.
+An optional pattern repeats a query across explicit markets, properties, or configured locations.
+Groups are not research destinations.
 Neither process adds queries to official tracking automatically.
 **Review for tracking** sends selected results through the same assignment preview.
+
+### Repeat research across destinations
+
+1. Select the repeat mode.
+2. Select each destination explicitly.
+3. Enter one query pattern per line, such as `Best apartments in {market}`.
+4. Select the answer engine and model.
+5. Open the preview.
+6. Check each destination, resolved query, and location context.
+7. Edit individual queries or location contexts as required.
+8. Start the reviewed queries.
+
+A pattern substitutes text. For Atlanta, `Best apartments in {market}` becomes `Best apartments in Atlanta`.
+`{market}` and `{submarket}` use the market label. `{property}` and `{propertyBrand}` use the property label.
+`{location}` uses the selected location label.
+Unknown variables block the preview.
+
+The destination does not set the answer engine's location context.
+Each preview shows a configured location or **No location context** separately.
+Location repetition uses the selected configured locations.
+Advanced portfolios can select explicit published markets or properties.
+Simple portfolios can repeat across configured locations without a measurement plan.
+
+Authorized writers can save named patterns in the browser.
+Saved patterns are optional authoring aids, not active measurement templates.
+When a saved pattern is used, each run retains its version and resolved text separately from the final edited query.
+Viewers with Research access can reuse patterns, but cannot save patterns or change tracking.
+
+A reviewed batch contains at most 20 destination runs and 50 total query executions.
+Two queries across three destinations produce six executions.
+The API saves all destination runs together or saves none.
+The existing runner processes each saved run independently, so individual results can fail.
+Every destination run counts toward the viewer's daily limit.
+Retries with the unchanged request and key return the same saved runs.
 
 The operator's project-wide **Run AI sweep** remains admin-gated.
 Group and property selection does not start a scoped sweep.
@@ -108,6 +144,8 @@ Embeds expose measured results, not query publication or saved research administ
 | Preview changes | `canonry query preview <project> <json\|->` | `canonry_query_tracking_preview` |
 | Publish changes | `canonry query commit <project> <json\|->` | `canonry_query_tracking_commit` |
 | Read visibility | `canonry measurement-plan visibility <project> [<json\|->]` | `canonry_visibility_report` |
+| Start one Research run | `canonry research run <project> <query...>` | `canonry_research_run_start` |
+| Start reviewed destinations | `canonry research batch <project> <json-file\|->` | `canonry_research_batch_start` |
 
 Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, with an optional `edits` array.
 Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
@@ -122,3 +160,38 @@ Preview and commit require write access. Stored workspace and visibility reads d
 
 The project API prefix is `/api/v1/projects/:name`.
 Its four endpoint suffixes are `/query-tracking`, `/query-tracking/preview`, `/query-tracking/commit`, and `/visibility-report`.
+
+Research uses `POST /research/runs` for one run and `POST /research/batches` for reviewed destinations.
+The batch request contains a required `idempotencyKey` and a `runs` array.
+Every run specifies exact query text, `provider`, `model`, and `location` (a configured object or `null`).
+A market or property scope also specifies its key and `expectedPlanRevision`.
+Optional `templateId` and `templateVersion` fields belong inside that run's `template` object.
+The API receives final query text and does not expand patterns or groups.
+
+Example reviewed input for a Simple portfolio:
+
+```json
+{
+  "idempotencyKey": "research-review-2026-09-10-1",
+  "runs": [
+    {
+      "queries": ["Best apartments in Atlanta"],
+      "provider": "openai",
+      "model": "your-configured-model",
+      "location": null
+    },
+    {
+      "queries": ["Best apartments in Boston"],
+      "provider": "openai",
+      "model": "your-configured-model",
+      "location": null
+    }
+  ]
+}
+```
+
+Before submission, replace `your-configured-model` with the reviewed model ID.
+For Advanced destinations, add `scope: {kind, key, expectedPlanRevision}` to each run.
+If a response is uncertain, retry the unchanged file with the same key.
+For a different batch, use a new key.
+`--wait` waits for all accepted runs. `--format jsonl` emits one complete record per destination.

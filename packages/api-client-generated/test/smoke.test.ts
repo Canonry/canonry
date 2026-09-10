@@ -9,6 +9,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoSubgraph,
   getApiV1ProjectsByNameMeasurementReport,
   postApiV1ProjectsByNameMeasurementDiscovery,
+  postApiV1ProjectsByNameResearchBatches,
 } from '../src/index.js'
 import type {
   AdsCampaignListResponse,
@@ -25,6 +26,7 @@ import type {
   MeasurementDiscoveryResponse,
   MeasurementReportResponse,
   PostApiV1ProjectsByNameMeasurementDiscoveryData,
+  ResearchBatchCreate,
 } from '../src/index.js'
 
 /**
@@ -35,6 +37,26 @@ import type {
  * if hey-api ever changes its config shape, the test fails locally.
  */
 describe('canonry-api-client', () => {
+  it('sends reviewed research destinations and their retry identity without rewriting final query text', async () => {
+    expectTypeOf<NonNullable<ResearchBatchCreate['runs'][number]['scope']>['expectedPlanRevision']>()
+      .toEqualTypeOf<number>()
+    const fakeFetch = vi.fn(async (_request: Request) => new Response(JSON.stringify({ runs: [] }), {
+      status: 202, headers: { 'content-type': 'application/json' },
+    }))
+    const client = createClient({ baseUrl: 'https://example.test', fetch: fakeFetch as typeof fetch })
+    const body = {
+      idempotencyKey: 'reviewed-atlanta',
+      runs: [{ queries: ['  Best apartments in Atlanta  '], provider: 'openai', model: 'gpt-test', location: null, scope: { kind: 'market' as const, key: 'atlanta', expectedPlanRevision: 4 } }],
+    }
+    const result = await postApiV1ProjectsByNameResearchBatches({ client, path: { name: 'portfolio' }, body })
+    expect(result.data).toEqual({ runs: [] })
+    expect(fakeFetch).toHaveBeenCalledTimes(1)
+    const request = fakeFetch.mock.calls[0]![0]
+    expect(request.url).toBe('https://example.test/api/v1/projects/portfolio/research/batches')
+    expect(request.method).toBe('POST')
+    expect(await request.json()).toEqual(body)
+  })
+
   it('retains nullable ads bidding and billing values in generated response types', () => {
     type Campaign = AdsCampaignListResponse['campaigns'][number]
     type AdGroup = Campaign['adGroups'][number]

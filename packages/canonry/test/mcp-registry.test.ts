@@ -162,6 +162,7 @@ const expectedToolNames = [
   'canonry_agent_webhook_attach',
   'canonry_agent_webhook_detach',
   'canonry_research_run_start',
+  'canonry_research_batch_start',
   'canonry_research_runs_list',
   'canonry_research_run_get',
   'canonry_discover_run_start',
@@ -599,7 +600,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(212)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(213)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(143)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -647,7 +648,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('conversion-tracking')).toBe(3)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(9)
+    expect(counts.get('discovery')).toBe(10)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -982,6 +983,17 @@ describe('MCP tool registry', () => {
     }).success).toBe(false)
     expect(tool.description).toMatch(/final free-form queries/i)
     expect(tool.description).toMatch(/Scope never changes query text/i)
+  })
+
+  it('exposes reviewed multi-destination research only through the write catalog', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_research_batch_start')!
+    expect(tool).toMatchObject({ access: 'write', tier: 'discovery', annotations: { readOnlyHint: false, idempotentHint: true } })
+    expect(getCanonryMcpTools('read-only').map(candidate => candidate.name)).not.toContain(tool.name)
+    expect(tool.openApiOperations).toEqual(['POST /api/v1/projects/{name}/research/batches'])
+    const run = { queries: ['Best apartments in Atlanta'], provider: 'openai', model: 'gpt-test', location: null, scope: { kind: 'market', key: 'atlanta', expectedPlanRevision: 3 } }
+    expect(tool.inputSchema.safeParse({ project: 'acme', request: { idempotencyKey: 'reviewed-1', runs: [run] } }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ project: 'acme', request: { runs: [run] } }).success).toBe(false)
+    expect(tool.inputSchema.safeParse({ project: 'acme', request: { idempotencyKey: 'reviewed-1', runs: [{ ...run, scope: { kind: 'group', key: 'all' } }] } }).success).toBe(false)
   })
 
   it('maps Canonry client errors to isError tool results', async () => {
@@ -1476,6 +1488,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
   { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },
   { tool: 'canonry_research_run_start', input: { project: 'acme', request: { queries: ['best AEO software'], provider: 'openai' } }, methods: ['startResearchRun'] },
+  { tool: 'canonry_research_batch_start', input: { project: 'acme', request: { idempotencyKey: 'reviewed-1', runs: [{ queries: ['best AEO software'], provider: 'openai', model: 'gpt-test', location: null }] } }, methods: ['startResearchBatch'] },
   { tool: 'canonry_research_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listResearchRuns'] },
   { tool: 'canonry_research_run_get', input: { project: 'acme', runId: 'research-1' }, methods: ['getResearchRun'] },
   { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },

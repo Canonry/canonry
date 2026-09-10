@@ -150,20 +150,20 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
       { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini' }, { id: 'gpt-5', displayName: 'GPT-5' }] },
       { name: 'gemini', displayName: 'Gemini', modelConfigurable: true, defaultModel: 'gemini-2.5-flash', knownModels: [{ id: 'gemini-2.5-flash', displayName: 'Gemini Flash' }] },
     ] })
-    if (path === '/api/v1/projects/demo/research/runs' && method === 'POST') {
-      return jsonResponse({
+    if (path === '/api/v1/projects/demo/research/batches' && method === 'POST') {
+      return jsonResponse({ runs: [{
         id: 'research-1', projectId: project.id, status: 'queued', provider: 'openai', requestedModel: null,
         resolvedModel: 'gpt-5-mini', location: null, totalQueries: 1, completedQueries: 0, failedQueries: 0,
         error: null, initiatedBy: { kind: 'user', id: 'viewer-user', name: 'viewer', role: 'viewer' },
         startedAt: null, finishedAt: null, createdAt: '2026-09-08T12:00:00.000Z', queries: [],
-      }, 202)
+      }] }, 202)
     }
     throw new Error(`Unexpected fetch: ${method} ${path}`)
   })
   onTestFinished(restore)
   renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
 
-  expect(await screen.findByRole('heading', { name: 'Research queries' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
   expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
   expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
@@ -172,16 +172,15 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
-  fireEvent.change(screen.getByRole('textbox', { name: 'Research queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))
   expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({
-    queries: ['Which AEO platform fits an agency?'],
-    location: null,
+    runs: [{ queries: ['Which AEO platform fits an agency?'], location: null }],
   })
-  expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({ provider: 'gemini', model: 'gemini-2.5-flash' })
+  expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({ runs: [{ provider: 'gemini', model: 'gemini-2.5-flash' }] })
   expect(requests.some(request => request.path === '/api/v1/settings')).toBe(false)
   expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
 })

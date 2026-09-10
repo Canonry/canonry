@@ -157,6 +157,16 @@ function researchRequest(idempotencyKey: string) {
   }
 }
 
+function researchBatchRequest(idempotencyKey: string, destinations = 2) {
+  return {
+    idempotencyKey,
+    runs: Array.from({ length: destinations }, (_, index) => ({
+      queries: [`Which AEO platform fits agency destination ${index + 1}?`],
+      provider: 'openai', model: 'gpt-5-mini', location: null,
+    })),
+  }
+}
+
 describe('viewer research grants', () => {
   it('keeps answer-visibility sweeps forbidden when viewer research is enabled', async () => {
     const { app, db, viewer } = await harness(true)
@@ -244,6 +254,18 @@ describe('viewer research grants', () => {
     expect(db.select().from(researchRuns).all()).toEqual([])
   })
 
+  it('applies the same paid-write and read-only guards to multi-destination research', async () => {
+    const { app, db } = await harness(true)
+    for (const token of [READ_KEY, UNRELATED_KEY]) {
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/projects/alpha/research/batches', headers: keyHeaders(token),
+        payload: researchBatchRequest(`blocked-${token}`, 1),
+      })
+      expect(response.statusCode).toBe(403)
+    }
+    expect(db.select().from(researchRuns).all()).toEqual([])
+  })
+
   it.each([false, true])('leaves administrator research unchanged when allowViewers=%s', async allowViewers => {
     const { app, admin } = await harness(allowViewers)
 
@@ -305,6 +327,24 @@ describe('viewer research grants', () => {
     expect(first.statusCode).toBe(202)
     expect(retry.statusCode).toBe(200)
     expect(retry.json().id).toBe(first.json().id)
+  })
+
+  it('counts every multi-destination child against the viewer daily cap atomically', async () => {
+    const { app, db, viewer, requested } = await harness(true, 3)
+    const firstRequest = {
+      method: 'POST' as const, url: '/api/v1/projects/alpha/research/batches',
+      headers: cookieHeaders(viewer), payload: researchBatchRequest('viewer-batch-one'),
+    }
+    const first = await app.inject(firstRequest)
+    expect(first.statusCode).toBe(202)
+    expect(first.json().runs).toHaveLength(2)
+    expect(requested).toHaveBeenCalledTimes(2)
+    const limited = await app.inject({ ...firstRequest, payload: researchBatchRequest('viewer-batch-two') })
+    expect(limited.statusCode).toBe(429)
+    expect(db.select().from(researchRuns).all()).toHaveLength(2)
+    const replay = await app.inject(firstRequest)
+    expect(replay.statusCode).toBe(200)
+    expect(replay.json().runs.map((run: { id: string }) => run.id)).toEqual(first.json().runs.map((run: { id: string }) => run.id))
   })
 
   it('does not grant a viewer access to instance settings', async () => {
