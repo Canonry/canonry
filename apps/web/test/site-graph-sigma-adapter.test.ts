@@ -240,9 +240,9 @@ describe('buildSigmaSiteGraph', () => {
     })
   })
 
-  it('spends a zoom-dependent label budget on the best-linked pages', () => {
-    // A fitted 50-page map used to draw every label at once, overlapping into
-    // unreadable text. The budget names the pages a reader looks for first.
+  it('names only the crawl root in the fitted overview, then reveals labels when zoomed in', () => {
+    // A fitted map can cluster even its highest-ranked paths in one small area.
+    // Naming only the root prevents that overview from becoming unreadable.
     const pages = Array.from({ length: 40 }, (_, index) => node(`p${String(index).padStart(2, '0')}`, {
       path: `/p${index}`,
       depth: 1 + (index % 3),
@@ -264,12 +264,8 @@ describe('buildSigmaSiteGraph', () => {
     }
 
     const overview = labelled(1)
-    expect(overview.length).toBeLessThanOrEqual(SITE_GRAPH_OVERVIEW_LABEL_BUDGET)
-    // The root is always one of them, whatever its link score.
-    expect(overview).toContain('home')
-    // The rest are the best-linked pages, not an arbitrary slice.
-    expect(overview).toContain('p39')
-    expect(overview).not.toContain('p00')
+    expect(overview).toEqual(['home'])
+    expect(overview).toHaveLength(SITE_GRAPH_OVERVIEW_LABEL_BUDGET)
 
     // Zooming in reveals more, and a close zoom holds nothing back.
     expect(labelled(0.6).length).toBeGreaterThan(overview.length)
@@ -495,12 +491,13 @@ describe('a real template-mesh site (canonry.ai shape: 50 pages, ~1,259 links)',
 
     const fitted = createSigmaSiteGraphReducers(built.graph, null, 1, theme)
 
-    // Labels stay inside the budget instead of overlapping into a smear.
+    // The fitted overview names only the root, so dense page clusters cannot
+    // turn their long paths into overlapping text.
     const labelled = built.graph.nodes().filter((nodeKey) => (
       fitted.nodeReducer(nodeKey, built.graph.getNodeAttributes(nodeKey)).label !== ''
     ))
-    expect(labelled.length).toBeLessThanOrEqual(SITE_GRAPH_OVERVIEW_LABEL_BUDGET)
-    expect(labelled).toContain('page-00')
+    expect(labelled).toEqual(['page-00'])
+    expect(labelled).toHaveLength(SITE_GRAPH_OVERVIEW_LABEL_BUDGET)
 
     // Exactly one page carries the root marker, and it is the one the server
     // identified. Its label is its path like every other page.
