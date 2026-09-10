@@ -751,6 +751,11 @@ describe('GET /api/v1/projects/:name/report', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
 
     expect(body.actionPlan.some(action => action.category === 'competitors')).toBe(false)
+    expect(body.visibility).toBeUndefined()
+    expect(body.executiveSummary).toMatchObject({ visibilityBasis: 'legacy-project-queries', totalQueryCount: 1, citationRate: 0, mentionRate: 0 })
+    expect(body.aiSourceOrigin.topDomains).toContainEqual({ domain: 'external-directory.example', count: 1, isCompetitor: false })
+    const unsupported = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/v1-plan-competitors/visibility-report' })).json()
+    expect(unsupported.selection).toMatchObject({ mode: 'advanced', availability: { state: 'unsupported', reason: 'advanced-v1' } })
   })
 
   test('GSC section returns top queries, totals, category breakdown', async () => {

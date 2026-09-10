@@ -27,6 +27,8 @@ import {
 } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { readVisibilityReport } from '../src/visibility-report.js'
+import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 
 const NOW = '2026-08-20T12:00:00.000Z'
 
@@ -1265,7 +1267,7 @@ describe('share of voice comparison policy', () => {
     plan.executionNodes[0]!.expectedSnapshots = 3
     seedVersion('sov-plan', 1, plan)
     db.insert(measurementPlans).values({ projectId: 'project_northwind', activeVersionId: 'sov-plan', createdAt: NOW, updatedAt: NOW }).run()
-    db.update(runs).set({ measurementPlanVersionId: 'sov-plan' }).where(eq(runs.id, 'run_normal')).run()
+    db.update(runs).set({ measurementPlanVersionId: 'sov-plan', measurementManifest: buildMeasurementPlanV2Manifest(plan) }).where(eq(runs.id, 'run_normal')).run()
     db.update(queries).set({ query: 'homes near northwind' }).run()
     db.update(querySnapshots).set({ provider: 'gemini' }).where(eq(querySnapshots.id, 'sov_1')).run()
     db.update(querySnapshots).set({ provider: 'claude' }).where(eq(querySnapshots.id, 'sov_2')).run()
@@ -1274,6 +1276,7 @@ describe('share of voice comparison policy', () => {
     expect(body).toMatchObject({ basis: 'observed', availability: 'measured', project: { mentionCount: 3, shareOfVoice: 25 }, evidence: { mentionCredits: 12 } })
     const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
     expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
+    expect(readVisibilityReport(db, { id: 'project_northwind', displayName: 'Northwind', canonicalDomain: 'northwind.example' }, {}).selection.availability.state).toBe('available')
     const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
     expect(report.statusCode, report.body).toBe(200)
     expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
@@ -1285,7 +1288,7 @@ describe('share of voice comparison policy', () => {
     plan.groups[0]!.competitors = []
     seedVersion('sov-plan', 1, plan)
     db.insert(measurementPlans).values({ projectId: 'project_northwind', activeVersionId: 'sov-plan', createdAt: NOW, updatedAt: NOW }).run()
-    db.update(runs).set({ measurementPlanVersionId: 'sov-plan' }).where(eq(runs.id, 'run_normal')).run()
+    db.update(runs).set({ measurementPlanVersionId: 'sov-plan', measurementManifest: buildMeasurementPlanV2Manifest(plan) }).where(eq(runs.id, 'run_normal')).run()
     // Text is branded, but the frozen assignment explicitly says non-brand.
     db.update(queries).set({ query: 'homes near northwind' }).run()
     db.update(querySnapshots).set({ queryText: 'homes near northwind', measurementExecutionId: 'sov-node' }).run()
@@ -1293,6 +1296,7 @@ describe('share of voice comparison policy', () => {
     expect(body).toMatchObject({ availability: 'not-measured', reason: 'no-competitors', project: { mentionCount: 1, shareOfVoice: null } })
     const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
     expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })
+    expect(readVisibilityReport(db, { id: 'project_northwind', displayName: 'Northwind', canonicalDomain: 'northwind.example' }, {}).selection.availability.state).toBe('available')
     const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
     expect(report.statusCode, report.body).toBe(200)
     expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })

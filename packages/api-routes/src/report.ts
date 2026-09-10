@@ -2254,7 +2254,11 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
       trend: trend.filter(point => point.createdAt >= historyWindow.from && point.createdAt <= historyWindow.to),
     })),
   }
-  const advancedVisibility = visibility.selection.mode === 'advanced'
+  // V1 definitions have no canonical population reconstruction. Preserve the
+  // legacy bundle instead of replacing its measured results with an unsupported
+  // empty report. Corrupt supported definitions still fail through the reader.
+  const canonicalVisibilitySupported = visibility.selection.availability.state === 'available'
+  const advancedVisibility = canonicalVisibilitySupported && visibility.selection.mode === 'advanced'
   const comparisonWindowDays = reportComparisonWindowDays(periodDays)
 
   const allRuns = db
@@ -2568,7 +2572,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
       periodEnd,
       periodDays,
     },
-    visibility,
+    ...(canonicalVisibilitySupported ? { visibility } : {}),
     executiveSummary: advancedVisibility ? {
       ...executiveSummary,
       visibilityBasis: 'frozen-populations',
