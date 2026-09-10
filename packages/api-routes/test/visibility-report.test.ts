@@ -247,6 +247,12 @@ afterEach(async () => {
 })
 
 describe('visibility report route', () => {
+  it('rejects a market refinement against a legacy/simple definition without market edges', async () => {
+    const result = await report('scope=project&marketKey=harbor-market&queryClass=non-brand')
+    expect(result.status).toBe(400)
+    expect(result.body).toMatchObject({ error: { message: 'Market "harbor-market" is not in this frozen definition.' } })
+  })
+
   it('keeps historical evidence selectable and re-reads changed or removed history without stale summaries', async () => {
     const frozenPlan = plan()
     const versionId = seedVersion(1, frozenPlan)
@@ -301,6 +307,41 @@ describe('visibility report route', () => {
     expect(population.breakdown.properties.map(row => row.id)).toEqual(['harbor'])
     expect(population.summary.answerCount).toBe(2)
     expect(population.observedCompetitors).toEqual([{ name: 'Observed Alternative', answerCount: 2 }])
+  })
+
+  it('intersects marketKey with a group scope and returns only explicit frozen market navigation', async () => {
+    const frozenPlan = plan({ reportingScopes: [
+      {
+        stableKey: 'harbor-market', label: 'Harbor market', kind: 'market', groupKey: 'regional',
+        usageEdges: [
+          { executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' },
+          { executionNodeKey: 'exec-brand', targetKey: 'harbor', queryId: 'q-brand' },
+        ],
+      },
+      {
+        stableKey: 'bayside-market', label: 'Bayside market', kind: 'market',
+        usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'bayside', queryId: 'q-nearby' }],
+      },
+    ] })
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    seedAdvancedRun({ versionId, frozenPlan, createdAt: FIRST })
+
+    const result = await report('scope=group&scopeKey=regional&marketKey=harbor-market&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const body = result.body as VisibilityReportResponse
+    expect(body.selection.scope.id).toBe('regional')
+    expect(body.selection.market).toMatchObject({ id: 'harbor-market', kind: 'market' })
+    expect(body.scopeOptions.find(scope => scope.id === 'harbor-market')?.parentGroupIds).toEqual(['regional'])
+    expect(body.populations[0]!.summary).toMatchObject({
+      queryCount: 1,
+      answerCount: 2,
+      outcomes: expect.objectContaining({ total: 1 }),
+    })
+    expect(body.populations[0]!.breakdown.properties.map(row => row.id)).toEqual(['harbor'])
+    expect(body.scopeOptions.find(scope => scope.id === 'regional')?.marketKeys).toEqual(['harbor-market'])
+    expect(body.scopeOptions.find(scope => scope.id === 'harbor')?.marketKeys).toEqual(['harbor-market'])
+    expect(body.scopeOptions.find(scope => scope.id === 'bayside')?.marketKeys).toEqual(['bayside-market'])
   })
 
   it('uses the active frozen definition across a label-only comparable chain without awaiting a sweep', async () => {

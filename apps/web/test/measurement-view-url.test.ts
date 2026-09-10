@@ -119,3 +119,15 @@ test('explicit query types survive navigation and reload without losing unrelate
     expect(next.runId).toBe('drawer-run')
   }
 })
+
+
+it('retains an exact market across property filters and clears it on a fresh scope selection', () => {
+  const initial = { measurementScope: 'group', measurementScopeKey: 'north', measurementMarketKey: 'market-north', measurementProvider: 'gemini', queryClass: 'non-brand', measurementQueryKey: 'answer-question' }
+  const property = patchVisibilitySelection(initial, { measurementScope: 'property', measurementScopeKey: 'shared', measurementMarketKey: initial.measurementMarketKey })
+  expect(parseVisibilitySelection(property)).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'shared', marketKey: initial.measurementMarketKey })
+  expect(property.measurementQueryKey).toBeUndefined()
+  expect(parseVisibilitySelection(patchVisibilitySelection(property, { measurementProvider: 'openai' })).marketKey).toBe(initial.measurementMarketKey)
+  expect(parseVisibilitySelection(patchVisibilitySelection(property, { measurementScope: 'property', measurementScopeKey: 'shared' })).marketKey).toBeUndefined()
+  expect(parseVisibilitySelection(patchVisibilitySelection(property, { measurementScope: 'project' })).marketKey).toBeUndefined()
+  expect(patchVisibilitySelection(initial, { measurementMarketKey: 'market-south' }).measurementQueryKey).toBeUndefined()
+})

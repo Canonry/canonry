@@ -22,6 +22,9 @@ import {
   measurementPlanVersionResponseSchema,
   measurementPlanV2PublishResponseSchema,
   measurementSetupResponseSchema,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys,
@@ -35,12 +38,14 @@ import {
   migrate,
   projects,
   queries,
+  querySnapshots,
   runs,
   schedules,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
+import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { hashApiKey } from '../src/auth.js'
 import { sha256Hex } from '../src/measurement-draft-repo.js'
 
@@ -1463,6 +1468,78 @@ describe('measurement draft publish', () => {
     expect(revisionSix.comparableToVersionId).toBeNull()
   })
 
+  it('publishes additive market metadata without replacing a measured baseline or its stored answers', async () => {
+    const initial = await readyDraft()
+    await initial.run('upsert-group', { group: { stableKey: 'metro', label: 'Metro', targetKeys: ['widgets'], competitors: [] } })
+    expect((await publish(initial, null)).statusCode).toBe(200)
+    const originalVersion = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 1)).get()!
+    const originalPlan = measurementPlanV2Schema.parse(JSON.parse(originalVersion.canonicalJson))
+    const manifest = buildMeasurementPlanV2Manifest(originalPlan)
+    const runId = 'run_market_baseline'
+    db.insert(runs).values({
+      id: runId,
+      projectId: 'prj_northwind',
+      kind: RunKinds['answer-visibility'],
+      status: RunStatuses.completed,
+      trigger: RunTriggers.manual,
+      measurementPlanVersionId: originalVersion.id,
+      measurementManifest: { schemaVersion: 1, expectedSlots: manifest.expectedSlots },
+      measurementExecutionIdentity: { schemaVersion: 1, providers: ['gemini', 'openai'], models: { gemini: 'gemini-test', openai: 'gpt-test' }, checksum: 'test-market-baseline' },
+      finishedAt: NOW,
+      createdAt: NOW,
+    }).run()
+    for (const slot of manifest.expectedSlots) {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId,
+        queryId: null,
+        queryText: slot.queryText,
+        provider: slot.provider,
+        model: slot.requestedModel ?? null,
+        servedModel: `${slot.provider}-served`,
+        citationState: 'cited',
+        answerMentioned: true,
+        answerText: 'Northwind Widgets is a measured result.',
+        citedDomains: [],
+        citedUrls: ['https://northwind.example/widgets/'],
+        captureStatus: 'complete',
+        recommendedCompetitors: [],
+        location: slot.context?.label ?? null,
+        measurementExecutionId: slot.executionId,
+        requestedContext: slot.context,
+        supportedContext: slot.context === null ? null : { status: 'applied', resolved: slot.context },
+        createdAt: NOW,
+      }).run()
+    }
+    const beforeRuns = db.select().from(runs).all()
+    const beforeSnapshots = db.select().from(querySnapshots).all()
+
+    const metadata = await DraftSession.start(1)
+    await metadata.run('upsert-market', {
+      market: {
+        stableKey: 'metro-market',
+        label: 'Metro market',
+        kind: 'market',
+        groupKey: 'metro',
+        usageEdges: originalPlan.usageEdges.filter(edge => edge.queryId === queryId('best widget supplier')),
+      },
+    })
+    expect((await publish(metadata, 1)).statusCode).toBe(200)
+    const metadataVersion = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 2)).get()!
+    expect(metadataVersion.comparableToVersionId).toBe(originalVersion.id)
+    const metadataPlan = measurementPlanV2Schema.parse(JSON.parse(metadataVersion.canonicalJson))
+    expect(metadataPlan.reportingScopes).toEqual([expect.objectContaining({ stableKey: 'metro-market', groupKey: 'metro' })])
+
+    const report = await request('GET', '/visibility-report?scope=market&scopeKey=metro-market&queryClass=non-brand')
+    expect(report.statusCode, report.body).toBe(200)
+    expect(report.json()).toMatchObject({
+      selection: { run: { id: runId }, measurement: { activeRevision: 2, measuredRevision: 2, awaitingSweep: false, pendingAssignmentCount: 0 } },
+      scopeOptions: expect.arrayContaining([expect.objectContaining({ id: 'metro-market', label: 'Metro market', kind: 'market' })]),
+    })
+    expect(db.select().from(runs).all()).toEqual(beforeRuns)
+    expect(db.select().from(querySnapshots).all()).toEqual(beforeSnapshots)
+  })
+
   it('deletes only the active-plan pointer on deactivate', async () => {
     const session = await readyDraft()
     await publish(session, null)
@@ -1889,6 +1966,22 @@ describe('measurement draft hierarchy continuity', () => {
     const changedContext = structuredClone(firstPlan)
     changedContext.executionNodes[0]!.context.models = { ...changedContext.executionNodes[0]!.context.models, openai: 'changed-model' }
     expect(plansAreLabelOnlyVariants(firstPlan, changedContext)).toBe(false)
+    const changedProvider = structuredClone(firstPlan)
+    changedProvider.executionNodes[0]!.context.providers = ['openai']
+    expect(plansAreLabelOnlyVariants(firstPlan, changedProvider)).toBe(false)
+
+    const marketEdge = firstPlan.usageEdges[0]!
+    const additiveMarket = structuredClone(firstPlan)
+    additiveMarket.reportingScopes = [{ stableKey: 'metro-market', label: 'Metro market', kind: 'market', groupKey: 'metro', usageEdges: [marketEdge] }]
+    expect(plansAreLabelOnlyVariants(firstPlan, additiveMarket)).toBe(true)
+    const navigationOnlyMarket = structuredClone(additiveMarket)
+    navigationOnlyMarket.reportingScopes![0]!.label = 'Metro display name'
+    navigationOnlyMarket.reportingScopes![0]!.groupKey = 'submarket'
+    expect(plansAreLabelOnlyVariants(additiveMarket, navigationOnlyMarket)).toBe(true)
+    const changedMarketPopulation = structuredClone(additiveMarket)
+    changedMarketPopulation.reportingScopes![0]!.usageEdges = []
+    expect(plansAreLabelOnlyVariants(additiveMarket, changedMarketPopulation)).toBe(false)
+    expect(plansAreLabelOnlyVariants(additiveMarket, firstPlan)).toBe(false)
 
     const attach = await DraftSession.start(1)
     await attach.run('upsert-group', { group: { stableKey: 'submarket', label: 'Submarket', parentGroupKey: 'metro', targetKeys: ['widgets'] } })

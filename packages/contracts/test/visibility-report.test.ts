@@ -22,6 +22,15 @@ describe('visibility report contract', () => {
     })
   })
 
+  it('accepts an optional market refinement alongside a project, group, or Property scope', () => {
+    expect(visibilityReportQuerySchema.parse({ scope: 'group', scopeKey: 'collection', marketKey: 'north-market' }))
+      .toMatchObject({ scope: 'group', scopeKey: 'collection', marketKey: 'north-market' })
+  })
+
+  it('rejects a duplicate marketKey when market scope already selects the market', () => {
+    expect(visibilityReportQuerySchema.safeParse({ scope: 'market', scopeKey: 'north-market', marketKey: 'north-market' }).success).toBe(false)
+  })
+
   it('carries optional frozen parent memberships without fabricating them for old definitions', () => {
     expect(visibilityReportResponseSchema.safeParse({ selection: { mode: 'advanced', queryClass: 'non-brand', scope: { id: 'project', label: 'Project', kind: 'project', targetCount: 1 }, provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: 1, run: { id: null, explicit: false }, provenance: { kind: 'frozen-advanced', definitionRevision: 1 }, measurement: { state: 'not-measured', activeRevision: 1, measuredRevision: null, awaitingSweep: true, pendingAssignmentCount: 1, completedAt: null }, availability: { state: 'available' } }, scopeOptions: [{ id: 'metro', label: 'Metro', kind: 'group', targetCount: 1 }, { id: 'submarket', label: 'Submarket', kind: 'group', targetCount: 1, parentGroupIds: ['metro'] }, { id: 'property', label: 'Property', kind: 'property', targetCount: 1, parentGroupIds: ['metro', 'submarket'] }], filterOptions: { providers: [], models: [], locations: [{ kind: 'all' }] }, populations: [population('non-brand')] }).success).toBe(true)
   })

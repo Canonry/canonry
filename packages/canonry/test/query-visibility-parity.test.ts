@@ -25,8 +25,8 @@ describe('query and visibility CLI parity', () => {
     const result = { selection: { queryClass: 'all', revision: 2 }, populations: [{ queryClass: 'branded' }, { queryClass: 'non-brand' }] }
     client.getVisibilityReport.mockResolvedValue(result)
     const output = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await runAdvancedMeasurementOperation('demo', 'visibility', inputFile({ queryClass: 'all', scope: 'market', scopeKey: 'alpha', provider: 'gemini', model: 'exact-model', location: 'none', runId: 'measurement-run' }), 'json')
-    expect(client.getVisibilityReport).toHaveBeenCalledWith('demo', expect.objectContaining({ queryClass: 'all', scope: 'market', scopeKey: 'alpha', provider: 'gemini', model: 'exact-model', runId: 'measurement-run' }))
+    await runAdvancedMeasurementOperation('demo', 'visibility', inputFile({ queryClass: 'all', scope: 'group', scopeKey: 'regional', marketKey: 'alpha', provider: 'gemini', model: 'exact-model', location: 'none', runId: 'measurement-run' }), 'json')
+    expect(client.getVisibilityReport).toHaveBeenCalledWith('demo', expect.objectContaining({ queryClass: 'all', scope: 'group', scopeKey: 'regional', marketKey: 'alpha', provider: 'gemini', model: 'exact-model', runId: 'measurement-run' }))
     expect(JSON.parse(output.mock.calls[0]![0] as string)).toEqual(result)
   })
 
@@ -54,7 +54,7 @@ describe('query and visibility MCP parity', () => {
   it('keeps all selection fields in the agent contract and forwards them unchanged', async () => {
     const tool = canonryMcpTools.find(tool => tool.name === 'canonry_visibility_report')
     expect(tool).toBeDefined()
-    const input = tool!.inputSchema.parse({ project: 'demo', scope: 'market', scopeKey: 'alpha', queryClass: 'all', provider: 'gemini', model: 'actual-model', location: 'none', runId: 'measured', queryKey: 'context-node', from: '2026-09-01T00:00:00.000Z', to: '2026-09-04T23:59:59.999Z' })
+    const input = tool!.inputSchema.parse({ project: 'demo', scope: 'group', scopeKey: 'regional', marketKey: 'alpha', queryClass: 'all', provider: 'gemini', model: 'actual-model', location: 'none', runId: 'measured', queryKey: 'context-node', from: '2026-09-01T00:00:00.000Z', to: '2026-09-04T23:59:59.999Z' })
     await tool!.handler(client as unknown as ApiClient, input)
     const { project, ...selection } = input
     expect(client.getVisibilityReport).toHaveBeenCalledWith(project, selection)

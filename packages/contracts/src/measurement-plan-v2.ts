@@ -182,6 +182,8 @@ export const measurementV2ReportingScopeSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   label: z.string().trim().min(1),
   kind: z.literal('market'),
+  /** Explicit navigation association; never inferred from labels or shared properties. */
+  groupKey: measurementV2StableKeySchema.optional(),
   usageEdges: z.array(measurementV2UsageEdgeSchema),
 }).strict()
 export type MeasurementV2ReportingScope = z.output<typeof measurementV2ReportingScopeSchema>
@@ -259,6 +261,12 @@ export const measurementPlanV2Schema = z.object({
       })
     }
     reportingScopeKeys.add(scope.stableKey)
+    if (scope.groupKey !== undefined) {
+      const group = plan.groups.find(group => group.stableKey === scope.groupKey)
+      if (!group || scope.usageEdges.some(edge => !group.targetKeys.includes(edge.targetKey))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reportingScopes', scopeIndex, 'groupKey'], message: 'A market must link to an existing group containing all its assigned properties.' })
+      }
+    }
     const memberKeys = new Set<string>()
     scope.usageEdges.forEach((edge, edgeIndex) => {
       const key = measurementV2UsageEdgeKey(edge)

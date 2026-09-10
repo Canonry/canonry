@@ -2080,6 +2080,7 @@ function ProjectPageContent({
     },
   } as const
   const competitorLandscapeAvailable = tab === 'overview'
+    && !visibilitySelection.marketKey
     && Boolean(projectName)
     && (isSimpleOverview || planGroupKeysLoaded)
     && !isMeasurementModeUnresolved
@@ -2639,9 +2640,9 @@ function ProjectPageContent({
           && visibilitySelection.queryClass === 'all'
           && !visibilitySelection.provider && !visibilitySelection.model && !visibilitySelection.location
           && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
-          && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey}
+          && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
-        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
+        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
         fallback={overview}
       />
     )

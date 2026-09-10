@@ -650,6 +650,10 @@ function upsertGroup(authoring: MeasurementDraftAuthoring, body: unknown): Draft
 
 function upsertMarket(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
   const { market } = parseBody(measurementDraftUpsertMarketRequestSchema, body, 'upsert-market')
+  if (market.groupKey !== undefined) {
+    const group = authoring.groups.find(group => group.stableKey === market.groupKey)
+    if (!group || market.usageEdges.some(edge => !group.targetKeys.includes(edge.targetKey))) throw validationError('A market must link to an existing group containing all its assigned properties.')
+  }
   const included = new Set(authoring.targets.filter(target => target.status === 'included').map(target => target.stableKey))
   const frozen = new Set(authoring.assignments.flatMap(assignment => (assignment.executionContexts ?? [])
     .filter(context => context.executionNodeKey !== undefined)

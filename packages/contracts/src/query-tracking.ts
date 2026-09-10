@@ -175,6 +175,7 @@ export type QueryTrackingGroup = z.output<typeof queryTrackingGroupSchema>
 
 export const queryTrackingMarketSchema = z.object({
   stableKey: measurementV2StableKeySchema,
+  groupKey: measurementV2StableKeySchema.optional(),
   label: z.string().trim().min(1),
   usageEdges: z.array(measurementV2UsageEdgeSchema),
 }).strict()

@@ -112,8 +112,9 @@ Publication starts zero provider calls. Existing drafts become stale through the
 Research rejects normalized duplicate queries before dispatch while preserving accepted text exactly. Research templates must be project-configured; editor and server expansion share declared bindings, and saved provenance remains immutable.
 `visibility-report` owns metrics, denominators, scope, provenance, trends, and paginated evidence.
 Historical trends use the shared compact measurement signals. Reconstruct detailed answer/source evidence only for the selected run; preserve frozen-manifest validation, selectable older evidence, and immediate visibility of changed or deleted snapshots. Do not share request-specific summaries across callers or selections.
-Groups select properties. Markets select frozen `reportingScopes` execution edges.
-Label-only revisions use the comparable chain. Material changes read prior evidence through its own frozen plan.
+Groups select properties. Markets select frozen `reportingScopes` execution edges. Group breakdown rows use the same selected population as direct group summaries; navigation metadata alone never adds a market filter.
+The optional `marketKey` intersects a project, group, or property selection with exact market edges before every report section and answer read. It participates in cursor identity. Explicit `reportingScopes.groupKey` links navigation; never infer it from overlapping properties.
+Display-only revisions and additive reporting scopes use the comparable chain only when every existing market population and all other measurement semantics remain exact. Material changes read prior evidence through its own frozen plan.
 Never infer a market from a group label or reuse the browser's global run drawer parameter.
 
 ### Portfolio summary aggregation

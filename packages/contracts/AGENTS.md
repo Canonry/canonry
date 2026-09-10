@@ -59,6 +59,10 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 4. Add a test file in `test/<topic>.test.ts` with happy path + edge cases (empty input, invalid input, boundary values).
 5. Migrate any inline duplicates you discover in the same change — don't leave duplication for "later."
 
+### Market selection
+
+`visibility-report` accepts `marketKey` as an exact refinement of project, group, or property scope. Market scope already selects a market and rejects an additional `marketKey`. Optional scope/query `marketKeys` and `selection.market` carry frozen memberships to consumers. A reporting market may declare `groupKey` only when that group contains every target in its usage edges.
+
 ### Competitor model comparisons
 
 `competitorLandscapeQuerySchema` accepts optional `groupBy: model` and an exact

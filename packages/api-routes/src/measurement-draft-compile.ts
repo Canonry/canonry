@@ -785,8 +785,17 @@ export function diffCompiledPlans(
  * (`measurement_plan_versions.comparable_to_version_id`) promises the reads.
  */
 export function plansAreLabelOnlyVariants(active: MeasurementPlanV2, candidate: MeasurementPlanV2): boolean {
+  // Adding a named selection over existing frozen edges does not change their
+  // questions, assignments or attribution. Existing market populations must
+  // remain exact; changing or removing one is a material measurement change.
+  const marketSurface = (scope: MeasurementV2ReportingScope) => {
+    const { groupKey: _groupKey, ...population } = scope
+    return JSON.stringify(canonicalJsonValue({ ...population, label: '' }))
+  }
+  const nextMarkets = new Map((canonicalMeasurementPlanV2(candidate).reportingScopes ?? []).map(scope => [scope.stableKey, marketSurface(scope)]))
+  if ((canonicalMeasurementPlanV2(active).reportingScopes ?? []).some(scope => nextMarkets.get(scope.stableKey) !== marketSurface(scope))) return false
   /**
-   * Continuity is promised only when labels or navigation parents change.
+   * Continuity permits display changes and additive reporting selections only.
    * Compare the full canonical document with those display fields neutralized,
    * not the execution nodes alone. Execution-node equality looked sufficient and was
    * not: queryClass lives on assignments, aliases and urlMatchers on targets,
@@ -804,6 +813,7 @@ export function plansAreLabelOnlyVariants(active: MeasurementPlanV2, candidate: 
       // The checksum includes labels and navigation parents. Neutralize it
       // with those display fields; all measurement semantics stay in the comparison.
       compiledChecksum: '',
+      reportingScopes: [],
       targets: doc.targets.map((target) => ({ ...target, label: '' })),
       groups: doc.groups.map(({ parentGroupKey: _parentGroupKey, ...group }) => ({
         // Parentage changes navigation only. It changes the frozen document and
