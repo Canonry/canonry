@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, compileMeasurementPlan, ResearchRunStatuses } from '@ainyc/canonry-contracts'
@@ -312,13 +312,25 @@ describe('research model defaults', () => {
     expect((await create('gpt-override')).json()).toMatchObject({ requestedModel: 'gpt-override', resolvedModel: 'gpt-override' })
   })
 
-  it('publishes dynamic models to research and settings without changing defaults', async () => {
+  it('publishes cached models to research without invoking live discovery or changing defaults', async () => {
     const models = [{ id: 'gpt-new', displayName: 'New GPT', tier: 'standard' as const }]
-    const { app } = harness({ getProviderModels: async () => models, getEffectiveProviderModels: () => ({ openai: 'gpt-instance' }) })
+    const getProviderModels = vi.fn(async () => models)
+    const { app } = harness({ getProviderModels, getCachedProviderModels: () => models, getEffectiveProviderModels: () => ({ openai: 'gpt-instance' }) })
     const research = (await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })).json()
     expect(research.providers[0]).toMatchObject({ defaultModel: 'gpt-instance', knownModels: [{ id: 'gpt-instance' }, { id: 'gpt-new' }] })
+    expect(getProviderModels).not.toHaveBeenCalled()
     const settings = (await app.inject({ method: 'GET', url: '/api/v1/settings' })).json()
     expect(settings.providerCatalog[0].knownModels).toEqual(models)
+    expect(getProviderModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses bundled choices when a host provides only live discovery', async () => {
+    const getProviderModels = vi.fn(async () => { throw new Error('Live discovery is forbidden') })
+    const { app } = harness({ getProviderModels })
+    const research = await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })
+    expect(research.statusCode).toBe(200)
+    expect(research.json().providers[0].knownModels).toMatchObject([{ id: 'gpt-4.1' }])
+    expect(getProviderModels).not.toHaveBeenCalled()
   })
 })
 

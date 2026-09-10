@@ -5,7 +5,7 @@ import { and, eq, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
-import { notFound } from '@ainyc/canonry-contracts'
+import { notFound, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
 
@@ -126,7 +126,7 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Everything this server will ever grant. Advertised in the metadata document. */
-export const SUPPORTED_SCOPES = ['read', 'offline_access'] as const
+export const SUPPORTED_SCOPES = ['read', RESEARCH_RUN_SCOPE, 'offline_access'] as const
 
 /**
  * Narrow a client's requested scope to what is actually on offer.
@@ -198,6 +198,9 @@ function consentPage(o: {
    <dt>Permissions</dt><dd>${escapeHtml(o.scope)}</dd>
    <dt>Redirects to</dt><dd class="uri">${escapeHtml(o.redirectUri)}</dd>
  </dl>
+ ${o.scope.split(/\s+/).includes(RESEARCH_RUN_SCOPE)
+   ? '<p class="warn">Run research queries using the operator\'s provider quota, subject to the shared daily research limit. This does not grant permission to change tracking or settings.</p>'
+   : ''}
  <input type="hidden" name="csrf" value="${escapeHtml(o.csrf)}">
  <div class="row">
    <button type="submit" name="approve" value="no" class="ghost">Deny</button>

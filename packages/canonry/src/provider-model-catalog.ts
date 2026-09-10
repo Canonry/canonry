@@ -9,7 +9,7 @@ const TIMEOUT_MS = 3000
 /** Per-install, per-credential cache. Discovery never changes an execution default. */
 export function createProviderModelCatalog(registry: ProviderRegistry) {
   const cache = new Map<string, { identity: string; models?: ModelDefinition[]; expiresAt: number; pending?: Promise<ModelDefinition[]> }>()
-  return async (name: string): Promise<ModelDefinition[]> => {
+  const read = async (name: string): Promise<ModelDefinition[]> => {
     const provider = registry.get(name)
     if (!provider) { cache.delete(name); return [] }
     const fallback = provider.adapter.modelRegistry.knownModels
@@ -47,4 +47,14 @@ export function createProviderModelCatalog(registry: ProviderRegistry) {
     })
     return current.pending
   }
+  // Stored-evidence surfaces must never start or await a live discovery. A
+  // stale catalog is still useful for choices; a different credential's is not.
+  const cached = (name: string): ModelDefinition[] => {
+    const provider = registry.get(name)
+    if (!provider) return []
+    const entry = cache.get(name)
+    const identity = createHash('sha256').update(JSON.stringify(provider.config)).digest('hex')
+    return (entry?.identity === identity ? entry.models : undefined) ?? provider.adapter.modelRegistry.knownModels
+  }
+  return Object.assign(read, { cached })
 }

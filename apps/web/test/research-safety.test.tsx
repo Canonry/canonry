@@ -22,8 +22,8 @@ const advanced: SectionProps = {
   ],
 }
 
-function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 'read-only' = 'admin') {
-  const state = { posts: [] as ResearchBatchCreate[], puts: [] as Record<string, unknown>[], fail: false, settingsReads: 0, runs: [] as ResearchRunDetailDto[], pendingResponse: null as Promise<void> | null }
+function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 'read-only' | 'research-key' = 'admin') {
+  const state = { posts: [] as ResearchBatchCreate[], puts: [] as Record<string, unknown>[], fail: false, settingsReads: 0, runs: [] as ResearchRunDetailDto[], pendingResponse: null as Promise<void> | null, canRun: access !== 'read-only', historyError: false }
   const project = {
     id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
     country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: { openai: 'project-model' },
@@ -45,7 +45,9 @@ function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 're
       }))
       return jsonResponse({ runs: state.runs }, 202)
     }
-    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: state.runs, providers: catalog })
+    if (path === '/api/v1/projects/demo/research/runs') return state.historyError
+      ? jsonResponse({ error: { code: 'UNAVAILABLE', message: 'History unavailable' } }, 503)
+      : jsonResponse({ runs: state.runs, providers: catalog, access: { canRun: state.canRun, dailyRunLimit: access === 'admin' || !state.canRun ? null : 10 } })
     if (path.startsWith('/api/v1/projects/demo/research/runs/')) return jsonResponse(state.runs.find(run => path.endsWith(`/${run.id}`)))
     if (path.startsWith('/api/v1/projects/demo/measurement-query-templates/') && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>
@@ -63,7 +65,7 @@ function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 're
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   onTestFinished(() => queryClient.clear())
   const ui = (props: SectionProps) => <QueryClientProvider client={queryClient}>
-    <AccountProvider account={access === 'viewer' ? { name: 'Viewer', role: 'viewer' } : null} apiKey={access === 'read-only' ? { id: 'read', scopes: ['read'], projectId: null, readOnly: true } : null}>
+    <AccountProvider account={access === 'viewer' ? { name: 'Viewer', role: 'viewer' } : null} apiKey={access === 'read-only' ? { id: 'read', scopes: ['read'], projectId: null, readOnly: true } : access === 'research-key' ? { id: 'research', scopes: ['read', 'research.run'], projectId: project.id, readOnly: false } : null}>
       <ResearchQueriesSection projectName="demo" {...(access === 'viewer' ? { viewerResearchConfig: { viewerDailyRunLimit: 10 } } : {})} {...props} />
     </AccountProvider>
   </QueryClientProvider>
@@ -134,6 +136,39 @@ test('property patterns resolve only the selected property', async () => {
   typePattern('What amenities does {property} offer?'); preview(); fireEvent.click(runButton())
   await waitFor(() => expect(state.posts).toHaveLength(1))
   expect(state.posts[0]?.runs[0]).toMatchObject({ queries: ['What amenities does Maple House offer?'], location: null, scope: { kind: 'property', key: 'maple', expectedPlanRevision: 7 } })
+})
+
+test.each(['simple', 'advanced'] as const)('a research-only key can review and run %s destinations without broader writes', async portfolio => {
+  const { state } = setup(portfolio === 'advanced' ? advanced : {}, 'research-key')
+  await ready()
+  setMode(portfolio === 'advanced' ? 'markets' : 'locations')
+  choose(portfolio === 'advanced' ? 'Atlanta' : atlanta.label)
+  choose(portfolio === 'advanced' ? 'Boston' : boston.label)
+  typePattern(portfolio === 'advanced' ? 'Apartments in {market}' : 'Apartments in {location}')
+  expect(screen.queryByRole('button', { name: 'Save as a pattern' })).toBeNull()
+  preview()
+  expect(runButton().disabled).toBe(false)
+  fireEvent.click(runButton())
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]?.runs).toHaveLength(2)
+  expect(state.posts[0]?.runs[0]).toMatchObject(portfolio === 'advanced'
+    ? { queries: ['Apartments in Atlanta'], scope: { kind: 'market', key: 'atlanta', expectedPlanRevision: 7 }, location: null }
+    : { queries: [`Apartments in ${atlanta.label}`], location: atlanta })
+  expect(state.settingsReads).toBe(0)
+  expect(state.puts).toHaveLength(0)
+})
+
+test.each(['revoked', 'history-error'] as const)('a reviewed batch stops when research access becomes %s', async failure => {
+  const { state, queryClient } = setup(advanced, 'research-key')
+  await ready(); setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}'); preview()
+  expect(runButton().disabled).toBe(false)
+  if (failure === 'revoked') state.canRun = false
+  else state.historyError = true
+  await queryClient.invalidateQueries()
+  await waitFor(() => expect(runButton().disabled).toBe(true))
+  fireEvent.click(runButton())
+  expect(state.posts).toHaveLength(0)
+  expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('Apartments in Atlanta')
 })
 
 test('a removed selected market cannot silently become whole-site research', async () => {

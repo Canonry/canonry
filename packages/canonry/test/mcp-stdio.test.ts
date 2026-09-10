@@ -97,7 +97,7 @@ describe('canonry-mcp stdio', () => {
     expect(listedNames).toContain('canonry_load_toolkit')
     expect(listedNames).not.toContain('canonry_insights_list')
 
-    const help = await client.callTool({ name: 'canonry_help', arguments: {} })
+    const help = await client.callTool({ name: 'canonry_help', arguments: { includeCatalog: true } })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
     expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
@@ -191,8 +191,8 @@ describe('canonry-mcp stdio', () => {
     clients.push(client)
 
     const list = await client.listTools()
-    // 212 API tools + 2 meta-tools (canonry_help, canonry_load_toolkit).
-    expect(list.tools).toHaveLength(214)
+    // 213 API tools + 2 meta-tools (canonry_help, canonry_load_toolkit).
+    expect(list.tools).toHaveLength(215)
     const names = list.tools.map(tool => tool.name)
     expect(list.tools.find(tool => tool.name === 'canonry_results_clear')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
     expect(names).toContain('canonry_insights_list')
@@ -211,6 +211,7 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_query_tracking_workspace')
     expect(names).toContain('canonry_query_tracking_preview')
     expect(names).toContain('canonry_query_tracking_commit')
+    expect(names).toContain('canonry_research_batch_start')
     expect(names).toContain('canonry_help')
 
     const draftAction = list.tools.find(tool => tool.name === 'canonry_measurement_draft_action')

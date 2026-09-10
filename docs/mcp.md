@@ -6,9 +6,49 @@ MCP is useful here because many agent clients can discover typed tools, validate
 
 New public API/CLI capabilities should get MCP parity by default. If a capability is intentionally not exposed as an MCP tool, classify its OpenAPI operation as `deferred` or `excluded-protocol` in `packages/canonry/src/mcp/openapi-classification.ts` and include the reason there. Credential, bearer-token, browser-session, and other high-risk operations may be deferred, but they should be explicit exceptions rather than silent omissions.
 
+## Universal operations guidance
+
+Connected agents start with initialization guidance and `canonry_help`, not a
+skill installation. Call `canonry_help({intent: "status"})`, or use `diagnose`,
+`measurement`, `integrations`, `reports`, or a short task description. The
+default response is a compact route, not the full catalog:
+
+```json
+{
+  "guideVersion": "v1",
+  "mode": "hosted-fixed-catalog",
+  "scope": "read-only",
+  "workflow": "status",
+  "next": ["canonry_projects_list", "canonry_project_overview"],
+  "workflows": ["status", "diagnose", "measurement", "integrations", "reports"],
+  "approvalBoundary": ["provider reads", "sweeps", "writes"],
+  "operationsGuideUrl": "https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md"
+}
+```
+
+The response also contains short `guidance`, `approvalRule`, and `authority`
+fields. It is returned as both JSON text and MCP `structuredContent`. `next`
+contains only available stored-evidence tools; it never executes them. Use
+listed tool schemas for arguments and keep the server's permission boundary.
+
+Hosted catalogs are fixed and never offer toolkit loading. Progressive stdio
+may return `loadToolkits`; load one, await its response, and ask help again.
+Eager stdio reports `stdio-fixed-catalog`. Set `includeCatalog: true` for the
+existing scope, core-tools, loaded-toolkit, and toolkit-details fields. Default
+help no longer includes that large catalog; clients that parsed `toolkits`
+should opt in explicitly.
+
+The [Operations Guide v1](agent-operations/v1.md) is the public source of truth.
+`canonry://agent-operations/v1` exposes the same guide as an optional MCP
+resource. Resource support, browser access, local CLI installation, and plugins
+are not prerequisites: every remote agent can navigate with help alone.
+Codex/Claude `SKILL.md` files are generated from that source as optional native
+guidance. Guidance never grants permissions; the server enforces authority.
+
 ## Install
 
-Install Canonry normally:
+For a local stdio runtime, install Canonry normally. Agents using an existing
+hosted MCP connection do not need this installation:
 
 ```bash
 npm install -g @canonry/canonry
@@ -34,7 +74,59 @@ canonry mcp config  --client codex            # print snippet for clients withou
 
 `canonry-mcp` inherits the normal local config at `~/.canonry/config.yaml` through `createApiClient()`.
 
-For a local server, use the same config created by `canonry init` and run `canonry serve`. For a remote API, set `apiUrl` and `apiKey` in `~/.canonry/config.yaml`. MCP adds no OAuth flow, token storage, or alternate auth path.
+For a local server, use the same config created by `canonry init` and run `canonry serve`. For a remote API, set `apiUrl` and `apiKey` in `~/.canonry/config.yaml`. The stdio adapter uses that API key; hosted HTTP clients can instead use the instance's OAuth authorization flow.
+
+### Research access
+
+Research is an explicit `research.run` capability shared by REST, CLI, the
+dashboard, and MCP. It spends provider quota and saves isolated evidence; it
+does not grant tracked-query changes, sweeps, ICP discovery, settings writes,
+key creation, or saving/applying query patterns. A direct research run submits
+one provider/model/location context. A reviewed batch submits independently
+reviewed destinations under one retry key. Both send exact final query strings:
+the client expands any pattern before submission, and selecting an Advanced
+market or Property only records the destination—it never rewrites queries or
+automatically fans out a group.
+
+An administrator can create a project-bound agent credential:
+
+```sh
+canonry key create --name research-agent --project demo --scope read --scope research.run --format json
+```
+
+Configure that key in the normal Canonry client config. Then use
+`canonry research run demo "Which platform fits an agency?" --provider openai --format json`,
+`canonry research list demo --format json`, and `canonry research show demo <run-id> --format json`.
+REST uses `POST /api/v1/projects/demo/research/runs` and the matching list/detail
+GET routes. Research history also returns safe provider/model choices and
+`access: { canRun, dailyRunLimit }`, so agents can discover their permission
+without trial runs. Model choices use the configured provider's cached catalog
+or bundled defaults; listing history never triggers or waits for live model
+discovery, including on a cold or expired cache.
+
+For hosted OAuth, request `read research.run` (optionally `offline_access`) and
+approve the research permission. Viewer accounts also require the deployment's
+`research.allowViewers` opt-in. Re-authorize existing connections with the new
+scope; a token approved for `read` remains read-only, including for admins.
+Current account authority is rechecked on every request.
+Each HTTP session is bound to its exact bearer token and effective scopes and
+project boundary, not just the signed-in account. A replacement/refreshed token
+or changed authority must initialize a new session; reuse returns HTTP 404.
+Revoked or expired tokens remain rejected by authentication.
+
+Use `/api/v1/mcp` or `/api/v1/mcp/x/discovery`. Authorized catalogs include
+`canonry_research_run_start`, `canonry_research_batch_start`,
+`canonry_research_runs_list`, and `canonry_research_run_get`; stdio exposes
+them after loading `discovery` or with `--eager`. Narrow research credentials do
+not expose unrelated mutation tools, including pattern save/apply tools.
+Explicit `--read-only` and `/readonly` always remove research creation.
+
+Limited research credentials and viewer sessions share the deployment's
+per-project UTC daily cap (default 20). New keys and MCP reconnects do not reset
+the cap. Idempotent retries return the existing receipt. MCP runs retain the
+initiating account, and API/CLI key runs retain the key identity. Root/admin
+full-authority research keeps its existing uncapped behavior; an admin OAuth
+grant containing only `research.run` still uses the limited budget.
 
 ## Client Config
 
@@ -82,10 +174,18 @@ Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<t
 
 ## Tool Surface
 
+`canonry_research_run_start` is for one direct context. It accepts the final
+editable query text and optional saved destination/provenance; it does not
+expand a pattern or a group.
+
 `canonry_research_batch_start` accepts reviewed queries across explicit markets, Properties, or configured locations.
 Its request contains a required `idempotencyKey` and at most 20 `runs`, with at most 50 total queries.
 Each run specifies final query text, provider, model, and location (a configured object or `null`).
 Market and Property scopes also require `expectedPlanRevision`.
+If a saved pattern is used, the caller substitutes it client-side and submits
+the resulting exact query text plus optional template provenance. A selected
+scope records where the result belongs; it does not substitute text or create
+additional destinations.
 The API accepts all runs together or accepts none. Individual saved runs then complete independently.
 An unchanged retry returns the same runs. A changed request with the same key conflicts.
 This paid operation remains write-only and never changes tracking.
@@ -157,7 +257,7 @@ For shared query assignments and measured results, see [Query control and AI vis
 
 Core tier (always loaded):
 
-- `canonry_help` — list available toolkits and which are loaded
+- `canonry_help` — compact intent route and approval boundaries; use `includeCatalog: true` for toolkit details
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
 - `canonry_project_overview` — composite read for "how is project X doing?"
@@ -209,6 +309,9 @@ Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 
 `--read-only` filters out write tools before the catalog is built, so toolkits with no read tools appear as `empty` from `canonry_load_toolkit`. Mixed toolkits load with whatever survives the filter — the `agent` toolkit, for example, drops its writes (`canonry_memory_set`, `canonry_memory_forget`, `canonry_agent_clear`, `canonry_agent_webhook_detach`) and exposes only `canonry_memory_list` under read-only scope.
 
 ### Read-only API keys (auto-detection)
+
+The same startup probe preserves explicit narrow scopes such as `research.run`
+and filters the catalog to matching capabilities, not general writes.
 
 A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rejected by the API on every write HTTP method (`403 FORBIDDEN`). To avoid advertising tools that would 403 at call time, `canonry-mcp` probes `GET /keys/self` at startup and, when its configured key is read-only, **auto-restricts the catalog to read tools** — exactly as if `--read-only` had been passed — and prints a one-line notice on stderr. The probe is best-effort: if the API is unreachable or the server predates the endpoint, the adapter keeps the requested scope. A read-only key can only ever narrow the catalog, never widen it; passing `--read-only` explicitly skips the probe.
 

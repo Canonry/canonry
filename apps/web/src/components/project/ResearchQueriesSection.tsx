@@ -95,6 +95,7 @@ export function ResearchQueriesSection({
   const queryClient = useQueryClient()
   const { account, canWrite } = useAccount()
   const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
+  const limitedAccess = !canWrite
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -109,7 +110,7 @@ export function ResearchQueriesSection({
   })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !isViewerResearch,
+    enabled: !limitedAccess,
     staleTime: 60_000,
   })
   const runsQuery = useQuery({
@@ -121,6 +122,8 @@ export function ResearchQueriesSection({
     refetchInterval: (query) => query.state.data?.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status)) ? 3000 : false,
   })
   const runs = runsQuery.isError ? [] : runsQuery.data?.runs ?? []
+  const canRun = runsQuery.data?.access?.canRun ?? (canWrite || isViewerResearch)
+  const dailyRunLimit = runsQuery.data?.access ? runsQuery.data.access.dailyRunLimit : (isViewerResearch ? viewerResearchConfig.viewerDailyRunLimit : null)
 
   useEffect(() => {
     if (!selectedRunId && runs[0]) setSelectedRunId(runs[0].id)
@@ -139,13 +142,13 @@ export function ResearchQueriesSection({
 
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
-    if (isViewerResearch) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
+    if (limitedAccess) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
     return (settingsQuery.data?.providers ?? [])
       .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
-  }, [isViewerResearch, runsQuery.data?.providers, settingsQuery.data])
-  const noConfiguredApiProviders = !(isViewerResearch ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
+  }, [limitedAccess, runsQuery.data?.providers, settingsQuery.data])
+  const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
@@ -156,7 +159,7 @@ export function ResearchQueriesSection({
   }, [provider, providerOptions, projectQuery.data, projectQuery.isError, settingsQuery.isError])
 
   const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
-  const visibilityModel = isViewerResearch
+  const visibilityModel = limitedAccess
     ? selectedProvider?.catalog.defaultModel
     : (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '') || selectedProvider?.catalog.defaultModel
   const resolvedModel = (configurableModel ? model.trim() : '') || visibilityModel
@@ -200,7 +203,8 @@ export function ResearchQueriesSection({
           key={`${projectName}:${composerVersion}`}
           projectName={projectName}
           canWrite={canWrite}
-          isViewerResearch={isViewerResearch}
+          researchAllowed={canRun && !runsQuery.isError}
+          limitedAccess={limitedAccess}
           isEmbed={isEmbed()}
           scopeOptions={scopeOptions ?? []}
           planRevision={planRevision ?? selectedScope?.planRevision ?? null}
@@ -220,21 +224,21 @@ export function ResearchQueriesSection({
           model={model}
           onModelChange={setModel}
           modelOptions={modelOptions}
-          settingsReady={isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
+          settingsReady={limitedAccess ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
           projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
           isPending={researchMutation.isPending}
           errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
           onSubmit={(body, fingerprint) => {
-            if (submitInFlight.current) return
+            if (!canRun || runsQuery.isError || isEmbed() || submitInFlight.current) return
             if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
             submitInFlight.current = true
             researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
           }}
         />
-        {isViewerResearch && <p className="text-sm text-secondary">Up to {viewerResearchConfig.viewerDailyRunLimit} destination runs per project per day.</p>}
-        {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+        {dailyRunLimit !== null && <p className="text-sm text-secondary">Up to {dailyRunLimit} destination runs per project per day.</p>}
+        {!limitedAccess && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
         {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-        {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{isViewerResearch ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
+        {!(limitedAccess ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
         {createdRuns.length > 0 && <p role="status" className="text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{run.scope?.label ?? 'Whole site'}{run.location ? `, ${run.location.label}` : ', No location'}</a></span>)}</p>}
 
         <Card className="surface-card min-w-0">
@@ -279,7 +283,8 @@ type ResearchDestination = VisibilityReportScopeOption & { kind: 'market' | 'pro
 type ComposerProps = {
   projectName: string
   canWrite: boolean
-  isViewerResearch: boolean
+  researchAllowed: boolean
+  limitedAccess: boolean
   isEmbed: boolean
   scopeOptions: readonly VisibilityReportScopeOption[]
   planRevision: number | null
@@ -388,7 +393,7 @@ function ResearchBatchComposer(props: ComposerProps) {
     if (groups.some(group => deduplicateResearchQueries(group.queries).length !== group.queries.length)) rowErrors.push('Remove duplicate queries within each destination and location.')
     if (groups.length > MAX_RESEARCH_BATCH_RUNS) rowErrors.push(`The preview exceeds ${MAX_RESEARCH_BATCH_RUNS} runs.`)
   }
-  const canRun = (props.canWrite || props.isViewerResearch) && !props.isEmbed && !props.isPending && props.settingsReady && props.projectReady && Boolean(provider && resolvedModel) && !setupErrors.length && !rowErrors.length && (mode === 'once' || preview !== null)
+  const canRun = props.researchAllowed && !props.isEmbed && !props.isPending && props.settingsReady && props.projectReady && Boolean(provider && resolvedModel) && !setupErrors.length && !rowErrors.length && (mode === 'once' || preview !== null)
   const buildRequest = (): Omit<ResearchBatchCreate, 'idempotencyKey'> => ({ runs: groups.map(group => ({
     queries: group.queries, provider, model: resolvedModel!, location: group.location,
     ...(group.scope ? { scope: { kind: group.scope.kind, key: group.scope.key, expectedPlanRevision: group.scope.planRevision } } : {}),
@@ -517,7 +522,7 @@ function ResearchBatchComposer(props: ComposerProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm font-medium text-heading">Answer engine<select className={INPUT_CLASS} value={provider} onChange={event => props.onProviderChange(event.target.value)}><option value="" disabled>Choose an answer engine</option>{props.providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}</select></label>
         <label className="block text-sm font-medium text-heading">Model
-          {props.isViewerResearch ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model · {props.visibilityModel}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
+          {props.limitedAccess ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model · {props.visibilityModel}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
             : <><input aria-label="Model" className={INPUT_CLASS} list="research-known-models" placeholder={resolvedModel ?? 'Choose an answer engine'} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)} /><datalist id="research-known-models">{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
         </label>
       </div>

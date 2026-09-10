@@ -135,6 +135,8 @@ export const researchRunPrincipalSchema = z.object({
   id: z.string(),
   name: z.string(),
   role: userRoleSchema.nullable(),
+  /** Consumes the shared limited-research budget. Legacy viewers count by role. */
+  limited: z.boolean().optional(),
 })
 export type ResearchRunPrincipal = z.infer<typeof researchRunPrincipalSchema>
 
@@ -175,5 +177,7 @@ export type ResearchProviderOption = z.infer<typeof researchProviderOptionSchema
 export const researchRunListSchema = z.object({
   runs: z.array(researchRunSummarySchema),
   providers: z.array(researchProviderOptionSchema).optional(),
+  /** Credential-specific admission policy, shared by UI, CLI and MCP consumers. */
+  access: z.object({ canRun: z.boolean(), dailyRunLimit: z.number().int().positive().nullable() }).optional(),
 })
 export type ResearchRunListDto = z.infer<typeof researchRunListSchema>

@@ -179,6 +179,7 @@ export interface ApiRoutesOptions {
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
   getProviderModels?: SettingsRoutesOptions['getProviderModels']
+  getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
   /** Google OAuth configuration summary + update callback */
@@ -472,6 +473,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
     if (!opts.skipAuth) {
       await authPlugin(api, {
+        researchAllowViewers: opts.researchAllowViewers,
         // A bearer that is not an api key is tried as an OAuth access token.
         // Wired unconditionally: the table is empty until an operator registers
         // a client, so an install with no OAuth in use pays one indexed miss.
@@ -704,7 +706,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
-      getProviderModels: opts.getProviderModels,
+      getCachedProviderModels: opts.getCachedProviderModels,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       providerAdapters: opts.providerAdapters,
       configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),

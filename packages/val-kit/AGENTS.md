@@ -125,9 +125,11 @@ Publishing is a manual workflow. It is not part of the Canonry release, and the 
 
 ## `src/mcp/skills/` is generated
 
-Edit `skills/<name>/` at the repository root, then run `node scripts/sync-val-town-skills.mjs` and commit the
-result. `--check` fails instead of writing, which is what CI runs. Never hand-edit a generated module; the next
-sync overwrites it.
+For the Canonry entry point, edit `docs/agent-operations/v1.md` and run `pnpm guide:sync`; it refreshes the
+runtime guide, native skills, and this mirror together. Other skill documents still originate in
+`skills/<name>/`; run `node scripts/sync-val-town-skills.mjs` after editing them and commit the result.
+`--check` fails instead of writing, which is what CI runs. Never hand-edit a generated module; the next sync
+overwrites it.
 
 ## Tests
 

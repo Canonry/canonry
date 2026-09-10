@@ -4091,6 +4091,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE research_run_queries ADD COLUMN query_class TEXT`,
     ],
   },
+  {
+    version: 154,
+    name: 'delegated-api-key-user',
+    statements: [
+      `ALTER TABLE api_keys ADD COLUMN delegated_user_id TEXT REFERENCES users(id) ON DELETE CASCADE`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

@@ -2,6 +2,7 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
+  RESEARCH_RUN_SCOPE,
   adsAdCreateRequestSchema,
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
@@ -103,6 +104,8 @@ export interface CanonryMcpTool<
   title: string
   description: string
   access: McpToolAccess
+  /** Named capability that can authorize this operation without general write access. */
+  requiredScope?: string
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -2828,6 +2831,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_research_run_start',
+    requiredScope: RESEARCH_RUN_SCOPE,
     title: 'Start research query run',
     description:
       'Run final free-form queries once each against one API provider, with an optional exact model, location, or one configured market or Property destination. Scope never changes query text or fans out a group. Optional template provenance records the source template ID and version; callers must submit the fully expanded, editable final query text. Results retain that destination and provenance for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
@@ -2840,6 +2844,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_research_batch_start',
+    requiredScope: RESEARCH_RUN_SCOPE,
     title: 'Start reviewed research across destinations',
     description:
       'Accept a reviewed research batch across explicit markets, Properties, or configured locations. Submit fully expanded, editable final queries with explicit provider/model/location for each destination; the API does not expand patterns or groups. All runs are saved together or none are saved, then processed independently. The required idempotencyKey prevents duplicate work on retries; changed input with the same key conflicts. Each run retains its scope, location and optional pattern provenance. Uses paid answer engines, never adds tracked queries or affects visibility measurements.',

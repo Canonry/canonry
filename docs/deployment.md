@@ -104,9 +104,19 @@ to 20 and resets at 00:00 UTC.
 
 This grant covers only `POST /projects/:name/research/runs`. It does not grant
 access to provider settings, tracked-query changes, discovery, or visibility
-sweeps. Administrators and wildcard API keys keep their existing access;
-read-only and narrowly scoped API keys cannot spend provider quota. Each new
-research run records the initiating account or API key.
+sweeps. Administrators and wildcard API keys keep their existing access.
+Explicit `research.run` API keys can run research independently of the viewer
+opt-in; `read` alone and unrelated scopes cannot. Viewer OAuth clients must
+explicitly obtain `research.run` consent, bounded by this deployment opt-in.
+Existing read-only OAuth grants do not acquire research permission automatically.
+
+The daily cap is shared by all limited research callers for a project across
+browser sessions, API, CLI, and MCP. Reconnecting or using another key does not
+reset it; replaying an identical idempotent request does not consume another
+batch. The configuration names remain unchanged for compatibility. Each new
+run records the initiating account or API key and whether it consumed the
+limited budget. MCP retains the original account, not an ephemeral session
+identity. See [MCP research access](mcp.md#research-access) for setup.
 
 This hides sweep controls for **all dashboard roles, including admins**.
 Operators retain `canonry run <project>` against the managed instance as the

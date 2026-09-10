@@ -75,6 +75,7 @@ erDiagram
   discovery_sessions ||--o{ discovery_probes : contains
   projects ||--o{ research_runs : has
   research_runs ||--o{ research_run_queries : contains
+  users ||--o{ api_keys : delegates
 ```
 
 ## Table Groups
@@ -326,7 +327,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 | Table | Purpose |
 |-------|---------|
-| **api_keys** | API authentication. Unique: `keyHash` |
+| **api_keys** | API authentication. Unique: `keyHash`. Internal nullable `delegatedUserId` → users (cascade delete) preserves OAuth account authority and research attribution across the MCP-to-REST hop; ordinary/historical keys remain null. |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
 | **oauth_clients** | OAuth 2.1 clients for the remote MCP surface. `registration` records how one came to exist: `operator` (created deliberately) or `dynamic` (registered itself over the open RFC 7591 endpoint and chose its own display name, so the consent screen marks that name unverified). `secretHash` is NULL for a public client authenticating by PKCE alone. `redirectUris` is an exact-match allowlist, except that RFC 8252 s7.3 lets the PORT float for loopback redirects so a native app can bind an ephemeral one. Revoking a client also revokes its outstanding tokens |
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |

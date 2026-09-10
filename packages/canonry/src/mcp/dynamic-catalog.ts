@@ -109,7 +109,9 @@ export class DynamicToolCatalog {
         .filter(entry => entry.tool.tier === 'core')
         .map(entry => entry.tool.name),
       toolkits: CANONRY_MCP_TOOLKITS.map(toolkit => this.toolkitEntry(toolkit)).filter(entry => entry.toolCount > 0),
-      usage: 'Call canonry_load_toolkit with one of the toolkit names listed in `toolkits[].name` to register its tools for the rest of this session. Wait for its response before calling any newly enabled tool.',
+      usage: this.eager
+        ? 'All tools available on this connection are already loaded. Use their listed schemas; tool visibility does not grant server permissions.'
+        : 'Call canonry_load_toolkit with one of the toolkit names listed in `toolkits[].name` to register its tools for the rest of this session. Wait for its response before calling any newly enabled tool.',
     }
   }
 

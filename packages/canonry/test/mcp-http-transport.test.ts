@@ -91,6 +91,7 @@ async function mintAccessToken(
     url: `/oauth/authorize?${params.toString()}`,
     headers: { cookie: sessionCookie },
   })
+  if (opts.scope?.includes('research.run')) expect(consent.body).toContain('research.run')
   const csrf = /name="csrf" value="([^"]+)"/.exec(consent.body)?.[1]
   if (!csrf) throw new Error(`no consent form returned: ${consent.statusCode} ${consent.body.slice(0, 120)}`)
   const approved = await request(built, {
@@ -129,7 +130,7 @@ interface Built {
   cleanup: () => Promise<void>
 }
 
-async function buildServer(): Promise<Built> {
+async function buildServer(researchAllowViewers = false): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-mcp-http-${crypto.randomUUID()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
   const dbPath = path.join(tmpDir, 'test.db')
@@ -155,6 +156,7 @@ async function buildServer(): Promise<Built> {
     apiKey: wildcardKey,
     publicUrl: 'https://instance.example.com',
     providers: {},
+    research: { allowViewers: researchAllowViewers, viewerDailyRunLimit: 20 },
   }
   const app = await createServer({ config, db, logger: false })
   // A REAL listener, not app.inject().
@@ -214,6 +216,34 @@ function initRequest(built: Built, key: string) {
   })
 }
 
+async function toolsFor(built: Built, url: string, key: string): Promise<string[]> {
+  const init = await request(built, {
+    method: 'POST',
+    url,
+    headers: { authorization: `Bearer ${key}`, accept: MCP_ACCEPT, 'content-type': 'application/json' },
+    payload: INIT,
+  })
+  const sessionId = init.headers['mcp-session-id'] as string
+  const res = await request(built, {
+    method: 'POST',
+    url,
+    headers: {
+      authorization: `Bearer ${key}`,
+      accept: MCP_ACCEPT,
+      'content-type': 'application/json',
+      'mcp-session-id': sessionId,
+    },
+    payload: { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+  })
+  // Streamable HTTP answers a POST as SSE, so the JSON-RPC body arrives as a
+  // `data:` frame rather than a bare payload.
+  const frame = res.body.split('\n').find(line => line.startsWith('data:'))
+  const parsed = JSON.parse((frame ?? res.body).replace(/^data:\s*/, '')) as {
+    result?: { tools?: { name: string }[] }
+  }
+  return (parsed.result?.tools ?? []).map(tool => tool.name)
+}
+
 describe('MCP over OAuth', () => {
   let built: Built
 
@@ -223,6 +253,19 @@ describe('MCP over OAuth', () => {
 
   afterEach(async () => {
     await built.cleanup()
+  })
+
+  it('accepts explicit research consent without granting unrelated mutations', async () => {
+    await built.cleanup()
+    built = await buildServer(true)
+    const token = await mintAccessToken(built, { scope: 'read research.run offline_access' })
+    const first = await initRequest(built, token)
+    expect(first.statusCode).toBe(200)
+    expect(built.sessionKeys()).toEqual([{ scopes: ['read', 'research.run'], revokedAt: null }])
+    const tools = await toolsFor(built, '/api/v1/mcp', token)
+    expect(tools).toContain('canonry_research_run_start')
+    expect(tools).toContain('canonry_research_batch_start')
+    expect(tools).not.toContain('canonry_measurement_query_template_upsert')
   })
 
   it('reports MCP availability without opening a session', async () => {
@@ -480,39 +523,12 @@ describe('MCP over Streamable HTTP', () => {
     expect(stolen.statusCode).toBe(404)
   })
 
-  async function toolsFor(url: string, key: string): Promise<string[]> {
-    const init = await request(built, {
-      method: 'POST',
-      url,
-      headers: { authorization: `Bearer ${key}`, accept: MCP_ACCEPT, 'content-type': 'application/json' },
-      payload: INIT,
-    })
-    const sessionId = init.headers['mcp-session-id'] as string
-    const res = await request(built, {
-      method: 'POST',
-      url,
-      headers: {
-        authorization: `Bearer ${key}`,
-        accept: MCP_ACCEPT,
-        'content-type': 'application/json',
-        'mcp-session-id': sessionId,
-      },
-      payload: { jsonrpc: '2.0', id: 2, method: 'tools/list' },
-    })
-    // Streamable HTTP answers a POST as SSE, so the JSON-RPC body arrives as a
-    // `data:` frame rather than a bare payload.
-    const frame = res.body.split('\n').find(line => line.startsWith('data:'))
-    const parsed = JSON.parse((frame ?? res.body).replace(/^data:\s*/, '')) as {
-      result?: { tools?: { name: string }[] }
-    }
-    return (parsed.result?.tools ?? []).map(tool => tool.name)
-  }
 
   it.each([
     ['/api/v1/mcp', false], ['/api/v1/mcp', true],
     ['/api/v1/mcp/readonly', false], ['/api/v1/mcp/readonly', true],
   ] as const)('exposes the entire permitted catalog at %s (read-only key: %s)', async (url, readOnlyKey) => {
-    const tools = await toolsFor(url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
+    const tools = await toolsFor(built, url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
     const readOnly = readOnlyKey || url.endsWith('/readonly')
     const expected = canonryMcpTools.filter(tool => !readOnly || tool.access === 'read').map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
@@ -527,12 +543,13 @@ describe('MCP over Streamable HTTP', () => {
       'canonry_research_runs_list', 'canonry_measurement_setup',
       'canonry_google_ads_status', 'canonry_gtm_status', 'canonry_conversion_tracking_contracts',
     ]))
+    expect(tools.includes('canonry_research_batch_start')).toBe(!readOnly)
     expect(tools).not.toContain('canonry_load_toolkit')
   })
 
   it('exposes the entire read catalog to an OAuth reader without write tools', async () => {
     const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
-    const tools = await toolsFor('/api/v1/mcp', token)
+    const tools = await toolsFor(built, '/api/v1/mcp', token)
     const expected = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
   })
@@ -541,15 +558,15 @@ describe('MCP over Streamable HTTP', () => {
     // The safety property that makes a /readonly URL a guarantee rather than a
     // naming convention: the path forces the read-only catalog regardless of
     // how much authority the presented key carries.
-    const full = await toolsFor('/api/v1/mcp', built.wildcardKey)
-    const readOnly = await toolsFor('/api/v1/mcp/readonly', built.wildcardKey)
+    const full = await toolsFor(built, '/api/v1/mcp', built.wildcardKey)
+    const readOnly = await toolsFor(built, '/api/v1/mcp/readonly', built.wildcardKey)
     expect(readOnly.length).toBeLessThan(full.length)
     for (const name of readOnly) expect(full).toContain(name)
   })
 
   it('a toolkit endpoint adds that toolkit on top of core', async () => {
     const core = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
-    const withToolkit = await toolsFor('/api/v1/mcp/x/gsc', built.wildcardKey)
+    const withToolkit = await toolsFor(built, '/api/v1/mcp/x/gsc', built.wildcardKey)
     expect(withToolkit.length).toBeGreaterThan(core.length)
     // core rides along, or the toolkit's tools have no project to aim at
     for (const name of core) expect(withToolkit).toContain(name)
