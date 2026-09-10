@@ -8,6 +8,8 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
+import { EVIDENCE_LABELS } from '../src/pages/MeasurementPropertyPage.js'
+import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
@@ -656,6 +658,7 @@ describe('Property page', () => {
     // assertion now expands the answer before reading them.
     const evidence = await answersTable()
     fireEvent.click(within(evidence).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(evidence).getByText(`${ANSWER_SOURCES_LABEL} (1)`, { selector: 'summary' }))
     expect(within(evidence).getByText('Matches this Property')).toBeTruthy()
     expect(within(evidence).getByText(OWN_URL)).toBeTruthy()
     expect(screen.queryByText(/revision \d+/i)).toBeNull()
@@ -708,10 +711,10 @@ describe('Property answer evidence', () => {
     ])
     const row = answerFor(evidence, 'where to stay by the water')
 
-    expect(within(row).getByText('Mentioned')).toBeTruthy()
+    expect(within(row).getByText('Mentioned', { selector: 'div' })).toBeTruthy()
     expect(within(row).getByText('Not cited')).toBeTruthy()
     expect(within(row).queryByText('Not mentioned')).toBeNull()
-    expect(within(row).queryByText('Cited')).toBeNull()
+    expect(within(row).queryByText('Cited', { selector: 'div' })).toBeNull()
   })
 
   it('renders an unread mention as Not measured with its reason and never as a zero', async () => {
@@ -777,25 +780,51 @@ describe('Property answer evidence', () => {
     ])
   })
 
-  it('collapses every answer and leads its sources with this Property\'s own', async () => {
+  it('keeps sources behind disclosure with this Property first and unsafe URLs inactive', async () => {
+    const guideUrl = 'https://guide.example/harbour-stays'
+    const siblingUrl = 'https://locations.example/lighthouse-house'
+    const invalidUrl = 'javascript:alert(1)'
+    const reviewUrl = 'https://reviews.example/harbour'
     const evidence = await renderAnswers([
       answerRow({
         slot: 'a',
         queryText: 'where to stay by the water',
         mentioned: true,
-        sources: [externalSource('https://guide.example/harbour-stays'), ownSource(), externalSource('https://reviews.example/harbour')],
+        sources: [
+          externalSource(guideUrl), ownSource(),
+          { ...externalSource(siblingUrl), classification: 'sibling', matchedTargetIds: ['lighthouse-house'] },
+          { ...externalSource(invalidUrl), classification: 'invalid', normalizedUrl: null },
+          externalSource(reviewUrl),
+        ],
       }),
     ])
 
     expect(within(evidence).queryByText(OWN_URL)).toBeNull()
     const toggle = within(evidence).getByRole('button', { name: 'Read the answer for where to stay by the water' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
-
     fireEvent.click(toggle)
-    const sources = within(evidence).getByRole('table', { name: 'Source URLs for where to stay by the water' })
+
+    const summary = within(evidence).getByText(`${ANSWER_SOURCES_LABEL} (5)`, { selector: 'summary' })
+    const disclosure = summary.closest('details')!
+    expect(disclosure.open).toBe(false)
+    fireEvent.click(summary)
+
+    const sources = within(disclosure).getByRole('table')
     expect(within(sources).getAllByRole('row').slice(1).map(row => row.querySelector('td:last-child')!.textContent))
-      .toEqual([OWN_URL, 'https://guide.example/harbour-stays', 'https://reviews.example/harbour'])
-    expect(within(sources).getByText('Matches this Property')).toBeTruthy()
+      .toEqual([OWN_URL, guideUrl, siblingUrl, invalidUrl, reviewUrl])
+    expect(within(sources).getByText(EVIDENCE_LABELS.assigned.label)).toBeTruthy()
+    expect(within(sources).getByText(EVIDENCE_LABELS.sibling.label)).toBeTruthy()
+    expect(within(sources).getByText(EVIDENCE_LABELS.invalid.label)).toBeTruthy()
+    expect(within(sources).getAllByText(EVIDENCE_LABELS.external.label)).toHaveLength(2)
+    const links = within(sources).getAllByRole('link')
+    expect(links.map(link => link.getAttribute('href'))).toEqual([OWN_URL, guideUrl, siblingUrl, reviewUrl])
+    for (const link of links) {
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    }
+    expect(within(sources).queryByRole('link', { name: invalidUrl })).toBeNull()
+    fireEvent.click(summary)
+    expect(disclosure.open).toBe(false)
   })
 
   it('says an answer cited nothing rather than leaving its detail blank', async () => {
@@ -1013,7 +1042,10 @@ describe('Reading the answer', () => {
     fireEvent.click(toggle)
 
     expect(await screen.findByText(/Harborline Homes and The Sutton/)).toBeTruthy()
-    expect(screen.getByText(/What openai answered/i)).toBeTruthy()
+    const answer = screen.getByText(/Harborline Homes and The Sutton/)
+    const sources = screen.getByText(`${ANSWER_SOURCES_LABEL} (1)`, { selector: 'summary' })
+    expect(answer.compareDocumentPosition(sources) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(sources.closest('details')!.open).toBe(false)
   })
 
   it('fetches the answer only when a row is opened', async () => {
@@ -1174,4 +1206,18 @@ describe('Named instead of this Property', () => {
     expect(within(section).getByText(/No rival was named/)).toBeTruthy()
     expect(section.querySelector('table')).toBeNull()
   })
+})
+
+it('formats the lazily loaded property answer', async () => {
+  await renderPropertyPageFromApi(async url => {
+    const response = propertyPageResponses()(url)
+    return pathOf(url).includes('/measurement-question-result')
+      ? jsonResponse({ ...await response.json(), answer: `## ${NEARBY_QUESTION}\n\n**${TARGET_KEY}**\n\n- ${OWN_URL}` })
+      : response
+  })
+  const row = within(await answersTable()).getByText(NEARBY_QUESTION).closest('tr')!
+  fireEvent.click(within(row).getByRole('button'))
+  expect(await screen.findByRole('heading', { name: NEARBY_QUESTION, level: 4 })).toBeTruthy()
+  expect(document.querySelector('.answer-markdown strong')?.textContent).toBe(TARGET_KEY)
+  expect(document.querySelector('.answer-markdown li')?.textContent).toBe(OWN_URL)
 })

@@ -11,6 +11,7 @@ import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../
 import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus } from 'lucide-react'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
+import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
@@ -74,6 +75,7 @@ const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
 ]
 
 export const VISIBILITY_ANSWERS_LABEL = 'Measured answers'
+export const VISIBILITY_CLOSE_ANSWERS_LABEL = 'Close answers'
 
 const REPORT_CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded queries', unknown: 'Unclassified queries' }
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
@@ -144,7 +146,7 @@ function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onView
   advanced: boolean
   marketHeading?: string
   targetLabels: Map<string, string>
-  onViewAnswers: (row: VisibilityReportQueryRow) => void
+  onViewAnswers: (row: VisibilityReportQueryRow, trigger: HTMLButtonElement) => void
 }) {
   const first = group.rows[0]!
   const targetIdentity = (row: VisibilityReportQueryRow) => JSON.stringify([...row.targetKeys].sort())
@@ -169,7 +171,7 @@ function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onView
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} singleAnswer={row.answerCount === 1} /></td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} singleAnswer={row.answerCount === 1} /></td>
-      <td className="measurement-result-action"><Button variant="ghost" className="min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={() => onViewAnswers(row)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
+      <td className="measurement-result-action"><Button variant="ghost" className="min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
     </tr>)}
   </tbody>
 }
@@ -288,6 +290,7 @@ export function VisibilityReportFilters({ report, onSelectionChange, queryClass 
 export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
+  const answerTrigger = useRef<{ row: VisibilityReportQueryRow; element: HTMLButtonElement } | null>(null)
   const selectedPopulation = selectedReportPopulation(report, queryKey, answerSelection, evidenceReport)
   const answerReport = evidenceReport ?? report
   const matchingPopulations = answerReport.populations.filter(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey))
@@ -324,6 +327,17 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       nextCursor: evidence?.nextCursor,
     }
   }
+  const closeAnswers = () => {
+    focusedQueryKey.current = undefined
+    const trigger = answerTrigger.current
+    const matches = trigger !== null && trigger.row.queryKey === queryKey && (!answerSelection || (
+      trigger.row.provider === answerSelection.provider && trigger.row.model === answerSelection.model
+      && trigger.row.location === answerSelection.location
+    ))
+    if (matches && trigger?.element.isConnected) trigger.element.focus()
+    else reportElement.current?.querySelector<HTMLElement>(`details[data-query-results="${selectedPopulation.queryClass}"] > summary`)?.focus()
+    onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined })
+  }
   const filterSelect = (label: string, key: string, value: string, choices: { value: string; label: string }[], help: string) => <div className="min-w-40 flex-1">
     <div className="mb-1 flex items-center gap-1"><label htmlFor={`${filterId}-${key}`} className="text-sm font-medium text-heading">{label}</label><InfoTooltip text={help} /></div>
     <select id={`${filterId}-${key}`} className={REPORT_CONTROL} value={value} onChange={event => onSelectionChange({ [key]: event.target.value || undefined, measurementQueryKey: undefined })}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
@@ -346,6 +360,8 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     </div></details>
     {[selectedPopulation].map(population => {
       const queryGroups = groupVisibilityQueryRows(population.queries.items, selection.scope.kind === 'property' && !selection.market && population.queryClass === 'non-brand' ? new Map(report.scopeOptions.filter(option => option.kind === 'market').map(option => [option.id, option.label])) : undefined)
+      const answers = answerPage(population)
+      const answerQuestion = answers.items[0]?.query ?? population.queries.items.find(row => row.queryKey === queryKey)?.query
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-default py-4">
@@ -366,14 +382,28 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="overflow-x-auto">
           <table className="evidence-table measurement-responsive-table measurement-results-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} engine results`}>
             <thead><tr><th scope="col">Answer engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th><th scope="col"><span className="sr-only">Evidence</span></th></tr></thead>
-            {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={row => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })} />)}
+            {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={(row, trigger) => { answerTrigger.current = { row, element: trigger }; onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) }) }} />)}
           </table>
         </div>
         {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
         {population.queries.nextCursor && onPage ? <Button variant="outline" onClick={() => onPage(population.queries.nextCursor!)}>Next queries</Button> : null}
-      {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label={VISIBILITY_ANSWERS_LABEL} aria-busy={isEvidenceLoading}><div className="section-head"><h3>Answers</h3><Button variant="ghost" onClick={event => { focusedQueryKey.current = undefined; event.currentTarget.closest('details[data-query-results]')?.querySelector('summary')?.focus(); onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined }) }}>Close answers</Button></div>
+      {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label={VISIBILITY_ANSWERS_LABEL} aria-busy={isEvidenceLoading}><div className="flex flex-wrap items-start justify-between gap-3"><h3 className="min-w-0 flex-1 text-base font-semibold text-heading [overflow-wrap:anywhere]">{answerQuestion ?? 'Answers'}</h3><Button variant="ghost" className="min-h-11" onClick={closeAnswers}>{VISIBILITY_CLOSE_ANSWERS_LABEL}</Button></div>
         {isEvidenceLoading ? <p role="status" className="py-4 text-sm text-secondary">Loading saved answers…</p> : evidenceError ? <div role="alert" className="py-4 text-sm text-secondary"><p>Saved answers unavailable: {evidenceError}</p>{onRetryEvidence ? <Button variant="outline" onClick={onRetryEvidence}>Retry answers</Button> : null}</div> : <>
-        {answerPage(population).items.map(answer => <article key={answer.answerId} className="border-b border-default py-4"><div className="flex flex-wrap items-center gap-3"><strong className="text-sm text-heading">{answer.provider}</strong>{answer.model ? <span className="text-sm text-secondary">{answer.model}</span> : null}<span className="text-sm text-secondary">{answer.location ?? 'No location'}</span><span className="text-sm text-secondary">{new Date(answer.createdAt).toLocaleString()}</span><ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge><ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge></div><h4 className="mt-3 text-sm font-medium text-heading">{answer.query}</h4><p className="mt-3 max-w-prose whitespace-pre-wrap text-sm leading-6 text-primary">{answer.answerText ?? 'Answer text unavailable.'}</p><ul className="mt-3 space-y-2">{answer.sources.map(source => { const url = safeExternalUrl(source); return <li key={source} className="break-all text-sm">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-link hover:underline">{source}</a> : <span className="text-secondary">{source}</span>}</li> })}</ul></article>)}
+        {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <strong className="text-sm text-heading">{answer.provider}</strong>
+            {answer.model ? <span className="text-[13px] text-secondary">{answer.model}</span> : null}
+            <span className="text-[13px] text-secondary">{answer.location ?? 'No location'}</span>
+            <span className="text-[13px] text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
+            <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
+            <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
+          </div>
+          <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>
+          {answer.sources.length > 0 ? <details className="mt-2" data-answer-sources>
+            <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{ANSWER_SOURCES_LABEL} ({answer.sources.length})</summary>
+            <ul className="space-y-2 pb-3">{answer.sources.map(source => { const url = safeExternalUrl(source); return <li key={source} className="break-all text-sm">{url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-link underline">{source}</a> : <span className="text-secondary">{source}</span>}</li> })}</ul>
+          </details> : null}
+        </article>)}
         {answerPage(population).items.length === 0 ? <p className="py-4 text-sm text-secondary">{answerPage(population).nextCursor ? 'No matching answers on this page. Continue to the next answers.' : 'No matching saved answers on this page.'}</p> : null}
         {answerPage(population).nextCursor && onEvidencePage ? <Button variant="outline" onClick={() => onEvidencePage(answerPage(population).nextCursor!)}>Next answers</Button> : null}
         </>}

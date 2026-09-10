@@ -8,7 +8,8 @@ import { useState } from 'react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL } from '../src/components/project/VisibilityTrendSection.js'
+import { VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL } from '../src/components/project/VisibilityTrendSection.js'
+import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -601,6 +602,39 @@ describe('shared production visibility view', () => {
     expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Measured answers' }))
   })
 
+  it('returns focus to the exact engine button that opened the answer', () => {
+    const report = reportWithAnswer('query-context', 'Saved Gemini answer.')
+    const population = report.populations[0]!
+    const secondEngine = { ...population.queries.items[0]!, provider: 'openai' }
+    population.queries.items.push(secondEngine)
+    population.queries.total = 2
+    population.evidence.items.push({
+      ...population.evidence.items[0]!, answerId: 'answer-openai', provider: secondEngine.provider,
+      answerText: 'Saved OpenAI answer.',
+    })
+    population.evidence.total = 2
+    function Harness() {
+      const [search, setSearch] = useState<Record<string, unknown>>({ queryClass: 'non-brand' })
+      const selection = parseVisibilitySelection(search)
+      return <VisibilityReportView report={report} queryKey={selection.queryKey} answerSelection={selection.answer}
+        onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+    }
+    render(<Harness />)
+    fireEvent.click(document.querySelector('details[data-query-results] > summary')!)
+    const trigger = screen.getByRole('button', { name: name => name.endsWith(`${secondEngine.query} · ${secondEngine.provider}`) })
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    const answers = screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })
+    expect(document.activeElement).toBe(answers)
+    expect(within(answers).getByText('Saved OpenAI answer.')).toBeTruthy()
+    expect(within(answers).queryByText('Saved Gemini answer.')).toBeNull()
+    fireEvent.click(within(answers).getByRole('button', { name: VISIBILITY_CLOSE_ANSWERS_LABEL }))
+
+    expect(screen.queryByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
   it('opens the matching query class for an all-class answer deep link', () => {
     const report = reportWithAnswer('query-context', 'Saved non-brand answer.')
     const population = report.populations[0]!
@@ -1103,4 +1137,48 @@ it('keeps a saved group-only URL on its original population after linking a mark
   expect(requests).toHaveLength(1)
   expect(requests[0]!.searchParams.has('marketKey')).toBe(false)
   expect(currentSearch.measurementMarketKey).toBeUndefined()
+})
+
+it('formats saved answer Markdown while keeping links safe and remote images inactive', () => {
+  const queryKey = reportFixture().populations[0]!.queries.items[0]!.queryKey
+  const heading = reportFixture().populations[0]!.queries.items[0]!.query
+  const source = 'https://example.com/source'
+  const answer = `## ${heading}\n\n**${queryKey}**\n\n- ${queryKey}\n- ${heading}\n\n[${source}](${source})\n\n[${queryKey}](javascript:alert%281%29)\n\n![${heading}](https://example.com/pixel.png)`
+  const report = reportWithAnswer(queryKey, answer)
+  render(<VisibilityReportView report={report} evidenceReport={report} queryKey={queryKey} onSelectionChange={() => {}} />)
+  const region = screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })
+  expect(within(region).getByRole('heading', { name: heading, level: 4 })).toBeTruthy()
+  expect(region.querySelector('.answer-markdown strong')?.textContent).toBe(queryKey)
+  expect(within(region).getAllByRole('listitem')).toHaveLength(2)
+  const link = within(region).getByRole('link', { name: source })
+  expect(link.getAttribute('href')).toBe(source)
+  expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  expect(within(region).getAllByRole('link')).toHaveLength(1)
+  expect(within(region).queryByRole('img')).toBeNull()
+})
+
+it('keeps saved answer sources collapsed and preserves safe links in their recorded order', () => {
+  const report = reportWithAnswer('query-context', 'Read the saved recommendation.')
+  const sources = ['https://guide.example/harbour', 'javascript:alert(1)', 'https://locations.example/harbor-house']
+  report.populations[0]!.evidence.items[0]!.sources = sources
+  render(<VisibilityReportView report={report} queryKey="query-context" onSelectionChange={() => {}} />)
+  const region = screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })
+  const summary = within(region).getByText(`${ANSWER_SOURCES_LABEL} (${sources.length})`, { selector: 'summary' })
+  const disclosure = summary.closest('details')!
+
+  expect(disclosure.open).toBe(false)
+  expect(within(region).getByText('Read the saved recommendation.')).toBeTruthy()
+  fireEvent.click(summary)
+
+  expect(disclosure.open).toBe(true)
+  expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent)).toEqual(sources)
+  const links = within(disclosure).getAllByRole('link')
+  expect(links.map(link => link.getAttribute('href'))).toEqual([sources[0], sources[2]])
+  for (const link of links) {
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  }
+  expect(within(disclosure).queryByRole('link', { name: sources[1] })).toBeNull()
+  fireEvent.click(summary)
+  expect(disclosure.open).toBe(false)
 })
