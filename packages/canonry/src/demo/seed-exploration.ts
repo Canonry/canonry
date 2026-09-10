@@ -1,6 +1,8 @@
+import { and, eq } from 'drizzle-orm'
+import { factorStatusFromScore, siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly,
-  discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots,
+  discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots, siteCrawlPages,
   trafficSources, type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext } from './types.js'
@@ -22,11 +24,7 @@ export function seedDemoExploration(db: DatabaseClient, context: DemoSeedContext
     }
     const runId = `demo-signals-${project.id}-crawl`
     const root = `https://${project.domain}/`
-    const paths = ['', 'services/', 'guides/', 'contact/']
-    const scores = [92, 86, 74, 60]
-    const factor = { id: 'structured-data', name: 'Structured Data', weight: 1 }
-    db.insert(siteAuditSnapshots).values({ id: `${project.id}-audit`, projectId: project.id, runId, sitemapUrl: `${root}sitemap.xml`, auditedAt: createdAt, aggregateScore: 78, pagesDiscovered: 4, pagesAudited: 4, factorAverages: [{ ...factor, avgScore: 78, status: 'pass', pagesPassing: 3, pagesPartial: 1, pagesFailing: 0 }], crossCuttingIssues: [{ factorId: factor.id, factorName: factor.name, avgScore: 78, affectedPages: 2, totalPages: 4, affectedPct: 50, topRecommendations: ['Add complete organization and service details to the page markup.'] }], prioritizedFixes: ['Add service details to the guides and contact pages.'], createdAt }).run()
-    db.insert(siteAuditPages).values(paths.map((path, i) => ({ id: `${project.id}-audit-page-${i}`, projectId: project.id, runId, url: `${root}${path}`, overallScore: scores[i]!, status: 'success', factors: [{ ...factor, score: scores[i]! }], createdAt }))).run()
+    seedPageAudits(db, project.id, runId, root, createdAt)
     const researchRunId = `${project.id}-research`
     db.insert(researchRuns).values({ id: researchRunId, projectId: project.id, status: 'completed', provider: 'openai', requestedModel: 'demo-model', resolvedModel: 'demo-model', totalQueries: 2, completedQueries: 2, failedQueries: 0, startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
     const topics = project.id === context.simple.id
@@ -37,4 +35,42 @@ export function seedDemoExploration(db: DatabaseClient, context: DemoSeedContext
     db.insert(discoveryProbes).values(topics.map((query, i) => ({ id: `${discoveryId}-${i}`, sessionId: discoveryId, projectId: project.id, query, bucket: i === 0 ? 'cited' : 'aspirational', citationState: i === 0 ? 'cited' : 'not-cited', answerMentioned: i === 0, citedDomains: i === 0 ? [project.domain] : ['comparison-guide.example'], createdAt }))).run()
     db.insert(researchRunQueries).values(topics.map((queryText, position) => ({ id: `${researchRunId}-${position}`, researchRunId, position, queryText, status: 'completed', requestedModel: 'demo-model', resolvedModel: 'demo-model', servedModel: 'demo-model', answerText: `Fictional sample answer: compare clear pricing, service details, and independent reviews. ${project.displayName} illustrates a business with useful comparison guidance.`, groundingSources: [{ uri: `${root}guides/`, title: `${project.displayName} comparison guide` }], citedDomains: [project.domain], answerMentioned: true, citationState: 'cited', startedAt: createdAt, finishedAt: createdAt, createdAt }))).run()
   }
+}
+
+/** Keep the scorecard, page list, and crawl map on the same stored evidence. */
+function seedPageAudits(db: DatabaseClient, projectId: string, runId: string, root: string, createdAt: string): void {
+  const crawlPages = db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.projectId, projectId), eq(siteCrawlPages.runId, runId))).all()
+  const audited = crawlPages.filter(page => page.auditState === 'completed' && page.auditScore !== null)
+  const pages = audited.map((page, index) => {
+    const parsed = siteAuditPageFactorSchema.array().safeParse(page.auditFields.factors)
+    const factors = parsed.success ? parsed.data : [{ id: 'structured-data', name: 'Structured Data', weight: 1, score: page.auditScore! }]
+    return { id: `${projectId}-audit-page-${index}`, projectId, runId, url: page.url, overallScore: page.auditScore!, status: 'success', factors, createdAt }
+  })
+  const factors = pages.flatMap(page => page.factors)
+  const factorAverages = [...new Set(factors.map(factor => factor.id))].map(id => {
+    const matching = factors.filter(factor => factor.id === id)
+    const first = matching[0]!
+    const avgScore = Math.round(matching.reduce((sum, factor) => sum + factor.score, 0) / matching.length)
+    return {
+      id, name: first.name, weight: first.weight, avgScore, status: factorStatusFromScore(avgScore),
+      pagesPassing: matching.filter(factor => factorStatusFromScore(factor.score) === 'pass').length,
+      pagesPartial: matching.filter(factor => factorStatusFromScore(factor.score) === 'partial').length,
+      pagesFailing: matching.filter(factor => factorStatusFromScore(factor.score) === 'fail').length,
+    }
+  })
+  const crossCuttingIssues = factorAverages.filter(factor => factor.pagesPartial + factor.pagesFailing > 0).map(factor => ({
+    factorId: factor.id, factorName: factor.name, avgScore: factor.avgScore,
+    affectedPages: factor.pagesPartial + factor.pagesFailing, totalPages: pages.length,
+    affectedPct: Math.round((factor.pagesPartial + factor.pagesFailing) / pages.length * 100),
+    topRecommendations: [`Complete ${factor.name.toLowerCase()} details on the affected pages.`],
+  }))
+  db.insert(siteAuditSnapshots).values({
+    id: `${projectId}-audit`, projectId, runId, sitemapUrl: `${root}sitemap.xml`, auditedAt: createdAt,
+    aggregateScore: Math.round(pages.reduce((sum, page) => sum + page.overallScore, 0) / pages.length),
+    pagesDiscovered: crawlPages.length, pagesAudited: pages.length,
+    pagesErrored: crawlPages.filter(page => page.fetchState === 'fetch-error').length,
+    pagesSkipped: crawlPages.filter(page => page.auditState !== 'completed' && page.fetchState !== 'fetch-error').length,
+    factorAverages, crossCuttingIssues, prioritizedFixes: crossCuttingIssues.flatMap(issue => issue.topRecommendations), createdAt,
+  }).run()
+  for (let i = 0; i < pages.length; i += 100) db.insert(siteAuditPages).values(pages.slice(i, i + 100)).run()
 }

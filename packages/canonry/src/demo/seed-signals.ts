@@ -51,6 +51,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext, DemoSeedProject } from './types.js'
+import { seedPortfolioCrawl } from './seed-portfolio-crawl.js'
 
 const day = (at: Date, offset: number): string => {
   const value = new Date(at)
@@ -60,13 +61,13 @@ const day = (at: Date, offset: number): string => {
 
 const at = (date: string): string => `${date}T12:00:00.000Z`
 
-export function seedDemoSignals(db: DatabaseClient, context: DemoSeedContext): void {
+export async function seedDemoSignals(db: DatabaseClient, context: DemoSeedContext): Promise<void> {
   for (const [index, project] of [context.simple, context.portfolio].entries()) {
-    seedProjectSignals(db, project, context.now, index)
+    await seedProjectSignals(db, project, context.now, index)
   }
 }
 
-function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, now: Date, variant: number): void {
+async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, now: Date, variant: number): Promise<void> {
   const nowIso = now.toISOString()
   const prefix = `demo-signals-${project.id}`
   const syncRunId = `${prefix}-sync`
@@ -119,7 +120,8 @@ function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, now: D
   db.insert(gaTrafficSummaries).values({ id: `${prefix}-ga-summary`, projectId: project.id, periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
   db.insert(gaTrafficWindowSummaries).values({ id: `${prefix}-ga-window`, projectId: project.id, windowKey: '30d', periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalDirectSessions: 284, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
 
-  seedCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso })
+  if (variant === 1) await seedPortfolioCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso })
+  else seedCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso })
   seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates })
 
   db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, runId: syncRunId, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()

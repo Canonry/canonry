@@ -17,12 +17,6 @@ export async function demoCommand(options: { port?: string; host?: string; forma
   const { host, port } = parseDemoListenOptions(options)
   const { createDemoServer } = await import('../demo-server.js')
   const app = await createDemoServer()
-  try {
-    await app.listen({ host, port })
-  } catch (error) {
-    await app.close()
-    throw error
-  }
   let stopping = false
   const stop = () => {
     if (stopping) return
@@ -35,6 +29,12 @@ export async function demoCommand(options: { port?: string; host?: string; forma
     process.removeListener('SIGINT', stop)
     process.removeListener('SIGTERM', stop)
   })
+  try {
+    await app.listen({ host, port })
+  } catch (error) {
+    await app.close()
+    throw error
+  }
   const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`
   const result = { status: 'ready', mode: 'view-only', sampleData: true, url }
   if (isMachineFormat(options.format ?? 'text')) console.log(JSON.stringify(result))

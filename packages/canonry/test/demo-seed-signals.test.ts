@@ -53,7 +53,7 @@ afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
 describe('seedDemoSignals', () => {
   it('stores broad synthetic signals and serves them through representative read routes', async () => {
-    seedDemoSignals(db, context)
+    await seedDemoSignals(db, context)
 
     for (const project of [context.simple, context.portfolio]) {
       const where = eq(gscDailyTotals.projectId, project.id)

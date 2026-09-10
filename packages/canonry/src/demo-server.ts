@@ -16,7 +16,7 @@ export async function createDemoServer(options: { assetsDir?: string; now?: Date
     migrate(db)
     const context = createDemoSeedContext(options.now)
     seedDemoCore(db, context)
-    seedDemoSignals(db, context)
+    await seedDemoSignals(db, context)
     seedDemoExploration(db, context)
     seedDemoMarketing(db, context)
     const app = await createDemoHttpServer({

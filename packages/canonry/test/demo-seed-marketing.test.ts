@@ -27,7 +27,7 @@ afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
 describe('seedDemoMarketing', () => {
   it('makes stored Google Ads, GTM integrity, and GBP summary reads nonempty without live providers', async () => {
-    seedDemoSignals(db, context)
+    await seedDemoSignals(db, context)
     seedDemoMarketing(db, context)
     const app = Fastify()
     app.register(apiRoutes, { db, skipAuth: true, ...demoReadOptions(db, context) })

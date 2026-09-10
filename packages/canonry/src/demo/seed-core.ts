@@ -26,6 +26,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext } from './types.js'
+import { HARBOR_MARKETS as MARKETS, harborProperties } from './portfolio.js'
 
 const PROVIDERS = [
   { provider: 'openai', requestedModel: 'gpt-5-demo', servedModel: 'gpt-5-demo-2026-08-15' },
@@ -38,12 +39,6 @@ const SIMPLE_QUERIES = [
   'roof repair contractor near me',
   'emergency roof leak repair',
   'best metal roof installer',
-] as const
-
-const MARKETS = [
-  { key: 'key-west', label: 'Key West', city: 'Key West', region: 'FL' },
-  { key: 'coastal-maine', label: 'Coastal Maine', city: 'Portland', region: 'ME' },
-  { key: 'pacific-northwest', label: 'Pacific Northwest', city: 'Seattle', region: 'WA' },
 ] as const
 
 function isoAtWeek(now: Date, weeksAgo: number): string {
@@ -61,16 +56,6 @@ function harborLocations(): LocationContext[] {
     region: market.region,
     country: 'US',
   }))
-}
-
-function harborProperties() {
-  return MARKETS.flatMap(market => [1, 2, 3, 4].map(number => ({
-    key: `harbor-${market.key}-${number}`,
-    number,
-    label: `Harbor ${market.label} ${number === 1 ? 'Resort' : `Villas ${number}`}`,
-    market,
-    path: `/destinations/${market.key}/${number === 1 ? 'resort' : `villas-${number}`}`,
-  })))
 }
 
 function harborPlan(context: DemoSeedContext, capturedAt: string): MeasurementPlanV2 {
