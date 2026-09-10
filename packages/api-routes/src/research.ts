@@ -3,7 +3,8 @@ import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { measurementQueryTemplates, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
 import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection } from '@ainyc/canonry-contracts'
-import { requireResearchGrant } from './auth.js'
+import { canRunResearch, requireResearchGrant } from './auth.js'
+import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
 import type { ProviderAdapterInfo, SettingsRoutesOptions } from './settings.js'
@@ -28,7 +29,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
   }
 
   app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/research/runs', {
-    config: { paidRead: true },
+    config: { paidRead: true, writeScope: RESEARCH_RUN_SCOPE },
   }, async (request, reply) => {
     requireResearchGrant(request, opts.allowViewers ?? false)
     const project = resolveProject(app.db, request.params.name)
@@ -74,13 +75,13 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
           return { reused: true as const, id: existing.id, shouldDispatch: existing.status === ResearchRunStatuses.queued }
         }
       }
-      if (initiatedBy?.kind === 'user' && initiatedBy.role === UserRoles.viewer) {
+      if (initiatedBy?.limited) {
         const { start, end, date } = utcDayBounds(now)
         const used = tx.select({ value: count() }).from(researchRuns).where(and(
           eq(researchRuns.projectId, project.id),
           gte(researchRuns.createdAt, start),
           lt(researchRuns.createdAt, end),
-          sql`json_extract(${researchRuns.initiatedBy}, '$.role') = ${UserRoles.viewer}`,
+          sql`(json_extract(${researchRuns.initiatedBy}, '$.role') = ${UserRoles.viewer} OR json_extract(${researchRuns.initiatedBy}, '$.limited') = 1)`,
         )).get()?.value ?? 0
         if (used >= viewerDailyRunLimit) {
           throw researchDailyLimitExceeded(project.name, viewerDailyRunLimit, date)
@@ -119,7 +120,9 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
           knownModels: [...new Map([{ id: defaultModel, displayName: defaultModel }, ...models].map(model => [model.id, { id: model.id, displayName: model.displayName }])).values()],
         }
       }))
-    return { runs, providers } satisfies ResearchRunListDto
+    const canRun = canRunResearch(request, opts.allowViewers ?? false)
+    const limited = request.principal !== undefined && !request.principal.scopes.includes(WILDCARD_SCOPE)
+    return { runs, providers, access: { canRun, dailyRunLimit: canRun && limited ? viewerDailyRunLimit : null } } satisfies ResearchRunListDto
   })
 
   app.get<{ Params: { name: string; runId: string } }>('/projects/:name/research/runs/:runId', async (request) => {
@@ -210,11 +213,13 @@ function serializeQuery(row: typeof researchRunQueries.$inferSelect): ResearchRu
 function researchPrincipal(request: FastifyRequest): ResearchRunPrincipal | null {
   const principal = request.principal
   if (!principal) return null
+  const actor = principal.delegatedUser ? { ...principal.delegatedUser, kind: 'user' as const } : principal
   return {
-    kind: principal.kind,
-    id: principal.id,
-    name: principal.name,
-    role: principal.kind === 'user' ? principal.role ?? null : null,
+    kind: actor.kind,
+    id: actor.id,
+    name: actor.name,
+    role: actor.kind === 'user' ? actor.role ?? null : null,
+    ...(!principal.scopes.includes(WILDCARD_SCOPE) ? { limited: true } : {}),
   }
 }
 

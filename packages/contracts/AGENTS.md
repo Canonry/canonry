@@ -15,6 +15,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/research.ts` | Research DTOs and shared helpers for exact-text deduplication and declared template bindings/expansion. |
+| `src/scopes.ts` | Shared read-only classification, restricted write grants (`research.run` and Ads), and delegated-consent intersection. Adding an action grant must keep API gates and MCP catalogs aligned. |
 | `src/query-tracking.ts` | Shared workspace, assignment preview, and commit DTOs. Tokens bind the exact mutation and workspace. Workload counts belong to the API. |
 | `src/visibility-report.ts` | Frozen result selection, independent query-class populations, rates, trends, paginated answers, and competitor provenance. Plain request schema supports MCP JSON Schema. |
 | `src/config-schema.ts` | Config file Zod validation |

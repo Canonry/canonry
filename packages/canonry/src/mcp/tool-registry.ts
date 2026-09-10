@@ -2,6 +2,7 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
+  RESEARCH_RUN_SCOPE,
   adsAdCreateRequestSchema,
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
@@ -102,6 +103,8 @@ export interface CanonryMcpTool<
   title: string
   description: string
   access: McpToolAccess
+  /** Named capability that can authorize this operation without general write access. */
+  requiredScope?: string
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -2822,6 +2825,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_research_run_start',
+    requiredScope: RESEARCH_RUN_SCOPE,
     title: 'Start research query run',
     description:
       'Run final free-form queries once each against one API provider, with an optional exact model, location, or one configured market or Property destination. Scope never changes query text or fans out a group. Optional template provenance records the source template ID and version; callers must submit the fully expanded, editable final query text. Results retain that destination and provenance for later inspection. This does not add any query to the tracked basket or affect overview tracking.',

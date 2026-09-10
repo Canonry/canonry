@@ -2843,6 +2843,7 @@ export type ResearchRunDetailDto = {
         id: string;
         name: string;
         role: 'admin' | 'viewer';
+        limited?: boolean;
     } | null;
     startedAt: string | null;
     finishedAt: string | null;
@@ -2913,6 +2914,7 @@ export type ResearchRunListDto = {
             id: string;
             name: string;
             role: 'admin' | 'viewer';
+            limited?: boolean;
         } | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -2928,6 +2930,10 @@ export type ResearchRunListDto = {
             displayName: string;
         }>;
     }>;
+    access?: {
+        canRun: boolean;
+        dailyRunLimit: number | null;
+    };
 };
 
 export type ResultsClearRequest = {

@@ -8,6 +8,8 @@ import {
   READ_ONLY_SCOPE,
   WILDCARD_SCOPE,
   isReadOnlyKey,
+  restrictedWriteScopes,
+  intersectScopes,
 } from '../src/scopes.js'
 
 describe('scope constants', () => {
@@ -23,6 +25,17 @@ describe('scope constants', () => {
 })
 
 describe('isReadOnlyKey', () => {
+  it('distinguishes bounded research from both read-only and broad write authority', () => {
+    expect(isReadOnlyKey(['read', 'research.run'])).toBe(false)
+    expect(restrictedWriteScopes(['read', 'research.run'])).toEqual(['research.run'])
+    expect(restrictedWriteScopes(['research.run'])).toEqual(['research.run'])
+    expect(restrictedWriteScopes(['read', 'research.run', 'ads.write'])).toEqual(['research.run', 'ads.write'])
+    expect(restrictedWriteScopes(['*', 'research.run'])).toBeNull()
+    expect(intersectScopes(['read', 'research.run'], ['read'])).toEqual(['read'])
+    expect(intersectScopes(['read'], ['read', 'research.run'])).toEqual(['read'])
+    expect(intersectScopes(['*'], ['read', 'research.run'])).toEqual(['read', 'research.run'])
+    expect(intersectScopes(['read'], ['research.run'])).toEqual(['read'])
+  })
   it('is true for a key minted with exactly the read scope', () => {
     expect(isReadOnlyKey(['read'])).toBe(true)
   })

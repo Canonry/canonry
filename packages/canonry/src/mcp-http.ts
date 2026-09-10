@@ -75,6 +75,7 @@ function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: s
     keyHash: hashApiKey(raw),
     keyPrefix: raw.slice(0, 9),
     scopes: [...scopes],
+    delegatedUserId: userId,
     createdAt: new Date().toISOString(),
   }).run()
   return { id, raw }
@@ -229,6 +230,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, { skipProbe: true })
     const server = createCanonryMcpServer({
       scope: segment.readOnly || isReadOnlyKey(scopes) ? 'read-only' : 'all',
+      credentialScopes: scopes,
       tiers: segment.tiers,
       clientFactory: () => client,
     })

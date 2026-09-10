@@ -472,6 +472,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
     if (!opts.skipAuth) {
       await authPlugin(api, {
+        researchAllowViewers: opts.researchAllowViewers,
         // A bearer that is not an api key is tried as an OAuth access token.
         // Wired unconditionally: the table is empty until an operator registers
         // a client, so an install with no OAuth in use pays one indexed miss.

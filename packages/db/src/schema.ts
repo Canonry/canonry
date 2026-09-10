@@ -453,6 +453,8 @@ export const apiKeys = sqliteTable('api_keys', {
    * project so a stale scoped key never outlives its project.
    */
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  /** Internal delegated session identity, never accepted by the key-create API. */
+  delegatedUserId: text('delegated_user_id').references(() => users.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),

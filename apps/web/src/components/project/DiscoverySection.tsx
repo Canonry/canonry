@@ -183,7 +183,8 @@ function QueryResearchWorkspace({
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
-  const researchWorkspaceEnabled = viewerResearchConfig !== null || mode === 'test'
+  const { canWrite } = useAccount()
+  const researchWorkspaceEnabled = !canWrite || mode === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
     enabled: researchWorkspaceEnabled,
@@ -237,7 +238,7 @@ function QueryResearchWorkspace({
     onScopeChange: (scope: VisibilityReportScopeOption) => onSelectionChange?.({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id }),
     templates: researchTemplates,
   }
-  if (viewerResearchConfig) {
+  if (!canWrite) {
     return (
       <ResearchQueriesSection
         {...researchProps}

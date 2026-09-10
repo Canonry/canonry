@@ -384,6 +384,42 @@ test('saved answers render readable Markdown with safe links and no active HTML 
 })
 
 
+test.each([true, false])('key research uses server capability (%s) and safe providers without general write access', async canRun => {
+  const bodies: unknown[] = []
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)))
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test failure' } }, 500)
+      }
+      return jsonResponse({ runs: [], access: { canRun, dailyRunLimit: canRun ? 7 : null }, providers: [
+        { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [] },
+      ] })
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null,
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<AccountProvider account={null} apiKey={{ id: 'research-key', scopes: ['read', 'research.run'], projectId: 'project_demo', readOnly: false }}>
+    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
+  </AccountProvider>)
+  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-test` })
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
+  const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  await waitFor(() => expect(button.disabled).toBe(!canRun))
+  fireEvent.click(button)
+  if (canRun) {
+    expect(screen.getByText('7 batches per project per day.')).toBeTruthy()
+    await waitFor(() => expect(bodies).toHaveLength(1))
+  } else expect(bodies).toHaveLength(0)
+  expect(screen.queryByRole('button', { name: /Review for tracking/ })).toBeNull()
+})
+
 test('viewer research follows the visibility model, offers discovered alternatives, and resets on engine change', async () => {
   const bodies: Array<Record<string, unknown>> = []
   let availableModels = [{ id: 'gpt-next', displayName: 'New GPT' }]

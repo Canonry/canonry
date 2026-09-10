@@ -91,6 +91,7 @@ async function mintAccessToken(
     url: `/oauth/authorize?${params.toString()}`,
     headers: { cookie: sessionCookie },
   })
+  if (opts.scope?.includes('research.run')) expect(consent.body).toContain('research.run')
   const csrf = /name="csrf" value="([^"]+)"/.exec(consent.body)?.[1]
   if (!csrf) throw new Error(`no consent form returned: ${consent.statusCode} ${consent.body.slice(0, 120)}`)
   const approved = await request(built, {
@@ -129,7 +130,7 @@ interface Built {
   cleanup: () => Promise<void>
 }
 
-async function buildServer(): Promise<Built> {
+async function buildServer(researchAllowViewers = false): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-mcp-http-${crypto.randomUUID()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
   const dbPath = path.join(tmpDir, 'test.db')
@@ -155,6 +156,7 @@ async function buildServer(): Promise<Built> {
     apiKey: wildcardKey,
     publicUrl: 'https://instance.example.com',
     providers: {},
+    research: { allowViewers: researchAllowViewers, viewerDailyRunLimit: 20 },
   }
   const app = await createServer({ config, db, logger: false })
   // A REAL listener, not app.inject().
@@ -223,6 +225,15 @@ describe('MCP over OAuth', () => {
 
   afterEach(async () => {
     await built.cleanup()
+  })
+
+  it('accepts explicit research consent without granting unrelated mutations', async () => {
+    await built.cleanup()
+    built = await buildServer(true)
+    const token = await mintAccessToken(built, { scope: 'read research.run offline_access' })
+    const first = await initRequest(built, token)
+    expect(first.statusCode).toBe(200)
+    expect(built.sessionKeys()).toEqual([{ scopes: ['read', 'research.run'], revokedAt: null }])
   })
 
   it('reports MCP availability without opening a session', async () => {

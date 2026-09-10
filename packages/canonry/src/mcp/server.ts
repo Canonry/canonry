@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
@@ -12,6 +13,8 @@ export type CanonryMcpScope = 'all' | 'read-only'
 export interface CanonryMcpServerOptions {
   clientFactory?: () => ApiClient
   scope?: CanonryMcpScope
+  /** Actual credential grants, separate from an explicit read-only endpoint/flag. */
+  credentialScopes?: readonly string[]
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -90,7 +93,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -166,10 +169,18 @@ function registerMetaTools(
 export function getCanonryMcpTools(
   scope: CanonryMcpScope = 'all',
   tiers?: readonly CanonryMcpTier[],
+  credentialScopes?: readonly string[],
 ) {
-  const byScope = scope === 'read-only'
+  const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
+  const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
+  const byScope = readOnly
     ? canonryMcpTools.filter(tool => tool.access === 'read')
-    : [...canonryMcpTools]
+    : canonryMcpTools.filter(tool => {
+      if (!restricted || tool.access === 'read') return true
+      if (tool.requiredScope && restricted.includes(tool.requiredScope)) return true
+      // Preserve existing Ads catalogs; their API handlers enforce individual grants.
+      return restricted.some(grant => grant !== RESEARCH_RUN_SCOPE) && tool.tier === 'ads'
+    })
   if (!tiers) return byScope
   const wanted = new Set<CanonryMcpTier>(tiers)
   return byScope.filter(tool => wanted.has(tool.tier))

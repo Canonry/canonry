@@ -99,6 +99,7 @@ export function ResearchQueriesSection({
   const queryClient = useQueryClient()
   const { account, canWrite } = useAccount()
   const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
+  const limitedAccess = !canWrite
   const [queryText, setQueryText] = useState('')
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
@@ -115,7 +116,7 @@ export function ResearchQueriesSection({
   })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !isViewerResearch,
+    enabled: !limitedAccess,
     staleTime: 60_000,
   })
   const runsQuery = useQuery({
@@ -127,6 +128,8 @@ export function ResearchQueriesSection({
     refetchInterval: (query) => query.state.data?.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status)) ? 3000 : false,
   })
   const runs = runsQuery.isError ? [] : runsQuery.data?.runs ?? []
+  const canRun = runsQuery.data?.access?.canRun ?? (canWrite || isViewerResearch)
+  const dailyRunLimit = runsQuery.data?.access?.dailyRunLimit ?? (isViewerResearch ? viewerResearchConfig.viewerDailyRunLimit : null)
 
   useEffect(() => {
     if (!selectedRunId && runs[0]) setSelectedRunId(runs[0].id)
@@ -147,13 +150,13 @@ export function ResearchQueriesSection({
   const selectedScopeOption = scopeOptions?.find(option => option.kind === selectedScope?.kind && option.id === selectedScope.key) ?? scopeOptions?.find(option => option.kind === 'project')
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
-    if (isViewerResearch) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
+    if (limitedAccess) return (runsQuery.data?.providers ?? []).map(item => ({ ...item, catalog: item }))
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
     return (settingsQuery.data?.providers ?? [])
       .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
-  }, [isViewerResearch, runsQuery.data?.providers, settingsQuery.data])
-  const noConfiguredApiProviders = !(isViewerResearch ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
+  }, [limitedAccess, runsQuery.data?.providers, settingsQuery.data])
+  const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
@@ -198,7 +201,7 @@ export function ResearchQueriesSection({
 
   const selectedLocation = locationChoice === '__none__' ? null : locations.find(item => item.label === locationChoice)
   const configurableModel = selectedProvider?.catalog.modelConfigurable ?? false
-  const visibilityModel = isViewerResearch
+  const visibilityModel = limitedAccess
     ? selectedProvider?.catalog.defaultModel
     : (selectedProvider ? projectQuery.data?.providerModels[selectedProvider.name] : '') || selectedProvider?.catalog.defaultModel
   const resolvedModel = (configurableModel ? model.trim() : '') || visibilityModel
@@ -222,10 +225,10 @@ export function ResearchQueriesSection({
       ].map(item => [item.id, item])).values()]
     : []
   const fingerprint = payload ? JSON.stringify({ projectName, ...payload }) : null
-  const canSubmit = (canWrite || isViewerResearch) && !isEmbed() && payload !== null
+  const canSubmit = canRun && !runsQuery.isError && !isEmbed() && payload !== null
     && !scopePending && !scopeError && !templateScopeStale
     && !projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching
-    && (isViewerResearch ? !runsQuery.isPending && !runsQuery.isError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching)
+    && (limitedAccess ? !runsQuery.isPending : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching)
     && submittedQueries.length > 0 && submittedQueries.length <= 50
 
   useEffect(() => {
@@ -357,7 +360,7 @@ export function ResearchQueriesSection({
               </label>}
             </div>
 
-            {isViewerResearch ? <label className="block" htmlFor="research-model">
+            {limitedAccess ? <label className="block" htmlFor="research-model">
               <span className="text-sm font-medium text-secondary">Model</span>
               <select id="research-model" aria-label="Model" className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
                 value={model} disabled={!selectedProvider || !configurableModel}
@@ -382,25 +385,20 @@ export function ResearchQueriesSection({
             </label>}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
-              {!isEmbed() && (isViewerResearch ? (
+              {!isEmbed() && (
                 <Button type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
                   <Play size={14} />
                   {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
                 </Button>
-              ) : (
-                <WriteButton type="button" size="sm" disabled={!canSubmit || researchMutation.isPending} onClick={submitResearch}>
-                  <Play size={14} />
-                  {researchMutation.isPending ? 'Starting…' : RESEARCH_COPY.runAction}
-                </WriteButton>
-              ))}
+              )}
               <p className="text-sm leading-5 text-secondary">{RESEARCH_COPY.savedNote}</p>
             </div>
-            {isViewerResearch && <p className="text-sm text-secondary">{viewerResearchConfig.viewerDailyRunLimit} batches per project per day.</p>}
-            {!isViewerResearch && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+            {dailyRunLimit !== null && <p className="text-sm text-secondary">{dailyRunLimit} batches per project per day.</p>}
+            {!limitedAccess && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
             {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-            {!(isViewerResearch ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && (
+            {!(limitedAccess ? runsQuery.isError : settingsQuery.isError) && noConfiguredApiProviders && (
               <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
-                {isViewerResearch ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}
+                {limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}
               </p>
             )}
           </div>

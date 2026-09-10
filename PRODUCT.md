@@ -15,7 +15,8 @@ Groups collect properties and can declare a parent Group for navigation. Start w
 ## Product purpose
 
 Canonry is an agent-first AEO operating platform. The API and CLI are the
-primary control surfaces. The web dashboard is the human companion for
+primary control surfaces, alongside MCP. Every dashboard capability must be
+available to equivalently authorized API, CLI, and MCP callers. The web dashboard is the human companion for
 approval, monitoring, investigation, and evidence.
 
 ## Users

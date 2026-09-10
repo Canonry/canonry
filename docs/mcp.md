@@ -34,7 +34,48 @@ canonry mcp config  --client codex            # print snippet for clients withou
 
 `canonry-mcp` inherits the normal local config at `~/.canonry/config.yaml` through `createApiClient()`.
 
-For a local server, use the same config created by `canonry init` and run `canonry serve`. For a remote API, set `apiUrl` and `apiKey` in `~/.canonry/config.yaml`. MCP adds no OAuth flow, token storage, or alternate auth path.
+For a local server, use the same config created by `canonry init` and run `canonry serve`. For a remote API, set `apiUrl` and `apiKey` in `~/.canonry/config.yaml`. The stdio adapter uses that API key; hosted HTTP clients can instead use the instance's OAuth authorization flow.
+
+### Research access
+
+Research is an explicit `research.run` capability shared by REST, CLI, the
+dashboard, and MCP. It spends provider quota and saves isolated evidence; it
+does not grant tracked-query changes, sweeps, ICP discovery, settings writes,
+or key creation. Simple freeform and Advanced market/property/template inputs
+use the same research request and saved-result contract on every surface.
+
+An administrator can create a project-bound agent credential:
+
+```sh
+canonry key create --name research-agent --project demo --scope read --scope research.run --format json
+```
+
+Configure that key in the normal Canonry client config. Then use
+`canonry research run demo "Which platform fits an agency?" --provider openai --format json`,
+`canonry research list demo --format json`, and `canonry research show demo <run-id> --format json`.
+REST uses `POST /api/v1/projects/demo/research/runs` and the matching list/detail
+GET routes. Research history also returns safe provider/model choices and
+`access: { canRun, dailyRunLimit }`, so agents can discover their permission
+without trial runs.
+
+For hosted OAuth, request `read research.run` (optionally `offline_access`) and
+approve the research permission. Viewer accounts also require the deployment's
+`research.allowViewers` opt-in. Re-authorize existing connections with the new
+scope; a token approved for `read` remains read-only, including for admins.
+Current account authority is rechecked on every request.
+
+Use `/api/v1/mcp` or `/api/v1/mcp/x/discovery`. Authorized catalogs include
+`canonry_research_run_start`, `canonry_research_runs_list`, and
+`canonry_research_run_get`; stdio exposes them after loading `discovery` or with
+`--eager`. Narrow research credentials do not expose unrelated mutation tools.
+Explicit `--read-only` and `/readonly` always remove research creation.
+
+Limited research credentials and viewer sessions share the deployment's
+per-project UTC daily cap (default 20). New keys and MCP reconnects do not reset
+the cap. Idempotent retries return the existing receipt. MCP runs retain the
+initiating account, and API/CLI key runs retain the key identity. Root/admin
+full-authority research keeps its existing uncapped behavior; an admin OAuth
+grant containing only `research.run` still uses the limited budget.
 
 ## Client Config
 
@@ -199,6 +240,9 @@ Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 
 `--read-only` filters out write tools before the catalog is built, so toolkits with no read tools appear as `empty` from `canonry_load_toolkit`. Mixed toolkits load with whatever survives the filter — the `agent` toolkit, for example, drops its writes (`canonry_memory_set`, `canonry_memory_forget`, `canonry_agent_clear`, `canonry_agent_webhook_detach`) and exposes only `canonry_memory_list` under read-only scope.
 
 ### Read-only API keys (auto-detection)
+
+The same startup probe preserves explicit narrow scopes such as `research.run`
+and filters the catalog to matching capabilities, not general writes.
 
 A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rejected by the API on every write HTTP method (`403 FORBIDDEN`). To avoid advertising tools that would 403 at call time, `canonry-mcp` probes `GET /keys/self` at startup and, when its configured key is read-only, **auto-restricts the catalog to read tools** — exactly as if `--read-only` had been passed — and prints a one-line notice on stderr. The probe is best-effort: if the API is unreachable or the server predates the endpoint, the adapter keeps the requested scope. A read-only key can only ever narrow the catalog, never widen it; passing `--read-only` explicitly skips the probe.
 

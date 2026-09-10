@@ -297,8 +297,14 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 - `CANONRY_RESEARCH_ALLOW_VIEWERS` overrides `research.allowViewers` and
   defaults to false. Inject the client research block only when true, including
   the resolved positive `viewerDailyRunLimit` (default 20). This grant applies
-  only to signed-in viewer research; it does not widen sweeps, settings, or API
-  key scopes.
+  to viewer sessions and is the role ceiling for OAuth `research.run` consent;
+  it does not widen existing read-only grants, sweeps, or settings. Explicit
+  `research.run` API keys work independently of viewer opt-in. All limited
+  research callers share the per-project UTC daily cap. MCP preserves the
+  originating account through an internal delegated key and rechecks current
+  role authority on each request. CLI and MCP return the same research receipts,
+  safe provider catalog, and `access` metadata as REST; explicit read-only
+  endpoints/flags never expose the research-start tool.
 
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.

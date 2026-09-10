@@ -288,3 +288,16 @@ visibility/research work, sibling-project IDs, and any other run kind. Keep quer
 schedules, audit history, Site Health, backlinks, and usage accounting. Require an administrator
 session or `runs.write` key. `GET research/runs` also returns safe configured API model choices;
 never include credentials, quotas, or provider connection settings in that catalog.
+
+### Narrow research authority
+
+`research.run` grants only bounded research creation, never tracking, sweeps,
+settings, or credential writes. Match named capabilities to route `writeScope`
+metadata; keep the shared scope helpers in contracts. Research history exposes
+server-derived `access.canRun` and `access.dailyRunLimit`, separately from safe
+provider metadata. Limited keys and viewer accounts share the same project/day
+cap and idempotent receipts. OAuth consent is intersected with the current role
+and viewer opt-in. MCP's internal `delegatedUserId` retains user attribution and
+viewer-only restrictions but must not change the principal's API-key kind:
+paid-read and broad-instance credential gates must still run. Clients cannot
+set that identity through key creation or forge it through a key name.

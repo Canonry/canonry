@@ -10,8 +10,11 @@ import {
   authInvalid,
   forbidden,
   isReadOnlyKey,
+  intersectScopes,
   normalizeIdTokens,
   READ_ONLY_SCOPE,
+  RESEARCH_RUN_SCOPE,
+  restrictedWriteScopes,
   RunKinds,
   splitList,
   UserRoles,
@@ -41,16 +44,6 @@ const ADS_MUTATION_SCOPES: ReadonlySet<string> = new Set([
   ADS_APPROVE_SCOPE,
   ADS_ACTIVATE_SCOPE,
 ])
-
-function isAdsMutationOnlyKey(scopes: readonly string[]): boolean {
-  const writeGrants = scopes.filter((scope) =>
-    scope === '*'
-    || scope === 'write'
-    || scope.endsWith('.write')
-    || scope === ADS_APPROVE_SCOPE
-    || scope === ADS_ACTIVATE_SCOPE)
-  return writeGrants.length > 0 && writeGrants.every((scope) => ADS_MUTATION_SCOPES.has(scope))
-}
 
 function isAdsWriteRoute(url: string): boolean {
   const rest = projectRouteRest(url)
@@ -93,6 +86,8 @@ export interface AuthPrincipal {
   projectId?: string | null
   /** Present only for a signed-in person. */
   role?: UserRole
+  /** Original account behind an internal MCP credential, for durable attribution. */
+  delegatedUser?: { id: string; name: string; role: UserRole }
   /**
    * The credential arrived in a COOKIE, so a browser attaches it automatically
    * and another origin can therefore cause it to be sent.
@@ -153,6 +148,9 @@ declare module 'fastify' {
      * subject to the method-based read-only gate.
      */
     paidRead?: boolean
+
+    /** Explicit named mutation capability; handlers still enforce their grant. */
+    writeScope?: string
 
     /**
      * This route's POST is a PROTOCOL ENVELOPE, not an operation.
@@ -237,14 +235,15 @@ export const ADMIN_ONLY_MESSAGE =
  * Reject a signed-in VIEWER outright, whatever the HTTP method.
  *
  * The name says session on purpose: this asks about the role on a sign-in and
- * nothing else. An API key passes straight through, because this function never
+ * nothing else. An ordinary API key passes straight through, because this function never
  * reads a key's scopes — so it is NOT sufficient on its own for a surface a
  * narrow key should not reach. Pair it with `requireBroadInstanceKey` there.
+ * Internal MCP keys retain their originating account's role restrictions.
  */
 export function requireAdminSession(request: FastifyRequest): void {
   const principal = request.principal
-  if (!principal || principal.kind !== 'user') return
-  if (principal.role === UserRoles.admin) return
+  const role = principal?.kind === 'user' ? principal.role : principal?.delegatedUser?.role
+  if (!role || role === UserRoles.admin) return
   throw forbidden(ADMIN_ONLY_MESSAGE)
 }
 
@@ -286,10 +285,17 @@ export function requirePaidReadScope(request: FastifyRequest): void {
  * spends the operator's quota, and persists the evidence.
  *
  * Signed-in administrators retain their existing access. Signed-in viewers
- * need an explicit deployment opt-in. API keys are an ALLOW list: only the
- * wildcard root grant may spend, so `read`, unrelated named scopes, and an
+ * need an explicit deployment opt-in. API keys need `research.run` or the
+ * wildcard root grant, so `read`, unrelated named scopes, and an
  * empty scope list all fail closed.
  */
+export function canRunResearch(request: FastifyRequest, allowViewers: boolean): boolean {
+  const principal = request.principal
+  if (!principal) return true
+  if (principal.kind === 'user' && principal.role === UserRoles.viewer && !allowViewers) return false
+  return principal.scopes.includes(WILDCARD_SCOPE) || principal.scopes.includes(RESEARCH_RUN_SCOPE)
+}
+
 export function requireResearchGrant(
   request: FastifyRequest,
   allowViewers: boolean,
@@ -297,14 +303,11 @@ export function requireResearchGrant(
   const principal = request.principal
   if (!principal) return
 
-  if (principal.kind === 'api-key') {
-    if (principal.scopes.includes(WILDCARD_SCOPE)) return
-    throw forbidden('This API key was not granted access to paid research queries.')
+  if (canRunResearch(request, allowViewers)) return
+  if (principal.kind === 'user' && principal.role === UserRoles.viewer && !allowViewers) {
+    throw forbidden('Research queries are not enabled for viewer accounts on this deployment.')
   }
-
-  if (principal.role === UserRoles.admin) return
-  if (principal.role === UserRoles.viewer && allowViewers) return
-  throw forbidden('Research queries are not enabled for viewer accounts on this deployment.')
+  throw forbidden('This credential was not granted the "research.run" capability.')
 }
 
 /**
@@ -420,8 +423,9 @@ export const USERS_READ_SCOPE = 'users.read'
 export const USERS_WRITE_SCOPE = 'users.write'
 
 /** Scopes a role carries. Admin is exactly today's authority, behind a sign-in. */
-function scopesForRole(role: UserRole): string[] {
-  return role === UserRoles.admin ? [WILDCARD_SCOPE] : [READ_ONLY_SCOPE]
+function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
+  return role === UserRoles.admin ? [WILDCARD_SCOPE]
+    : researchAllowViewers ? [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE] : [READ_ONLY_SCOPE]
 }
 
 /** What an OAuth access token resolved to. */
@@ -432,6 +436,8 @@ export interface ResolvedOAuthToken {
 }
 
 export interface AuthPluginOptions {
+  /** Same deployment opt-in used by research admission and the dashboard. */
+  researchAllowViewers?: boolean
   /**
    * Resolve a bearer that is NOT an api key as an OAuth 2.1 access token.
    *
@@ -621,6 +627,7 @@ function resolveSignedInPerson(
   request: FastifyRequest,
   reply: FastifyReply,
   cookie: UserSessionCookieOptions | undefined,
+  researchAllowViewers: boolean,
 ): boolean {
   const sessionId = parseCookieHeader(request.headers.cookie)[USER_SESSION_COOKIE_NAME]
   if (!sessionId) return false
@@ -632,7 +639,7 @@ function resolveSignedInPerson(
     kind: 'user',
     id: resolved.user.id,
     name: resolved.user.name,
-    scopes: scopesForRole(resolved.user.role),
+    scopes: scopesForRole(resolved.user.role, researchAllowViewers),
     projectId: null,
     role: resolved.user.role,
     viaCookie: true,
@@ -660,9 +667,11 @@ function resolveSignedInPerson(
  */
 function applyRoleGates(request: FastifyRequest): void {
   const principal = request.principal
-  if (!principal || principal.kind !== 'user') return
+  const role = principal?.kind === 'user' ? principal.role : principal?.delegatedUser?.role
+  if (!principal || !role) return
 
-  request.readSemanticGrant = principal.role === UserRoles.viewer && isReadSemanticRoute(request)
+  request.readSemanticGrant = role === UserRoles.viewer && isReadSemanticRoute(request)
+  applyScopedWriteGates(request)
 
   // A transport envelope is a read no matter WHO is asking, so the exemption is
   // separate from `readSemanticGrant` rather than folded into it. Those two
@@ -681,6 +690,18 @@ function applyRoleGates(request: FastifyRequest): void {
   ) {
     throw forbidden(VIEWER_DENIED_MESSAGE)
   }
+}
+
+/** Named capabilities never become general write access, on either carrier. */
+function applyScopedWriteGates(request: FastifyRequest): void {
+  if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant) return
+  const scopes = principalScopes(request) ?? []
+  const restricted = restrictedWriteScopes(scopes)
+  if (!restricted) return
+  const required = request.routeOptions.config.writeScope
+  if (required && restricted.includes(required)) return
+  if (restricted.some(scope => ADS_MUTATION_SCOPES.has(scope)) && isAdsWriteRoute(request.url.split('?')[0]!)) return
+  throw forbidden('This credential can only perform operations explicitly granted by its scopes.')
 }
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
@@ -730,7 +751,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
           // they granted the client. Taking the role alone was a privilege
           // escalation: an admin approving a `scope=read` connector handed it
           // full admin, including minting root api keys.
-          const roleScopes = scopesForRole(account.role)
+          const roleScopes = scopesForRole(account.role, opts.researchAllowViewers)
           // `offline_access` governs refresh tokens, not API authority.
           const requested = (granted.scope ?? '')
             .split(/\s+/)
@@ -740,16 +761,13 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
           // wrong here because an admin's role scope is the wildcard `*`, which
           // does not textually contain `read` — intersecting would leave an
           // admin who granted `scope=read` with no authority at all.
-          const narrowed = roleScopes.includes(WILDCARD_SCOPE)
-            ? (requested.length > 0 ? requested : [READ_ONLY_SCOPE])
-            : roleScopes.filter(scope => requested.includes(scope) || requested.includes(WILDCARD_SCOPE))
           // An EMPTY set is not "no authority" — isReadOnlyKey([]) is false,
           // because empty means "no read-only marker", so an empty set reads as
           // NOT read-only and widens the catalog. A grant that intersects
           // nothing must therefore floor at read, never at nothing: otherwise
           // the narrowest possible grant to the least privileged account yields
           // the WIDEST tool surface.
-          const effective = narrowed.length > 0 ? narrowed : [READ_ONLY_SCOPE]
+          const effective = intersectScopes(roleScopes, requested)
           request.principal = {
             kind: 'user',
             id: account.id,
@@ -766,7 +784,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         }
         throw authInvalid()
       }
-    } else if (resolveSignedInPerson(app, request, reply, opts.userSessionCookie)) {
+    } else if (resolveSignedInPerson(app, request, reply, opts.userSessionCookie, opts.researchAllowViewers ?? false)) {
       // Signed in with a named account. Handled entirely inside the helper,
       // which attaches the principal and re-sends the cookie when the session
       // was extended. Nothing below this point applies: an account is not a
@@ -812,7 +830,12 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // Attach the resolved key to the request so scope-gated routes can
     // inspect it without re-querying. `key.scopes` is a string[] from the
     // JSON column; the type assertion mirrors what Drizzle returns.
-    const scopes = Array.isArray(key.scopes) ? key.scopes : []
+    let scopes = Array.isArray(key.scopes) ? key.scopes : []
+    const delegatedUser = key.delegatedUserId
+      ? app.db.select().from(users).where(eq(users.id, key.delegatedUserId)).get()
+      : undefined
+    if (key.delegatedUserId && !delegatedUser) throw authInvalid()
+    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',
@@ -821,9 +844,13 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       scopes,
       projectId: key.projectId ?? null,
       viaCookie: keyArrivedInCookie,
+      ...(delegatedUser ? { delegatedUser: { id: delegatedUser.id, name: delegatedUser.name, role: delegatedUser.role } } : {}),
     }
 
     assertSameOriginWrite(request)
+
+    applyRoleGates(request)
+    applyScopedWriteGates(request)
 
     // Global read-only gate. A key that opted into read-only (`['read']`)
     // cannot perform any write — keyed off the HTTP method, NOT per-route
@@ -834,23 +861,10 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     if (
       isReadOnlyKey(scopes) &&
       WRITE_METHODS.has(request.method) &&
+      !request.readSemanticGrant &&
       !isTransportEnvelopeRoute(request)
     ) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
-    }
-
-    // The named ads scopes are delegated operator/approver grants. Keep a key
-    // whose write capabilities are exclusively ads-related inside the
-    // project's `/ads/*` surface even though older write routes still rely on
-    // the historical read-only-vs-write classifier. Every ads mutation also
-    // calls requireScope(), so the route and the key must agree in both
-    // directions. Wildcard/root keys retain the existing full-instance access.
-    if (
-      isAdsMutationOnlyKey(scopes) &&
-      WRITE_METHODS.has(request.method) &&
-      !isAdsWriteRoute(url)
-    ) {
-      throw forbidden('This API key can only perform OpenAI Ads write operations.')
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)

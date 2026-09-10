@@ -19,6 +19,9 @@ export const READ_ONLY_SCOPE = 'read'
 /** Full access. The default `canonry init` root key carries this. */
 export const WILDCARD_SCOPE = '*'
 
+/** Run bounded research without granting tracking or settings writes. */
+export const RESEARCH_RUN_SCOPE = 'research.run'
+
 /** Grants creation of a project at the install boundary. */
 export const PROJECTS_WRITE_SCOPE = 'projects.write'
 
@@ -39,7 +42,8 @@ export const GOOGLE_MARKETING_WRITE_SCOPE = 'google-marketing.write'
 
 /**
  * A scope grants write capability when it is the wildcard, the bare `write`,
- * any `*.write`, or the explicit `ads.approve` / `ads.activate` authority.
+ * any `*.write`, or an explicit action grant (`ads.approve`, `ads.activate`,
+ * `research.run`). Named action grants do not imply general write access.
  */
 function grantsWrite(scope: string): boolean {
   return scope === WILDCARD_SCOPE
@@ -47,12 +51,28 @@ function grantsWrite(scope: string): boolean {
     || scope.endsWith('.write')
     || scope === ADS_APPROVE_SCOPE
     || scope === ADS_ACTIVATE_SCOPE
+    || scope === RESEARCH_RUN_SCOPE
+}
+
+/** Named mutation grants constrained to explicit routes; null means legacy broad access. */
+export function restrictedWriteScopes(scopes: readonly string[]): readonly string[] | null {
+  const writes = scopes.filter(grantsWrite)
+  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE])
+  return writes.length > 0 && writes.every(scope => restricted.has(scope)) ? writes : null
+}
+
+/** Delegated consent cannot exceed current account authority. */
+export function intersectScopes(authority: readonly string[], requested: readonly string[]): string[] {
+  const effective = authority.includes(WILDCARD_SCOPE)
+    ? [...requested]
+    : authority.filter(scope => requested.includes(scope) || requested.includes(WILDCARD_SCOPE))
+  return effective.length > 0 ? effective : [READ_ONLY_SCOPE]
 }
 
 /**
  * A key is read-only when it explicitly opts in via the `read` token AND
  * carries no write-granting scope (no `*`, no `write`, no `*.write`, and no
- * explicit `ads.approve` / `ads.activate` authority).
+ * explicit action authority such as `research.run`).
  *
  * This is deliberately ADDITIVE: read-only is opt-in. A key that never carries
  * `read` — including an empty or unrecognized scope list — is NOT read-only, so
