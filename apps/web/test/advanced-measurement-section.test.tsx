@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   DraftMutationResponse,
   MeasurementDraftAuthoring,
@@ -587,31 +587,14 @@ async function advancePropertiesToQuestions() {
   await advanceGroupsToQuestions()
 }
 
-/**
- * Wait for an assignment button to be enabled, then click the LIVE node.
- *
- * The node must be re-queried after the wait. Holding a reference across an
- * await is unsafe here because the flows these tests drive re-render the tree
- * while waiting: after a 409 or 412 the section reloads the draft, and React may
- * replace the button rather than reuse it. A detached node keeps whatever
- * `disabled` value it had when it was captured, so the wait passes against a
- * stale element and `fireEvent.click` then dispatches into a node that is no
- * longer in the document. No handler runs, and the failure surfaces much later
- * as "expected 2 calls, got 1", which reads like a product bug rather than a
- * test defect.
- *
- * The `isConnected` check keeps that failure honest: if the node ever is
- * detached, the test says so instead of silently clicking nothing.
- */
+// Re-query after the wait and verify the live button is still enabled at click time.
 async function clickReadyAssignment(name: RegExp): Promise<void> {
   await waitFor(() => {
-    // Strict: `.not.toHaveProperty('disabled', true)` also passes when the
-    // property is absent entirely, so it cannot tell "enabled" from "not a
-    // button".
     expect(screen.getByRole('button', { name })).toHaveProperty('disabled', false)
   })
   const button = screen.getByRole('button', { name })
   expect(button.isConnected).toBe(true)
+  expect(button).toHaveProperty('disabled', false)
   fireEvent.click(button)
 }
 
@@ -1169,22 +1152,34 @@ describe('AdvancedMeasurementSection server draft controller', () => {
   })
 
   test.each([412, 409] as const)('reloads actionable state after a %s assignment conflict', async status => {
+    let releaseRefreshedPreview!: () => void
+    const refreshedPreviewGate = new Promise<void>(resolve => { releaseRefreshedPreview = resolve })
     const fake = createFakeService({
       initialDraft: draftFixture({ targets: [property(1)] }),
       assignmentConflictStatus: status,
     })
+    const previewAssignments = vi.mocked(fake.service.previewAssignments)
+    const originalPreview = previewAssignments.getMockImplementation()!
+    previewAssignments
+      .mockImplementationOnce(originalPreview)
+      .mockImplementationOnce(async (...args) => {
+        const preview = await originalPreview(...args)
+        await refreshedPreviewGate
+        return preview
+      })
+    const assignButtonName = /Assign 1 query to all 1 Property/
     renderSection(fake)
     await advanceGroupsToQuestions()
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to all 1 Property/)
+    await clickReadyAssignment(assignButtonName)
 
-    expect(await screen.findByText(
-      'This setup changed in another session. The latest draft is loaded; review your changes again.',
-    )).toBeTruthy()
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    await waitFor(() => expect(previewAssignments).toHaveBeenCalledTimes(2))
     expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(screen.getByRole('button', { name: /Assign 1 query to all 1 Property/ })).toHaveProperty('disabled', false))
+    expect(screen.getByRole('button', { name: assignButtonName })).toHaveProperty('disabled', true)
 
-    await clickReadyAssignment(/Assign 1 query to all 1 Property/)
+    await act(async () => { releaseRefreshedPreview() })
+    await clickReadyAssignment(assignButtonName)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(2))
     expect(vi.mocked(fake.service.applyAssignments).mock.calls[1]![1]).toBe('"mpd_8"')
     expect(fake.getDraft()?.authoring.assignments).toHaveLength(1)
