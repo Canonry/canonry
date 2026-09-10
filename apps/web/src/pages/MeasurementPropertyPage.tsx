@@ -23,6 +23,7 @@ import { isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
 import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
@@ -213,7 +214,7 @@ function AnswerText({ project, targetKey, row }: { project: string; targetKey: s
   return (
     <div className="py-2">
       <h4 className="mb-1 text-xs font-medium tracking-wide text-muted uppercase">What {row.provider} answered</h4>
-      <p className="max-h-64 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-secondary">{answer}</p>
+      <div className="max-h-96 overflow-y-auto"><AnswerMarkdown>{answer}</AnswerMarkdown></div>
     </div>
   )
 }

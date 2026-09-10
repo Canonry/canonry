@@ -2722,6 +2722,20 @@
 
   /* ── Answer snippet with highlight ── */
 
+  .answer-markdown {
+    @apply max-w-prose text-sm leading-6 text-secondary;
+    overflow-wrap: anywhere;
+  }
+
+  .answer-markdown :is(h1, h2, h3, h4, h5, h6) {
+    @apply mt-4 mb-2 text-sm font-semibold text-heading first:mt-0;
+  }
+
+  .answer-markdown :is(h1, h2) { @apply text-base; }
+  .answer-markdown strong { @apply font-semibold text-heading; }
+  .answer-markdown blockquote { @apply mb-3 border-l-2 border-strong pl-3; }
+  .answer-markdown hr { @apply my-4 border-default; }
+
   .answer-snippet-block {
     @apply rounded-lg border border-default bg-bg-elevated/50 p-3 text-sm leading-relaxed text-secondary;
     /* Long markdown citation URLs in answer text have no natural break

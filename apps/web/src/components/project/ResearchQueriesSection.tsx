@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Play, RefreshCw } from 'lucide-react'
 import {
@@ -684,19 +684,7 @@ function ResearchAnswer({
       ) : query.answerText ? (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
-          <div className="mt-1 max-w-prose text-sm leading-6 text-secondary [&_h1]:text-base [&_h2]:text-base [&_h3]:text-sm">
-            <ReactMarkdown components={{
-              p: ({ children }) => <p className="mb-3 whitespace-pre-wrap last:mb-0">{children}</p>,
-              ul: ({ children }) => <ul className="mb-3 ml-5 list-disc space-y-1">{children}</ul>,
-              ol: ({ children }) => <ol className="mb-3 ml-5 list-decimal space-y-1">{children}</ol>,
-              pre: ({ children }) => <pre className="mb-3 overflow-x-auto whitespace-pre-wrap">{children}</pre>,
-              a: ({ children, href }) => {
-                const safeHref = safeExternalUrl(href)
-                return safeHref ? <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-link underline">{children}</a> : <span>{children}</span>
-              },
-              img: ({ alt }) => <span>{alt}</span>,
-            }}>{query.answerText}</ReactMarkdown>
-          </div>
+          <div className="mt-1"><AnswerMarkdown>{query.answerText}</AnswerMarkdown></div>
         </div>
       ) : (
         <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>

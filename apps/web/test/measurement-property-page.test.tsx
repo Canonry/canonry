@@ -1175,3 +1175,17 @@ describe('Named instead of this Property', () => {
     expect(section.querySelector('table')).toBeNull()
   })
 })
+
+it('formats the lazily loaded property answer', async () => {
+  await renderPropertyPageFromApi(async url => {
+    const response = propertyPageResponses()(url)
+    return pathOf(url).includes('/measurement-question-result')
+      ? jsonResponse({ ...await response.json(), answer: `## ${NEARBY_QUESTION}\n\n**${TARGET_KEY}**\n\n- ${OWN_URL}` })
+      : response
+  })
+  const row = within(await answersTable()).getByText(NEARBY_QUESTION).closest('tr')!
+  fireEvent.click(within(row).getByRole('button'))
+  expect(await screen.findByRole('heading', { name: NEARBY_QUESTION, level: 2 })).toBeTruthy()
+  expect(document.querySelector('.answer-markdown strong')?.textContent).toBe(TARGET_KEY)
+  expect(document.querySelector('.answer-markdown li')?.textContent).toBe(OWN_URL)
+})

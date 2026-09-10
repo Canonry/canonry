@@ -1104,3 +1104,21 @@ it('keeps a saved group-only URL on its original population after linking a mark
   expect(requests[0]!.searchParams.has('marketKey')).toBe(false)
   expect(currentSearch.measurementMarketKey).toBeUndefined()
 })
+
+it('formats saved answer Markdown while keeping links safe and remote images inactive', () => {
+  const queryKey = reportFixture().populations[0]!.queries.items[0]!.queryKey
+  const heading = reportFixture().populations[0]!.queries.items[0]!.query
+  const source = 'https://example.com/source'
+  const answer = `## ${heading}\n\n**${queryKey}**\n\n- ${queryKey}\n- ${heading}\n\n[${source}](${source})\n\n[${queryKey}](javascript:alert%281%29)\n\n![${heading}](https://example.com/pixel.png)`
+  const report = reportWithAnswer(queryKey, answer)
+  render(<VisibilityReportView report={report} evidenceReport={report} queryKey={queryKey} onSelectionChange={() => {}} />)
+  const region = screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })
+  expect(within(region).getByRole('heading', { name: heading, level: 2 })).toBeTruthy()
+  expect(region.querySelector('.answer-markdown strong')?.textContent).toBe(queryKey)
+  expect(within(region).getAllByRole('listitem')).toHaveLength(2)
+  const link = within(region).getByRole('link', { name: source })
+  expect(link.getAttribute('href')).toBe(source)
+  expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  expect(within(region).getAllByRole('link')).toHaveLength(1)
+  expect(within(region).queryByRole('img')).toBeNull()
+})
