@@ -88,6 +88,13 @@ function legacyReportFixture(): VisibilityReportResponse {
 }
 
 describe('shared production visibility view', () => {
+  it('shows the completed measurement date without its clock time', () => {
+    const report = reportFixture()
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(screen.getByText(new Date('2026-09-01T10:00:00Z').toLocaleDateString())).toBeTruthy()
+    expect(screen.queryByText(/10:00/)).toBeNull()
+  })
+
   it('recovers a retired group link without changing query class, engine, or unrelated URL state', async () => {
     const requests: URL[] = []
     onTestFinished(mockFetch(url => {

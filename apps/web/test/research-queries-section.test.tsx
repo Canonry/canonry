@@ -98,13 +98,22 @@ function setupTemplateResearch(templates: ResearchTemplateOption[] = [marketTemp
   return { bodies, selectTemplate, changeScope: (scope: ResearchScopeOption | null) => rendered.rerender(section(scope)) }
 }
 
-test.each(['market', 'property'] as const)('offers only project templates and starts with Custom for a %s', (kind) => {
+test.each(['market', 'property'] as const)('offers applicable query patterns and starts with direct entry for a %s', (kind) => {
   const template = { ...marketTemplate, pattern: `Find services at {${kind}}`, variables: [kind] }
   setupTemplateResearch([template], { ...marketScope, kind })
   const selector = screen.getByLabelText(RESEARCH_COPY.templateLabel) as HTMLSelectElement
   expect(selector.value).toBe('custom')
   expect(Array.from(selector.options, option => option.text)).toEqual([RESEARCH_COPY.customQuery, template.label])
   expect((screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement).value).toBe('')
+})
+
+test('shows direct query entry when no saved query pattern applies', () => {
+  setupTemplateResearch([marketTemplate], null)
+
+  expect(screen.queryByLabelText(RESEARCH_COPY.templateLabel)).toBeNull()
+  expect(screen.getByText(RESEARCH_COPY.queryGuidance)).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: 'Research queries' }).getAttribute('aria-describedby'))
+    .toBe('research-query-guidance research-query-count')
 })
 
 test('expands a configured template and submits distinct questions with the first exact text preserved', async () => {
@@ -167,7 +176,7 @@ test('clears a variable-free template on Whole site and keeps the edited query r
   const editedQuestion = '  Find services open on weekends  '
   fireEvent.change(editor, { target: { value: editedQuestion } })
   changeScope(null)
-  expect((screen.getByLabelText(RESEARCH_COPY.templateLabel) as HTMLSelectElement).value).toBe('custom')
+  expect(screen.queryByLabelText(RESEARCH_COPY.templateLabel)).toBeNull()
   expect(editor.value).toBe(editedQuestion)
   expect(screen.queryByRole('alert')).toBeNull()
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
@@ -413,7 +422,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · chat-latest` })
   const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
   expect(model.value).toBe('')
-  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Research queries' }), { target: { value: 'best apartments' } })
   const submit = async () => {
     const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(false))

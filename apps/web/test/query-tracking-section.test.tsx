@@ -163,7 +163,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   onTestFinished(restore)
   renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
 
-  expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Research queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
   expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
   expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
@@ -172,7 +172,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
-  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which AEO platform fits an agency?' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Research queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
@@ -1117,6 +1117,19 @@ test('sends an explicit class only when the operator overrides server classifica
     additions: [{ input: { source: 'manual', text: 'Enterprise AEO platform' }, contexts: [selectedContext], queryClass: 'non-brand' }],
     removals: [],
   })
+})
+
+test('does not offer a template source when this portfolio has no saved templates', async () => {
+  installWorkspaceApi()
+  renderWorkspace()
+
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+
+  const source = screen.getByLabelText('Query source') as HTMLSelectElement
+  expect([...source.options].map(option => option.textContent)).not.toContain('Saved template')
+  expect(screen.getByText('No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.')).toBeTruthy()
+  expect(source.getAttribute('aria-describedby')).toBe('tracking-query-source-no-templates')
 })
 
 test('requires a market for a saved market template before sending its identity and pattern for expansion', async () => {

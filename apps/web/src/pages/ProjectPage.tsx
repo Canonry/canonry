@@ -2670,7 +2670,7 @@ function ProjectPageContent({
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
           {tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to) ? <p className="text-sm text-muted">{isSimpleOverview ? model.dateRangeLabel : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`}</p> : null}
           {!isEmbed() && (isDashboardManagedSweeps() ? (
-            <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
+            <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
           ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}

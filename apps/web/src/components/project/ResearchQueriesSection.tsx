@@ -42,7 +42,8 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
 
 /** Shared so assertions describe the shipped Research interface. */
 export const RESEARCH_COPY = {
-  queryPlaceholder: 'One query per line',
+  queryPlaceholder: 'Write one research query per line',
+  queryGuidance: 'Research is separate from tracked queries. You can edit every query before you run it.',
   queryCountLimit: ' / 50 queries',
   inheritedModel: 'Use AI Visibility model',
   runAction: 'Run queries',
@@ -56,11 +57,12 @@ export const RESEARCH_COPY = {
   scopeLoading: 'Loading market or property…',
   scopeError: 'Could not verify market or property.',
   retryScope: 'Retry market or property',
-  templateLabel: 'Template',
-  customQuery: 'Custom query',
-  staleTemplate: 'The portfolio changed. Refresh the template or choose Custom query to keep this text.',
-  refreshTemplate: 'Refresh template',
-  templateProvenance: 'Template details',
+  templateLabel: 'Saved query pattern',
+  customQuery: 'Write queries yourself',
+  templateHelp: 'A saved query pattern fills in the selected market or property. You can edit the queries before you run them.',
+  staleTemplate: 'The selected market or property changed. Refresh the query pattern or write queries yourself to keep this text.',
+  refreshTemplate: 'Refresh queries',
+  templateProvenance: 'Query pattern details',
   brandedQuery: 'Branded',
   discoveryQuery: 'Discovery',
   unclassifiedQuery: 'Unclassified',
@@ -174,6 +176,7 @@ export function ResearchQueriesSection({
   const templateOptions = useMemo(() => selectedScope
     ? templates.filter(template => template.variables.every(variable => variable in templateBindings))
     : [], [selectedScope, templateBindings, templates])
+  const hasApplicableQueryPatterns = templateOptions.length > 0
   const templateValue = selectedTemplate ? `${selectedTemplate.id}:${selectedTemplate.version}` : 'custom'
   const templateProvenance = selectedScope && selectedTemplate
     ? { templateId: selectedTemplate.id, templateVersion: selectedTemplate.version } satisfies ResearchTemplateSelection
@@ -281,7 +284,7 @@ export function ResearchQueriesSection({
         <Card className="surface-card min-w-0">
           <div className="section-head">
             <div>
-              <h3>Test queries</h3>
+              <h3>Research queries</h3>
             </div>
           </div>
           <div className="mt-4 space-y-4">
@@ -295,40 +298,46 @@ export function ResearchQueriesSection({
             {scopePending && <p role="status" className="text-sm text-secondary">{RESEARCH_COPY.scopeLoading}</p>}
             {scopeError && <div role="alert" className="text-sm text-negative"><p>{RESEARCH_COPY.scopeError}</p>{onRetryScope && <Button variant="outline" onClick={onRetryScope}>{RESEARCH_COPY.retryScope}</Button>}</div>}
 
-            <label className="block" htmlFor="research-template">
-              <span className="text-xs font-medium text-secondary">{RESEARCH_COPY.templateLabel}</span>
-              <select
-                id="research-template"
-                className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
-                value={templateValue}
-                onChange={event => applyTemplate(event.target.value === 'custom' ? null : templateOptions.find(template => `${template.id}:${template.version}` === event.target.value) ?? null)}
-              >
-                <option value="custom">{RESEARCH_COPY.customQuery}</option>
-                {selectedTemplate && !templateOptions.some(template => `${template.id}:${template.version}` === templateValue) && <option value={templateValue}>{selectedTemplate.label}</option>}
-                {templateOptions.map(template => <option key={`${template.id}:${template.version}`} value={`${template.id}:${template.version}`}>{template.label}</option>)}
-              </select>
-            </label>
+            {hasApplicableQueryPatterns && <div>
+              <label className="block" htmlFor="research-template">
+                <span className="text-xs font-medium text-secondary">{RESEARCH_COPY.templateLabel}</span>
+                <select
+                  id="research-template"
+                  aria-describedby="research-template-help"
+                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                  value={templateValue}
+                  onChange={event => applyTemplate(event.target.value === 'custom' ? null : templateOptions.find(template => `${template.id}:${template.version}` === event.target.value) ?? null)}
+                >
+                  <option value="custom">{RESEARCH_COPY.customQuery}</option>
+                  {selectedTemplate && !templateOptions.some(template => `${template.id}:${template.version}` === templateValue) && <option value={templateValue}>{selectedTemplate.label}</option>}
+                  {templateOptions.map(template => <option key={`${template.id}:${template.version}`} value={`${template.id}:${template.version}`}>{template.label}</option>)}
+                </select>
+              </label>
+              <p id="research-template-help" className="mt-2 text-sm leading-6 text-secondary">{RESEARCH_COPY.templateHelp}</p>
+            </div>}
 
             {templateScopeStale && <div role="alert" className="text-sm text-caution">
               <p>{RESEARCH_COPY.staleTemplate}</p>
               <Button variant="outline" onClick={() => applyTemplate(selectedTemplate)}>{RESEARCH_COPY.refreshTemplate}</Button>
             </div>}
 
-            <label className="block" htmlFor="research-queries">
-              <span className="text-xs font-medium text-secondary">Queries</span>
-              <textarea
-                id="research-queries"
-                className="mt-1 min-h-36 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                placeholder={RESEARCH_COPY.queryPlaceholder}
-                value={queryText}
-                aria-label="Queries"
-                onChange={(event) => setQueryText(event.target.value)}
-                aria-describedby="research-query-count"
-              />
+            <div>
+              <p id="research-query-guidance" className="text-sm leading-6 text-secondary">{RESEARCH_COPY.queryGuidance}</p>
+              <label className="mt-2 block" htmlFor="research-queries">
+                <span className="text-xs font-medium text-secondary">Research queries</span>
+                <textarea
+                  id="research-queries"
+                  className="mt-1 min-h-36 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  placeholder={RESEARCH_COPY.queryPlaceholder}
+                  value={queryText}
+                  onChange={(event) => setQueryText(event.target.value)}
+                  aria-describedby="research-query-guidance research-query-count"
+                />
+              </label>
               <span id="research-query-count" className={`mt-1 block text-sm ${submittedQueries.length > 50 ? 'text-negative' : 'text-secondary'}`}>
                 {submittedQueries.length}{RESEARCH_COPY.queryCountLimit}
               </span>
-            </label>
+            </div>
             <div className={`grid gap-3 ${locations.length > 0 ? 'sm:grid-cols-2' : ''}`}>
               <label className="block" htmlFor="research-provider">
                   <span className="text-xs font-medium text-secondary">Answer engine</span>

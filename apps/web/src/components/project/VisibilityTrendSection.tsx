@@ -318,7 +318,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default pb-4">
       <div className="flex flex-wrap items-center gap-3">
         <ToneBadge tone={measurement.state === 'measured' ? 'positive' : 'neutral'}>{measurement.state === 'measured' ? 'Complete' : measurement.state === 'partial' ? 'Partial' : 'Not measured'}</ToneBadge>
-        {measurement.completedAt ? <span className="text-sm text-secondary">{new Date(measurement.completedAt).toLocaleString()}</span> : null}
+        {measurement.completedAt ? <span className="text-sm text-secondary">{new Date(measurement.completedAt).toLocaleDateString()}</span> : null}
         {measurement.awaitingSweep ? <span role="status" className="inline-flex items-center gap-1 text-sm text-secondary"><span>{measurement.pendingAssignmentCount} query assignments pending across project</span><InfoTooltip text={`Measured under revision ${measurement.measuredRevision ?? 'unavailable'}. Project has ${measurement.pendingAssignmentCount} assignments awaiting sweep. Existing results stay visible until those assignments are measured.`} /></span> : null}
       </div>
       {onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null}

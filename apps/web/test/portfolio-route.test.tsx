@@ -2470,9 +2470,12 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       } },
     )
     const header = projectHeader(html)
-    expect(header.querySelector('button')).toBeNull()
-    expect(header.querySelector('[role="status"]')?.textContent).toContain(MANAGED_SWEEPS_NEXT_LABEL)
+    expect(header.querySelectorAll('button')).toHaveLength(mode === 'advanced' ? 1 : 0)
     expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
+    expect(header.textContent).toContain(mode === 'advanced'
+      ? 'Next Portfolio AI visibility Sweep: September 8th, 2026'
+      : MANAGED_SWEEPS_NEXT_LABEL)
+    if (mode === 'advanced') expect(header.querySelector('button')?.getAttribute('aria-label')).toBe('This is managed by your Canonry team.')
     if (mode === 'advanced') expect(header.querySelectorAll('.page-header-right > p:not([role="status"])')).toHaveLength(0)
     expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
   }

@@ -888,6 +888,7 @@ function TrackingComposer({
   editorHeadingRef: RefObject<HTMLHeadingElement | null>
   onReview: () => void
 }) {
+  const hasSavedTemplates = templates.length > 0
   if (action.kind === 'remove') {
     return (
       <Card className="surface-card">
@@ -996,16 +997,18 @@ function TrackingComposer({
             <span className="text-sm font-medium text-secondary">Query source</span>
             <select
               id="tracking-query-source"
+              aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
               className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               value={draft.source}
               onChange={(event) => onDraftChange({ ...draft, source: event.target.value as TrackingDraft['source'] })}
             >
               <option value="manual">Write a question</option>
-              <option value="template" disabled={templates.length === 0}>Saved template{templates.length === 0 ? ' (none available)' : ''}</option>
+              {hasSavedTemplates ? <option value="template">Saved template</option> : null}
               <option value="research" disabled={workspace.savedSources.research.length === 0}>Saved research{workspace.savedSources.research.length === 0 ? ' (none available)' : ''}</option>
               <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
             </select>
           </label>
+          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-sm leading-6 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
         </div>
 
         <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
