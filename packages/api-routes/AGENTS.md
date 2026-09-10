@@ -115,6 +115,16 @@ Groups select properties. Markets select frozen `reportingScopes` execution edge
 Label-only revisions use the comparable chain. Material changes read prior evidence through its own frozen plan.
 Never infer a market from a group label or reuse the browser's global run drawer parameter.
 
+### Portfolio summary aggregation
+
+Prepare the filtered run once with `createMeasurementOverviewEvaluator` and reuse
+its attribution indexes for the portfolio and every group. Each group aggregates
+its unique answer slots; overlapping property memberships must not multiply the
+denominator. Rank all eligible properties before applying `limit`, then calculate
+recommendations only for the returned properties. The limit does not truncate
+market rollups or change portfolio totals. Keep the evaluator request-local so
+run, revision, provider, location, and query-class selections cannot share stale data.
+
 ### Route file structure
 
 Each file exports an async Fastify plugin function:

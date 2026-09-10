@@ -46,10 +46,11 @@ import {
   type ActiveMeasurementPlan,
 } from './measurement-overview.js'
 import {
-  buildMeasurementOverview,
+  createMeasurementOverviewEvaluator,
   normalizeMeasurementLocation,
   targetMentionedInAnswer,
   type MeasurementOverview,
+  type MeasurementOverviewEvaluator,
   type MeasurementRate,
 } from './measurement-report.js'
 import {
@@ -179,9 +180,8 @@ function filteredOverviewWithDb(
 ): {
   materialized: MaterializedRun
   overview: MeasurementOverview
-  /** The filtered inputs, exposed so a caller can re-scope them without re-reading the database. */
-  expectedSlots: MaterializedRun['input']['expectedSlots']
-  usageEdges: MaterializedRun['input']['usageEdges']
+  /** Reuses the prepared filtered run for the overall scope and every market. */
+  evaluator: MeasurementOverviewEvaluator
 } {
   const materialized = materializeWithDb(db, active, plan, run)
   const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
@@ -193,16 +193,16 @@ function filteredOverviewWithDb(
   const usageEdges = materialized.input.usageEdges.filter(edge => (
     filters.queryClass === 'all' || materialized.edgeQueryClass.get(edge.id) === filters.queryClass
   ))
-  return {
-    materialized,
+  const evaluator = createMeasurementOverviewEvaluator({
+    ...materialized.input,
     expectedSlots,
     usageEdges,
-    overview: buildMeasurementOverview({
-      ...materialized.input,
-      expectedSlots,
-      usageEdges,
-      scopeTargetIds: [...targetKeys],
-    }),
+    scopeTargetIds: [...targetKeys],
+  })
+  return {
+    materialized,
+    evaluator,
+    overview: evaluator.evaluate(targetKeys),
   }
 }
 
@@ -401,9 +401,7 @@ function targetKeysForRun(
 function marketRollup(
   plan: MeasurementPlanV2,
   run: RunRow,
-  materialized: MaterializedRun,
-  expectedSlots: MaterializedRun['input']['expectedSlots'],
-  usageEdges: MaterializedRun['input']['usageEdges'],
+  evaluator: MeasurementOverviewEvaluator,
   scopedToOneGroup: boolean,
 ): MeasurementPortfolioMarket[] {
   if (scopedToOneGroup) return []
@@ -414,12 +412,7 @@ function marketRollup(
     // group-scoped read of the same market reaches it the same way — inventing
     // a reason here is how the two surfaces start disagreeing again.
     const targetKeys = targetKeysForRun(plan, run, group.targetKeys, false)
-    const overview = buildMeasurementOverview({
-      ...materialized.input,
-      expectedSlots,
-      usageEdges,
-      scopeTargetIds: targetKeys,
-    })
+    const overview = evaluator.evaluate(targetKeys)
     return {
       groupKey: group.stableKey,
       label: group.label,
@@ -517,22 +510,28 @@ function portfolioResponse(
     })
   }
 
-  const { materialized, overview, expectedSlots: filteredSlots, usageEdges: filteredEdges } = filteredOverviewWithDb(db, active, plan, run, filters, targetKeys)
+  const { materialized, overview, evaluator } = filteredOverviewWithDb(db, active, plan, run, filters, targetKeys)
   const measured = new Map(overview.properties.map(row => [row.targetId, row]))
-  const rows = targets.map(target => {
+  const ranked = targets.map(target => {
     const row = measured.get(target.stableKey)
-    const recommendations = recommendationRows(target, targetAnswers(plan, target, materialized, filters))
     return {
+      target,
       ...propertyDto(target),
       mentionCoverage: row ? coverageMetric(row.mentionCoverage) : unavailable('no_population'),
       citationCoverage: row ? coverageMetric(row.citationCoverage) : unavailable('no_population'),
       flags: row?.flags ?? 0,
+    }
+  }).sort(compareWeakest)
+  const limit = query.limit ?? DEFAULT_LIMIT
+  const rows = ranked.slice(0, limit).map(({ target, ...row }) => {
+    const recommendations = recommendationRows(target, targetAnswers(plan, target, materialized, filters))
+    return {
+      ...row,
       recommendedInstead: recommendations.slice(0, 5).map(({ name, occurrences }) => ({ name, occurrences })),
       recommendedInsteadTotal: recommendations.length,
       recommendedInsteadTruncated: recommendations.length > 5,
     }
-  }).sort(compareWeakest)
-  const limit = query.limit ?? DEFAULT_LIMIT
+  })
   return measurementPortfolioSummaryResponseSchema.parse({
     portfolio: {
       groupKey: group?.stableKey ?? null,
@@ -547,9 +546,9 @@ function portfolioResponse(
       citationCoverage: coverageMetric(overview.citationCoverage),
     },
     weakestProperties: rows.slice(0, limit),
-    markets: marketRollup(plan, run, materialized, filteredSlots, filteredEdges, group !== undefined),
-    totalProperties: rows.length,
-    truncated: rows.length > limit,
+    markets: marketRollup(plan, run, evaluator, group !== undefined),
+    totalProperties: ranked.length,
+    truncated: ranked.length > limit,
   })
 }
 

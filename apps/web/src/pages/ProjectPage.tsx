@@ -2668,7 +2668,7 @@ function ProjectPageContent({
           )}
         </div>
         <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          {tab === 'overview' ? <p className="text-sm text-muted">{!isSimpleOverview ? visibilitySelection.from || visibilitySelection.to ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}` : 'Recent measurements' : model.dateRangeLabel}</p> : null}
+          {tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to) ? <p className="text-sm text-muted">{isSimpleOverview ? model.dateRangeLabel : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`}</p> : null}
           {!isEmbed() && (isDashboardManagedSweeps() ? (
             <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} />
           ) : (

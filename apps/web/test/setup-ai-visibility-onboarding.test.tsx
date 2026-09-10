@@ -10,6 +10,7 @@ import { heyClient } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { clearOnboardingRunLaunched } from '../src/lib/onboarding-telemetry.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
+import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 const navigate = vi.hoisted(() => vi.fn())
@@ -369,7 +370,7 @@ test.each([
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
   expect(await screen.findByText(expected)).toBeTruthy()
-  expect(screen.getByText(managedSweeps ? 'Sweeps are run by your Canonry team' : 'Ask an administrator to review the provider and query configuration.')).toBeTruthy()
+  expect(screen.getByText(managedSweeps ? MANAGED_SWEEPS_COPY : 'Ask an administrator to review the provider and query configuration.')).toBeTruthy()
   expect(screen.queryByText('Fix provider or query configuration if needed, then retry without leaving setup.')).toBeNull()
   expect(screen.queryByRole('link', { name: 'Configure providers' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Retry visibility sweep' })).toBeNull()
@@ -673,7 +674,9 @@ test('managed sweeps finishes setup without offering to launch or retry a sweep'
   window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
   const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }))
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  const scheduleStatus = await screen.findByText(MANAGED_SWEEPS_UNAVAILABLE_COPY)
+  expect(scheduleStatus.closest('[role="status"]')).toBeTruthy()
+  expect(scheduleStatus.querySelector('time')).toBeNull()
   expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
   expect(screen.queryByText(/Run a first sweep/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Open project dashboard →' }))

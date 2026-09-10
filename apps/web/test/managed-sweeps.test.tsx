@@ -1,8 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { isDashboardManagedRunKind, isDashboardManagedSweeps } from '../src/api.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY, MANAGED_SCANS_COPY } from '../src/components/project/ManagedSweepStatus.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL, MANAGED_SCANS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 
 afterEach(() => {
   cleanup()
@@ -26,21 +26,26 @@ const schedule = {
   nextRunAt: '2026-09-08T06:00:00.000Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
 }
 
-function renderSchedule(response: unknown, status = 200, kind: 'answer-visibility' | 'site-audit' = 'answer-visibility') {
+// This fixed local calendar date is independent of the scheduled UTC instant.
+const expectedLocalDate = new Date('2026-09-08T12:00:00.000Z').toLocaleDateString('en-US', {
+  month: 'short', day: 'numeric', timeZone: 'UTC',
+})
+
+function renderSchedule(response: unknown, status = 200, kind: 'answer-visibility' | 'site-audit' = 'answer-visibility', running = false) {
   const request = vi.fn(async () => new Response(JSON.stringify(response), { status, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" kind={kind} /></QueryClientProvider>)
+  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" kind={kind} running={running} /></QueryClientProvider>)
   return { ...page, request, client }
 }
 
 test('reads the answer-visibility schedule and renders its real nextRunAt in the schedule timezone', async () => {
-  const { request, container } = renderSchedule(schedule)
-  await screen.findByText(/Next scheduled sweep/)
+  const { request, container, client } = renderSchedule(schedule)
+  await waitFor(() => expect(client.isFetching()).toBe(0))
   const url = new URL((request.mock.calls[0] as unknown as [Request])[0].url)
   expect(url.pathname).toBe('/api/v1/projects/example/schedule')
   expect(url.searchParams.get('kind')).toBe('answer-visibility')
-  expect(screen.getByRole('status').textContent).toBe('Next scheduled sweep Tue, Sep 8, 2026, 2:00 AM EDT · managed by your Canonry team')
+  expect(screen.getByRole('status').textContent).toBe(`${MANAGED_SWEEPS_NEXT_LABEL} ${expectedLocalDate}`)
   expect(container.querySelector('time')?.dateTime).toBe(schedule.nextRunAt)
 })
 
@@ -53,9 +58,8 @@ test.each([
 ] as const)('%s shows the managed fallback without a date', async (_label, response, status) => {
   const { container, client } = renderSchedule(response, status)
   await waitFor(() => expect(client.isFetching()).toBe(0))
-  expect(screen.getByRole('status').textContent).toBe(MANAGED_SWEEPS_COPY)
+  expect(screen.getByRole('status').textContent).toBe(MANAGED_SWEEPS_UNAVAILABLE_COPY)
   expect(container.querySelector('time')).toBeNull()
-  expect(container.textContent).not.toMatch(/Next sync|2026|UTC|Invalid Date/)
 })
 
 
@@ -76,11 +80,15 @@ test('managed kinds replace the legacy sweep alias and are safe without a browse
 
 test('managed scans read the site-audit schedule and show its actual nextRunAt in UTC', async () => {
   const nextRunAt = '2026-10-01T06:00:00.000Z'
-  const { request, container } = renderSchedule({ ...schedule, kind: 'site-audit', nextRunAt }, 200, 'site-audit')
-  await screen.findByText(/Next scan/)
+  const { request, container, client } = renderSchedule({ ...schedule, kind: 'site-audit', nextRunAt }, 200, 'site-audit')
+  await waitFor(() => expect(client.isFetching()).toBe(0))
   const url = new URL((request.mock.calls[0] as unknown as [Request])[0].url)
   expect(url.searchParams.get('kind')).toBe('site-audit')
-  expect(screen.getByRole('status').textContent).toBe('Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry team')
+  const expectedDate = new Date(nextRunAt).toLocaleString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    timeZone: 'UTC', hourCycle: 'h23',
+  })
+  expect(screen.getByRole('status').querySelector('time')?.textContent).toBe(`${expectedDate} UTC`)
   expect(container.querySelector('time')?.dateTime).toBe(nextRunAt)
 })
 
@@ -95,32 +103,18 @@ test.each([
   await waitFor(() => expect(client.isFetching()).toBe(0))
   expect(screen.getByRole('status').textContent).toBe(MANAGED_SCANS_COPY)
   expect(container.querySelector('time')).toBeNull()
-  expect(container.textContent).not.toMatch(/Next scan|UTC|\d|Invalid Date/)
 })
 
 
-test('the schedule tooltip supports focus and Escape and explains the saved start time', async () => {
-  const nextRunAt = '2026-09-23T04:00:00.000Z'
-  const { request, container } = renderSchedule({ ...schedule, nextRunAt })
-  await screen.findByText(/Next scheduled sweep/)
-  const help = screen.getByRole('button', { name: /Sweeps are run by your Canonry team.*Sep 23, 2026, 12:00 AM EDT/ })
-  expect(help.getAttribute('aria-expanded')).toBe('false')
-  fireEvent.focus(help)
-  expect(help.getAttribute('aria-expanded')).toBe('true')
-  expect(screen.getByText(/Results update after the sweep finishes/)).toBeTruthy()
-  fireEvent.keyDown(help, { key: 'Escape' })
-  expect(help.getAttribute('aria-expanded')).toBe('false')
-  expect(container.querySelector('time')?.dateTime).toBe(nextRunAt)
-  expect(request.mock.calls.every(call => (call as unknown as [Request])[0].method === 'GET')).toBe(true)
-})
-
-test.each([
-  [{ ...schedule, enabled: false }, 200, /Automatic sweeps are paused/],
-  [{ error: { code: 'NOT_FOUND' } }, 404, /No automatic sweep is currently scheduled/],
-  [{ error: { code: 'INTERNAL_ERROR' } }, 500, /The next scheduled time could not be loaded/],
-])('the tooltip explains unavailable schedules without promising a date: %j', async (response, status, message) => {
-  const { client, container } = renderSchedule(response, status)
+test('managed sweep date uses the schedule timezone at a UTC date boundary', async () => {
+  const { container, client } = renderSchedule({ ...schedule, nextRunAt: '2026-09-09T03:30:00.000Z' })
   await waitFor(() => expect(client.isFetching()).toBe(0))
-  expect(await screen.findByRole('button', { name: message })).toBeTruthy()
+  expect(screen.getByRole('status').textContent).toBe(`${MANAGED_SWEEPS_NEXT_LABEL} ${expectedLocalDate}`)
+  expect(container.querySelector('time')?.dateTime).toBe('2026-09-09T03:30:00.000Z')
+})
+
+test('managed sweep retains a concise running state', async () => {
+  const { container } = renderSchedule(schedule, 200, 'answer-visibility', true)
+  expect(screen.getByRole('status').textContent).toBe(MANAGED_SWEEPS_RUNNING_COPY)
   expect(container.querySelector('time')).toBeNull()
 })

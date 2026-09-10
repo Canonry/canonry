@@ -34,6 +34,7 @@ each choice.
 - Empty and error states may contain the minimum copy needed to recover.
 - Avoid acronyms until the expanded product name has established the context.
 - Do not use em dashes in UI copy.
+- Status headers show only decision-relevant state. Next-run headers use the schedule-local calendar date; keep time, weekday, year, team ownership, and explanatory prose out of the header.
 
 ## Typography and contrast
 

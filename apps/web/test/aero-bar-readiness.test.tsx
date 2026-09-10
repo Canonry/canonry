@@ -1,3 +1,4 @@
+import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -162,7 +163,7 @@ test.each([
   fireEvent.change(input, { target: { value: draft } })
   if (method === 'enter') fireEvent.keyDown(input, { key: 'Enter' })
   else fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  expect(await screen.findByText('Sweeps are run by your Canonry team')).toBeTruthy()
+  expect(await screen.findByText(MANAGED_SWEEPS_COPY)).toBeTruthy()
   expect(prompt).not.toHaveBeenCalled()
 })
 
