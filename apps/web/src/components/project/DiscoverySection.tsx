@@ -726,7 +726,7 @@ function TrackingScopePicker({
         targetCount: group.targetKeys.length,
         ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}),
       })),
-      ...workspace.markets.map(market => ({ id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0 })),
+      ...workspace.markets.map(market => ({ id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: new Set(market.usageEdges.map(edge => edge.targetKey)).size, ...(market.groupKey ? { parentGroupIds: [market.groupKey] } : {}) })),
       ...workspace.targets.map(target => ({
         id: target.stableKey,
         label: target.label,

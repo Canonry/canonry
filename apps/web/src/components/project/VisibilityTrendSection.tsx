@@ -10,7 +10,7 @@ import { heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
 import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus } from 'lucide-react'
-import { VisibilityScopePicker } from './VisibilityScopePicker.js'
+import { VisibilityScopePicker, marketForGroup } from './VisibilityScopePicker.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
@@ -89,10 +89,13 @@ function ReportRate({ value, unit }: { value: VisibilityReportRate; unit?: 'answ
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{unit ? ` ${unit}` : ''}</span></span>
 }
 
+export const REPORT_MARKET_COPY = { otherQueries: 'Other queries' }
+
 export interface VisibilityQueryGroup {
   queryKey: string
   query: string
   rows: VisibilityReportQueryRow[]
+  marketLabel?: string
 }
 
 /**
@@ -101,14 +104,20 @@ export interface VisibilityQueryGroup {
  * the current page so model, location, denominator, and property scope never become an invented
  * query-level aggregate.
  */
-export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow[]): VisibilityQueryGroup[] {
+export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow[], markets?: Map<string, string>): VisibilityQueryGroup[] {
   const groups = new Map<string, VisibilityQueryGroup>()
   for (const row of rows) {
     const group = groups.get(row.queryKey)
     if (group) group.rows.push(row)
     else groups.set(row.queryKey, { queryKey: row.queryKey, query: row.query, rows: [row] })
   }
-  return [...groups.values()]
+  const result = [...groups.values()]
+  if (!markets || !rows.some(row => row.marketKeys?.length)) return result
+  for (const group of result) {
+    const keys = [...new Set(group.rows.flatMap(row => row.marketKeys ?? []))].sort()
+    group.marketLabel = keys.map(key => markets.get(key) ?? key).join(' · ') || REPORT_MARKET_COPY.otherQueries
+  }
+  return result.sort((left, right) => left.marketLabel!.localeCompare(right.marketLabel!) || left.query.localeCompare(right.query))
 }
 
 function QueryResultRate({ value, singleAnswer }: { value: VisibilityReportRate; singleAnswer: boolean }) {
@@ -130,9 +139,10 @@ function QueryProperties({ targetKeys, labels }: { targetKeys: string[]; labels:
   </details>
 }
 
-function QueryResultGroup({ group, advanced, targetLabels, onViewAnswers }: {
+function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onViewAnswers }: {
   group: VisibilityQueryGroup
   advanced: boolean
+  marketHeading?: string
   targetLabels: Map<string, string>
   onViewAnswers: (row: VisibilityReportQueryRow) => void
 }) {
@@ -142,6 +152,7 @@ function QueryResultGroup({ group, advanced, targetLabels, onViewAnswers }: {
   const sharedLocation = group.rows.every(row => row.location === first.location)
   const locationLabel = (location: string | null) => location === null ? 'No location targeting' : `Search location: ${location}`
   return <tbody data-query-key={group.queryKey}>
+    {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
       <h3 className="break-words text-base font-medium text-heading">{group.query}</h3>
       <div className="flex flex-wrap items-center gap-x-5 text-sm font-normal text-secondary">
@@ -264,8 +275,8 @@ export function VisibilityReportFilters({ report, onSelectionChange, queryClass 
   )
 
   return <div className="visibility-filter-container"><div className="visibility-report-filters" data-has-scope={scopeOptions.length > 1} role="group" aria-label="Visibility filters">
-    {scopeOptions.length > 1 ? <VisibilityScopePicker options={scopeOptions} selected={selection.scope} onSelect={scope => {
-      onSelectionChange({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })
+    {scopeOptions.length > 1 ? <VisibilityScopePicker options={scopeOptions} selected={selection.scope} marketKey={selection.market?.id} onSelect={(scope, marketKey) => {
+      onSelectionChange({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })
     }} /> : null}
     {select('Query type', 'queryClass', queryClass, [{ value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
     {select('Answer engine', 'measurementProvider', selection.provider ?? '', [{ value: '', label: 'All engines' }, ...filterOptions.providers.map(provider => ({ value: provider, label: provider }))])}
@@ -334,7 +345,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...selectedPopulation.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
     </div></details>
     {[selectedPopulation].map(population => {
-      const queryGroups = groupVisibilityQueryRows(population.queries.items)
+      const queryGroups = groupVisibilityQueryRows(population.queries.items, selection.scope.kind === 'property' && !selection.market && population.queryClass === 'non-brand' ? new Map(report.scopeOptions.filter(option => option.kind === 'market').map(option => [option.id, option.label])) : undefined)
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-default py-4">
@@ -347,7 +358,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {selection.mode === 'advanced' ? <details className="border-t border-default text-sm text-secondary" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} property outcomes`}><summary className="min-h-11 cursor-pointer py-3">Property outcomes</summary><div className="flex flex-wrap gap-x-8 gap-y-3 pb-4">
         {([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-sm text-secondary">{label}</span>{key === 'notMeasured' ? <InfoTooltip text="No eligible completed measurement for this selection. This is not the same as a measured answer with neither signal." /> : null}</div>)}
       </div></details> : null}
-      {selection.mode === 'advanced' && selection.scope.kind !== 'property' && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} onSelectionChange={onSelectionChange} /> : null}
+      {selection.mode === 'advanced' && selection.scope.kind !== 'property' && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}
       <details className="border-t border-default" data-query-results={population.queryClass} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} query results`}>
         <summary className="min-h-11 cursor-pointer py-5 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"><span className="font-semibold">Query results</span><span className="ml-3 text-sm font-normal text-secondary">{population.queries.total} {population.queries.total === 1 ? 'result' : 'results'} · {scopeLabel}</span></summary>
         <div className="pb-5">
@@ -355,7 +366,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="overflow-x-auto">
           <table className="evidence-table measurement-responsive-table measurement-results-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} engine results`}>
             <thead><tr><th scope="col">Answer engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th><th scope="col"><span className="sr-only">Evidence</span></th></tr></thead>
-            {queryGroups.map(group => <QueryResultGroup key={group.queryKey} group={group} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={row => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })} />)}
+            {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={row => onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) })} />)}
           </table>
         </div>
         {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
@@ -377,10 +388,11 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
   </section>
 }
 
-function ReportScopeBreakdown({ population, scope, scopeOptions, onSelectionChange }: {
+function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSelectionChange }: {
   population: VisibilityReportPopulation
   scope: VisibilityReportResponse['selection']['scope']
   scopeOptions: VisibilityReportResponse['scopeOptions']
+  marketKey?: string
   onSelectionChange: VisibilityReportViewProps['onSelectionChange']
 }) {
   const groupOptions = new Map(scopeOptions.filter(option => option.kind === 'group').map(option => [option.id, option]))
@@ -398,7 +410,7 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, onSelectionChan
       <div className="flex gap-2">{(['groups', 'properties'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Properties'}</Button>)}</div>
       <input type="search" aria-label="Search breakdown" placeholder="Search" value={table.query} onChange={event => table.setQuery(event.target.value)} className={`${REPORT_CONTROL} max-w-sm`} />
     </div>
-    <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Property'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
+    <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Property'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: kind === 'groups' ? marketForGroup(groupOptions.get(row.id)) : marketKey })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
     {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No {kind} match this search.</p> : null}
     <DataTablePagination page={table.page} pageSize={table.pageSize} visibleRows={table.rows.length} totalRows={table.totalRows} itemLabel={kind} onPageChange={table.setPage} />
   </section>
@@ -417,10 +429,10 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
   const [answerCursor, setAnswerCursor] = useState<{ selection: string; cursor: string }>()
   const queryClient = useQueryClient()
   const sharedQuery = useMemo(() => ({
-    scope: selection.measurementScope, scopeKey: selection.measurementScopeKey, queryClass: selection.queryClass,
+    scope: selection.measurementScope, scopeKey: selection.measurementScopeKey, marketKey: selection.marketKey, queryClass: selection.queryClass,
     provider: selection.provider, model: selection.model, location: selection.location,
     from: selection.from, to: selection.to, revision: selection.revision, runId: selection.measurementRunId,
-  }), [selection.measurementScope, selection.measurementScopeKey, selection.queryClass, selection.provider, selection.model, selection.location, selection.from, selection.to, selection.revision, selection.measurementRunId])
+  }), [selection.measurementScope, selection.measurementScopeKey, selection.marketKey, selection.queryClass, selection.provider, selection.model, selection.location, selection.from, selection.to, selection.revision, selection.measurementRunId])
   const reportQuery = useQuery({
     ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: {
       ...sharedQuery, limit: 25, cursor, search: search || undefined,
@@ -451,7 +463,13 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     enabled: Boolean(selection.queryKey) && Boolean(reportQuery.data) && !reportQuery.isPlaceholderData,
     retry: false,
   })
+  const linkedGroupMarket = selection.measurementScope === 'group' && !selection.marketKey && reportQuery.data
+    ? marketForGroup(reportQuery.data.selection.scope) : undefined
   useEffect(() => {
+    if (linkedGroupMarket && !reportQuery.isPlaceholderData && !reportQuery.isFetching && !reportQuery.isError) {
+      onSelectionChange({ measurementMarketKey: linkedGroupMarket })
+      return
+    }
     if (selection.queryClass !== 'all' || !reportQuery.data || reportQuery.isPlaceholderData || reportQuery.isFetching || reportQuery.isError
       || reportQuery.data.selection.availability.state === 'unsupported' || reportQuery.data.populations.length === 0) return
     // Older links carry only a query key. Wait for its evidence when it is
@@ -475,7 +493,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
       queryClass: population.queryClass,
       ...(selection.queryKey ? { measurementQueryKey: selection.queryKey, measurementAnswer: selection.answer ? JSON.stringify(selection.answer) : undefined } : {}),
     })
-  }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
+  }, [linkedGroupMarket, selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {
@@ -487,7 +505,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
         : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
     </section>
   }
-  if (!reportQuery.data) return <section className="page-section-divider" role="status" aria-label="Loading AI visibility"><div className="h-64 animate-pulse rounded-md bg-surface" /></section>
+  if (!reportQuery.data || linkedGroupMarket) return <section className="page-section-divider" role="status" aria-label="Loading AI visibility"><div className="h-64 animate-pulse rounded-md bg-surface" /></section>
   return <div aria-busy={reportQuery.isFetching}><VisibilityReportView
     report={reportQuery.data}
     isRefreshing={reportQuery.isFetching}

@@ -116,6 +116,14 @@ export function fetchMyNewThing(name: string): Promise<MyNewDto> {
 
 ### Query control and measured results
 
+AI Visibility property drilldowns retain an explicit `measurementMarketKey` in
+URL, aggregate, evidence, pagination and cache identity. Linked groups use only
+server-declared market keys; never infer query geography from a label or shared
+property membership. Standalone property questions are grouped by saved market.
+Query administration remains an assignment editor; entering it clears the report's
+market intersection instead of silently widening a scoped edit. Linked markets
+stay under their explicit groups in both pickers.
+
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.
 Research retains ICP discovery and bounded tests. Promotion must use query-tracking preview and commit.

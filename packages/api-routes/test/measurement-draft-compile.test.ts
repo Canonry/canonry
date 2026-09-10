@@ -162,7 +162,7 @@ describe('measurement draft compiler', () => {
         urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual',
       }],
       assignments: [{ targetKey: 'widgets', queryId: 'q-best-widgets', queryClass: 'non-brand', classificationSource: 'operator' }],
-      groups: [],
+      groups: [{ stableKey: 'collection', label: 'Collection', targetKeys: ['widgets'], competitors: [] }],
     })
     const context = {
       canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [],
@@ -176,12 +176,13 @@ describe('measurement draft compiler', () => {
     const changed = compileMeasurementDraft({
       ...base,
       defaultContext: { providers: ['gemini'], locations: [] },
-      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [edge] }],
+      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', groupKey: 'collection', usageEdges: [edge] }],
     }, context)
 
     expect(changed.ok).toBe(true)
     if (!changed.ok) return
     expect(changed.plan.reportingScopes?.[0]?.usageEdges).toEqual(changed.plan.usageEdges)
+    expect(changed.plan.reportingScopes?.[0]?.groupKey).toBe('collection')
     expect(changed.checks).toContainEqual(expect.objectContaining({ ruleId: 'reporting-scope-edge-rebuilt', severity: 'warn' }))
   })
 

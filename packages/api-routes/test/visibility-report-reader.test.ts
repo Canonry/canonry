@@ -199,6 +199,88 @@ describe('buildVisibilityReport', () => {
     expect(population.queries.total).toBe(1)
   })
 
+  it('intersects a linked market with its group before summary, evidence, competitors, and filters', () => {
+    const selection = {
+      queryClass: 'non-brand' as const,
+      scope: 'group' as const,
+      scopeKey: 'collection',
+      marketKey: 'alpha',
+      queryKey: 'nearby:alpha',
+      location: { kind: 'all' as const },
+      limit: 50,
+    }
+    const report = buildVisibilityReport(input({ selection }))
+    const population = report.populations[0]!
+
+    expect(report.selection.market).toMatchObject({ id: 'alpha', kind: 'market' })
+    expect(population.summary).toMatchObject({ queryCount: 1, answerCount: 1 })
+    expect(population.queries.items.map(row => row.location)).toEqual(['Alpha'])
+    expect(population.evidence.items.map(row => row.answerId)).toEqual(['answer-alpha'])
+    expect(population.competitors).toEqual([expect.objectContaining({
+      domain: 'rival.example',
+      mentionCoverage: { numerator: 1, denominator: 1, rate: 1 },
+    })])
+    expect(report.filterOptions.locations).toEqual([{ kind: 'all' }, { kind: 'exact', value: 'Alpha' }])
+  })
+
+  it('binds cursors to the selected market and rejects unknown markets', () => {
+    const selected = run()
+    selected.definition = {
+      ...selected.definition,
+      edges: selected.definition.edges.map(edge => edge.id === 'north-brand'
+        ? { ...edge, queryClass: 'non-brand' as const }
+        : edge),
+    }
+    const alpha = buildVisibilityReport(input({
+      runs: [selected],
+      selection: { queryClass: 'non-brand', scope: 'group', scopeKey: 'collection', marketKey: 'alpha', location: { kind: 'all' }, limit: 1 },
+    }))
+    const cursor = alpha.populations[0]!.queries.nextCursor
+    expect(cursor).not.toBeNull()
+    expect(() => buildVisibilityReport(input({
+      runs: [selected],
+      selection: { queryClass: 'non-brand', scope: 'group', scopeKey: 'collection', marketKey: 'beta', location: { kind: 'all' }, limit: 1, cursor: cursor! },
+    }))).toThrow('does not match the current selection')
+    expect(() => buildVisibilityReport(input({
+      selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', marketKey: 'beta', location: { kind: 'all' }, limit: 50 },
+    }))).toThrow('marketKey is not valid for market scope')
+    expect(() => buildVisibilityReport(input({
+      selection: { queryClass: 'non-brand', scope: 'project', marketKey: 'missing', location: { kind: 'all' }, limit: 50 },
+    }))).toThrow('Market "missing" is not in this frozen definition')
+  })
+
+  it('keeps a market absent from an older frozen definition as an empty trend gap', () => {
+    const older = run({ id: 'run-1', createdAt: '2026-09-03T12:00:00.000Z' })
+    older.definition = {
+      ...older.definition,
+      scopeOptions: older.definition.scopeOptions.filter(option => option.id !== 'alpha'),
+      edges: older.definition.edges.map(edge => ({ ...edge, marketKeys: edge.marketKeys.filter(key => key !== 'alpha') })),
+    }
+    const report = buildVisibilityReport(input({
+      runs: [older, run()],
+      selection: { queryClass: 'non-brand', scope: 'group', scopeKey: 'collection', marketKey: 'alpha', location: { kind: 'all' }, limit: 50 },
+    }))
+    expect(report.populations[0]!.trend.map(point => point.answerCount)).toEqual([0, 1])
+  })
+
+  it('uses a group’s single explicit market for its project-level breakdown row', () => {
+    const selected = run()
+    selected.definition = {
+      ...selected.definition,
+      scopeOptions: selected.definition.scopeOptions.map(option => option.id === 'collection'
+        ? { ...option, marketKeys: ['alpha'] }
+        : option),
+    }
+    const report = buildVisibilityReport(input({
+      runs: [selected],
+      selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50 },
+    }))
+    expect(report.populations[0]!.breakdown.groups).toEqual([expect.objectContaining({
+      id: 'collection',
+      mentionCoverage: { numerator: 1, denominator: 1, rate: 1 },
+    })])
+  })
+
   it('narrows a group’s shared-answer signals to the group’s own target edges', () => {
     const multiClass = run()
     multiClass.definition = {

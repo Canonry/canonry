@@ -1002,3 +1002,91 @@ it('client report preserves earlier unclassified history after a classified base
   expect(within(tables[1]!).getByText(reportQueryClassLabel(historicalOnly.queryClass))).toBeTruthy()
   expect(within(tables[1]!).getByText(historicalDate.slice(0, 10))).toBeTruthy()
 })
+
+
+describe('market-aware report selection', () => {
+  const market = { id: 'market-one', label: 'Market One', kind: 'market' as const, targetCount: 1, parentGroupIds: ['group-one'] }
+  const property = { id: 'property-one', label: 'Property One', kind: 'property' as const, targetCount: 1, parentGroupIds: ['group-one'], marketKeys: [market.id, 'market-two'] }
+
+  it('retains the market when drilling from a group breakdown into a property', () => {
+    const report = reportFixture()
+    const group = { id: 'group-one', label: 'Group One', kind: 'group' as const, targetCount: 1, marketKeys: [market.id] }
+    report.selection.scope = group
+    report.selection.market = market
+    report.scopeOptions.push(group, market, property)
+    report.populations[0]!.breakdown = { groups: [], properties: [{ id: property.id, label: property.label, queryCount: 1, mentionCoverage: report.populations[0]!.summary.mentionCoverage, citationCoverage: report.populations[0]!.summary.citationCoverage }] }
+    const onSelectionChange = vi.fn()
+    render(<VisibilityReportView report={report} onSelectionChange={onSelectionChange} />)
+    fireEvent.click(screen.getByRole('button', { name: property.label, exact: true }))
+    expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'property', measurementScopeKey: property.id, measurementMarketKey: market.id })
+  })
+
+  it('groups a standalone property question list by saved market without repeating shared questions', () => {
+    const report = reportFixture()
+    report.selection.scope = property
+    const secondMarket = { ...market, id: 'market-two', label: 'Market Two' }
+    report.scopeOptions.push(market, secondMarket, property)
+    const row = report.populations[0]!.queries.items[0]!
+    report.populations[0]!.queries.items = [
+      { ...row, queryKey: 'second-query', query: 'second saved question', targetKeys: [property.id], marketKeys: [secondMarket.id] },
+      { ...row, queryKey: 'first-query', query: 'first saved question', targetKeys: [property.id], marketKeys: [market.id] },
+      { ...row, queryKey: 'first-query', query: 'first saved question', provider: 'openai', targetKeys: [property.id], marketKeys: [market.id] },
+    ]
+    const view = render(<VisibilityReportView report={report} onSelectionChange={vi.fn()} />)
+    const queryDetails = view.container.querySelector('details[data-query-results]')!
+    fireEvent.click(queryDetails.querySelector('summary')!)
+    expect(within(queryDetails as HTMLElement).getByRole('heading', { name: market.label })).toBeTruthy()
+    expect(within(queryDetails as HTMLElement).getByRole('heading', { name: secondMarket.label })).toBeTruthy()
+    expect(view.container.querySelectorAll('tbody[data-query-key]')).toHaveLength(2)
+    expect([...view.container.querySelectorAll('tbody[data-query-key]')].map(element => element.getAttribute('data-query-key'))).toEqual(['first-query', 'second-query'])
+    expect(view.container.querySelectorAll('tbody[data-query-key="first-query"] tr.measurement-engine-result')).toHaveLength(2)
+  })
+
+  it('sends the same market in aggregate and answer requests and separates cached markets', async () => {
+    const requests: URL[] = []
+    const savedText = 'A recorded answer from the selected market.'
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url); requests.push(request)
+      const report = reportWithAnswer('query-context', savedText)
+      report.selection.scope = property
+      report.selection.market = { ...market, id: request.searchParams.get('marketKey')! }
+      report.scopeOptions.push(market, property)
+      return jsonResponse(report)
+    }))
+    const client = createQueryClient()
+    onTestFinished(() => client.clear())
+    const base = { measurementScope: 'property' as const, measurementScopeKey: property.id, queryClass: 'non-brand' as const, marketKey: market.id, queryKey: 'query-context' }
+    const view = render(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={base} onSelectionChange={vi.fn()} /></QueryClientProvider>)
+    await screen.findByText(savedText)
+    expect(requests.some(request => request.searchParams.has('queryKey'))).toBe(true)
+    expect(requests.every(request => request.searchParams.get('marketKey') === market.id)).toBe(true)
+    const before = requests.length
+    view.rerender(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={{ ...base, marketKey: 'market-two' }} onSelectionChange={vi.fn()} /></QueryClientProvider>)
+    await waitFor(() => expect(requests.slice(before).filter(request => request.searchParams.get('marketKey') === 'market-two')).toHaveLength(2))
+  })
+})
+
+
+it('upgrades a saved group-only URL to its explicit market before showing its report', async () => {
+  const group = { id: 'saved-group', kind: 'group' as const, label: 'Saved group', targetCount: 1, marketKeys: ['saved-market'] }
+  const market = { id: 'saved-market', kind: 'market' as const, label: 'Saved market', targetCount: 1, parentGroupIds: [group.id] }
+  const requests: URL[] = []
+  onTestFinished(mockFetch(url => {
+    const request = new URL(url); requests.push(request)
+    const report = reportFixture()
+    report.selection.scope = group
+    if (request.searchParams.get('marketKey')) report.selection.market = market
+    report.scopeOptions.push(group, market)
+    return jsonResponse(report)
+  }))
+  let currentSearch: Record<string, unknown> = { measurementScope: 'group', measurementScopeKey: group.id, queryClass: 'non-brand' }
+  function Workspace() {
+    const [search, setSearch] = useState(currentSearch)
+    return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => { currentSearch = patchVisibilitySelection(previous, patch); return currentSearch })} />
+  }
+  const client = createQueryClient()
+  onTestFinished(() => client.clear())
+  render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
+  await waitFor(() => expect(requests.some(request => request.searchParams.get('marketKey') === market.id)).toBe(true))
+  expect(currentSearch.measurementMarketKey).toBe(market.id)
+})

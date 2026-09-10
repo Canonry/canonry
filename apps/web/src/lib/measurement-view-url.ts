@@ -114,6 +114,7 @@ function parseAnswerSelection(value: unknown, queryKey: string | undefined): Vis
 export interface VisibilitySelectionState {
   measurementScope: 'project' | 'group' | 'market' | 'property'
   measurementScopeKey?: string
+  marketKey?: string
   queryClass: MeasurementQueryClass | 'unknown'
   provider?: string
   model?: string
@@ -138,7 +139,7 @@ export function parseVisibilitySelection(search: Record<string, unknown>): Visib
   }
   if (result.measurementScope !== 'project') result.measurementScopeKey = key
   for (const [urlKey, field] of [
-    ['measurementProvider', 'provider'], ['measurementModel', 'model'], ['measurementLocation', 'location'],
+    ['measurementMarketKey', 'marketKey'], ['measurementProvider', 'provider'], ['measurementModel', 'model'], ['measurementLocation', 'location'],
     ['measurementFrom', 'from'], ['measurementTo', 'to'], ['measurementRunId', 'measurementRunId'], ['measurementQueryKey', 'queryKey'],
   ] as const) {
     const value = string(urlKey)
@@ -157,7 +158,7 @@ export function patchVisibilitySelection(
 ): Record<string, unknown> {
   const next = { ...previous, ...patch }
   if ([
-    'measurementScope', 'measurementScopeKey', 'queryClass', 'measurementProvider', 'measurementModel',
+    'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass', 'measurementProvider', 'measurementModel',
     'measurementLocation', 'measurementFrom', 'measurementTo', 'measurementRevision', 'measurementRunId',
   ].some(key => key in patch)) {
     // Filter changes close answers unless the caller explicitly carries an
@@ -170,6 +171,7 @@ export function patchVisibilitySelection(
   // Legacy scope tokens must not reappear when the user returns to the project.
   if ('measurementScope' in patch) {
     next.scope = undefined
+    if (!('measurementMarketKey' in patch)) next.measurementMarketKey = undefined
     next.measurementQueryKey = undefined
     if (patch.measurementScope === 'project') next.measurementScopeKey = undefined
   }

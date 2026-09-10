@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
-import { VisibilityScopePicker } from '../src/components/project/VisibilityScopePicker.js'
+import { VisibilityScopePicker, MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 
 afterEach(cleanup)
 
@@ -157,5 +157,59 @@ describe('group-first scope navigation', () => {
     fireEvent.keyDown(search, { key: 'Escape' })
     expect(view.container.querySelector('details')!.open).toBe(false)
     expect(document.activeElement).toBe(view.container.querySelector('summary'))
+  })
+})
+
+
+describe('market context through property navigation', () => {
+  const marketScopes: VisibilityReportScopeOption[] = scopes.map(scope => ({
+    ...scope,
+    ...(['center', 'waterfront'].includes(scope.id) ? { marketKeys: [`market-${scope.id}`] } : scope.id === 'a' ? { marketKeys: ['market-center', 'market-waterfront'] } : {}),
+  })).concat(['center', 'waterfront'].map(id => ({ id: `market-${id}`, label: `${id} questions`, kind: 'market' as const, targetCount: 1, parentGroupIds: [id] })))
+  const property = marketScopes.find(scope => scope.id === 'a')!
+  const region = marketScopes.find(scope => scope.id === 'north')!
+
+  it.each(['center', 'waterfront'])('keeps %s when selecting a shared property and reopening from its URL', id => {
+    const group = marketScopes.find(scope => scope.id === id)!
+    const view = openPicker(vi.fn(), marketScopes)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(region.label) }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(group.label) }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) }))
+    expect(view.onSelect).toHaveBeenLastCalledWith(property, `market-${id}`)
+    view.unmount()
+    const restored = render(<VisibilityScopePicker options={marketScopes} selected={property} marketKey={`market-${id}`} onSelect={view.onSelect} />)
+    fireEvent.click(restored.container.querySelector('summary')!)
+    expect(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(group.label) })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) }))
+    expect(view.onSelect).toHaveBeenLastCalledWith(property, `market-${id}`)
+  })
+
+  it('limits property choices to the linked market when it covers only part of a group', () => {
+    const group = marketScopes.find(scope => scope.id === 'center')!
+    const sibling = { ...marketScopes.find(scope => scope.id === 'b')!, parentGroupIds: [region.id, group.id] }
+    const options = marketScopes.map(scope => scope.id === sibling.id ? sibling : scope.id === group.id ? { ...group, targetCount: 2 } : scope)
+    openPicker(vi.fn(), options)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(region.label) }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(group.label) }))
+    expect(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: MARKET_SCOPE_COPY.select(sibling.label) })).toBeNull()
+  })
+
+  it('selects the exact question market for a group', () => {
+    const group = marketScopes.find(scope => scope.id === 'center')!
+    const view = openPicker(vi.fn(), marketScopes)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(region.label) }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(group.label) }))
+    expect(view.onSelect).toHaveBeenLastCalledWith(group, group.marketKeys![0])
+  })
+
+  it('opens a direct property selection across all its markets and clears a previous market', () => {
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={marketScopes} selected={property} onSelect={onSelect} />)
+    expect(view.container.querySelector('summary')!.textContent).toContain(MARKET_SCOPE_COPY.allMarkets)
+    fireEvent.click(view.container.querySelector('summary')!)
+    expect(screen.queryByRole('button', { name: MARKET_SCOPE_COPY.select(marketScopes.find(scope => scope.id === 'center')!.label) })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) }))
+    expect(onSelect).toHaveBeenCalledWith(property)
   })
 })

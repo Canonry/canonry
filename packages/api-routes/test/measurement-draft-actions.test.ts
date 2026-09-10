@@ -433,14 +433,14 @@ describe('measurement draft group hierarchy', () => {
 })
 
 
-it('configures a named market from exact frozen memberships without changing assignments', () => {
+it('configures a named market from exact frozen memberships and an explicit containing group without changing assignments', () => {
   const authoring = audienceFixture()
   authoring.assignments = [{
     targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
     executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'existing-context' }],
   }]
   const edge = { executionNodeKey: 'existing-context', targetKey: 'dallas-1', queryId: 'q-market' }
-  const market = { stableKey: 'uptown', kind: 'market', label: 'Uptown', usageEdges: [edge] }
+  const market = { stableKey: 'uptown', kind: 'market', label: 'Uptown', groupKey: 'dallas', usageEdges: [edge] }
   const added = applyDraftAction('upsert-market', authoring, { market }, audienceContext).authoring
   expect(added.reportingScopes).toEqual([market])
   expect(added.assignments).toEqual(authoring.assignments)
@@ -449,6 +449,9 @@ it('configures a named market from exact frozen memberships without changing ass
   const renamed = applyDraftAction('upsert-market', added, { market: { ...market, label: 'Uptown district' } }, audienceContext).authoring
   expect(renamed.reportingScopes).toHaveLength(1)
   expect(renamed.reportingScopes?.[0]?.label).toBe('Uptown district')
+  expect(renamed.reportingScopes?.[0]?.groupKey).toBe('dallas')
   expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, usageEdges: [{ ...edge, executionNodeKey: 'unpublished' }] } }, audienceContext)).toThrow(/existing frozen assignments/)
   expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, usageEdges: [edge, edge] } }, audienceContext)).toThrow(/duplicate assignment/)
+  expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, groupKey: 'missing' } }, audienceContext)).toThrow(/existing group containing all its assigned properties/)
+  expect(() => applyDraftAction('upsert-market', authoring, { market: { ...market, groupKey: 'luxury' } }, audienceContext)).toThrow(/existing group containing all its assigned properties/)
 })

@@ -115,6 +115,8 @@ export interface VisibilityReportReaderSelection {
   queryClass: 'branded' | 'non-brand' | 'unknown' | 'all'
   scope: VisibilityReportScopeKind
   scopeKey?: string
+  /** Exact frozen reporting-scope selection layered onto the primary scope. */
+  marketKey?: string
   provider?: string
   model?: string
   location: VisibilityReportLocationSelection
@@ -166,6 +168,7 @@ interface Candidate {
 
 interface ScopeResolution {
   option: VisibilityReportScopeOption
+  market?: VisibilityReportScopeOption
   edgeIds: Set<string>
 }
 
@@ -217,37 +220,44 @@ function scopeResolution(
 ): ScopeResolution {
   const project = definition.scopeOptions.find(option => option.kind === 'project')
   if (!project) throw new VisibilityReportScopeError('Frozen definition has no project scope.')
+
+  let option = project
+  let edgeIds: Set<string>
   if (selection.scope === 'project') {
-    return { option: project, edgeIds: new Set(definition.edges.map(edge => edge.id)) }
-  }
-
-  const key = selection.scopeKey
-  if (!key) throw new VisibilityReportScopeError(`${selection.scope} scope requires a scope key.`)
-  const option = definition.scopeOptions.find(candidate => candidate.kind === selection.scope && candidate.id === key)
-  if (!option) throw new VisibilityReportScopeError(`${selection.scope} scope "${key}" is not in this frozen definition.`)
-
-  if (selection.scope === 'property') {
-    return {
-      option,
-      edgeIds: new Set(definition.edges.filter(edge => edge.targetKey === key).map(edge => edge.id)),
-    }
-  }
-  if (selection.scope === 'group') {
-    const group = definition.groups.find(candidate => candidate.id === key)
-    if (!group) throw new VisibilityReportScopeError(`Group "${key}" is not in this frozen definition.`)
-    const targetKeys = new Set(group.targetKeys)
-    return {
-      option,
-      edgeIds: new Set(definition.edges.filter(edge => targetKeys.has(edge.targetKey)).map(edge => edge.id)),
+    edgeIds = new Set(definition.edges.map(edge => edge.id))
+  } else {
+    const key = selection.scopeKey
+    if (!key) throw new VisibilityReportScopeError(`${selection.scope} scope requires a scope key.`)
+    const scoped = definition.scopeOptions.find(candidate => candidate.kind === selection.scope && candidate.id === key)
+    if (!scoped) throw new VisibilityReportScopeError(`${selection.scope} scope "${key}" is not in this frozen definition.`)
+    option = scoped
+    if (selection.scope === 'property') {
+      edgeIds = new Set(definition.edges.filter(edge => edge.targetKey === key).map(edge => edge.id))
+    } else if (selection.scope === 'group') {
+      const group = definition.groups.find(candidate => candidate.id === key)
+      if (!group) throw new VisibilityReportScopeError(`Group "${key}" is not in this frozen definition.`)
+      const targetKeys = new Set(group.targetKeys)
+      edgeIds = new Set(definition.edges.filter(edge => targetKeys.has(edge.targetKey)).map(edge => edge.id))
+    } else {
+      // A market scope selects only exact frozen triples. A Target that has an
+      // Alpha and a Beta node does not let Alpha borrow Beta by target membership.
+      edgeIds = new Set(definition.edges.filter(edge => edge.marketKeys.includes(key)).map(edge => edge.id))
     }
   }
 
-  // Crucial: market scope selects only exact frozen triples. A Target that has
-  // an Alpha and a Beta node does NOT let Alpha borrow Beta merely because both
-  // edges name the same Target.
+  if (selection.scope === 'market' && selection.marketKey !== undefined) {
+    throw new VisibilityReportScopeError('marketKey is not valid for market scope.')
+  }
+  const marketKey = selection.scope === 'market' ? selection.scopeKey : selection.marketKey
+  if (marketKey === undefined) return { option, edgeIds }
+  const market = definition.scopeOptions.find(candidate => candidate.kind === 'market' && candidate.id === marketKey)
+  if (!market) throw new VisibilityReportScopeError(`Market "${marketKey}" is not in this frozen definition.`)
   return {
     option,
-    edgeIds: new Set(definition.edges.filter(edge => edge.marketKeys.includes(key)).map(edge => edge.id)),
+    market,
+    edgeIds: new Set(definition.edges
+      .filter(edge => edgeIds.has(edge.id) && edge.marketKeys.includes(marketKey))
+      .map(edge => edge.id)),
   }
 }
 
@@ -262,6 +272,9 @@ function scopeTargetKeys(
   selection: VisibilityReportReaderSelection,
 ): string[] {
   const resolution = scopeResolution(definition, selection)
+  if (resolution.market !== undefined) return [...new Set(definition.edges
+    .filter(edge => resolution.edgeIds.has(edge.id))
+    .map(edge => edge.targetKey))].sort(compareText)
   if (selection.scope === 'project') return definition.targets.map(target => target.id).sort(compareText)
   if (selection.scope === 'property') return [resolution.option.id]
   if (selection.scope === 'group') {
@@ -509,12 +522,19 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
       model: first.observation?.model ?? null,
       location: first.slot.location,
       targetKeys: selectedTargetKeys(rows),
+      ...(() => {
+        const marketKeys = [...new Set(rows.flatMap(row => row.edges.flatMap(edge => edge.marketKeys)))].sort(compareText)
+        return marketKeys.length === 0 ? {} : { marketKeys }
+      })(),
       answerCount: value.answerCount,
       mentionCoverage: value.mentionCoverage,
       citationCoverage: value.citationCoverage,
     }
   }).sort((left, right) => (
-    compareText(normalizeText(left.query), normalizeText(right.query))
+    (selection.scope === 'property' && selection.marketKey === undefined
+      ? compareText((left.marketKeys ?? []).join('\u0000'), (right.marketKeys ?? []).join('\u0000'))
+      : 0)
+    || compareText(normalizeText(left.query), normalizeText(right.query))
     || compareText(left.provider, right.provider)
     || compareText(left.model ?? '', right.model ?? '')
     || compareText(left.location ?? '', right.location ?? '')
@@ -636,7 +656,12 @@ function breakdown(
     .filter(({ targetKeys }) => targetKeys.length > 0)
     .map(({ group, targetKeys }) => {
       const groupTargetKeys = new Set(targetKeys)
-      const own = candidates
+      const explicitMarkets = definition.scopeOptions.find(option => option.kind === 'group' && option.id === group.id)?.marketKeys
+      const groupCandidates = explicitMarkets?.length === 1
+        ? candidates.map(candidate => ({ ...candidate, edges: candidate.edges.filter(edge => edge.marketKeys.includes(explicitMarkets[0]!)) }))
+          .filter(candidate => candidate.edges.length > 0)
+        : candidates
+      const own = groupCandidates
         .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
         .filter((candidate): candidate is Candidate => candidate !== null)
       const metrics = mentionRate(own, targets)
@@ -697,6 +722,7 @@ function page<Row>(
     queryClass,
     scope: input.selection.scope,
     scopeKey: input.selection.scopeKey ?? null,
+    marketKey: input.selection.marketKey ?? null,
     provider: input.selection.provider ?? null,
     model: input.selection.model ?? null,
     location: input.selection.location,
@@ -821,7 +847,8 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
     ? (input.preferredRunId === undefined ? runs.at(-1) : runs.find(run => run.id === input.preferredRunId))
     : runs.find(run => run.id === input.selection.runId)
   const definition = selectedRun?.definition ?? input.activeDefinition
-  const selectedScope = scopeResolution(definition, input.selection).option
+  const selectedResolution = scopeResolution(definition, input.selection)
+  const selectedScope = selectedResolution.option
   const populationTargetKeys = scopeTargetKeys(definition, input.selection)
   const classes = selectedClasses(input.selection.queryClass)
   const runCandidates = new Map<string, Map<VisibilityReportPopulationClass, Candidate[]>>()
@@ -884,6 +911,7 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
       mode: input.mode,
       queryClass: input.selection.queryClass,
       scope: selectedScope,
+      ...(selectedResolution.market === undefined ? {} : { market: selectedResolution.market }),
       provider: input.selection.provider ?? null,
       model: input.selection.model ?? null,
       location: input.selection.location,

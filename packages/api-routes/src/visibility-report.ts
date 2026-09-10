@@ -268,16 +268,47 @@ function v2Definition(
   for (const group of plan.groups) {
     for (const targetKey of group.targetKeys) groupKeysForTarget.get(targetKey)?.push(group.stableKey)
   }
+  const marketKeysForGroup = new Map<string, string[]>()
+  const marketKeysForTarget = new Map(plan.targets.map(target => [target.stableKey, [] as string[]]))
+  for (const market of plan.reportingScopes ?? []) {
+    if (market.groupKey !== undefined) {
+      const keys = marketKeysForGroup.get(market.groupKey) ?? []
+      keys.push(market.stableKey)
+      marketKeysForGroup.set(market.groupKey, keys)
+    }
+    for (const edge of market.usageEdges) marketKeysForTarget.get(edge.targetKey)?.push(market.stableKey)
+  }
   const scopeOptions = [
     { id: 'project', label: 'Project', kind: 'project' as const, targetCount: plan.targets.length },
-    ...plan.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length, ...(group.parentGroupKey === undefined ? {} : { parentGroupIds: [group.parentGroupKey] }) })),
+    ...plan.groups.map(group => {
+      const marketKeys = [...new Set(marketKeysForGroup.get(group.stableKey) ?? [])].sort()
+      return {
+        id: group.stableKey,
+        label: group.label,
+        kind: 'group' as const,
+        targetCount: group.targetKeys.length,
+        ...(group.parentGroupKey === undefined ? {} : { parentGroupIds: [group.parentGroupKey] }),
+        ...(marketKeys.length === 0 ? {} : { marketKeys }),
+      }
+    }),
     ...plan.reportingScopes?.map(market => ({
       id: market.stableKey,
       label: market.label,
       kind: 'market' as const,
       targetCount: new Set(market.usageEdges.map(edge => edge.targetKey)).size,
+      ...(market.groupKey === undefined ? {} : { parentGroupIds: [market.groupKey] }),
     })) ?? [],
-    ...plan.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1, parentGroupIds: [...new Set(groupKeysForTarget.get(target.stableKey) ?? [])].sort() })),
+    ...plan.targets.map(target => {
+      const marketKeys = [...new Set(marketKeysForTarget.get(target.stableKey) ?? [])].sort()
+      return {
+        id: target.stableKey,
+        label: target.label,
+        kind: 'property' as const,
+        targetCount: 1,
+        parentGroupIds: [...new Set(groupKeysForTarget.get(target.stableKey) ?? [])].sort(),
+        ...(marketKeys.length === 0 ? {} : { marketKeys }),
+      }
+    }),
   ]
   return {
     revision,

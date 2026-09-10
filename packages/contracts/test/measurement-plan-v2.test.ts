@@ -142,6 +142,26 @@ describe('published measurement plan v2', () => {
     }).success).toBe(false)
   })
 
+  it('round-trips an explicit market-to-group association and rejects a missing or outside group', () => {
+    const plan = planV2()
+    const edge = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
+    const scoped = measurementPlanV2Schema.parse({
+      ...plan,
+      reportingScopes: [{ stableKey: 'harbor-market', label: 'Harbor market', kind: 'market', groupKey: 'northbridge-portfolio', usageEdges: [edge] }],
+    })
+    expect(measurementPlanV2Schema.parse(JSON.parse(canonicalMeasurementPlanV2Json(scoped))).reportingScopes)
+      .toEqual(scoped.reportingScopes)
+
+    expect(measurementPlanV2Schema.safeParse({
+      ...scoped,
+      reportingScopes: [{ ...scoped.reportingScopes![0]!, groupKey: 'missing-group' }],
+    }).success).toBe(false)
+    expect(measurementPlanV2Schema.safeParse({
+      ...scoped,
+      reportingScopes: [{ ...scoped.reportingScopes![0]!, groupKey: 'northbridge-harbor' }],
+    }).success).toBe(false)
+  })
+
   it('keeps a new assignment classification basis frozen without breaking historic rows', () => {
     const plan = planV2()
     expect(plan.assignments[0]?.classificationSource).toBeUndefined()

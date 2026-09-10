@@ -56,6 +56,8 @@ const visibilityReportRequestShape = {
   queryClass: visibilityReportQueryClassSchema.default('non-brand'),
   scope: visibilityReportScopeKindSchema.default('project'),
   scopeKey: nonBlankIdSchema.optional(),
+  /** Exact frozen market refinement for a project, group, or Property selection. */
+  marketKey: nonBlankIdSchema.optional(),
   provider: nonBlankIdSchema.optional(),
   /** Exact stored served-model identity. Null/absent model evidence never matches this filter. */
   model: nonBlankIdSchema.optional(),
@@ -89,6 +91,13 @@ export const visibilityReportRequestSchema = z.object(visibilityReportRequestSha
       code: z.ZodIssueCode.custom,
       path: ['scopeKey'],
       message: 'scopeKey is not valid for project scope',
+    })
+  }
+  if (value.scope === 'market' && value.marketKey !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['marketKey'],
+      message: 'marketKey is not valid for market scope',
     })
   }
   if (value.from !== undefined && value.to !== undefined && value.from > value.to) {
@@ -165,6 +174,8 @@ export const visibilityReportScopeOptionSchema = z.object({
   targetCount: z.number().int().nonnegative(),
   /** Group and Property membership is frozen and explicit; groups have zero or one id. */
   parentGroupIds: z.array(nonBlankIdSchema).optional(),
+  /** Explicit frozen market links; absent for scopes without market metadata. */
+  marketKeys: z.array(nonBlankIdSchema).optional(),
 }).strict()
 export type VisibilityReportScopeOption = z.output<typeof visibilityReportScopeOptionSchema>
 
@@ -234,6 +245,8 @@ export const visibilityReportQueryRowSchema = z.object({
   model: z.string().nullable(),
   location: z.string().nullable(),
   targetKeys: z.array(nonBlankIdSchema),
+  /** Frozen market memberships for standalone Property query grouping. */
+  marketKeys: z.array(nonBlankIdSchema).optional(),
   answerCount: z.number().int().nonnegative(),
   mentionCoverage: visibilityReportRateSchema,
   citationCoverage: visibilityReportRateSchema,
@@ -338,6 +351,8 @@ export const visibilityReportSelectionSchema = z.object({
   mode: visibilityReportResolvedModeSchema,
   queryClass: visibilityReportQueryClassSchema,
   scope: visibilityReportScopeOptionSchema,
+  /** Selected frozen market refinement, omitted when reading the full scope. */
+  market: visibilityReportScopeOptionSchema.optional(),
   provider: z.string().nullable(),
   model: z.string().nullable(),
   location: visibilityReportLocationSelectionSchema,

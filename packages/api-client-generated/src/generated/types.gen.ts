@@ -14,6 +14,15 @@ export type VisibilityReportResponse = {
             kind: 'project' | 'group' | 'market' | 'property';
             targetCount: number;
             parentGroupIds?: Array<string>;
+            marketKeys?: Array<string>;
+        };
+        market?: {
+            id: string;
+            label: string;
+            kind: 'project' | 'group' | 'market' | 'property';
+            targetCount: number;
+            parentGroupIds?: Array<string>;
+            marketKeys?: Array<string>;
         };
         provider: string | null;
         model: string | null;
@@ -68,6 +77,7 @@ export type VisibilityReportResponse = {
         kind: 'project' | 'group' | 'market' | 'property';
         targetCount: number;
         parentGroupIds?: Array<string>;
+        marketKeys?: Array<string>;
     }>;
     filterOptions: {
         providers: Array<string>;
@@ -161,6 +171,7 @@ export type VisibilityReportResponse = {
                 model: string | null;
                 location: string | null;
                 targetKeys: Array<string>;
+                marketKeys?: Array<string>;
                 answerCount: number;
                 mentionCoverage: {
                     numerator: number | null;
@@ -296,6 +307,7 @@ export type QueryTrackingWorkspaceResponse = {
     }>;
     markets: Array<{
         stableKey: string;
+        groupKey?: string;
         label: string;
         usageEdges: Array<{
             executionNodeKey: string;
@@ -5526,6 +5538,7 @@ export type MeasurementDraftCompilePreviewResponse = {
             stableKey: string;
             label: string;
             kind: 'market';
+            groupKey?: string;
             usageEdges: Array<{
                 executionNodeKey: string;
                 targetKey: string;
@@ -5661,6 +5674,7 @@ export type MeasurementDraftDiffPreviewResponse = {
             stableKey: string;
             label: string;
             kind: 'market';
+            groupKey?: string;
             usageEdges: Array<{
                 executionNodeKey: string;
                 targetKey: string;
@@ -6311,6 +6325,7 @@ export type MeasurementDraftResponse = {
                 stableKey: string;
                 label: string;
                 kind: 'market';
+                groupKey?: string;
                 usageEdges: Array<{
                     executionNodeKey: string;
                     targetKey: string;
@@ -6401,6 +6416,7 @@ export type MeasurementDraftUpsertMarketRequest = {
         stableKey: string;
         label: string;
         kind: 'market';
+        groupKey?: string;
         usageEdges: Array<{
             executionNodeKey: string;
             targetKey: string;
@@ -7505,6 +7521,7 @@ export type MeasurementPlanResponse = {
                 stableKey: string;
                 label: string;
                 kind: 'market';
+                groupKey?: string;
                 usageEdges: Array<{
                     executionNodeKey: string;
                     targetKey: string;
@@ -7618,6 +7635,7 @@ export type MeasurementPlanV2PublishResponse = {
                 stableKey: string;
                 label: string;
                 kind: 'market';
+                groupKey?: string;
                 usageEdges: Array<{
                     executionNodeKey: string;
                     targetKey: string;
@@ -7813,6 +7831,7 @@ export type MeasurementPlanVersionResponse = {
                 stableKey: string;
                 label: string;
                 kind: 'market';
+                groupKey?: string;
                 usageEdges: Array<{
                     executionNodeKey: string;
                     targetKey: string;
@@ -9186,6 +9205,15 @@ export type ProjectReportDto = {
                 kind: 'project' | 'group' | 'market' | 'property';
                 targetCount: number;
                 parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            market?: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
             };
             provider: string | null;
             model: string | null;

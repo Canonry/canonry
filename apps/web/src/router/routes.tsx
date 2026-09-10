@@ -99,6 +99,7 @@ type SearchParams = {
   trackingQueryId?: string
   measurementScope?: string
   measurementScopeKey?: string
+  measurementMarketKey?: string
   queryClass?: string
   measurementProvider?: string
   measurementModel?: string
@@ -142,7 +143,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     scope: typeof search.scope === 'string' ? search.scope : undefined,
     class: typeof search.class === 'string' ? search.class : undefined,
     ...Object.fromEntries([
-      'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'queryClass',
+      'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
     ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
