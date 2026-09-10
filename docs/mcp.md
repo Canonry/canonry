@@ -253,7 +253,7 @@ before enabling spend.
 
 The full 213-tool catalog (211 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
 
-For shared query assignments and measured results, see [Query control and AI visibility](query-visibility.md). The setup toolkit provides workspace, preview, and commit tools. Monitoring provides `canonry_visibility_report`. Preview requires write access but starts no provider calls.
+For shared query assignments and measured results, see [Query control and AI visibility](query-visibility.md). The setup toolkit provides workspace, preview, and commit tools. Monitoring provides `canonry_visibility_report`. Its optional `marketKey` narrows a project, group, or property report to exact saved market assignments, including metrics, competitors and answer details. Omit it to read the full selected scope. Preview requires write access but starts no provider calls.
 
 Core tier (always loaded):
 
