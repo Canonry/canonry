@@ -684,7 +684,7 @@ function ResearchAnswer({
       ) : query.answerText ? (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
-          <div className="mt-1"><AnswerMarkdown>{query.answerText}</AnswerMarkdown></div>
+          <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
         </div>
       ) : (
         <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>

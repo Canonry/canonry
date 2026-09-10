@@ -23,8 +23,9 @@ import { isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
 import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
-import { AnswerMarkdown } from '../components/shared/AnswerMarkdown.js'
+import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { safeExternalUrl } from '../lib/safe-url.js'
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 
@@ -81,7 +82,7 @@ const MEASUREMENT_STATES: Record<
   not_measured: { label: 'Not measured', tone: 'neutral' },
 }
 
-const EVIDENCE_LABELS: Record<AnswerSource['classification'], { label: string; tone: 'positive' | 'caution' | 'neutral' | 'negative' }> = {
+export const EVIDENCE_LABELS: Record<AnswerSource['classification'], { label: string; tone: 'positive' | 'caution' | 'neutral' | 'negative' }> = {
   assigned: { label: 'Matches this Property', tone: 'positive' },
   sibling: { label: 'Matches another Property', tone: 'caution' },
   ownedUnmapped: { label: 'Site URL not in a Property', tone: 'caution' },
@@ -151,24 +152,27 @@ function AnswerSources({ row }: { row: AnswerRow }) {
     return <p className="py-2 text-sm text-secondary">This answer returned no source URLs at all.</p>
   }
   return (
-    <div className="overflow-x-auto">
+    <details className="mt-2" data-answer-sources>
+      <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{ANSWER_SOURCES_LABEL} ({row.sources.length})</summary>
+      <div className="overflow-x-auto">
       <table className="evidence-table min-w-[420px]">
         <caption className="sr-only">Source URLs for {row.queryText}</caption>
         <thead><tr><th>Match</th><th>URL</th></tr></thead>
         <tbody>
-          {sourcesOwnFirst(row.sources).map(source => (
+          {sourcesOwnFirst(row.sources).map(source => { const href = safeExternalUrl(source.sourceUrl); return (
             <tr key={source.sourceUrl}>
               <td>
                 <ToneBadge tone={EVIDENCE_LABELS[source.classification].tone}>
                   {EVIDENCE_LABELS[source.classification].label}
                 </ToneBadge>
               </td>
-              <td className="break-all text-secondary">{source.sourceUrl}</td>
+              <td className="break-all text-secondary">{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-link underline">{source.sourceUrl}</a> : source.sourceUrl}</td>
             </tr>
-          ))}
+          ) })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </details>
   )
 }
 
@@ -213,8 +217,7 @@ function AnswerText({ project, targetKey, row }: { project: string; targetKey: s
   }
   return (
     <div className="py-2">
-      <h4 className="mb-1 text-xs font-medium tracking-wide text-muted uppercase">What {row.provider} answered</h4>
-      <div className="max-h-96 overflow-y-auto"><AnswerMarkdown>{answer}</AnswerMarkdown></div>
+      <AnswerMarkdown headingLevel={4} copyable>{answer}</AnswerMarkdown>
     </div>
   )
 }
@@ -1051,8 +1054,8 @@ export function MeasurementPropertyPage() {
           <p className="text-sm text-secondary">No answers matched this Property in the displayed measurement.</p>
         ) : (
           <>
-            <div className="overflow-x-auto rounded-md border border-default">
-              <table className="evidence-table min-w-[720px]">
+            <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
+              <table className="evidence-table property-evidence-table">
                 <caption className="sr-only">Answers measured for this Property</caption>
                 <thead>
                   <tr>
@@ -1067,11 +1070,12 @@ export function MeasurementPropertyPage() {
                   {evidenceRows.map(item => {
                     const key = answerKey(item)
                     const expanded = expandedAnswers.has(key)
+                    const detailId = `property-answer-${encodeURIComponent(key)}`
                     return (
                       <Fragment key={key}>
-                        <tr>
+                        <tr className="property-answer-summary">
                           <td className="text-secondary">
-                            <span className="block">{item.queryText}</span>
+                            <h3 className="text-sm font-medium text-heading">{item.queryText}</h3>
                             <span className="mt-1 block text-xs text-muted">
                               {[item.provider, item.location].filter(Boolean).join(' · ')}
                             </span>
@@ -1079,15 +1083,17 @@ export function MeasurementPropertyPage() {
                               <span className="mt-1 flex"><ToneBadge tone="caution">Historical</ToneBadge></span>
                             ) : null}
                           </td>
-                          <td><MentionSignal row={item} /></td>
-                          <td><CitationSignal row={item} /></td>
-                          <td className="tabular-nums text-secondary">{item.cited === null ? EM_DASH : item.sources.length}</td>
+                          <td><span className="property-evidence-mobile-label" aria-hidden="true">Mentioned</span><MentionSignal row={item} /></td>
+                          <td><span className="property-evidence-mobile-label" aria-hidden="true">Cited</span><CitationSignal row={item} /></td>
+                          <td className="tabular-nums text-secondary"><span className="property-evidence-mobile-label" aria-hidden="true">{ANSWER_SOURCES_LABEL}</span>{item.cited === null ? EM_DASH : item.sources.length}</td>
                           <td className="text-right">
                             <Button
                               type="button"
                               size="sm"
                               variant="ghost"
+                              className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
                               aria-expanded={expanded}
+                              aria-controls={expanded ? detailId : undefined}
                               onClick={() => setExpandedAnswers(current => {
                                 const next = new Set(current)
                                 if (!next.delete(key)) next.add(key)
@@ -1099,8 +1105,8 @@ export function MeasurementPropertyPage() {
                           </td>
                         </tr>
                         {expanded ? (
-                          <tr>
-                            <td colSpan={5} className="bg-surface-subtle px-4">
+                          <tr className="property-answer-detail">
+                            <td id={detailId} colSpan={5} className="bg-surface-subtle px-4">
                               {/* The answer leads. The source list is the supporting
                                   detail, not the point: a reader who opened this row
                                   wants to know what was said before who was linked. */}

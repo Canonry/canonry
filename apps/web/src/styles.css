@@ -2289,6 +2289,24 @@
     .measurement-result-mobile-label { @apply mb-2 block text-sm text-secondary; }
   }
 
+  .property-answer-table-container { container-type: inline-size; }
+  .property-evidence-table { min-width: 720px; }
+  .property-evidence-mobile-label { display: none; }
+
+  @container (max-width: 52rem) {
+    .property-evidence-table,
+    .property-evidence-table > tbody { display: block; width: 100%; min-width: 0; }
+    .property-evidence-table > thead { @apply sr-only; }
+    .property-answer-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .property-answer-summary > td { @apply px-3 py-2; min-width: 0; overflow-wrap: anywhere; }
+    .property-answer-summary > td:first-child,
+    .property-answer-summary > td:last-child { grid-column: 1 / -1; text-align: left; }
+    .property-answer-detail,
+    .property-answer-detail > td { display: block; width: 100%; min-width: 0; }
+    .property-answer-detail > td { @apply px-3 py-4; }
+    .property-evidence-mobile-label { @apply mb-1 block text-sm text-secondary; }
+  }
+
   .query-tracking-workspace { container-type: inline-size; }
   .tracking-query-cell { min-width: 18rem; }
   .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
@@ -2727,11 +2745,14 @@
     overflow-wrap: anywhere;
   }
 
-  .answer-markdown :is(h1, h2, h3, h4, h5, h6) {
-    @apply mt-4 mb-2 text-sm font-semibold text-heading first:mt-0;
+  .answer-markdown :is(h2, h3, h4, h5, h6) {
+    @apply mt-5 mb-2 text-sm font-semibold text-heading first:mt-0;
   }
 
-  .answer-markdown :is(h1, h2) { @apply text-base; }
+  .answer-markdown [data-answer-heading-level="1"] { @apply mt-6 text-base first:mt-0; }
+  .answer-markdown li > p { @apply mb-2 last:mb-0; }
+  .answer-markdown li > :is(ul, ol) { @apply mt-2 mb-0; }
+  .answer-markdown li + li:has(> p) { @apply mt-3; }
   .answer-markdown strong { @apply font-semibold text-heading; }
   .answer-markdown blockquote { @apply mb-3 border-l-2 border-strong pl-3; }
   .answer-markdown hr { @apply my-4 border-default; }
