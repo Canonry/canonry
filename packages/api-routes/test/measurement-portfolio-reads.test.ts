@@ -13,6 +13,8 @@ import {
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsResponse,
+  type ProjectReportDto,
+  type VisibilityReportResponse,
 } from '@ainyc/canonry-contracts'
 import {
   createClient,
@@ -225,6 +227,42 @@ afterEach(async () => {
 })
 
 describe('measurement portfolio reads', () => {
+  it.each(['complete', 'missing-answer', 'partial-citation'] as const)('keeps summary, dashboard and client coverage consistent for %s evidence', async scenario => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId, { status: scenario === 'missing-answer' ? 'partial' : 'completed' })
+    const slot = (provider: string) => and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider))
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is listed.', citedUrls: ['https://northstar.example/locations/harbor'], captureStatus: 'complete' }).where(slot('openai')).run()
+    if (scenario === 'missing-answer') db.delete(querySnapshots).where(slot('gemini')).run()
+    if (scenario === 'partial-citation') db.update(querySnapshots).set({ captureStatus: 'partial' }).where(slot('gemini')).run()
+
+    const summary = await portfolio(`queryClass=non-brand&runId=${runId}`)
+    expect(summary.status).toBe(200)
+    const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/visibility-report?queryClass=non-brand&runId=${runId}` })
+    expect(response.statusCode, response.body).toBe(200)
+    const measured = response.json<VisibilityReportResponse>().populations[0]!.summary
+    const reportResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/report' })
+    expect(reportResponse.statusCode, reportResponse.body).toBe(200)
+    const report = reportResponse.json<ProjectReportDto>().visibility!.populations.find(row => row.queryClass === 'non-brand')!.summary
+    expect(report).toEqual(measured)
+    for (const key of ['mentionCoverage', 'citationCoverage'] as const) {
+      const metric = summary.body.metrics[key]
+      expect(metric.state === 'available' ? metric.value : null).toBe(measured[key].rate)
+    }
+    const reach = summary.body.metrics.propertiesMentioned
+    expect(reach.state === 'available' ? reach.value : null).toBe(measured.propertyReach.numerator)
+    expect(measured.mentionCoverage.rate).toBe(scenario === 'missing-answer' ? null : 0.5)
+    expect(measured.citationCoverage.rate).toBe(scenario === 'complete' ? 0.5 : null)
+
+    // Missing evidence outside the chosen provider must not poison its rate.
+    const filtered = await portfolio(`queryClass=non-brand&runId=${runId}&provider=openai`)
+    expect(filtered.body.metrics.mentionCoverage).toMatchObject({ state: 'available', value: 1, numerator: 1, denominator: 1 })
+    expect(filtered.body.metrics.citationCoverage).toMatchObject({ state: 'available', value: 1, numerator: 1, denominator: 1 })
+    const filteredResponse = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/visibility-report?queryClass=non-brand&runId=${runId}&provider=openai` })
+    expect(filteredResponse.statusCode, filteredResponse.body).toBe(200)
+    expect(filteredResponse.json<VisibilityReportResponse>().populations[0]!.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+
   it('defaults to the latest completed full non-probe run and ranks measured weaknesses by mention then citation', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
@@ -298,9 +336,9 @@ describe('measurement portfolio reads', () => {
     expect(status).toBe(200)
     expect(body.weakestProperties).toHaveLength(1)
     expect(portfolioReadWork.evaluatorBuilds).toBe(1)
-    // One non-brand execution is shared by both Properties on two providers.
-    // A limit of one therefore reads two target-answer states, not all four.
-    expect(portfolioReadWork.targetMentionChecks).toBe(2)
+    // Recommendation rows reuse the already prepared per-target tri-state,
+    // including identity uncertainty, without repeating lexical attribution.
+    expect(portfolioReadWork.targetMentionChecks).toBe(0)
   })
 
   it('scopes each market to its own members, worst-first, and agrees with a group-scoped read', async () => {

@@ -313,6 +313,9 @@ function mergeTargets(authoring: MeasurementDraftAuthoring, body: unknown): Draf
   const merged: MeasurementDraftTarget = {
     ...survivor,
     aliases: unique([...survivor.aliases, ...authoring.targets.filter(target => absorbedSet.has(target.stableKey)).flatMap(target => target.aliases)]),
+    ...([survivor, ...authoring.targets.filter(target => absorbedSet.has(target.stableKey))].some(target => target.identityAliases !== undefined)
+      ? { identityAliases: unique([...(survivor.identityAliases ?? []), ...authoring.targets.filter(target => absorbedSet.has(target.stableKey)).flatMap(target => target.identityAliases ?? [])]) }
+      : {}),
     urlMatchers: unique([...survivor.urlMatchers, ...authoring.targets.filter(target => absorbedSet.has(target.stableKey)).flatMap(target => target.urlMatchers)]),
   }
 

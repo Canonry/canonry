@@ -49,12 +49,15 @@ test('reads the answer-visibility schedule and renders its real nextRunAt in the
   expect(container.querySelector('time')?.dateTime).toBe(schedule.nextRunAt)
 })
 
-test('uses the portfolio schedule label and exposes its Canonry-team ownership as help', async () => {
-  const nextRunAt = '2026-09-23T06:00:00.000Z'
-  const { container } = renderSchedule({ ...schedule, nextRunAt }, 200, 'answer-visibility', false, true)
-  await screen.findByText(/Next Portfolio AI visibility Sweep:/)
-  expect(screen.getByRole('status').textContent).toContain('Next Portfolio AI visibility Sweep: September 23rd, 2026')
-  expect(screen.getByRole('button', { name: 'This is managed by your Canonry team.' })).toBeTruthy()
+test('portfolio uses the same concise local date without a tooltip', async () => {
+  const nextRunAt = '2026-09-23T04:00:00.000Z'
+  const { container, client } = renderSchedule({ ...schedule, nextRunAt }, 200, 'answer-visibility', false, true)
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  const date = new Date('2026-09-23T12:00:00.000Z').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', timeZone: 'UTC',
+  })
+  expect(screen.getByRole('status').textContent).toBe(`${MANAGED_SWEEPS_NEXT_LABEL} ${date}`)
+  expect(screen.queryByRole('button')).toBeNull()
   expect(container.querySelector('time')?.dateTime).toBe(nextRunAt)
 })
 

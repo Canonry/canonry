@@ -3644,12 +3644,12 @@ export class ApiClient {
     }))
   }
 
-  async listResearchRuns(project: string, opts?: { limit?: number }): Promise<ResearchRunListDto> {
+  async listResearchRuns(project: string, opts?: { limit?: number; cursor?: string }): Promise<ResearchRunListDto> {
     return this.invoke<ResearchRunListDto>(() =>
       getApiV1ProjectsByNameResearchRuns({
         client: this.heyClient,
         path: { name: project },
-        query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
+        query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined, cursor: opts?.cursor } as never,
       }),
     )
   }

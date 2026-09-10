@@ -69,6 +69,8 @@ export interface VisibilityReportObservationInput {
   /** A persisted legacy mention boolean can be complete even where answer text was not retained. */
   mentionComplete?: boolean
   mentionedTargetKeys: readonly string[]
+  /** Per-Property unresolved identity; does not erase another Property's known mention. */
+  unknownMentionTargetKeys?: readonly string[]
   citedTargetKeys: readonly string[]
   citationComplete: boolean
   competitorMentionDomains: readonly string[]
@@ -195,14 +197,14 @@ function selectedClasses(value: VisibilityReportReaderSelection['queryClass']): 
   return value === 'all' ? ALL_CLASSES : [value]
 }
 
-function unavailable(reason: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable'): VisibilityReportRate {
+function unavailable(reason: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable'): VisibilityReportRate {
   return { numerator: null, denominator: null, rate: null, reason }
 }
 
-function rate(values: readonly (boolean | null)[], expected: number): VisibilityReportRate {
+function rate(values: readonly (boolean | null)[], expected: number, unknownReason: 'evidence-incomplete' | 'identity-ambiguous' = 'evidence-incomplete'): VisibilityReportRate {
   if (expected === 0) return unavailable('no-population')
   if (values.length !== expected) return unavailable('incomplete')
-  if (values.some(value => value === null)) return unavailable('evidence-incomplete')
+  if (values.some(value => value === null)) return unavailable(unknownReason)
   const denominator = values.length
   if (denominator === 0) return unavailable('no-population')
   const numerator = values.filter(Boolean).length
@@ -340,27 +342,40 @@ function targetValues(
 ): {
   mention: boolean | null
   citation: boolean | null
+  mentionUnavailableReason?: 'identity-ambiguous'
 } {
   const targetKeys = targetKey === undefined
     ? [...new Set(candidate.edges.map(edge => edge.targetKey))]
     : [targetKey]
   const eligible = targetKeys.filter(key => targets.get(key)?.mentionEligible === true)
   const observation = candidate.observation
+  const citation = observation && targetKeys.some(key => observation.citedTargetKeys.includes(key))
+    ? true
+    : observation?.citationComplete && targetKeys.length > 0 ? false : null
   const mentionComplete = observation !== null && (observation.mentionComplete ?? observation.answerText !== null)
   if (!observation || !mentionComplete || eligible.length === 0) {
     return {
       mention: null,
-      citation: observation?.citationComplete === true && targetKeys.length > 0
-        ? targetKeys.some(key => observation.citedTargetKeys.includes(key))
-        : null,
+      citation,
     }
   }
-  return {
-    mention: eligible.some(key => observation.mentionedTargetKeys.includes(key)),
-    citation: observation.citationComplete
-      ? targetKeys.some(key => observation.citedTargetKeys.includes(key))
-      : null,
+  if (eligible.some(key => observation.mentionedTargetKeys.includes(key))) return { mention: true, citation }
+  if (eligible.some(key => observation.unknownMentionTargetKeys?.includes(key))) {
+    return { mention: null, citation, mentionUnavailableReason: 'identity-ambiguous' }
   }
+  return { mention: false, citation }
+}
+
+function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string): boolean | null {
+  // A captured positive remains useful answer evidence, while aggregate rates
+  // retain the report's complete-capture denominator contract.
+  return candidate.observation?.citationComplete ? targetValues(candidate, targets, targetKey).citation : null
+}
+
+function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string) {
+  const values = candidates.map(candidate => targetValues(candidate, targets, targetKey))
+  return rate(values.map(value => value.mention), values.length,
+    values.some(value => value.mentionUnavailableReason === 'identity-ambiguous') ? 'identity-ambiguous' : 'evidence-incomplete')
 }
 
 function answered(candidate: Candidate): boolean {
@@ -382,26 +397,42 @@ function targetMetrics(
 ): { mentionCoverage: VisibilityReportRate; citationCoverage: VisibilityReportRate } {
   const own = candidates.filter(candidate => candidate.edges.some(edge => edge.targetKey === targetKey))
   return {
-    mentionCoverage: rate(own.map(candidate => targetValues(candidate, targets, targetKey).mention), own.length),
-    citationCoverage: rate(own.map(candidate => targetValues(candidate, targets, targetKey).citation), own.length),
+    mentionCoverage: mentionRate(own, targets, targetKey),
+    citationCoverage: rate(own.map(candidate => citationForCoverage(candidate, targets, targetKey)), own.length),
   }
 }
 
-function outcomeCounts(
+function targetPresence(
   candidates: readonly Candidate[],
   targets: ReadonlyMap<string, VisibilityReportTargetInput>,
-  targetKeys: readonly string[],
+  targetKey: string,
 ) {
-  const counts = { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: targetKeys.length }
-  for (const targetKey of targetKeys) {
-    const metrics = targetMetrics(candidates, targets, targetKey)
-    if (metrics.mentionCoverage.numerator === null || metrics.citationCoverage.numerator === null) {
+  const values = candidates
+    .filter(candidate => candidate.edges.some(edge => edge.targetKey === targetKey))
+    .map(candidate => targetValues(candidate, targets, targetKey))
+  // Reach asks whether any answer establishes the signal. An uncertain second
+  // answer changes coverage, but cannot erase an already verified occurrence.
+  const anyKnown = (signals: readonly (boolean | null)[]): boolean | null => (
+    signals.includes(true) ? true : signals.length === 0 || signals.includes(null) ? null : false
+  )
+  return {
+    targetKey,
+    mention: anyKnown(values.map(value => value.mention)),
+    citation: anyKnown(values.map(value => value.citation)),
+    identityAmbiguous: values.some(value => value.mentionUnavailableReason === 'identity-ambiguous'),
+  }
+}
+
+function outcomeCounts(rows: readonly ReturnType<typeof targetPresence>[]) {
+  const counts = { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: rows.length }
+  for (const row of rows) {
+    if (row.mention === null || row.citation === null) {
       counts.notMeasured++
-    } else if (metrics.mentionCoverage.numerator > 0 && metrics.citationCoverage.numerator > 0) {
+    } else if (row.mention && row.citation) {
       counts.bothSignals++
-    } else if (metrics.mentionCoverage.numerator > 0) {
+    } else if (row.mention) {
       counts.mentionedOnly++
-    } else if (metrics.citationCoverage.numerator > 0) {
+    } else if (row.citation) {
       counts.citedOnly++
     } else {
       counts.neither++
@@ -421,8 +452,8 @@ function coverageSummary(
     rows,
     queryCount: new Set(rows.map(candidate => candidate.slot.queryKey)).size,
     answerCount: rows.filter(answered).length,
-    mentionCoverage: rate(rows.map(candidate => targetValues(candidate, targets).mention), rows.length),
-    citationCoverage: rate(rows.map(candidate => targetValues(candidate, targets).citation), rows.length),
+    mentionCoverage: mentionRate(rows, targets),
+    citationCoverage: rate(rows.map(candidate => citationForCoverage(candidate, targets)), rows.length),
   }
 }
 
@@ -435,11 +466,12 @@ function summary(
   const base = coverageSummary(candidates, definition, targets)
   const { rows } = base
   const targetRows = populationTargetKeys
-    .map(targetKey => ({ targetKey, ...targetMetrics(rows, targets, targetKey) }))
+    .map(targetKey => targetPresence(rows, targets, targetKey))
   const eligibleTargets = targetRows.filter(row => targets.get(row.targetKey)?.mentionEligible === true)
   const propertyReach = rate(
-    eligibleTargets.map(row => row.mentionCoverage.numerator === null ? null : row.mentionCoverage.numerator > 0),
+    eligibleTargets.map(row => row.mention),
     eligibleTargets.length,
+    eligibleTargets.some(row => row.mention === null && row.identityAmbiguous) ? 'identity-ambiguous' : 'evidence-incomplete',
   )
   return {
     queryCount: base.queryCount,
@@ -447,7 +479,7 @@ function summary(
     mentionCoverage: base.mentionCoverage,
     citationCoverage: base.citationCoverage,
     propertyReach,
-    outcomes: outcomeCounts(rows, targets, populationTargetKeys),
+    outcomes: outcomeCounts(targetRows),
   }
 }
 
@@ -512,6 +544,7 @@ function evidenceRows(candidates: readonly Candidate[], definition: VisibilityRe
         location: candidate.slot.location,
         targetKeys: selectedTargetKeys([candidate]),
         mentioned: signals.mention,
+        ...(signals.mentionUnavailableReason === undefined ? {} : { mentionUnavailableReason: signals.mentionUnavailableReason }),
         cited: signals.citation,
         // Answer bodies are intentionally limited to the stable query-key
         // drill-in. A query-id is enough to locate an evidence page, but it
@@ -606,8 +639,8 @@ function breakdown(
       const own = candidates
         .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
         .filter((candidate): candidate is Candidate => candidate !== null)
-      const metrics = rate(own.map(candidate => targetValues(candidate, targets).mention), own.length)
-      const citations = rate(own.map(candidate => targetValues(candidate, targets).citation), own.length)
+      const metrics = mentionRate(own, targets)
+      const citations = rate(own.map(candidate => citationForCoverage(candidate, targets)), own.length)
       return {
         id: group.id,
         label: group.label,

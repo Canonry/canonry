@@ -74,11 +74,18 @@ test('scope choices distinguish a property group from a market query context', (
   expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
 })
 
-test('keeps revision mechanics behind help, with pending assignments visible', () => {
-  render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
-  expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
-  expect(screen.queryByText(/Measured under revision/)).toBeNull()
-  expect(screen.getByRole('button', { name: /Measured under revision 2/ })).toBeTruthy()
+test('keeps the dated measured report unchanged when future assignments are pending', () => {
+  const report = fixture()
+  const current = structuredClone(report)
+  current.selection.measurement.activeRevision = current.selection.measurement.measuredRevision
+  current.selection.measurement.awaitingSweep = false
+  current.selection.measurement.pendingAssignmentCount = 0
+  const props = { onSelectionChange: () => {} }
+  const { container, rerender } = render(<VisibilityReportView report={current} {...props} />)
+  const measuredView = container.innerHTML
+  expect(screen.getByText(new Date(current.selection.measurement.completedAt!).toLocaleDateString(), { selector: 'span' })).toBeTruthy()
+  rerender(<VisibilityReportView report={report} {...props} />)
+  expect(container.innerHTML).toBe(measuredView)
 })
 
 test.each(['simple', 'advanced'] as const)('keeps %s comparison warnings beside the chart with accessible history', mode => {

@@ -1,3 +1,4 @@
+import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -72,6 +73,8 @@ const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
   { value: 'all', label: 'All' },
 ]
 
+export const VISIBILITY_ANSWERS_LABEL = 'Measured answers'
+
 const REPORT_CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded queries', unknown: 'Unclassified queries' }
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const reportPercent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 })
@@ -82,7 +85,7 @@ function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope'])
 }
 
 function ReportRate({ value, unit }: { value: VisibilityReportRate; unit?: 'answers' | 'properties' }) {
-  if (value.rate === null) return <span className="text-sm text-secondary">{value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'}</span>
+  if (value.rate === null) return <span className="text-sm text-secondary">{value.reason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'}</span>
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{unit ? ` ${unit}` : ''}</span></span>
 }
 
@@ -286,7 +289,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       return
     }
     if (focusedQueryKey.current === answerFocusKey) return
-    const answers = reportElement.current?.querySelectorAll<HTMLElement>('[aria-label="Measured answers"]')
+    const answers = reportElement.current?.querySelectorAll<HTMLElement>(`[aria-label="${VISIBILITY_ANSWERS_LABEL}"]`)
     if (!answers?.length) return
     for (const answer of answers) {
       const results = answer.closest<HTMLDetailsElement>('details[data-query-results]')
@@ -319,7 +322,6 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       <div className="flex flex-wrap items-center gap-3">
         <ToneBadge tone={measurement.state === 'measured' ? 'positive' : 'neutral'}>{measurement.state === 'measured' ? 'Complete' : measurement.state === 'partial' ? 'Partial' : 'Not measured'}</ToneBadge>
         {measurement.completedAt ? <span className="text-sm text-secondary">{new Date(measurement.completedAt).toLocaleDateString()}</span> : null}
-        {measurement.awaitingSweep ? <span role="status" className="inline-flex items-center gap-1 text-sm text-secondary"><span>{measurement.pendingAssignmentCount} query assignments pending across project</span><InfoTooltip text={`Measured under revision ${measurement.measuredRevision ?? 'unavailable'}. Project has ${measurement.pendingAssignmentCount} assignments awaiting sweep. Existing results stay visible until those assignments are measured.`} /></span> : null}
       </div>
       {onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null}
     </div>
@@ -358,9 +360,9 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         </div>
         {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
         {population.queries.nextCursor && onPage ? <Button variant="outline" onClick={() => onPage(population.queries.nextCursor!)}>Next queries</Button> : null}
-      {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label="Measured answers" aria-busy={isEvidenceLoading}><div className="section-head"><h3>Answers</h3><Button variant="ghost" onClick={event => { focusedQueryKey.current = undefined; event.currentTarget.closest('details[data-query-results]')?.querySelector('summary')?.focus(); onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined }) }}>Close answers</Button></div>
+      {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label={VISIBILITY_ANSWERS_LABEL} aria-busy={isEvidenceLoading}><div className="section-head"><h3>Answers</h3><Button variant="ghost" onClick={event => { focusedQueryKey.current = undefined; event.currentTarget.closest('details[data-query-results]')?.querySelector('summary')?.focus(); onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined }) }}>Close answers</Button></div>
         {isEvidenceLoading ? <p role="status" className="py-4 text-sm text-secondary">Loading saved answers…</p> : evidenceError ? <div role="alert" className="py-4 text-sm text-secondary"><p>Saved answers unavailable: {evidenceError}</p>{onRetryEvidence ? <Button variant="outline" onClick={onRetryEvidence}>Retry answers</Button> : null}</div> : <>
-        {answerPage(population).items.map(answer => <article key={answer.answerId} className="border-b border-default py-4"><div className="flex flex-wrap items-center gap-3"><strong className="text-sm text-heading">{answer.provider}</strong>{answer.model ? <span className="text-sm text-secondary">{answer.model}</span> : null}<span className="text-sm text-secondary">{answer.location ?? 'No location'}</span><span className="text-sm text-secondary">{new Date(answer.createdAt).toLocaleString()}</span><ToneBadge tone="neutral">{answer.mentioned === null ? 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge><ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge></div><h4 className="mt-3 text-sm font-medium text-heading">{answer.query}</h4><p className="mt-3 max-w-prose whitespace-pre-wrap text-sm leading-6 text-primary">{answer.answerText ?? 'Answer text unavailable.'}</p><ul className="mt-3 space-y-2">{answer.sources.map(source => { const url = safeExternalUrl(source); return <li key={source} className="break-all text-sm">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-link hover:underline">{source}</a> : <span className="text-secondary">{source}</span>}</li> })}</ul></article>)}
+        {answerPage(population).items.map(answer => <article key={answer.answerId} className="border-b border-default py-4"><div className="flex flex-wrap items-center gap-3"><strong className="text-sm text-heading">{answer.provider}</strong>{answer.model ? <span className="text-sm text-secondary">{answer.model}</span> : null}<span className="text-sm text-secondary">{answer.location ?? 'No location'}</span><span className="text-sm text-secondary">{new Date(answer.createdAt).toLocaleString()}</span><ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge><ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge></div><h4 className="mt-3 text-sm font-medium text-heading">{answer.query}</h4><p className="mt-3 max-w-prose whitespace-pre-wrap text-sm leading-6 text-primary">{answer.answerText ?? 'Answer text unavailable.'}</p><ul className="mt-3 space-y-2">{answer.sources.map(source => { const url = safeExternalUrl(source); return <li key={source} className="break-all text-sm">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-link hover:underline">{source}</a> : <span className="text-secondary">{source}</span>}</li> })}</ul></article>)}
         {answerPage(population).items.length === 0 ? <p className="py-4 text-sm text-secondary">{answerPage(population).nextCursor ? 'No matching answers on this page. Continue to the next answers.' : 'No matching saved answers on this page.'}</p> : null}
         {answerPage(population).nextCursor && onEvidencePage ? <Button variant="outline" onClick={() => onEvidencePage(answerPage(population).nextCursor!)}>Next answers</Button> : null}
         </>}

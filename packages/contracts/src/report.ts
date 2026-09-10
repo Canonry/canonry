@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { reportVisibilitySchema } from './report-visibility.js'
 import { visibilityStatsShareOfVoiceSchema } from './visibility-stats.js'
 
 import {
@@ -137,17 +138,19 @@ export const reportMetaSchema = z.object({
 export type ReportMeta = z.infer<typeof reportMetaSchema>
 
 export const reportExecutiveSummarySchema = z.object({
+  /** Legacy project/query scalars are unavailable for Advanced portfolios. Use visibility instead. */
+  visibilityBasis: z.enum(['legacy-project-queries', 'frozen-populations']).optional(),
   /**
    * 0..100 — share of tracked queries that were cited by at least one
    * provider in the latest run. "Cited" means the project's domain appeared
    * in the source list / grounding the AI used to answer. Computed per-query
    * (not per-(query × provider)) so the rate is invariant to provider count.
    */
-  citationRate: z.number(),
+  citationRate: z.number().nullable(),
   /** Numerator of `citationRate` — distinct tracked queries cited by ≥1 provider in the latest run. */
-  citedQueryCount: z.number(),
+  citedQueryCount: z.number().nullable(),
   /** Denominator of `citationRate` — total tracked queries. */
-  totalQueryCount: z.number(),
+  totalQueryCount: z.number().nullable(),
   /**
    * 0..100 — share of tracked queries where the project's brand or domain
    * appeared in at least one provider's answer text in the latest run.
@@ -155,9 +158,9 @@ export const reportExecutiveSummarySchema = z.object({
    * the prose without citing your domain in its sources, and vice versa.
    * Same per-query denominator as `citationRate` for consistency.
    */
-  mentionRate: z.number(),
+  mentionRate: z.number().nullable(),
   /** Numerator of `mentionRate` — distinct tracked queries mentioned in ≥1 provider's answer text. */
-  mentionedQueryCount: z.number(),
+  mentionedQueryCount: z.number().nullable(),
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
   trend: z.enum(['up', 'down', 'flat', 'unknown']),
   /** Total tracked queries. */
@@ -938,6 +941,8 @@ export function reportConfidenceLabel(confidence: ReportActionConfidence): strin
 }
 
 export const projectReportDtoSchema = z.object({
+  /** Authoritative assignment-aware answer coverage, separated by frozen query class. */
+  visibility: reportVisibilitySchema.optional(),
   meta: reportMetaSchema,
   executiveSummary: reportExecutiveSummarySchema,
   citationScorecard: citationScorecardSchema,

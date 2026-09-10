@@ -191,6 +191,8 @@ export function activeMeasurementPlan(db: DatabaseClient, projectId: string): Ac
 
 function metricReason(reason: MeasurementMetricReason): MeasurementMetricUnavailableReason {
   switch (reason) {
+    case 'identity-ambiguous':
+      return 'identity_ambiguous'
     case 'no-population':
       return 'no_population'
     case 'incomplete':

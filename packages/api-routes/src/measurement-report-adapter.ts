@@ -400,6 +400,7 @@ export function buildMeasurementPlanV2ReportInput(
         // The revision already decided this Property cannot be mentioned. Feeding
         // its aliases in anyway would turn "not applicable" into a 0% reading.
         aliases: target.mentionNotApplicable ? [] : target.aliases,
+        ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
         urls: target.urlMatchers.map((matcher, index) => matcherInput(target.stableKey, matcher, index)),
       })),
       groups: plan.groups.map(group => ({

@@ -43,7 +43,7 @@ import {
   buildMeasurementPlanV2ReportInput,
   measurementRunExpectedSlots,
 } from './measurement-report-adapter.js'
-import { buildMeasurementEvidence } from './measurement-report.js'
+import { buildMeasurementObservationSignals } from './measurement-report.js'
 import {
   buildVisibilityReport,
   VisibilityReportCursorError,
@@ -296,45 +296,37 @@ function v2Observations(
   revision: number,
   run: typeof runs.$inferSelect,
   snapshots: readonly VisibilitySnapshot[],
+  includeEvidence = true,
 ) {
   const manifest = measurementRunExpectedSlots(run, plan)
   const materialized = buildMeasurementPlanV2ReportInput(revision, plan, manifest, adapterSnapshots(snapshots))
-  const evidence = buildMeasurementEvidence(materialized.input)
+  const signalsByObservation = new Map(buildMeasurementObservationSignals(materialized.input)
+    .map(signal => [signal.observationId, signal]))
   const rawById = new Map(snapshots.map(snapshot => [snapshot.id, snapshot]))
-  const answersByObservation = new Map<string, typeof evidence.answers>()
-  for (const answer of evidence.answers) {
-    const rows = answersByObservation.get(answer.observationId) ?? []
-    rows.push(answer)
-    answersByObservation.set(answer.observationId, rows)
-  }
-  const edgeById = new Map(materialized.input.usageEdges.map(edge => [edge.id, edge]))
   const competitors = exactCompetitorMatchers(plan)
   const output: VisibilityReportObservationInput[] = []
   for (const observation of materialized.input.observations) {
     const raw = rawById.get(observation.id)
     if (!raw || observation.executionId === null) continue
-    const answers = answersByObservation.get(observation.id) ?? []
-    const targetFor = (answer: typeof answers[number]) => {
-      const edge = edgeById.get(answer.usageEdgeId)
-      return edge?.type === 'target' ? edge.targetId : null
-    }
-    const signals = competitorSignals(raw, competitors)
+    const attribution = signalsByObservation.get(observation.id)
+    const signals = includeEvidence ? competitorSignals(raw, competitors) : { mentioned: [], cited: [] }
     output.push({
       slotId: `slot:${observation.executionId}:${observation.provider}`,
       answerId: raw.id,
       model: raw.servedModel?.trim() || null,
-      answerText: raw.answerText,
+      answerText: includeEvidence ? raw.answerText : null,
       // `answerMentioned` is the legacy project-level boolean. It cannot say
       // WHICH Property an answer named, so a portfolio may use it neither as
       // a positive nor as a measured negative when the answer body is absent.
       mentionComplete: raw.answerText !== null,
-      mentionedTargetKeys: answers.filter(answer => answer.mentioned === true).map(targetFor).filter((value): value is string => value !== null),
-      citedTargetKeys: answers.filter(answer => answer.cited === true).map(targetFor).filter((value): value is string => value !== null),
-      citationComplete: answers.length > 0 && answers.every(answer => answer.evidenceComplete),
+      mentionedTargetKeys: attribution?.mentionedTargetIds ?? [],
+      unknownMentionTargetKeys: attribution?.unknownMentionTargetIds ?? [],
+      citedTargetKeys: attribution?.citedTargetIds ?? [],
+      citationComplete: attribution?.sourceComplete ?? false,
       competitorMentionDomains: signals.mentioned,
       competitorCitationDomains: signals.cited,
-      observedCompetitorNames: observedCompetitorNames(raw.recommendedCompetitors),
-      sources: [...new Set(answers.flatMap(answer => answer.sources.map(source => source.sourceUrl)))],
+      observedCompetitorNames: includeEvidence ? observedCompetitorNames(raw.recommendedCompetitors) : [],
+      sources: includeEvidence ? attribution?.sourceUrls ?? [] : [],
       createdAt: raw.createdAt,
     })
   }
@@ -347,8 +339,9 @@ function advancedRun(
   plan: MeasurementPlanV2,
   snapshots: readonly VisibilitySnapshot[],
   comparableDefinitionIds: readonly string[],
+  includeEvidence = true,
 ): VisibilityReportRunInput {
-  const populated = v2Observations(plan, version.revision, run, snapshots)
+  const populated = v2Observations(plan, version.revision, run, snapshots, includeEvidence)
   return {
     id: run.id,
     createdAt: run.createdAt,
@@ -411,6 +404,7 @@ function frozenSimpleRun(
   run: typeof runs.$inferSelect,
   definition: SimpleMeasurementDefinition,
   snapshots: readonly VisibilitySnapshot[],
+  includeEvidence = true,
 ): VisibilityReportRunInput {
   const matcher = compileBrandAliases(effectiveBrandNames({
     displayName: definition.identity.displayName,
@@ -465,22 +459,22 @@ function frozenSimpleRun(
     const mentioned = snapshot.answerText !== null
       ? matcherMatchesText(matcher, preparedAnswerText)
       : snapshot.answerMentioned === true
-    const competitorSignalsForSnapshot = competitors === null
+    const competitorSignalsForSnapshot = !includeEvidence || competitors === null
       ? { mentioned: [], cited: [] }
       : competitorSignals(snapshot, competitors, preparedAnswerText)
     observations.push({
       slotId,
       answerId: snapshot.id,
       model: snapshot.servedModel?.trim() || null,
-      answerText: snapshot.answerText,
+      answerText: includeEvidence ? snapshot.answerText : null,
       mentionComplete: snapshot.answerText !== null || snapshot.answerMentioned !== null,
       mentionedTargetKeys: mentioned ? ['project'] : [],
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
       citationComplete: true,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
-      observedCompetitorNames: observedCompetitorNames(snapshot.recommendedCompetitors),
-      sources: snapshot.citedUrls ?? [],
+      observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],
+      sources: includeEvidence ? snapshot.citedUrls ?? [] : [],
       createdAt: snapshot.createdAt,
     })
   }
@@ -519,6 +513,7 @@ function legacySimpleRun(
   project: { displayName: string; canonicalDomain: string },
   run: typeof runs.$inferSelect,
   snapshots: readonly VisibilitySnapshot[],
+  includeEvidence = true,
 ): VisibilityReportRunInput {
   const slots = snapshots.map(snapshot => ({
     id: `slot:legacy:${snapshot.id}`,
@@ -557,7 +552,7 @@ function legacySimpleRun(
       slotId: `slot:legacy:${snapshot.id}`,
       answerId: snapshot.id,
       model: snapshot.servedModel?.trim() || null,
-      answerText: snapshot.answerText,
+      answerText: includeEvidence ? snapshot.answerText : null,
       // A legacy answer body cannot be matched against today's identity. Only
       // the stored boolean is a frozen mention fact; null stays incomplete.
       mentionComplete: snapshot.answerMentioned !== null,
@@ -566,8 +561,8 @@ function legacySimpleRun(
       citationComplete: true,
       competitorMentionDomains: [],
       competitorCitationDomains: [],
-      observedCompetitorNames: observedCompetitorNames(snapshot.recommendedCompetitors),
-      sources: snapshot.citedUrls ?? [],
+      observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],
+      sources: includeEvidence ? snapshot.citedUrls ?? [] : [],
       createdAt: snapshot.createdAt,
     })),
   }
@@ -735,40 +730,18 @@ function advancedReaderInput(
   const presentationComparableIds = new Set(comparableVersionIds(allVersionRowsById, presentationVersion.id))
   const activeComparableIds = new Set(comparableVersionIds(allVersionRowsById, active.version.id))
   const sourceRuns = completedVisibilityRuns(db, projectId, false, query)
-  const snapshotsByRun = loadVisibilitySnapshots(db, sourceRuns.map(run => run.id))
+  // Decide which run supplies details before reconstructing historical
+  // evidence. A trend needs attribution signals, never answer bodies, source
+  // drawers or competitor rows from every previous sweep.
   const sourceCandidates = sourceRuns.flatMap(run => {
     if (run.measurementPlanVersionId === null) return []
     const source = versions.get(run.measurementPlanVersionId)
-    if (!source) return []
-    const own = advancedRun(
-      run,
-      source.row,
-      source.plan,
-      snapshotsByRun.get(run.id) ?? [],
-      comparableVersionIds(allVersionRowsById, source.row.id),
-    )
-    return [{ run, source, own }]
-  }).filter(candidate => query.revision === undefined || presentationComparableIds.has(candidate.source.row.id))
+    if (!source || (query.revision !== undefined && !presentationComparableIds.has(source.row.id))) return []
+    return [{ run, source }]
+  })
   if (query.runId !== undefined && !sourceCandidates.some(candidate => candidate.run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible advanced result.`)
   }
-  const candidates = sourceCandidates.map(candidate => {
-    // Continuity links are emitted only for an execution-identical display-only
-    // republish (labels or group navigation metadata). In that case the
-    // active/requested frozen plan is the report definition; a material
-    // predecessor keeps its own definition instead.
-    // The source already uses that exact frozen revision, so rebuilding its
-    // manifest/evidence would only duplicate a large portfolio read.
-    if (candidate.source.row.id === presentationVersion.id) return candidate.own
-    if (!presentationComparableIds.has(candidate.source.row.id)) return candidate.own
-    return advancedRun(
-      candidate.run,
-      presentationVersion,
-      presentationPlan,
-      snapshotsByRun.get(candidate.run.id) ?? [],
-      [...presentationComparableIds],
-    )
-  })
   const compatibleSourceCandidates = sourceCandidates.filter(candidate => activeComparableIds.has(candidate.source.row.id))
   const preferredSource = query.runId === undefined
     ? (compatibleSourceCandidates.at(0) ?? sourceCandidates.at(0))
@@ -776,12 +749,32 @@ function advancedReaderInput(
   const selectedSource = query.runId === undefined
     ? preferredSource
     : sourceCandidates.find(candidate => candidate.run.id === query.runId)
+  const candidates = sourceCandidates.map(candidate => {
+    // A display-only revision uses the same exact frozen execution. Resolve
+    // its presentation definition once instead of materializing the old and
+    // rebased evidence separately. Material predecessors keep their own plan.
+    const usePresentation = presentationComparableIds.has(candidate.source.row.id)
+    const version = usePresentation ? presentationVersion : candidate.source.row
+    const plan = usePresentation ? presentationPlan : candidate.source.plan
+    // Read one run at a time so cold history does not retain all source answer
+    // bodies alongside the compact trend observations.
+    const snapshots = loadVisibilitySnapshots(db, [candidate.run.id]).get(candidate.run.id) ?? []
+    return advancedRun(
+      candidate.run,
+      version,
+      plan,
+      snapshots,
+      usePresentation ? [...presentationComparableIds] : comparableVersionIds(allVersionRowsById, candidate.source.row.id),
+      candidate.run.id === selectedSource?.run.id,
+    )
+  })
+  const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
   return {
     mode: 'advanced',
     activeRevision: active.version.revision,
     pendingAssignmentCount: selectedSource !== undefined && activeComparableIds.has(selectedSource.source.row.id)
       ? 0
-      : pendingAssignments(active.plan, selectedSource?.source.plan, selectedSource?.own.definition),
+      : pendingAssignments(active.plan, selectedSource?.source.plan, selectedDefinition),
     selection: query,
     activeDefinition: activeV2Definition(presentationPlan, presentationVersion.revision),
     ...(preferredSource === undefined ? {} : { preferredRunId: preferredSource.run.id }),
@@ -806,13 +799,14 @@ function simpleReaderInput(
         inArray(simpleMeasurementDefinitions.runId, sourceRuns.map(run => run.id)),
       )).all()
       .map(row => [row.runId, row.definition] as const))
-  const snapshotsByRun = loadVisibilitySnapshots(db, sourceRuns.map(run => run.id))
+  const selectedRunId = sourceRuns[0]?.id
   const candidates = sourceRuns.map(run => {
-    const snapshots = snapshotsByRun.get(run.id) ?? []
+    const snapshots = loadVisibilitySnapshots(db, [run.id]).get(run.id) ?? []
     const definition = frozen.get(run.id)
+    const includeEvidence = run.id === selectedRunId
     return definition
-      ? frozenSimpleRun(run, definition, snapshots)
-      : legacySimpleRun(project, run, snapshots)
+      ? frozenSimpleRun(run, definition, snapshots, includeEvidence)
+      : legacySimpleRun(project, run, snapshots, includeEvidence)
   })
   if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
@@ -827,36 +821,33 @@ function simpleReaderInput(
   }
 }
 
+/** Shared stored-evidence reader. Callers enforce authorization before resolving the project. */
+export function readVisibilityReport(
+  db: DatabaseClient,
+  project: { id: string; displayName: string; canonicalDomain: string },
+  rawQuery: Record<string, unknown>,
+) {
+  const query = parseQuery(rawQuery)
+  const active = activeMeasurementPlan(db, project.id)
+  const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
+  try {
+    if (mode === 'advanced') {
+      if (active === null) throw validationError('This project has no advanced measurement plan.')
+      if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
+      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
+    }
+    return buildVisibilityReport(simpleReaderInput(db, project, query))
+  } catch (error) {
+    if (error instanceof VisibilityReportCursorError || error instanceof VisibilityReportScopeError) {
+      throw validationError(error.message)
+    }
+    throw error
+  }
+}
+
 export async function visibilityReportRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
     '/projects/:name/visibility-report',
-    async request => {
-      const project = resolveProject(app.db, request.params.name)
-      const query = parseQuery(request.query)
-      const active = activeMeasurementPlan(app.db, project.id)
-      const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
-      if (mode === 'advanced') {
-        if (active === null) throw validationError('This project has no advanced measurement plan.')
-        if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
-          return unsupportedAdvancedResponse(query, active)
-        }
-        try {
-          return buildVisibilityReport(advancedReaderInput(app.db, project.id, active, query))
-        } catch (error) {
-          if (error instanceof VisibilityReportCursorError || error instanceof VisibilityReportScopeError) {
-            throw validationError(error.message)
-          }
-          throw error
-        }
-      }
-      try {
-        return buildVisibilityReport(simpleReaderInput(app.db, project, query))
-      } catch (error) {
-        if (error instanceof VisibilityReportCursorError || error instanceof VisibilityReportScopeError) {
-          throw validationError(error.message)
-        }
-        throw error
-      }
-    },
+    async request => readVisibilityReport(app.db, resolveProject(app.db, request.params.name), request.query),
   )
 }

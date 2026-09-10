@@ -38,7 +38,6 @@ import {
 import {
   buildMeasurementEvidence,
   normalizeMeasurementLocation,
-  targetMentionedInAnswer,
 } from './measurement-report.js'
 import {
   buildMeasurementPlanV2ReportInput,
@@ -349,6 +348,7 @@ function questionRows(
     .filter(edge => assignmentsByExecution.has(edge.executionId))
     .map(edge => [edge.executionId, edge]))
   const ownEdgeIds = new Set([...ownEdgesByExecution.values()].map(edge => edge.id))
+  const answerBySlot = new Map(materialized.evidence.answers.filter(answer => ownEdgeIds.has(answer.usageEdgeId)).map(answer => [answer.expectedSlotId, answer]))
   const citedSlotIds = new Set(materialized.evidence.evidence
     .filter(row => ownEdgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
@@ -401,10 +401,10 @@ function questionRows(
       location: slot.location,
       status: answered ? 'answered' : 'missing',
       mentioned: answered && !target.mentionNotApplicable
-        ? targetMentionedInAnswer(answer, targetKey, materialized.input.targets)
+        ? answerBySlot.get(slot.id)?.mentioned ?? null
         : null,
       cited: answered
-        ? (incompleteObservationIds.has(snapshot.id) ? null : citedSlotIds.has(slot.id))
+        ? (citedSlotIds.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false)
         : null,
       recommendedInstead: answered ? recommendedInstead(snapshot.recommendedCompetitors, target) : [],
       answerExcerpt: answered ? excerptOf(answer) : null,

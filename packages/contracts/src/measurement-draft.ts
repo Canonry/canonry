@@ -41,6 +41,7 @@ export const measurementDraftTargetSchema = z.object({
   label: z.string().trim().min(1),
   status: measurementDraftTargetStatusSchema,
   aliases: z.array(z.string().trim().min(1)),
+  identityAliases: z.array(z.string().trim().min(1)).optional(),
   urlMatchers: z.array(z.string().trim().min(1)),
   source: measurementDraftTargetSourceSchema,
   discoveredUrl: z.string().trim().min(1).optional(),

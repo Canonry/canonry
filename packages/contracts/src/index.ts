@@ -80,3 +80,5 @@ export * from './telemetry.js'
 export * from './trend-stability.js'
 
 export * from './share-of-voice.js'
+
+export * from './report-visibility.js'

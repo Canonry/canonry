@@ -1,3 +1,4 @@
+import { readVisibilityReport } from './visibility-report.js'
 import { readCompetitorLandscape } from './competitor-landscape.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, readObservedCompetitorDomains } from './mention-share-inputs.js'
 import { countableReferralCondition, nonSubresourceReferralPathCondition } from './ai-referral-status.js'
@@ -1342,7 +1343,6 @@ function buildCitationsTrend(
     .all()
     .filter(r => locationFilter === undefined || (r.location ?? null) === locationFilter)
 
-  const totalQueries = queryLookup.byId.size
   const points: CitationsTrendPoint[] = []
   for (const run of visibilityRuns) {
     if (run.status !== RunStatuses.completed) continue
@@ -1371,6 +1371,7 @@ function buildCitationsTrend(
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
+    const totalQueries = new Set(snaps.map(snapshot => snapshot.queryId)).size
     const citedQueryCount = citedQueryIds.size
     const mentionedQueryCount = mentionedQueryIds.size
     const citationRate = totalQueries > 0
@@ -1662,6 +1663,8 @@ interface ReportActionPlanInput {
   canonicalDomain: string
   competitorDomains: string[]
   citationScorecard: ProjectReportDto['citationScorecard']
+  /** Canonical measurement state must not depend on mutable catalog query IDs. */
+  hasVisibilityMeasurement?: boolean
   aiSourceOrigin: ProjectReportDto['aiSourceOrigin']
   gsc: ProjectReportDto['gsc']
   indexingHealth: ProjectReportDto['indexingHealth']
@@ -1878,7 +1881,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
     // "keep monitoring" and "the NEXT check" for a project that has never had
     // a first one. No provider snapshots means nothing could be detected
     // either way, so say that instead.
-    const neverMeasured = input.citationScorecard.providers.length === 0
+    const neverMeasured = !(input.hasVisibilityMeasurement ?? input.citationScorecard.providers.length > 0)
     actions.push({
       audience: 'both',
       priority: 90,
@@ -1934,17 +1937,17 @@ function buildClientSummary(
 ): ProjectReportDto['clientSummary'] {
   const s = reportLike.executiveSummary
   const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
-  const headline = s.totalQueryCount > 0
+  const headline = (s.totalQueryCount ?? 0) > 0
     ? `${s.mentionedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} mention the brand in AI answers`
     : 'No tracked queries have completed a check yet'
-  const overview = s.totalQueryCount > 0
+  const overview = (s.totalQueryCount ?? 0) > 0
     ? `${reportLike.canonicalDomain} is mentioned on ${s.mentionRate}% of tracked queries and cited on ${s.citationRate}% of tracked queries. ${mentionTrendSentence(reportLike.whatsChanged.mentionRate)}`
     : 'At least one completed check is needed before this can summarize how the brand appears in AI answers.'
 
   const confidenceNotes: string[] = []
   if (s.totalQueryCount === 0) {
     confidenceNotes.push('Confidence is low until the first tracked query check completes.')
-  } else if (s.totalQueryCount < 5) {
+  } else if ((s.totalQueryCount ?? 0) < 5) {
     confidenceNotes.push('Directional read: the tracked query set is still small, so each query has outsized impact on the percentage.')
   }
   if (isTrendBaseline(reportLike.citationsTrend)) {
@@ -2238,6 +2241,24 @@ function buildWhatsChanged(input: {
 function buildProjectReport(db: DatabaseClient, projectName: string, periodDays: number): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
+  const canonicalVisibility = readVisibilityReport(db, project, { queryClass: 'all', scope: 'project' })
+  const generatedAt = new Date().toISOString()
+  const historyWindow = { from: new Date(Date.parse(generatedAt) - periodDays * 86_400_000).toISOString(), to: generatedAt }
+  const visibility = {
+    selection: canonicalVisibility.selection,
+    historyWindow,
+    populations: canonicalVisibility.populations.map(({ queryClass, summary, trend }) => ({
+      queryClass, summary,
+      // Keep each point's actual comparison. Renderers disclose when the prior
+      // measurement is outside this window rather than inventing a baseline.
+      trend: trend.filter(point => point.createdAt >= historyWindow.from && point.createdAt <= historyWindow.to),
+    })),
+  }
+  // V1 definitions have no canonical population reconstruction. Preserve the
+  // legacy bundle instead of replacing its measured results with an unsupported
+  // empty report. Corrupt supported definitions still fail through the reader.
+  const canonicalVisibilitySupported = visibility.selection.availability.state === 'available'
+  const advancedVisibility = canonicalVisibilitySupported && visibility.selection.mode === 'advanced'
   const comparisonWindowDays = reportComparisonWindowDays(periodDays)
 
   const allRuns = db
@@ -2248,7 +2269,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     .all()
 
   const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
-  // Multi-location `--all-locations` sweeps fan out into N runs sharing the
+  // Simple multi-location `--all-locations` sweeps fan out into N runs sharing the
   // same `createdAt`. Group the visibility runs, pick the latest completed
   // group, and aggregate snapshots across the group so the report's per-query
   // sections (citationScorecard, competitorLandscape, mentionLandscape,
@@ -2257,7 +2278,11 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   const completedVisRunGroups = groupRunsByCreatedAt(
     visibilityRuns.filter(r => r.status === RunStatuses.completed || r.status === RunStatuses.partial),
   )
-  const latestVisRunGroup = completedVisRunGroups[0] ?? []
+  // Advanced metadata and supporting evidence follow the canonical full run,
+  // even when a newer simple or scoped test exists.
+  const latestVisRunGroup = advancedVisibility
+    ? visibilityRuns.filter(run => run.id === visibility.selection.run.id)
+    : completedVisRunGroups[0] ?? []
   // Representative is used as the "primary" run id/location for the report
   // header and for the *history-scoped* sections below — those still scope
   // per-location to keep the trend line and orchestrator inputs single-series
@@ -2265,8 +2290,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   // bug that scoping originally fixed). The representative is deterministic
   // (id DESC tiebreak) so the same project always renders the same report.
   const representativeLatestRun = pickGroupRepresentative(latestVisRunGroup)
-    ?? visibilityRuns[0]
-    ?? null
+    ?? (advancedVisibility ? null : visibilityRuns[0] ?? null)
   const latestSnapshots = loadSnapshotsForRunIds(db, latestVisRunGroup.map(r => r.id))
   const latestRunLocation: string | null = representativeLatestRun?.location ?? null
 
@@ -2323,7 +2347,14 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     }))
   }
   Object.assign(mentionLandscape, mentionLandscape.nonBrand)
-  const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
+  // Source-domain evidence does not require a catalog query ID. V2 snapshots
+  // intentionally have none, and source reads must follow the same selected
+  // whole-portfolio result as the summary (never a newer scoped test).
+  const advancedSourceSnapshots = advancedVisibility && visibility.selection.run.id !== null
+    ? db.select({ citedDomains: querySnapshots.citedDomains, provider: querySnapshots.provider, location: querySnapshots.location }).from(querySnapshots)
+      .where(eq(querySnapshots.runId, visibility.selection.run.id)).all()
+    : []
+  const aiSourceOrigin = buildAiSourceOrigin(advancedVisibility ? advancedSourceSnapshots : latestSnapshots, projectDomains, competitorDomains)
   const trackedQueries = [...queryLookup.byId.values()]
   const gscSection = buildGscSection(
     db,
@@ -2387,7 +2418,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   // vocabulary rules in AGENTS.md): a query can be cited without being
   // mentioned, mentioned without being cited, or both. We compute both
   // here and surface them side-by-side in the executive summary.
-  const totalQueryCount = queryLookup.byId.size
+  const totalQueryCount = new Set(latestSnapshots.map(snapshot => snapshot.queryId)).size
   const citedQueryIds = new Set<string>()
   const mentionedQueryIds = new Set<string>()
   for (const snap of latestSnapshots) {
@@ -2440,19 +2471,21 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     competitorLandscape.competitors,
   )
 
-  const periodStart = citationsTrend[0]?.date ?? null
-  const periodEnd = citationsTrend.at(-1)?.date ?? null
+  const visibilityDates = visibility.populations.flatMap(population => population.trend.map(point => point.createdAt)).sort()
+  const periodStart = advancedVisibility ? visibilityDates[0] ?? visibility.selection.measurement.completedAt : citationsTrend[0]?.date ?? null
+  const periodEnd = advancedVisibility ? visibility.selection.measurement.completedAt : citationsTrend.at(-1)?.date ?? null
 
   const configuredLocations = project.locations
   const reportLocation = buildLocationMeta(representativeLatestRun?.location ?? null, configuredLocations)
-  // Per-provider handling only makes sense relative to an actual run location.
+  // Advanced executions can carry different locations within one run; use
+  // their saved contexts. Simple per-provider handling follows the run location.
   // For locationless runs, surfacing rows that say "Location appended to the
   // prompt" or "Sent as user_location" contradicts the headline ("none — the
   // queries went out verbatim"); leave the array empty so the renderer hides
   // the breakdown table.
-  const providerLocationHandling = reportLocation
-    ? buildProviderLocationHandling(citationScorecard.providers)
-    : []
+  const providerLocationHandling = advancedVisibility
+    ? buildProviderLocationHandling([...new Set(advancedSourceSnapshots.filter(snapshot => snapshot.location !== null).map(snapshot => snapshot.provider))])
+    : reportLocation ? buildProviderLocationHandling(citationScorecard.providers) : []
 
   const executiveSummary: ProjectReportDto['executiveSummary'] = {
     citationRate,
@@ -2463,7 +2496,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     trend,
     queryCount: queryLookup.byId.size,
     competitorCount: competitorDomains.length,
-    providerCount: citationScorecard.providers.length,
+    providerCount: advancedVisibility ? new Set(advancedSourceSnapshots.map(snapshot => snapshot.provider)).size : citationScorecard.providers.length,
     gsc: gscSection
       ? {
           clicks: gscSection.totalClicks,
@@ -2489,6 +2522,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     canonicalDomain: project.canonicalDomain,
     competitorDomains: actionPlanCompetitorDomains,
     citationScorecard,
+    hasVisibilityMeasurement: advancedVisibility ? visibility.selection.run.id !== null : undefined,
     aiSourceOrigin,
     gsc: gscSection,
     indexingHealth: indexingHealthSection,
@@ -2510,6 +2544,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     canonicalDomain: project.canonicalDomain,
     competitorDomains,
     citationScorecard,
+    hasVisibilityMeasurement: advancedVisibility ? visibility.selection.run.id !== null : undefined,
     aiSourceOrigin,
     gsc: gscSection,
     indexingHealth: indexingHealthSection,
@@ -2522,7 +2557,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
 
   return {
     meta: {
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       project: {
         id: project.id,
         name: project.name,
@@ -2537,7 +2572,13 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
       periodEnd,
       periodDays,
     },
-    executiveSummary,
+    ...(canonicalVisibilitySupported ? { visibility } : {}),
+    executiveSummary: advancedVisibility ? {
+      ...executiveSummary,
+      visibilityBasis: 'frozen-populations',
+      citationRate: null, citedQueryCount: null, totalQueryCount: null,
+      mentionRate: null, mentionedQueryCount: null, trend: 'unknown', findings: [],
+    } : { ...executiveSummary, visibilityBasis: 'legacy-project-queries' },
     citationScorecard,
     competitorLandscape,
     mentionLandscape,
@@ -2548,12 +2589,21 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     aiReferrals: aiReferralsSection,
     serverActivity: serverActivitySection,
     indexingHealth: indexingHealthSection,
-    citationsTrend,
-    whatsChanged,
+    citationsTrend: advancedVisibility ? [] : citationsTrend,
+    whatsChanged: advancedVisibility ? {
+      ...whatsChanged, enoughHistory: false, headline: 'See measurement history for each query type.',
+      citationRate: null, mentionRate: null, citedQueryCount: null, mentionedQueryCount: null,
+      providerMovements: [], wins: [], regressions: [],
+    } : whatsChanged,
     insights: insightList,
     recommendedNextSteps,
     actionPlan,
-    clientSummary,
+    clientSummary: advancedVisibility ? {
+      ...clientSummary,
+      headline: 'AI visibility by query type',
+      overview: 'Mention and citation coverage use the properties assigned to each measured query.',
+      confidenceNotes: [],
+    } : clientSummary,
     agencyDiagnostics,
     contentOpportunities,
     contentGaps,

@@ -108,11 +108,12 @@ export async function researchBatch(project: string, source: string, opts: { wai
   }
 }
 
-export async function researchList(project: string, opts: { limit?: number; format?: string }): Promise<void> {
+export async function researchList(project: string, opts: { limit?: number; cursor?: string; format?: string }): Promise<void> {
   const client = getClient()
-  const { runs } = await client.listResearchRuns(project, opts.limit === undefined ? undefined : { limit: opts.limit })
+  const result = await client.listResearchRuns(project, opts.limit === undefined && opts.cursor === undefined ? undefined : { limit: opts.limit, cursor: opts.cursor })
+  const { runs } = result
   if (opts.format === 'json') {
-    console.log(JSON.stringify({ runs }, null, 2))
+    console.log(JSON.stringify(result, null, 2))
     return
   }
   if (opts.format === 'jsonl') {
@@ -130,6 +131,7 @@ export async function researchList(project: string, opts: { limit?: number; form
     const model = run.resolvedModel ? `${run.provider} / ${run.resolvedModel}` : run.provider
     console.log(`  ${run.id.padEnd(36)}  ${run.status.padEnd(10)}  ${String(run.totalQueries).padStart(7)}  ${model.slice(0, 32).padEnd(32)}  ${formatScope(run.scope).slice(0, 24).padEnd(24)}  ${run.createdAt}`)
   }
+  if (result.nextCursor) console.log(`\nNext page: canonry research list ${project} --cursor ${result.nextCursor}`)
 }
 
 export async function researchShow(project: string, runId: string, opts: { format?: string }): Promise<void> {

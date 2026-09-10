@@ -3,6 +3,18 @@ import { measurementDraftAuthoringSchema } from '@ainyc/canonry-contracts'
 import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
 
 describe('measurement draft compiler', () => {
+  it.each(['Northwind Widgets', 'Eastport', 'NorthwindWidgets in Eastport'])('refuses identity context that does not qualify the Property name: %s', identityAlias => {
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['openai'], locations: [] },
+      targets: [{ stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: ['Northwind Widgets'], identityAliases: [identityAlias], urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual' }],
+      assignments: [{ targetKey: 'widgets', queryId: 'query-one', queryClass: 'non-brand', classificationSource: 'operator' }],
+      groups: [],
+    })
+    const result = compileMeasurementDraft(authoring, { canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [], trackedQueries: [{ id: 'query-one', query: 'widget supplier' }] })
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({ ruleId: 'target-identity-alias-unqualified', severity: 'fail' }))
+  })
+
   it.each([
     ['America/New_York', 'America/Chicago'],
     ['America/New_York', undefined],

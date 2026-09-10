@@ -487,6 +487,7 @@ function frozenAssignmentSignature(
     target: {
       stableKey: target.stableKey,
       aliases: target.aliases,
+      ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
       urlMatchers: target.urlMatchers,
       mentionNotApplicable: target.mentionNotApplicable,
       discoveryIdentity: target.discoveryIdentity,
@@ -1082,6 +1083,7 @@ function compileExecution(
       label: target.label,
       status: 'included',
       aliases: [...target.aliases],
+      ...(target.identityAliases === undefined ? {} : { identityAliases: [...target.identityAliases] }),
       urlMatchers: target.urlMatchers.map(draftMatcher),
       source: target.discoveryIdentity ? 'sitemap' : 'manual',
       ...(target.discoveryIdentity ? { discoveryIdentity: target.discoveryIdentity } : {}),

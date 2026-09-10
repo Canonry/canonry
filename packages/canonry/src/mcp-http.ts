@@ -5,6 +5,7 @@ import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
 import { eq } from 'drizzle-orm'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { ApiClient } from './client.js'
@@ -228,12 +229,18 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       sessionKey = mintSessionKey(opts.db, scopes, request.principal.id)
     }
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, { skipProbe: true })
-    const server = createCanonryMcpServer({
-      scope: segment.readOnly || isReadOnlyKey(scopes) ? 'read-only' : 'all',
-      credentialScopes: scopes,
-      tiers: segment.tiers,
-      clientFactory: () => client,
-    })
+    let server: ReturnType<typeof createCanonryMcpServer>
+    try {
+      server = createCanonryMcpServer({
+        scope: segment.readOnly || isReadOnlyKey(scopes) ? 'read-only' : 'all',
+        credentialScopes: scopes,
+        tiers: segment.tiers,
+        clientFactory: () => client,
+      })
+    } catch (error) {
+      if (sessionKey) revokeSessionKey(opts.db, sessionKey.id)
+      throw error
+    }
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
@@ -243,11 +250,13 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     })
 
     async function close(): Promise<void> {
-      await transport.close()
-      await server.close()
-      // Revoke before anything else can fail: an ephemeral key that outlives
-      // its session is a credential nobody is watching.
+      // Revocation must survive a transport/server cleanup failure.
       if (sessionKey) revokeSessionKey(opts.db, sessionKey.id)
+      try {
+        await transport.close()
+      } finally {
+        await server.close()
+      }
     }
 
     transport.onclose = () => {
@@ -260,7 +269,12 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       if (sessionKey) revokeSessionKey(opts.db, sessionKey.id)
     }
 
-    await server.connect(transport)
+    try {
+      await server.connect(transport)
+    } catch (error) {
+      await close().catch(() => {})
+      throw error
+    }
     return { transport, close, authorizationId, segmentId: segment.id, lastSeenAt: now() }
   }
 
@@ -315,12 +329,32 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       return
     }
 
+    // No credential or catalog should be created for a request that cannot
+    // open a session. In particular, GET/DELETE and pre-initialize tool calls
+    // used to mint OAuth keys that never entered the idle/shutdown registry.
+    if (request.method !== 'POST' || !isInitializeRequest(request.body)) {
+      await reply.status(400).send({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Expected an initialize request.' }, id: null })
+      return
+    }
     const opened = await openSession(request, authorizationId, segment)
     if (!opened) {
       await reply.status(401).send({ error: { code: 'AUTH_REQUIRED', message: 'Authentication required.' } })
       return
     }
-    await opened.transport.handleRequest(request.raw, reply.raw, request.body)
+    let handled = false
+    try {
+      await opened.transport.handleRequest(request.raw, reply.raw, request.body)
+      handled = true
+    } finally {
+      // A valid JSON-RPC initialize can still fail HTTP content negotiation or
+      // transport validation. Only an initialized, registered session owns its
+      // resources beyond this request; every failed attempt is closed here.
+      const openedId = opened.transport.sessionId
+      if (!handled || reply.raw.statusCode >= 400 || openedId === undefined || !sessions.has(openedId)) {
+        if (openedId !== undefined) sessions.delete(openedId)
+        await opened.close().catch(() => {})
+      }
+    }
   }
 
   // `transportEnvelope` exempts the JSON-RPC envelope from the method-based

@@ -93,19 +93,19 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             propertyReach: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             outcomes: {
                 bothSignals: number;
@@ -139,13 +139,13 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             continuity: {
                 state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
@@ -166,13 +166,13 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
             }>;
             nextCursor: string | null;
@@ -189,6 +189,7 @@ export type VisibilityReportResponse = {
                 location: string | null;
                 targetKeys: Array<string>;
                 mentioned: boolean | null;
+                mentionUnavailableReason?: 'identity-ambiguous';
                 cited: boolean | null;
                 answerText: string | null;
                 createdAt: string;
@@ -211,13 +212,13 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
             };
         }>;
         observedCompetitors: Array<{
@@ -233,13 +234,13 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
             }>;
             groups: Array<{
@@ -250,13 +251,13 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 };
             }>;
         };
@@ -2803,6 +2804,13 @@ export type ResearchBatchCreate = {
         template?: {
             templateId: string;
             templateVersion: string;
+            bindingLocation?: {
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            } | null;
         };
     }>;
 };
@@ -2898,6 +2906,13 @@ export type ResearchRunCreate = {
     template?: {
         templateId: string;
         templateVersion: string;
+        bindingLocation?: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        } | null;
     };
     idempotencyKey?: string;
 };
@@ -3017,6 +3032,7 @@ export type ResearchRunListDto = {
         finishedAt: string | null;
         createdAt: string;
     }>;
+    nextCursor?: string | null;
     providers?: Array<{
         name: string;
         displayName: string;
@@ -5428,6 +5444,7 @@ export type MeasurementDraftCompilePreviewResponse = {
             stableKey: string;
             label: string;
             aliases: Array<string>;
+            identityAliases?: Array<string>;
             urlMatchers: Array<{
                 kind: 'exact';
                 url: string;
@@ -5562,6 +5579,7 @@ export type MeasurementDraftDiffPreviewResponse = {
             stableKey: string;
             label: string;
             aliases: Array<string>;
+            identityAliases?: Array<string>;
             urlMatchers: Array<{
                 kind: 'exact';
                 url: string;
@@ -6021,7 +6039,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 current: {
                     state: 'available';
@@ -6030,12 +6048,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             mentionCoverage: {
                 state: 'available';
@@ -6046,7 +6064,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 current: {
                     state: 'available';
@@ -6055,12 +6073,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             citationCoverage: {
                 state: 'available';
@@ -6071,7 +6089,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 current: {
                     state: 'available';
@@ -6080,12 +6098,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
         };
         changedProperties: Array<{
@@ -6100,7 +6118,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 current: {
                     state: 'available';
@@ -6109,12 +6127,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             citationCoverage: {
                 state: 'available';
@@ -6125,7 +6143,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 current: {
                     state: 'available';
@@ -6134,12 +6152,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             flags: number;
         }>;
@@ -6230,6 +6248,7 @@ export type MeasurementDraftResponse = {
                 label: string;
                 status: 'proposed' | 'included' | 'excluded';
                 aliases: Array<string>;
+                identityAliases?: Array<string>;
                 urlMatchers: Array<string>;
                 source: 'manual' | 'sitemap';
                 discoveredUrl?: string;
@@ -6342,6 +6361,7 @@ export type MeasurementDraftTargetPage = {
         label: string;
         status: 'proposed' | 'included' | 'excluded';
         aliases: Array<string>;
+        identityAliases?: Array<string>;
         urlMatchers: Array<string>;
         source: 'manual' | 'sitemap';
         discoveredUrl?: string;
@@ -6395,6 +6415,7 @@ export type MeasurementDraftUpsertTargetRequest = {
         label: string;
         status: 'proposed' | 'included' | 'excluded';
         aliases: Array<string>;
+        identityAliases?: Array<string>;
         urlMatchers: Array<string>;
         source: 'manual' | 'sitemap';
         discoveredUrl?: string;
@@ -6431,7 +6452,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         mentionCoverage: {
             state: 'available';
@@ -6440,7 +6461,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         citationCoverage: {
             state: 'available';
@@ -6449,7 +6470,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         brandPresence: {
             state: 'available';
@@ -6458,7 +6479,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         /**
          * Deprecated alias of brandPresence carrying the identical value. Remove once the browser migrates.
@@ -6470,7 +6491,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
     };
     properties: {
@@ -6484,7 +6505,7 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             citationCoverage: {
                 state: 'available';
@@ -6493,7 +6514,7 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             providers: Array<{
                 provider: string;
@@ -6504,7 +6525,7 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -6513,7 +6534,7 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
                 };
             }>;
             flags: number;
@@ -6568,7 +6589,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         mentionCoverage: {
             state: 'available';
@@ -6577,7 +6598,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         citationCoverage: {
             state: 'available';
@@ -6586,7 +6607,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
     };
     weakestProperties: Array<{
@@ -6599,7 +6620,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         citationCoverage: {
             state: 'available';
@@ -6608,7 +6629,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         flags: number;
         recommendedInstead: Array<{
@@ -6629,7 +6650,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         mentionCoverage: {
             state: 'available';
@@ -6638,7 +6659,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         citationCoverage: {
             state: 'available';
@@ -6647,7 +6668,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
     }>;
     totalProperties: number;
@@ -7402,6 +7423,7 @@ export type MeasurementPlanResponse = {
                 stableKey: string;
                 label: string;
                 aliases: Array<string>;
+                identityAliases?: Array<string>;
                 urlMatchers: Array<{
                     kind: 'exact';
                     url: string;
@@ -7514,6 +7536,7 @@ export type MeasurementPlanV2PublishResponse = {
                 stableKey: string;
                 label: string;
                 aliases: Array<string>;
+                identityAliases?: Array<string>;
                 urlMatchers: Array<{
                     kind: 'exact';
                     url: string;
@@ -7708,6 +7731,7 @@ export type MeasurementPlanVersionResponse = {
                 stableKey: string;
                 label: string;
                 aliases: Array<string>;
+                identityAliases?: Array<string>;
                 urlMatchers: Array<{
                     kind: 'exact';
                     url: string;
@@ -7828,7 +7852,7 @@ export type MeasurementPropertyCompetitorsResponse = {
         recommendationOccurrences: number;
     } | {
         state: 'unavailable';
-        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'not_applicable';
+        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
     };
     competitors: Array<{
         name: string;
@@ -8103,7 +8127,7 @@ export type MeasurementReportResponse = {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
         };
         targetCoverage: {
             numerator: number;
@@ -8113,7 +8137,7 @@ export type MeasurementReportResponse = {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
         };
         sov: {
             domains: Array<{
@@ -8126,7 +8150,7 @@ export type MeasurementReportResponse = {
                 own: boolean;
                 presentIn: null;
                 of: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
             }>;
             providers: Array<{
                 provider: string;
@@ -8140,7 +8164,7 @@ export type MeasurementReportResponse = {
                     own: boolean;
                     presentIn: null;
                     of: null;
-                    reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                    reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
                 }>;
             }>;
         };
@@ -8162,7 +8186,7 @@ export type MeasurementReportResponse = {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
             };
         }>;
     }>;
@@ -8185,7 +8209,7 @@ export type MeasurementReportResponse = {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
         };
         mentionCoverage: {
             numerator: number;
@@ -8195,7 +8219,7 @@ export type MeasurementReportResponse = {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
         };
         providers: Array<{
             provider: string;
@@ -8215,7 +8239,7 @@ export type MeasurementReportResponse = {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
             };
             mentionCoverage: {
                 numerator: number;
@@ -8225,7 +8249,7 @@ export type MeasurementReportResponse = {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
             };
         }>;
     }>;
@@ -9152,6 +9176,138 @@ export type ProjectOverviewDto = {
 };
 
 export type ProjectReportDto = {
+    visibility?: {
+        selection: {
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+            };
+            provider: string | null;
+            model: string | null;
+            location: {
+                kind: 'all';
+            } | {
+                kind: 'none';
+            } | {
+                kind: 'exact';
+                value: string;
+            };
+            time: {
+                from: string | null;
+                to: string | null;
+            };
+            revision: number | null;
+            run: {
+                id: string | null;
+                explicit: boolean;
+            };
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            measurement: {
+                state: 'measured' | 'not-measured' | 'partial';
+                activeRevision: number | null;
+                measuredRevision: number | null;
+                awaitingSweep: boolean;
+                pendingAssignmentCount: number;
+                completedAt: string | null;
+            };
+            availability: {
+                state: 'available';
+            } | {
+                state: 'unsupported';
+                reason: 'advanced-v1';
+            };
+        };
+        historyWindow?: {
+            from: string;
+            to: string;
+        };
+        populations: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            summary: {
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                propertyReach: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                outcomes: {
+                    bothSignals: number;
+                    mentionedOnly: number;
+                    citedOnly: number;
+                    neither: number;
+                    notMeasured: number;
+                    total: number;
+                };
+            };
+            trend: Array<{
+                runId: string;
+                createdAt: string;
+                revision: number | null;
+                provenance: {
+                    kind: 'frozen-simple';
+                    definitionRevision: null;
+                } | {
+                    kind: 'legacy-simple';
+                    definitionRevision: null;
+                } | {
+                    kind: 'frozen-advanced';
+                    definitionRevision: number;
+                } | {
+                    kind: 'unsupported-advanced-v1';
+                    definitionRevision: number;
+                };
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                continuity: {
+                    state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
+                    comparedRunId: string | null;
+                };
+            }>;
+        }>;
+    };
     meta: {
         generatedAt: string;
         project: {
@@ -9179,11 +9335,12 @@ export type ProjectReportDto = {
         periodDays: number;
     };
     executiveSummary: {
-        citationRate: number;
-        citedQueryCount: number;
-        totalQueryCount: number;
-        mentionRate: number;
-        mentionedQueryCount: number;
+        visibilityBasis?: 'legacy-project-queries' | 'frozen-populations';
+        citationRate: number | null;
+        citedQueryCount: number | null;
+        totalQueryCount: number | null;
+        mentionRate: number | null;
+        mentionedQueryCount: number | null;
         trend: 'up' | 'down' | 'flat' | 'unknown';
         queryCount: number;
         competitorCount: number;
@@ -15058,6 +15215,10 @@ export type GetApiV1ProjectsByNameResearchRunsData = {
          * Max runs, default 20 and maximum 100.
          */
         limit?: number;
+        /**
+         * Opaque cursor from the previous page.
+         */
+        cursor?: string;
     };
     url: '/api/v1/projects/{name}/research/runs';
 };

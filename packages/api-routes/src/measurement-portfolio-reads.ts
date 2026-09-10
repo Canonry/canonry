@@ -48,7 +48,6 @@ import {
 import {
   createMeasurementOverviewEvaluator,
   normalizeMeasurementLocation,
-  targetMentionedInAnswer,
   type MeasurementOverview,
   type MeasurementOverviewEvaluator,
   type MeasurementRate,
@@ -136,6 +135,7 @@ function runIdentity(run: Pick<RunRow, 'measurementExecutionIdentity'>): string 
 
 function metricReason(reason: MeasurementRate['reason']): MeasurementMetricUnavailableReason {
   switch (reason) {
+    case 'identity-ambiguous': return 'identity_ambiguous'
     case 'no-population': return 'no_population'
     case 'incomplete':
     case 'evidence-incomplete': return 'evidence_incomplete'
@@ -221,6 +221,7 @@ function targetAnswers(
     .filter(edge => assignmentsByExecution.has(edge.executionId))
     .map(edge => [edge.executionId, edge]))
   const ownEdgeIds = new Set([...edgesByExecution.values()].map(edge => edge.id))
+  const answerBySlot = new Map(materialized.evidence.answers.filter(answer => ownEdgeIds.has(answer.usageEdgeId)).map(answer => [answer.expectedSlotId, answer]))
   const citedSlotIds = new Set(materialized.evidence.evidence
     .filter(row => ownEdgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
@@ -249,8 +250,8 @@ function targetAnswers(
       snapshot,
       mentioned: target.mentionNotApplicable
         ? null
-        : targetMentionedInAnswer(snapshot.answerText, target.stableKey, materialized.input.targets),
-      cited: incompleteObservationIds.has(snapshot.id) ? null : citedSlotIds.has(slot.id),
+        : answerBySlot.get(slot.id)?.mentioned ?? null,
+      cited: citedSlotIds.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false,
     })
   }
   return { expected: slots.length, answers }

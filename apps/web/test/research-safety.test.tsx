@@ -3,7 +3,7 @@ import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ResearchBatchCreate, ResearchRunDetailDto } from '@ainyc/canonry-contracts'
-import { ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
+import { ResearchQueriesSection, RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -294,4 +294,18 @@ test('read-only keys can preview but cannot run research or save patterns', asyn
   expect(runButton().disabled).toBe(true)
   expect(screen.queryByRole('button', { name: 'Save as a pattern' })).toBeNull()
   expect(state.posts).toHaveLength(0)
+})
+
+test.each([null, boston])('freezes a saved pattern location before editing the execution location to %j', async location => {
+  const saved = { id: 'location-pattern', version: 'v1', label: 'Location fixture', pattern: 'Apartments in {location}', variables: ['location'] }
+  const { state } = setup({ templates: [saved] })
+  await ready(); setMode('locations'); choose(atlanta.label)
+  fireEvent.click(screen.getByRole('button', { name: saved.label })); preview()
+  const row = document.querySelector('ol > li')!
+  expect(row.querySelector('textarea')!.value).toBe('Apartments in ' + atlanta.label)
+  fireEvent.change(row.querySelector('select')!, { target: { value: location?.label ?? '__none__' } })
+  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.runAction }))
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]?.runs[0]).toMatchObject({ queries: ['Apartments in ' + atlanta.label], location, template: { templateId: saved.id, templateVersion: saved.version, bindingLocation: atlanta } })
 })

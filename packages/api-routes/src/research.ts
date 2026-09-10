@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
-import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import { z } from 'zod'
+import { and, count, desc, eq, gte, lt, or, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { measurementQueryTemplates, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection } from '@ainyc/canonry-contracts'
+import { measurementQueryTemplates, projects, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
+import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection, type ResearchRunCreate } from '@ainyc/canonry-contracts'
 import { canRunResearch, requireResearchGrant } from './auth.js'
 import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -37,30 +38,37 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
   }, async (request, reply) => {
     requireResearchGrant(request, opts.allowViewers ?? false)
     const project = resolveProject(app.db, request.params.name)
-    if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const parsed = researchRunCreateSchema.safeParse(request.body ?? {})
     if (!parsed.success) throw validationError('Invalid research run request', { issues: parsed.error.issues })
     const input = parsed.data
     if (input.idempotencyKey?.startsWith(BATCH_RECEIPT_PREFIX)) throw validationError('This idempotency key prefix is reserved for internal research batch receipts.')
+    const requestHash = directResearchRequestHash(input)
+    const existingReceipt = input.idempotencyKey
+      ? app.db.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
+      : undefined
+    if (existingReceipt) {
+      assertSameDirectResearchRequest(existingReceipt, input, requestHash)
+      const result = getDetail(app, project.id, existingReceipt.id)
+      if (existingReceipt.status === ResearchRunStatuses.queued) opts.onResearchRunRequested?.(existingReceipt.id, project.id)
+      return reply.status(200).send(result)
+    }
+    if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const adapters = opts.providerAdapters ?? []
     const configured = new Set(opts.configuredProviderNames ?? [])
     const providerName = input.provider ?? project.providers.find(name => configured.has(name) && adapters.some(adapter => adapter.name === name && adapter.mode === 'api')) ?? adapters.find(adapter => adapter.mode === 'api' && configured.has(adapter.name))?.name
     const adapter = adapters.find(candidate => candidate.name === providerName)
     if (!providerName || !adapter || adapter.mode !== 'api' || isBrowserProvider(providerName) || !configured.has(providerName)) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: adapters.filter(a => a.mode === 'api' && configured.has(a.name)).map(a => a.name) })
     if (input.model) { adapter.modelValidationPattern.lastIndex = 0; if (!adapter.modelConfigurable || !adapter.modelValidationPattern.test(input.model)) throw validationError(`Invalid model "${input.model}" for provider "${providerName}".`, { provider: providerName, model: input.model, hint: adapter.modelValidationHint }) }
-    const existingReceipt = input.idempotencyKey
-      ? app.db.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
-      : undefined
     const active = activeMeasurementPlan(app.db, project.id)
     const scope = input.scope
-      ? (existingReceipt ? resolveStoredResearchScope(existingReceipt.scope, input.scope, input.idempotencyKey!) : resolveResearchScope(active, input.scope))
+      ? resolveResearchScope(active, input.scope)
       : null
     const location = input.location === undefined
       ? (scope ? null : (project.defaultLocation ? project.locations.find(item => item.label === project.defaultLocation) ?? null : null))
       : input.location
     if (location && !project.locations.some(item => sameLocation(item, location))) throw validationError('Research location must exactly match a configured project location.', { location })
     const template = input.template
-      ? (existingReceipt ? resolveStoredResearchTemplate(existingReceipt.template, input.template, input.idempotencyKey!) : resolveResearchTemplate(app, project.id, input.template, scope, location))
+      ? resolveResearchTemplate(app, project.id, input.template, scope, location)
       : null
     const requestedModel = input.model ?? null
     const resolvedModel = requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel)
@@ -68,15 +76,13 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError('Invalid resolved model "' + resolvedModel + '" for provider "' + providerName + '".', { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
     if (deduplicateResearchQueries(input.queries).length !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
     const queryClasses = classifyResearchQueries(project, active?.plan ?? null, input.queries)
-    const normalized = { queries: input.queries, provider: providerName, model: requestedModel, location: location ?? null, ...(scope ? { scope } : {}), ...(template ? { template } : {}) }
-    const requestHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
     const now = new Date().toISOString()
     const initiatedBy = researchPrincipal(request)
     const decision = app.db.transaction((tx) => {
       if (input.idempotencyKey) {
         const existing = tx.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
         if (existing) {
-          if (existing.requestHash !== requestHash) throw alreadyExists('Research idempotency key', input.idempotencyKey)
+          assertSameDirectResearchRequest(existing, input, requestHash)
           return { reused: true as const, id: existing.id, shouldDispatch: existing.status === ResearchRunStatuses.queued }
         }
       }
@@ -173,11 +179,20 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     return reply.status(202).send({ runs } satisfies ResearchBatchDto)
   })
 
-  app.get<{ Params: { name: string }; Querystring: { limit?: string } }>('/projects/:name/research/runs', async (request) => {
+  app.get<{ Params: { name: string }; Querystring: { limit?: string; cursor?: string } }>('/projects/:name/research/runs', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const requested = Number.parseInt(request.query.limit ?? '', 10)
     const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 100) : 20
-    const runs = app.db.select().from(researchRuns).where(eq(researchRuns.projectId, project.id)).orderBy(desc(researchRuns.createdAt)).limit(limit).all().map(serializeRun)
+    const cursor = request.query.cursor ? parseResearchCursor(request.query.cursor, project.id) : null
+    const rows = app.db.select().from(researchRuns).where(and(
+      eq(researchRuns.projectId, project.id),
+      cursor ? or(lt(researchRuns.createdAt, cursor.createdAt), and(eq(researchRuns.createdAt, cursor.createdAt), lt(researchRuns.id, cursor.id))) : undefined,
+    )).orderBy(desc(researchRuns.createdAt), desc(researchRuns.id)).limit(limit + 1).all()
+    const runs = rows.slice(0, limit).map(serializeRun)
+    const last = runs.at(-1)
+    const nextCursor = rows.length > limit && last
+      ? Buffer.from(JSON.stringify({ projectId: project.id, createdAt: last.createdAt, id: last.id })).toString('base64url')
+      : null
     const configured = new Set(opts.configuredProviderNames ?? [])
     const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
     const providers = (opts.providerAdapters ?? [])
@@ -196,13 +211,51 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
       })
     const canRun = canRunResearch(request, opts.allowViewers ?? false)
     const limited = request.principal !== undefined && !request.principal.scopes.includes(WILDCARD_SCOPE)
-    return { runs, providers, access: { canRun, dailyRunLimit: canRun && limited ? viewerDailyRunLimit : null } } satisfies ResearchRunListDto
+    return { runs, nextCursor, providers, access: { canRun, dailyRunLimit: canRun && limited ? viewerDailyRunLimit : null } } satisfies ResearchRunListDto
   })
 
   app.get<{ Params: { name: string; runId: string } }>('/projects/:name/research/runs/:runId', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     return getDetail(app, project.id, request.params.runId)
   })
+}
+
+
+const DIRECT_REQUEST_HASH_VERSION = 'direct-v2:'
+function directResearchRequestHash(input: ResearchRunCreate): string {
+  const { idempotencyKey: _key, ...request } = input
+  return DIRECT_REQUEST_HASH_VERSION + crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')
+}
+
+/** Existing receipts are immutable work; mutable settings never decide their retry identity. */
+function assertSameDirectResearchRequest(existing: typeof researchRuns.$inferSelect, input: ResearchRunCreate, hash: string): void {
+  if (existing.requestHash?.startsWith(DIRECT_REQUEST_HASH_VERSION)) {
+    if (existing.requestHash !== hash) throw alreadyExists('Research idempotency key', input.idempotencyKey!)
+    return
+  }
+  // Legacy receipts hashed resolved defaults. Reconstruct those from the saved row,
+  // while still checking any explicit request values and the original ordered text.
+  const scope = input.scope ? resolveStoredResearchScope(existing.scope, input.scope, input.idempotencyKey!) : null
+  const template = input.template ? resolveStoredResearchTemplate(existing.template, input.template, input.idempotencyKey!) : null
+  if (input.template?.bindingLocation !== undefined) throw alreadyExists('Research idempotency key', input.idempotencyKey!)
+  const normalized = {
+    queries: input.queries, provider: input.provider ?? existing.provider, model: input.model ?? null,
+    location: input.location === undefined ? existing.location ?? null : input.location,
+    ...(scope ? { scope } : {}), ...(template ? { template } : {}),
+  }
+  if (crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex') !== existing.requestHash) throw alreadyExists('Research idempotency key', input.idempotencyKey!)
+}
+
+const researchCursorSchema = z.object({ projectId: z.string().min(1), createdAt: z.string().datetime({ offset: true }), id: z.string().min(1).max(256) }).strict()
+function parseResearchCursor(value: string, projectId: string): z.infer<typeof researchCursorSchema> {
+  try {
+    if (value.length > 2048 || !/^[\w-]+$/.test(value)) throw new Error('Invalid encoding')
+    const cursor = researchCursorSchema.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')))
+    if (cursor.projectId !== projectId) throw new Error('Different project')
+    return cursor
+  } catch {
+    throw validationError('Invalid research history cursor. Reload the first page and try again.')
+  }
 }
 
 function resolveStoredResearchScope(
@@ -320,7 +373,12 @@ function resolveResearchTemplate(
   if (templateVersion !== selection.templateVersion) {
     throw validationError('The selected research template is stale. Reload it and try again.')
   }
-  const { bindings, output } = expandResearchTemplate(savedTemplate, scope, location)
+  const bindingLocation = selection.bindingLocation === undefined ? location : selection.bindingLocation
+  if (bindingLocation) {
+    const project = app.db.select({ locations: projects.locations }).from(projects).where(eq(projects.id, projectId)).get()!
+    if (!project.locations.some(item => sameLocation(item, bindingLocation))) throw validationError('Research template binding location must match a configured project location.')
+  }
+  const { bindings, output } = expandResearchTemplate(savedTemplate, scope, bindingLocation)
   if (!output || output.length > 4000) throw validationError('Research template output must be between 1 and 4000 characters.')
   return { templateId: selection.templateId, templateVersion, template: savedTemplate.pattern, bindings, output }
 }

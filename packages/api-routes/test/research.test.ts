@@ -288,9 +288,10 @@ describe('research routes', () => {
     }
     db.insert(researchRuns).values({
       id: 'legacy-run', projectId: 'alpha', status: 'completed', provider: 'openai', resolvedModel: 'gpt-4.1',
-      totalQueries: 1, idempotencyKey: payload.idempotencyKey,
+      totalQueries: 1, location: normalized.location, idempotencyKey: payload.idempotencyKey,
       requestHash: crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex'), createdAt: now,
     }).run()
+    db.update(projects).set({ defaultLocation: null }).where(eq(projects.id, 'alpha')).run()
     const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ id: 'legacy-run', scope: null })
@@ -357,4 +358,57 @@ describe('model catalog fallback', () => {
     expect(research.providers[0].knownModels).toMatchObject([{ id: 'gpt-instance' }, { id: 'gpt-4.1' }])
     await app.close()
   })
+})
+
+it.each([null, { label: 'Boston', city: 'Boston', region: 'MA', country: 'US' }])('preserves original template bindings independently from the final engine location %j', async location => {
+  const { app, db } = harness()
+  const original = { label: 'New York', city: 'New York', region: 'NY', country: 'US' }
+  db.update(projects).set({ locations: [original, ...(location ? [location] : [])] }).where(eq(projects.id, 'alpha')).run()
+  const version = new Date().toISOString()
+  db.insert(measurementQueryTemplates).values({ id: 'location-pattern', projectId: 'alpha', name: 'Location', pattern: 'Apartments in {location}', variables: ['location'], createdAt: version, updatedAt: version }).run()
+  const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: {
+    idempotencyKey: 'edited-location', runs: [{ queries: ['Edited apartments query'], provider: 'openai', model: 'gpt-4.1', location, template: { templateId: 'location-pattern', templateVersion: version, bindingLocation: original } }],
+  } })
+  expect(response.statusCode).toBe(202)
+  expect(response.json().runs[0]).toMatchObject({ location, template: { bindings: { location: original.label }, output: 'Apartments in ' + original.label }, queries: [{ query: 'Edited apartments query' }] })
+})
+
+it('replays direct receipts after provider and location defaults change while rejecting changed requests', async () => {
+  const configured = [{ name: 'openai', configured: true }]
+  const { app, db, requested } = harness({ providerSummary: configured })
+  const payload = { queries: ['Literal retry query'], idempotencyKey: 'frozen-direct-defaults' }
+  const original = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
+  expect(original.statusCode).toBe(202)
+  db.update(projects).set({ defaultLocation: null, providerModels: { openai: 'gpt-new-default' } }).where(eq(projects.id, 'alpha')).run()
+  db.update(researchRuns).set({ status: ResearchRunStatuses.completed }).run()
+  const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
+  expect(replay.statusCode).toBe(200)
+  expect(replay.json()).toMatchObject({ id: original.json().id, location: original.json().location, resolvedModel: original.json().resolvedModel })
+  for (const changed of [{ queries: ['Changed query'] }, { location: null }, { provider: 'openai' }]) {
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, ...changed } })).statusCode).toBe(409)
+  }
+  expect(requested).toHaveLength(1)
+  expect(db.select().from(researchRuns).all()).toHaveLength(1)
+})
+
+it('paginates the complete saved history without losing tied timestamps or crossing projects', async () => {
+  const { app, db } = harness()
+  const createdAt = new Date().toISOString()
+  for (let index = 0; index < 105; index++) db.insert(researchRuns).values({ id: 'history-' + String(index).padStart(3, '0'), projectId: 'alpha', status: ResearchRunStatuses.completed, provider: 'openai', resolvedModel: 'gpt-4.1', totalQueries: 0, createdAt }).run()
+  const seen: string[] = []
+  let cursor: string | null = null
+  let firstCursor: string | undefined
+  do {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs?limit=20' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '') })
+    expect(response.statusCode).toBe(200)
+    seen.push(...response.json().runs.map((run: { id: string }) => run.id))
+    cursor = response.json().nextCursor
+    expect(cursor === null || typeof cursor === 'string').toBe(true)
+    firstCursor ??= cursor ?? undefined
+  } while (cursor)
+  expect(seen).toHaveLength(105)
+  expect(new Set(seen).size).toBe(105)
+  expect(seen).toEqual([...seen].sort().reverse())
+  expect((await app.inject({ method: 'GET', url: '/api/v1/projects/beta/research/runs?cursor=' + encodeURIComponent(firstCursor!) })).statusCode).toBe(400)
+  expect((await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs?cursor=malformed' })).statusCode).toBe(400)
 })

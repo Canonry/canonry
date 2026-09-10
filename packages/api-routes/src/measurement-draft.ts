@@ -270,6 +270,7 @@ function seedAuthoring(
         label: target.label,
         status: 'included',
         aliases: [...target.aliases],
+        ...(target.identityAliases === undefined ? {} : { identityAliases: [...target.identityAliases] }),
         urlMatchers: target.urlMatchers.map(formatDraftMatcher),
         source: target.discoveryIdentity ? 'sitemap' : 'manual',
         ...(target.discoveryIdentity ? { discoveryIdentity: target.discoveryIdentity } : {}),

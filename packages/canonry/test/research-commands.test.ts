@@ -172,3 +172,11 @@ describe('research commands', () => {
     expect(JSON.parse(writes[0]!)).toMatchObject({ project: 'demo', runId: 'research-1', query: 'best AEO software' })
   })
 })
+
+it('forwards history cursors and preserves access, providers and pagination in JSON output', async () => {
+  const response = { runs: [detail], access: { canRun: true, dailyRunLimit: 20 }, providers: [{ name: 'openai', defaultModel: detail.resolvedModel }], nextCursor: 'next-page-token' }
+  listResearchRuns.mockResolvedValue(response)
+  const output = await captureLog(() => dispatchRegisteredCommand(['research', 'list', 'demo', '--cursor', 'previous-page-token', '--limit', '10', '--format', 'json'], 'text', RESEARCH_CLI_COMMANDS).then(() => undefined))
+  expect(listResearchRuns).toHaveBeenCalledWith('demo', { limit: 10, cursor: 'previous-page-token' })
+  expect(JSON.parse(output)).toEqual(response)
+})
