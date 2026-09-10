@@ -29,6 +29,18 @@ export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
 
 /**
+ * Optional filters shared by `GET /runs` and `GET /projects/:name/runs`.
+ * Both validate against the run enums so an unknown value is a 400 instead
+ * of a silently empty list, and the MCP `canonry_runs_list` input reuses this
+ * shape so every surface accepts the same filters.
+ */
+export const runListFilterQuerySchema = z.object({
+  kind: runKindSchema.optional(),
+  status: runStatusSchema.optional(),
+})
+export type RunListFilterQuery = z.infer<typeof runListFilterQuerySchema>
+
+/**
  * What caused this run to be created.
  *
  * - `manual`        operator-initiated full sweep (CLI `canonry run` or the

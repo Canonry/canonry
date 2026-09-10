@@ -5,6 +5,7 @@ import { usageError } from '../cli-error.js'
 
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
+const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
 
 const RUN_TRIGGER_OPTIONS = {
   provider: stringOption(),
@@ -142,21 +143,25 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['runs'],
-    usage: 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]',
+    usage: RUNS_USAGE,
     options: {
       limit: stringOption(),
       kind: stringOption(),
+      status: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'runs', 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]')
+      const project = requireProject(input, 'runs', RUNS_USAGE)
+      // kind/status pass through as typed; the server validates them against
+      // the run enums and its 400 names the allowed values.
       await listRuns(project, {
         format: input.format,
         limit: parseIntegerOption(input, 'limit', {
           command: 'runs',
-          usage: 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]',
+          usage: RUNS_USAGE,
           message: '--limit must be an integer',
         }),
         kind: getString(input.values, 'kind'),
+        status: getString(input.values, 'status'),
       })
     },
   },
