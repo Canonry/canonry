@@ -1625,7 +1625,7 @@ export function AdvancedMeasurementSection({
               setAudience(nextAudience)
               setAssignmentNotice(null)
             },
-            assignmentImpact: assignmentPreview && assignmentPreviewSelectionKey === assignmentPreviewKey
+            assignmentImpact: assignmentPreview && assignmentPreviewSelectionKey === assignmentPreviewKey && assignmentPreview.draftEtag === etag
               ? assignmentImpactFor(assignmentPreview)
               : null,
             isPreviewingAssignmentImpact: isPreviewingAssignment,
