@@ -97,7 +97,7 @@ describe('canonry-mcp stdio', () => {
     expect(listedNames).toContain('canonry_load_toolkit')
     expect(listedNames).not.toContain('canonry_insights_list')
 
-    const help = await client.callTool({ name: 'canonry_help', arguments: {} })
+    const help = await client.callTool({ name: 'canonry_help', arguments: { includeCatalog: true } })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
     expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])

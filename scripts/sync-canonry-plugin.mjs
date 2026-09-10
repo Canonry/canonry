@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { syncAgentOperations } from './sync-agent-operations.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const managedSkills = ['aero', 'canonry']
@@ -142,7 +143,7 @@ function readJsonAtRef(ref, relativePath) {
 }
 
 function parseSemver(version) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-z.-]+))?(?:\+[0-9a-z.-]+)?$/i.exec(version)
   if (!match) return undefined
   return {
     core: match.slice(1, 4).map(Number),
@@ -353,7 +354,7 @@ function checkVersionAdvancement(ref, failures) {
 
 const packageVersion = readJson(packageManifestPath).version
 const rootVersion = readJson(rootManifestPath).version
-const failures = []
+const failures = syncAgentOperations(repoRoot, checkOnly)
 
 validatePortablePlugin(failures)
 

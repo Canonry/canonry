@@ -34,6 +34,7 @@ The publishable npm package (`@canonry/canonry`, plus compatibility publish as `
 | `src/mcp/tool-registry.ts` | All 188 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names) |
 | `src/mcp/toolkits.ts` | Toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `gbp`, `ads`, `traffic`, `agent`, `discovery`) — name, title, description, when-to-load |
 | `src/mcp/dynamic-catalog.ts` | `DynamicToolCatalog` — drives `canonry_help` and `canonry_load_toolkit` (enables tools, emits `tools/list_changed`) |
+| `src/mcp/operations-guide.ts` | Compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants. |
 | `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure). |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers. Read-only embed mode (#716): resolves `resolveEmbedConfig(process.env, config)` at boot; when enabled, `injectConfig` appends an `embed` block to `window.__CANONRY_CONFIG__` and the single `sendSpaDocument` chokepoint (used by `serveIndex` AND the deep-link `setNotFoundHandler` fallback) emits `Content-Security-Policy: frame-ancestors …` (fail-closed to `'none'`). The `embed.projectTabs` value may be overridden PER REQUEST by the `X-Canonry-Embed-Tabs` header (`embedClientConfigForRequest` in contracts): the Embed v2 `/e` proxy sets it per dashboard from `embed_dashboards`, and the end client cannot reach the loopback engine to set it (presentational only; the API key scope is the data boundary). Absent header = the boot-wide config. When embed is off, the injected config + headers are byte-for-byte unchanged. `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`. |
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — resolves embed mode (#716) from `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` / `CANONRY_EMBED_VIEWS` / `CANONRY_EMBED_PROJECT_TABS` layered over config.yaml `embed:` (env over config, mirroring basePath). Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@ainyc/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`). `enabled` is decoupled from origins so `--embed` without origins fails closed; an empty views/projectTabs list collapses to `undefined` (= all). `projectTabs` is the project-page TAB allowlist (overview/technical-aeo/search-console/activity/backlinks/...) the embedded dashboard renders — finer than `views`, which only gates whole top-level routes. Serve/start flags: `--embed`, `--embed-allow-origin <origin>…`, `--embed-view <view>…`, `--embed-project-tab <tab>…` (in `cli-commands/system.ts` → env via `applyServerEnv`; `start` forwards them through `buildServeForwardArgs` in `commands/daemon.ts`). |
@@ -143,6 +144,16 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 ### MCP adapter
 
 Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+
+MCP is the universal guide; skills are optional upgrades. Initialization must
+route agents through `canonry_help(intent)` without requiring resources,
+plugins, skills, or a local CLI. Default help stays compact; `includeCatalog`
+opts into toolkit details. Return only available stored-evidence next steps and
+offer loading only on progressive stdio. Guidance never grants authority.
+Edit `docs/agent-operations/v1.md`, then run `pnpm guide:sync` to generate runtime
+instructions, the optional MCP resource, and the Canonry skills shared by Codex
+and Claude. `plugin:check` checks guide drift too. Keep public guidance limited
+to vocabulary, workflow, authority, and safety; enforce permissions server-side.
 
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
 

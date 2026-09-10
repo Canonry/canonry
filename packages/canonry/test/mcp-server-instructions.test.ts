@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
+import { OPERATIONS_GUIDE } from '../src/mcp/operations-guide.generated.js'
 
 /**
  * The `instructions` string is the only activation channel that is both
@@ -15,9 +16,7 @@ const SOURCE = fs.readFileSync(
 )
 
 function instructions(): string {
-  const m = /const SERVER_INSTRUCTIONS = `([\s\S]*?)`\n/.exec(SOURCE)
-  if (!m) throw new Error('SERVER_INSTRUCTIONS not found')
-  return m[1]!
+  return OPERATIONS_GUIDE.initialize
 }
 
 describe('MCP server instructions', () => {
@@ -29,8 +28,11 @@ describe('MCP server instructions', () => {
     expect(Buffer.byteLength(instructions(), 'utf-8')).toBeLessThan(2048)
   })
 
-  it('points at the skill rather than replacing it', () => {
+  it('points to help as the universal entry point and makes the skill optional', () => {
+    expect(instructions()).toContain('canonry_help')
     expect(instructions()).toMatch(/canonry.*skill/i)
+    expect(instructions()).toContain('optional additional guidance')
+    expect(instructions()).not.toMatch(/load.*skill before/i)
   })
 
   it('carries the mention/cited distinction, the one error that yields a wrong number', () => {

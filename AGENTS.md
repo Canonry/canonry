@@ -110,11 +110,12 @@ pnpm run test
 pnpm run lint
 pnpm plugin:sync                  # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check                 # fail on plugin spec, skill, or version drift (CI gate)
+pnpm guide:sync                   # generate MCP guidance + optional native skills from docs/agent-operations/v1.md
 pnpm run dev:web
 
 # MCP workflows (agent): inspect → diagnose → act
 # inspect: get-project / report / property / property-evidence / visibility-stats ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote
-# Use tier=core tools for read; write requires `*` scope — see Deployment Posture. Prefer `canonry_help` + `canonry_load_toolkit` over raw fetch.
+# Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 # CLI
 canonry init

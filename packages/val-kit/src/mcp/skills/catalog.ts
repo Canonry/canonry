@@ -107,9 +107,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "canonry",
     path: "SKILL.md",
     title: "canonry skill",
-    description: "Operate Canonry (the `cnry` / `canonry` CLI) for AEO. Load this BEFORE any canonry operator task: creating or configuring a project, connecting GSC, GA4, Bing, Google Business Profile or a Cloudflare traffic source, running or scheduling a sweep, reading mention and citation coverage, running a technical audit, submitting sitemaps, or diagnosing why a number moved. Covers anything touching cnry, canonry doctor, ~/.canonry, @canonry/canonry, the canonry_* MCP tools, mention share, or direct-push / queue-pull traffic. Load it before acting, not after something fails.",
+    description: "Navigate Canonry through connected MCP tools or the Canonry CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Optional host-native guidance; MCP users can operate through canonry_help without installing a skill.",
     entryPoint: true,
-    characters: 19032,
+    characters: 6826,
     content: canonrySkillPart0,
   },
   {

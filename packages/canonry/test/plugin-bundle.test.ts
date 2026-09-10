@@ -201,9 +201,10 @@ describe('native Canonry plugin bundle', () => {
     expect(pluginReadme).toContain('cnry bootstrap')
     expect(pluginReadme).toContain('Provider credentials are optional')
     expect(pluginReadme).not.toContain('cnry init --skip-skills --skip-mcp')
-    expect(operatorSkill).toContain('cnry bootstrap')
-    expect(operatorSkill).toContain('Use `cnry init` only as an optional interactive first-time')
-    expect(operatorSkill).toMatch(/explicit approval before every mutation or quota-consuming sweep/i)
+    expect(operatorSkill).toContain('canonry_help')
+    expect(operatorSkill).toContain('Host-native skills are optional upgrades')
+    expect(operatorSkill).toContain('obtain approval covering its')
+    expect(operatorSkill).not.toContain('Runtime Preflight')
   })
 
   it('requires a version advancement for plugin changes only when a base ref is supplied', () => {
@@ -220,6 +221,12 @@ describe('native Canonry plugin bundle', () => {
     try {
       fs.mkdirSync(path.dirname(scriptPath), { recursive: true })
       fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-canonry-plugin.mjs'), scriptPath)
+      fs.copyFileSync(path.join(repoRoot, 'scripts', 'sync-agent-operations.mjs'), path.join(scratch, 'scripts', 'sync-agent-operations.mjs'))
+      fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(scratch, 'node_modules'), 'dir')
+      fs.writeFileSync(path.join(scratch, '.gitignore'), 'node_modules\n')
+      const guidePath = path.join(scratch, 'docs/agent-operations/v1.md')
+      fs.mkdirSync(path.dirname(guidePath), { recursive: true })
+      fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
 
       const sharedPluginMetadata = {
         name: 'canonry',
@@ -277,6 +284,7 @@ describe('native Canonry plugin bundle', () => {
         '# CODEMAP\nvisibility-attribution\ngsc-sitemap-submission\nGUARDS.md\nDOC_UPDATE.md\nfind apps packages -type f -name\n',
       )
 
+      execFileSync(process.execPath, [scriptPath], { cwd: scratch })
       execFileSync('git', ['init', '--quiet'], { cwd: scratch })
       execFileSync('git', ['config', 'user.email', 'plugin-test@canonry.invalid'], { cwd: scratch })
       execFileSync('git', ['config', 'user.name', 'Canonry plugin test'], { cwd: scratch })
@@ -285,9 +293,11 @@ describe('native Canonry plugin bundle', () => {
       execFileSync('git', ['commit', '--quiet', '-m', 'baseline'], { cwd: scratch })
       const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim()
 
-      const changedSkill = 'updated canonry skill\n'
-      fs.writeFileSync(path.join(scratch, 'skills', 'canonry', 'SKILL.md'), changedSkill)
-      fs.writeFileSync(path.join(scratch, 'plugins', 'canonry', 'skills', 'canonry', 'SKILL.md'), changedSkill)
+      fs.appendFileSync(guidePath, '\nCompatible guidance clarification.\n')
+      const driftCheck = spawnSync(process.execPath, [scriptPath, '--check'], { cwd: scratch, encoding: 'utf8' })
+      expect(driftCheck.status).toBe(1)
+      expect(driftCheck.stderr).toContain('differs from the Operations Guide')
+      execFileSync(process.execPath, [scriptPath], { cwd: scratch })
 
       const localCheck = spawnSync(process.execPath, [scriptPath, '--check'], { cwd: scratch, encoding: 'utf8' })
       expect(localCheck.status).toBe(0)

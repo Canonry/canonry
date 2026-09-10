@@ -6,9 +6,49 @@ MCP is useful here because many agent clients can discover typed tools, validate
 
 New public API/CLI capabilities should get MCP parity by default. If a capability is intentionally not exposed as an MCP tool, classify its OpenAPI operation as `deferred` or `excluded-protocol` in `packages/canonry/src/mcp/openapi-classification.ts` and include the reason there. Credential, bearer-token, browser-session, and other high-risk operations may be deferred, but they should be explicit exceptions rather than silent omissions.
 
+## Universal operations guidance
+
+Connected agents start with initialization guidance and `canonry_help`, not a
+skill installation. Call `canonry_help({intent: "status"})`, or use `diagnose`,
+`measurement`, `integrations`, `reports`, or a short task description. The
+default response is a compact route, not the full catalog:
+
+```json
+{
+  "guideVersion": "v1",
+  "mode": "hosted-fixed-catalog",
+  "scope": "read-only",
+  "workflow": "status",
+  "next": ["canonry_projects_list", "canonry_project_overview"],
+  "workflows": ["status", "diagnose", "measurement", "integrations", "reports"],
+  "approvalBoundary": ["provider reads", "sweeps", "writes"],
+  "operationsGuideUrl": "https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md"
+}
+```
+
+The response also contains short `guidance`, `approvalRule`, and `authority`
+fields. It is returned as both JSON text and MCP `structuredContent`. `next`
+contains only available stored-evidence tools; it never executes them. Use
+listed tool schemas for arguments and keep the server's permission boundary.
+
+Hosted catalogs are fixed and never offer toolkit loading. Progressive stdio
+may return `loadToolkits`; load one, await its response, and ask help again.
+Eager stdio reports `stdio-fixed-catalog`. Set `includeCatalog: true` for the
+existing scope, core-tools, loaded-toolkit, and toolkit-details fields. Default
+help no longer includes that large catalog; clients that parsed `toolkits`
+should opt in explicitly.
+
+The [Operations Guide v1](agent-operations/v1.md) is the public source of truth.
+`canonry://agent-operations/v1` exposes the same guide as an optional MCP
+resource. Resource support, browser access, local CLI installation, and plugins
+are not prerequisites: every remote agent can navigate with help alone.
+Codex/Claude `SKILL.md` files are generated from that source as optional native
+guidance. Guidance never grants permissions; the server enforces authority.
+
 ## Install
 
-Install Canonry normally:
+For a local stdio runtime, install Canonry normally. Agents using an existing
+hosted MCP connection do not need this installation:
 
 ```bash
 npm install -g @canonry/canonry
@@ -188,7 +228,7 @@ For shared query assignments and measured results, see [Query control and AI vis
 
 Core tier (always loaded):
 
-- `canonry_help` — list available toolkits and which are loaded
+- `canonry_help` — compact intent route and approval boundaries; use `includeCatalog: true` for toolkit details
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
 - `canonry_project_overview` — composite read for "how is project X doing?"
