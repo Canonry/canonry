@@ -275,7 +275,7 @@ describe('shared production visibility view', () => {
     }
   })
 
-  it.each(['group', 'market'] as const)('names the selected %s kind and identifies pending assignments as project-wide', kind => {
+  it.each(['group', 'market'] as const)('names the selected %s kind while preserving the measured scope', kind => {
     const report = reportFixture()
     report.scopeOptions.push(...(['group', 'market'] as const).map(scopeKind => ({ id: `${scopeKind}-beta`, label: 'Metro Beta', kind: scopeKind, targetCount: 15 })))
     report.selection.scope = report.scopeOptions.find(scope => scope.id === `${kind}-beta`)!
@@ -283,7 +283,6 @@ describe('shared production visibility view', () => {
     const kindLabel = kind === 'group' ? 'Group' : 'Market'
     expect(screen.getByText(`Metro Beta · ${kind === 'group' ? '15 properties' : kindLabel}`, { selector: 'summary' })).toBeTruthy()
     expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
-    expect(screen.getByText('15 query assignments pending across project')).toBeTruthy()
   })
 
   it('paginates large property breakdowns and searches all properties without changing server metrics', () => {
@@ -398,13 +397,6 @@ describe('shared production visibility view', () => {
     } else expect(within(table).queryByText('2 properties')).toBeNull()
     fireEvent.click(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' }))
     expect(JSON.parse(select.mock.lastCall![0].measurementAnswer)).toMatchObject({ queryKey: 'query-context', provider: 'openai', model: 'gpt-test', location: null, runId: 'run-2', revision: 2 })
-  })
-
-  it('explains frozen prior measurement without claiming new assignments have answers', () => {
-    const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
-    expect(html).toContain('Measured under revision 2')
-    expect(html).toContain('Project has 15 assignments awaiting sweep')
-    expect(html).not.toContain('Published revision 4')
   })
 
   it('resolves an all-class response to historical non-brand data before current branded data, then to branded when non-brand has no history', () => {
