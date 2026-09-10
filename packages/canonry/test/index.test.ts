@@ -1342,7 +1342,10 @@ describe('canonry', () => {
     }
   })
 
-  it('health endpoint returns ok', async () => {
+  it('health endpoint returns ok and omits commit and instance when the env is unset', async () => {
+    vi.stubEnv('CANONRY_COMMIT', undefined)
+    vi.stubEnv('CANONRY_INSTANCE', undefined)
+    vi.stubEnv('CANONRY_INSTANCE_ROLE', undefined)
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     const dbPath = path.join(tmpDir, 'test.db')
@@ -1378,9 +1381,72 @@ describe('canonry', () => {
         url: '/health',
       })
       expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.body) as { status: string; basePath?: string }
+      const body = JSON.parse(res.body) as {
+        status: string
+        service: string
+        version: string
+        commit?: string
+        instance?: { name: string; role?: string }
+        basePath?: string
+      }
       expect(body.status).toBe('ok')
+      expect(body.service).toBe('canonry')
+      expect(body.version).toBe(PKG_VERSION)
+      expect(body.commit).toBeUndefined()
+      expect(body.instance).toBeUndefined()
       expect(body.basePath).toBeUndefined()
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('health endpoint reports commit and instance identity from the env', async () => {
+    // Unbundled source carries no tsup build stamp, so CANONRY_COMMIT is the
+    // path a test can reach; the stamp source is covered in instance-identity.test.ts.
+    vi.stubEnv('CANONRY_COMMIT', 'eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
+    vi.stubEnv('CANONRY_INSTANCE', 'gjelina-demo')
+    vi.stubEnv('CANONRY_INSTANCE_ROLE', 'client-demo')
+    const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        geminiApiKey: 'test-key',
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      const res = await app.inject({ method: 'GET', url: '/health' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body) as {
+        status: string
+        commit?: string
+        instance?: { name: string; role?: string }
+      }
+      expect(body.status).toBe('ok')
+      expect(body.commit).toBe('eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
+      expect(body.instance).toEqual({ name: 'gjelina-demo', role: 'client-demo' })
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
