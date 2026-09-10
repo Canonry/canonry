@@ -50,7 +50,7 @@ function CopyAnswerButton({ answer }: { answer: string }) {
     }
   }
   return <div className="mt-3 flex flex-wrap items-center gap-x-3">
-    <Button type="button" variant="ghost" className="min-h-11 px-2" disabled={state === 'copying'} aria-busy={state === 'copying'} onClick={copyAnswer}>
+    <Button type="button" variant="ghost" className="min-h-11 px-2" disabled={state === 'copying'} aria-busy={state === 'copying'} onClick={() => { void copyAnswer() }}>
       {state === 'copying' ? ANSWER_MARKDOWN_COPY.copying : ANSWER_MARKDOWN_COPY.copy}
     </Button>
     <span role="status" className="text-sm text-secondary">{state === 'copied' ? ANSWER_MARKDOWN_COPY.copied : state === 'failed' ? ANSWER_MARKDOWN_COPY.failed : ''}</span>
