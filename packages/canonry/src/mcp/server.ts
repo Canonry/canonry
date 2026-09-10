@@ -1,17 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
-import { withToolErrors } from './results.js'
+import { errorToolResult, jsonToolResult, withToolErrors } from './results.js'
 import { DynamicToolCatalog, type DynamicCatalogEntry } from './dynamic-catalog.js'
 import { CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './toolkits.js'
+import { operationsHelp, type GuideMode } from './operations-guide.js'
+import { OPERATIONS_GUIDE } from './operations-guide.generated.js'
 
 export type CanonryMcpScope = 'all' | 'read-only'
 
 export interface CanonryMcpServerOptions {
   clientFactory?: () => ApiClient
   scope?: CanonryMcpScope
+  /** Actual credential grants, separate from an explicit read-only endpoint/flag. */
+  credentialScopes?: readonly string[]
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -43,38 +48,8 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 }
 
 
-/**
- * Text every MCP client receives at `initialize`, before any tool is called.
- *
- * This is the only channel that is BOTH automatic and impossible to make
- * stale: it ships inside the running engine, so it always describes the build
- * the caller is actually talking to, and the client gets it without the model
- * choosing to load anything. A skill has to be selected; this does not.
- *
- * It is therefore a POINTER AND A WARNING, never a playbook. Keep it under 2KB
- * (Claude Code truncates there) and put procedures in the skill.
- *
- * What earns a place here: a fact whose absence causes a wrong action rather
- * than a slower one.
- */
-const SERVER_INSTRUCTIONS = `Canonry tracks how AI answer engines mention a brand and cite a domain.
-
-Load the "canonry" skill before operator work (project setup, integrations, traffic sources, sweeps, diagnosis). It carries the procedures and the failure modes; this text is only a pointer. Use "aero" for analyst work: regression diagnosis, reporting.
-
-Two signals, never interchangeable:
-- mentioned = the brand appears in the answer TEXT the model wrote.
-- cited = the domain appears in the SOURCE links behind the answer.
-A model can do either, both or neither. Never compute one from the other, and never report a number for one under the other's name.
-
-Sweeps, probes, and research runs spend provider quota and write rows. Get explicit approval before any run, apply, or other mutation.
-
-Most reads are free. Five ads reads are NOT: canonry_ads_account, canonry_ads_geo_search, canonry_ads_live_delivery, canonry_ads_conversion_pixels and canonry_ads_conversion_event_settings call the provider live and spend against the advertiser account. They are marked read, so nothing in the tool list warns you. Get approval for those exactly as for a mutation.
-
-Google Marketing also calls providers live. Get approval before canonry_google_ads_customers, canonry_gtm_accounts, canonry_gtm_containers, canonry_gtm_workspaces, canonry_google_ads_sync or canonry_gtm_sync.
-
-A null answerMentioned means NOT CHECKED, not "not mentioned". Never coerce it to false.
-
-If no sweep has run, say so. Never state a mention or citation figure that no run produced.`
+/** Automatic entry point, generated from the public guide; skills are optional. */
+const SERVER_INSTRUCTIONS = OPERATIONS_GUIDE.initialize
 
 export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
   const clientFactory = options.clientFactory ?? createApiClient
@@ -90,7 +65,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -122,7 +97,15 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   // narrow. Excluded structurally rather than by policy, so it cannot be
   // advertised and then fail — and so it stops costing context on a profile
   // whose whole point is not to.
-  registerMetaTools(server, catalog, { includeToolkitLoader: options.tiers === undefined })
+  const mode: GuideMode = options.tiers !== undefined
+    ? 'hosted-fixed-catalog'
+    : eager ? 'stdio-fixed-catalog' : 'stdio-progressive'
+  registerMetaTools(server, catalog, { includeToolkitLoader: options.tiers === undefined, mode })
+  server.registerResource('canonry-agent-operations-v1', OPERATIONS_GUIDE.resourceUri, {
+    title: 'Canonry Operations Guide v1',
+    description: 'Optional public operations guidance. Use canonry_help when resources are unavailable.',
+    mimeType: 'text/markdown',
+  }, async uri => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: OPERATIONS_GUIDE.markdown }] }))
 
   return { server, catalog }
 }
@@ -131,20 +114,33 @@ const loadToolkitInputSchema = z.object({
   name: z.enum(CANONRY_MCP_TOOLKIT_NAMES).describe('Toolkit name. List options with canonry_help.'),
 })
 
+const helpInputSchema = z.object({
+  intent: z.string().max(200).optional().describe('Workflow (status, diagnose, measurement, integrations, reports) or a short task description.'),
+  includeCatalog: z.boolean().optional().describe('Include full toolkit details. Omit for a compact, actionable route.'),
+})
+
 function registerMetaTools(
   server: McpServer,
   catalog: DynamicToolCatalog,
-  opts: { includeToolkitLoader: boolean },
+  opts: { includeToolkitLoader: boolean; mode: GuideMode },
 ): void {
   server.registerTool(
     'canonry_help',
     {
-      title: 'List Canonry MCP toolkits',
-      description: 'List available toolkits and which are loaded. Call before canonry_load_toolkit if unsure which to load.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      title: 'Guide a Canonry workflow',
+      description: 'Start here: route an intent to available stored-evidence tools, workflow guidance, and approval boundaries. No provider calls or installation required. Optionally include full toolkit details.',
+      inputSchema: helpInputSchema.shape,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async () => withToolErrors(async () => catalog.helpResult()),
+    async (input: unknown) => {
+      try {
+        const parsed = helpInputSchema.parse(input ?? {})
+        const result = operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog)
+        return { ...jsonToolResult(result), structuredContent: result }
+      } catch (error) {
+        return errorToolResult(error)
+      }
+    },
   )
 
   if (!opts.includeToolkitLoader) return
@@ -166,10 +162,18 @@ function registerMetaTools(
 export function getCanonryMcpTools(
   scope: CanonryMcpScope = 'all',
   tiers?: readonly CanonryMcpTier[],
+  credentialScopes?: readonly string[],
 ) {
-  const byScope = scope === 'read-only'
+  const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
+  const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
+  const byScope = readOnly
     ? canonryMcpTools.filter(tool => tool.access === 'read')
-    : [...canonryMcpTools]
+    : canonryMcpTools.filter(tool => {
+      if (!restricted || tool.access === 'read') return true
+      if (tool.requiredScope && restricted.includes(tool.requiredScope)) return true
+      // Preserve existing Ads catalogs; their API handlers enforce individual grants.
+      return restricted.some(grant => grant !== RESEARCH_RUN_SCOPE) && tool.tier === 'ads'
+    })
   if (!tiers) return byScope
   const wanted = new Set<CanonryMcpTier>(tiers)
   return byScope.filter(tool => wanted.has(tool.tier))

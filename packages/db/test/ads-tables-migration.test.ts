@@ -9,7 +9,6 @@ import {
   migrate,
   MIGRATION_VERSIONS,
   projects,
-  apiKeys,
   adsConnections,
   adsCampaigns,
   adsAdGroups,
@@ -57,24 +56,17 @@ const ACTIVATION_MANIFEST = {
 }
 
 function seedActivationKeys(db: ReturnType<typeof createTempDb>['db']) {
-  db.insert(apiKeys).values([
-    {
-      id: 'key_approver',
-      name: 'Human approver',
-      keyHash: 'approver-hash',
-      keyPrefix: 'cnry_approver',
-      scopes: ['ads.approve'],
-      createdAt: NOW,
-    },
-    {
-      id: 'key_executor',
-      name: 'Activation executor',
-      keyHash: 'executor-hash',
-      keyPrefix: 'cnry_executor',
-      scopes: ['ads.activate'],
-      createdAt: NOW,
-    },
-  ]).run()
+  // This helper also seeds databases intentionally stopped at version 101.
+  // Keep the insert on the legacy column set so current Drizzle schema fields
+  // (such as delegated_user_id from v154) cannot leak into the historical
+  // migration fixture.
+  db.run(sql`
+    INSERT INTO api_keys
+      (id, name, key_hash, key_prefix, scopes, created_at)
+    VALUES
+      ('key_approver', 'Human approver', 'approver-hash', 'cnry_approver', ${JSON.stringify(['ads.approve'])}, ${NOW}),
+      ('key_executor', 'Activation executor', 'executor-hash', 'cnry_executor', ${JSON.stringify(['ads.activate'])}, ${NOW})
+  `)
 }
 
 function seedActivationOperation(

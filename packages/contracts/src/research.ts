@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { measurementV2StableKeySchema } from './measurement-plan-v2.js'
 import { expandQueryTemplate, queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
 import { queryClassSchema } from './query-class.js'
-import { locationContextSchema } from './provider.js'
+import { locationContextSchema, type LocationContext } from './provider.js'
 import { citationStateSchema } from './run.js'
 import { groundingSourceSchema } from './run.js'
 import { userRoleSchema } from './users.js'
@@ -18,6 +18,10 @@ export type ResearchQueryStatus = z.infer<typeof researchQueryStatusSchema>
 export const ResearchQueryStatuses = researchQueryStatusSchema.enum
 
 export const DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT = 20
+/** Maximum saved destinations accepted by one multi-destination research request. */
+export const MAX_RESEARCH_BATCH_RUNS = 20
+/** Maximum concrete editor queries across all destinations in one request. */
+export const MAX_RESEARCH_BATCH_QUERIES = 50
 
 /** A named, published Advanced Measurement slice selected for an ad-hoc batch. */
 export const researchScopeSelectionSchema = z.object({
@@ -50,19 +54,29 @@ export function deduplicateResearchQueries(queries: readonly string[]): string[]
   })
 }
 
-export function researchTemplateBindings(scope: Pick<ResearchRunScope, 'kind' | 'label'> | null | undefined): Record<string, string> {
-  if (!scope) return {}
-  return scope.kind === 'market'
-    ? { market: scope.label, submarket: scope.label }
-    : { property: scope.label, propertyBrand: scope.label }
+export function researchTemplateBindings(
+  scope: Pick<ResearchRunScope, 'kind' | 'label'> | null | undefined,
+  location?: Pick<LocationContext, 'label'> | null,
+): Record<string, string> {
+  const scopeBindings: Record<string, string> = !scope
+    ? {}
+    : scope.kind === 'market'
+      ? { market: scope.label, submarket: scope.label }
+      : { property: scope.label, propertyBrand: scope.label }
+  return location ? { ...scopeBindings, location: location.label } : scopeBindings
 }
 
 /** Editor previews and saved provenance use the same declared variables in the same order. */
 export function expandResearchTemplate(
   template: { pattern: string; variables: readonly string[] },
-  scope: Pick<ResearchRunScope, 'kind' | 'label'>,
+  scope: Pick<ResearchRunScope, 'kind' | 'label'> | null | undefined,
+  location?: Pick<LocationContext, 'label'> | null,
 ): { bindings: Record<string, string>; output: string } {
-  const available = researchTemplateBindings(scope)
+  const declared = new Set(template.variables)
+  const placeholders = [...template.pattern.matchAll(/\{([^{}]+)\}/g)].map(match => match[1]!)
+  const undeclared = [...new Set(placeholders.filter(variable => !declared.has(variable)))]
+  if (undeclared.length) throw validationError('The selected research template contains undeclared placeholders: ' + undeclared.join(', '))
+  const available = researchTemplateBindings(scope, location)
   const unavailable = template.variables.filter(variable => available[variable] === undefined)
   if (unavailable.length) throw validationError('The selected research template requires unavailable bindings: ' + unavailable.join(', '))
   const bindings = Object.fromEntries(template.variables.map(variable => [variable, available[variable]!]))
@@ -88,11 +102,41 @@ export const researchRunCreateSchema = z.object({
 })
 export type ResearchRunCreate = z.infer<typeof researchRunCreateSchema>
 
+const researchBatchScopeSelectionSchema = researchScopeSelectionSchema.extend({
+  expectedPlanRevision: z.number().int().positive(),
+}).strict()
+
+const researchBatchRunCreateSchema = z.object({
+  queries: z.array(researchQueryTextSchema).min(1).max(MAX_RESEARCH_BATCH_QUERIES),
+  provider: z.string().trim().min(1),
+  model: z.string().trim().min(1).max(200),
+  location: locationContextSchema.nullable(),
+  scope: researchBatchScopeSelectionSchema.optional(),
+  template: researchTemplateSelectionSchema.optional(),
+}).strict()
+
+/**
+ * A bounded set of explicit research destinations. Each destination remains an
+ * ordinary saved ResearchRun; the root idempotency key covers the whole set.
+ */
+export const researchBatchCreateSchema = z.object({
+  idempotencyKey: z.string().trim().min(1).max(128),
+  runs: z.array(researchBatchRunCreateSchema).min(1).max(MAX_RESEARCH_BATCH_RUNS),
+}).strict().superRefine((value, ctx) => {
+  const totalQueries = value.runs.reduce((total, run) => total + run.queries.length, 0)
+  if (totalQueries > MAX_RESEARCH_BATCH_QUERIES) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['runs'], message: `A research batch may contain at most ${MAX_RESEARCH_BATCH_QUERIES} concrete queries across all destinations` })
+  }
+})
+export type ResearchBatchCreate = z.infer<typeof researchBatchCreateSchema>
+
 export const researchRunPrincipalSchema = z.object({
   kind: z.enum(['api-key', 'user']),
   id: z.string(),
   name: z.string(),
   role: userRoleSchema.nullable(),
+  /** Consumes the shared limited-research budget. Legacy viewers count by role. */
+  limited: z.boolean().optional(),
 })
 export type ResearchRunPrincipal = z.infer<typeof researchRunPrincipalSchema>
 
@@ -118,6 +162,8 @@ export type ResearchRunQueryDto = z.infer<typeof researchRunQuerySchema>
 
 export const researchRunDetailSchema = researchRunSummarySchema.extend({ queries: z.array(researchRunQuerySchema) })
 export type ResearchRunDetailDto = z.infer<typeof researchRunDetailSchema>
+export const researchBatchSchema = z.object({ runs: z.array(researchRunDetailSchema) })
+export type ResearchBatchDto = z.infer<typeof researchBatchSchema>
 /** Safe model choices for research; excludes credentials and instance settings. */
 export const researchProviderOptionSchema = z.object({
   name: z.string(),
@@ -131,5 +177,7 @@ export type ResearchProviderOption = z.infer<typeof researchProviderOptionSchema
 export const researchRunListSchema = z.object({
   runs: z.array(researchRunSummarySchema),
   providers: z.array(researchProviderOptionSchema).optional(),
+  /** Credential-specific admission policy, shared by UI, CLI and MCP consumers. */
+  access: z.object({ canRun: z.boolean(), dailyRunLimit: z.number().int().positive().nullable() }).optional(),
 })
 export type ResearchRunListDto = z.infer<typeof researchRunListSchema>

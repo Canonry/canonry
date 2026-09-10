@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "4.190.1",
+  "version": "4.191.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
@@ -19,6 +19,8 @@
     "gen:check": "pnpm --filter @ainyc/canonry-api-client gen:check",
     "verify": "pnpm gen:check && pnpm plugin:check && pnpm val:skills:check && pnpm run typecheck && pnpm run lint && pnpm run test",
     "plugin:sync": "node scripts/sync-canonry-plugin.mjs",
+    "guide:sync": "node scripts/sync-agent-operations.mjs && pnpm plugin:sync && pnpm val:skills",
+    "guide:check": "node scripts/sync-agent-operations.mjs --check",
     "plugin:check": "node scripts/sync-canonry-plugin.mjs --check",
     "val:skills": "node scripts/sync-val-town-skills.mjs",
     "val:skills:check": "node scripts/sync-val-town-skills.mjs --check",

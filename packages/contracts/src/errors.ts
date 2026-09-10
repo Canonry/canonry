@@ -95,7 +95,7 @@ export function researchDailyLimitExceeded(
 ): AppError {
   return new AppError(
     'RESEARCH_DAILY_LIMIT_EXCEEDED',
-    `The viewer research run limit for this project has been reached today (${limit}). Try again tomorrow or ask an administrator.`,
+    `The shared research run limit for this project has been reached today (${limit}). Try again tomorrow or ask an administrator.`,
     429,
     { projectName, limit, date },
   )

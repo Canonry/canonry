@@ -63,8 +63,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // Build the client once, auto-detect a read-only key, then reuse the same
   // client for the server (keeps one client per server instance).
   const client = createApiClient()
-  const scope = await resolveEffectiveScope(client, options.scope)
-  const server = createCanonryMcpServer({ scope, eager: options.eager, clientFactory: () => client })
+  const authorization = await resolveEffectiveAuthorization(client, options.scope)
+  const server = createCanonryMcpServer({ ...authorization, eager: options.eager, clientFactory: () => client })
   await server.connect(new StdioServerTransport())
 }
 
@@ -85,7 +85,14 @@ export async function resolveEffectiveScope(
   client: Pick<ApiClient, 'getApiKeySelf'>,
   flagScope: CanonryMcpScope,
 ): Promise<CanonryMcpScope> {
-  if (flagScope === 'read-only') return 'read-only'
+  return (await resolveEffectiveAuthorization(client, flagScope)).scope
+}
+
+export async function resolveEffectiveAuthorization(
+  client: Pick<ApiClient, 'getApiKeySelf'>,
+  flagScope: CanonryMcpScope,
+): Promise<{ scope: CanonryMcpScope; credentialScopes?: readonly string[] }> {
+  if (flagScope === 'read-only') return { scope: 'read-only' }
   try {
     const self = await client.getApiKeySelf()
     // Compute from `scopes` (the source of truth the server itself derives
@@ -94,12 +101,13 @@ export async function resolveEffectiveScope(
       process.stderr.write(
         'canonry-mcp: configured API key is read-only — restricting to read tools.\n',
       )
-      return 'read-only'
+      return { scope: 'read-only', credentialScopes: self.scopes }
     }
+    return { scope: flagScope, credentialScopes: self.scopes }
   } catch {
     // Best-effort detection — fall back to the requested scope.
   }
-  return flagScope
+  return { scope: flagScope }
 }
 
 export function parseCliOptions(

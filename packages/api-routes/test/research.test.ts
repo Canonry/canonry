@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, compileMeasurementPlan, ResearchRunStatuses } from '@ainyc/canonry-contracts'
@@ -65,6 +65,72 @@ describe('research routes', () => {
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, idempotencyKey: undefined, model: 'not-a-gpt-model' } })).statusCode).toBe(400)
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, idempotencyKey: undefined, location: { ...payload.location, city: 'Boston' } } })).statusCode).toBe(400)
     expect(db.select().from(researchRuns).all()).toHaveLength(1)
+  })
+
+  it('atomically saves explicit multi-destination research and replays its frozen receipt', async () => {
+    const { app, db, requested } = harness()
+    const plan = publishResearchScopePlan(db)
+    const version = '2026-09-09T12:00:00.000Z'
+    db.insert(measurementQueryTemplates).values([
+      { id: 'market-template', projectId: 'alpha', name: 'Market', pattern: 'Research {market}', variables: ['market'], createdAt: version, updatedAt: version },
+      { id: 'location-template', projectId: 'alpha', name: 'Location', pattern: 'Research {location}', variables: ['location'], createdAt: version, updatedAt: version },
+    ]).run()
+    const payload = {
+      idempotencyKey: 'repeat-markets-and-locations',
+      runs: [
+        { queries: ['Exact market editor question'], provider: 'openai', model: 'gpt-4.1', location: null, scope: { kind: 'market', key: 'north-market', expectedPlanRevision: 1 }, template: { templateId: 'market-template', templateVersion: version } },
+        { queries: ['Exact location editor question'], provider: 'openai', model: 'gpt-4.1', location: { label: 'New York', city: 'New York', region: 'NY', country: 'US' }, template: { templateId: 'location-template', templateVersion: version } },
+      ],
+    }
+    const created = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload })
+    expect(created.statusCode).toBe(202)
+    expect(created.json()).toMatchObject({ runs: [
+      { provider: 'openai', requestedModel: 'gpt-4.1', resolvedModel: 'gpt-4.1', location: null, scope: { key: 'north-market', planRevision: 1 }, template: { output: 'Research North market' }, queries: [{ query: 'Exact market editor question' }] },
+      { provider: 'openai', requestedModel: 'gpt-4.1', resolvedModel: 'gpt-4.1', location: { label: 'New York' }, scope: null, template: { output: 'Research New York' }, queries: [{ query: 'Exact location editor question' }] },
+    ] })
+    expect(requested).toHaveLength(2)
+    expect(db.select().from(researchRuns).all()).toHaveLength(2)
+
+    // A stale plan/template and changed defaults cannot affect an exact root retry.
+    db.update(measurementQueryTemplates).set({ pattern: 'Changed {location}', updatedAt: '2026-09-09T13:00:00.000Z' }).where(eq(measurementQueryTemplates.id, 'location-template')).run()
+    const v2 = crypto.randomUUID()
+    db.insert(measurementPlanVersions).values({ id: v2, projectId: 'alpha', revision: 2, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: '2'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: version }).run()
+    db.update(measurementPlans).set({ activeVersionId: v2, updatedAt: version }).where(eq(measurementPlans.projectId, 'alpha')).run()
+    db.update(researchRuns).set({ status: ResearchRunStatuses.completed }).run()
+    const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload })
+    expect(replay.statusCode).toBe(200)
+    expect(replay.json().runs.map((run: { id: string }) => run.id)).toEqual(created.json().runs.map((run: { id: string }) => run.id))
+    expect(requested).toHaveLength(2)
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: { ...payload, runs: [...payload.runs].reverse() } })).statusCode).toBe(409)
+
+    const invalidSibling = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: {
+      idempotencyKey: 'invalid-sibling',
+      runs: [payload.runs[1], { ...payload.runs[0], scope: { kind: 'market', key: 'north-market', expectedPlanRevision: 1 } }],
+    } })
+    expect(invalidSibling.statusCode).toBe(400)
+    expect(db.select().from(researchRuns).all()).toHaveLength(2)
+  })
+
+  it('accepts the exact model for a fixed-model provider and rejects overrides', async () => {
+    const { app, db } = harness({ providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: false, defaultModel: 'gpt-4.1', knownModels: [], modelValidationPattern: /^gpt-[\w.-]+$/, modelValidationHint: 'Fixed model' }] })
+    const input = { queries: ['A literal question'], provider: 'openai', model: 'gpt-4.1', location: null }
+    const accepted = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: { idempotencyKey: 'fixed-model', runs: [input] } })
+    expect(accepted.statusCode).toBe(202)
+    expect(accepted.json().runs[0]).toMatchObject({ requestedModel: 'gpt-4.1', resolvedModel: 'gpt-4.1' })
+    const rejected = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: { idempotencyKey: 'fixed-model-override', runs: [{ ...input, model: 'gpt-5' }] } })
+    expect(rejected.statusCode).toBe(400)
+    expect(db.select().from(researchRuns).all()).toHaveLength(1)
+  })
+
+  it('supports a variable-free saved pattern without a plan or location', async () => {
+    const { app, db } = harness()
+    const version = '2026-09-09T12:00:00.000Z'
+    db.insert(measurementQueryTemplates).values({ id: 'literal', projectId: 'alpha', name: 'Literal', pattern: 'A reusable question', variables: [], createdAt: version, updatedAt: version }).run()
+    const response = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/batches', payload: {
+      idempotencyKey: 'literal-pattern', runs: [{ queries: ['My edited question'], provider: 'openai', model: 'gpt-4.1', location: null, template: { templateId: 'literal', templateVersion: version } }],
+    } })
+    expect(response.statusCode).toBe(202)
+    expect(response.json().runs[0]).toMatchObject({ scope: null, location: null, template: { bindings: {}, output: 'A reusable question' }, queries: [{ query: 'My edited question' }] })
   })
 
   it.each([
@@ -167,7 +233,7 @@ describe('research routes', () => {
     publishResearchScopePlan(db)
     db.insert(measurementQueryTemplates).values({
       id: 'saved-market', projectId: 'alpha', name: 'Saved market', pattern: 'Services in {submarket}, {market}',
-      variables: ['submarket'], createdAt: now, updatedAt: now,
+      variables: ['submarket', 'market'], createdAt: now, updatedAt: now,
     }).run()
     const payload = {
       queries: ['The user edited this final question'], provider: 'openai', idempotencyKey: 'saved-template-retry',
@@ -177,13 +243,13 @@ describe('research routes', () => {
     const created = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(created.statusCode).toBe(202)
     expect(created.json()).toMatchObject({
-      template: { templateId: 'saved-market', templateVersion: now, bindings: { submarket: 'North market' }, output: 'Services in North market, {market}' },
+      template: { templateId: 'saved-market', templateVersion: now, bindings: { submarket: 'North market', market: 'North market' }, output: 'Services in North market, North market' },
       queries: [{ query: payload.queries[0] }],
     })
     db.update(measurementQueryTemplates).set({ pattern: 'Changed {submarket}', updatedAt: '2026-09-09T13:00:00.000Z' }).where(eq(measurementQueryTemplates.id, 'saved-market')).run()
     const replay = await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })
     expect(replay.statusCode).toBe(200)
-    expect(replay.json()).toMatchObject({ id: created.json().id, template: { output: 'Services in North market, {market}' } })
+    expect(replay.json()).toMatchObject({ id: created.json().id, template: { output: 'Services in North market, North market' } })
 
     const freeform = await app.inject({ method: 'POST', url: '/api/v1/projects/beta/research/runs', payload: {
       queries: ['  exact editor question  '], provider: 'openai',
@@ -246,13 +312,25 @@ describe('research model defaults', () => {
     expect((await create('gpt-override')).json()).toMatchObject({ requestedModel: 'gpt-override', resolvedModel: 'gpt-override' })
   })
 
-  it('publishes dynamic models to research and settings without changing defaults', async () => {
+  it('publishes cached models to research without invoking live discovery or changing defaults', async () => {
     const models = [{ id: 'gpt-new', displayName: 'New GPT', tier: 'standard' as const }]
-    const { app } = harness({ getProviderModels: async () => models, getEffectiveProviderModels: () => ({ openai: 'gpt-instance' }) })
+    const getProviderModels = vi.fn(async () => models)
+    const { app } = harness({ getProviderModels, getCachedProviderModels: () => models, getEffectiveProviderModels: () => ({ openai: 'gpt-instance' }) })
     const research = (await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })).json()
     expect(research.providers[0]).toMatchObject({ defaultModel: 'gpt-instance', knownModels: [{ id: 'gpt-instance' }, { id: 'gpt-new' }] })
+    expect(getProviderModels).not.toHaveBeenCalled()
     const settings = (await app.inject({ method: 'GET', url: '/api/v1/settings' })).json()
     expect(settings.providerCatalog[0].knownModels).toEqual(models)
+    expect(getProviderModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses bundled choices when a host provides only live discovery', async () => {
+    const getProviderModels = vi.fn(async () => { throw new Error('Live discovery is forbidden') })
+    const { app } = harness({ getProviderModels })
+    const research = await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })
+    expect(research.statusCode).toBe(200)
+    expect(research.json().providers[0].knownModels).toMatchObject([{ id: 'gpt-4.1' }])
+    expect(getProviderModels).not.toHaveBeenCalled()
   })
 })
 

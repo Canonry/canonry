@@ -2782,6 +2782,103 @@ export type DiscoverySessionDto = {
     createdAt: string;
 };
 
+export type ResearchBatchCreate = {
+    idempotencyKey: string;
+    runs: Array<{
+        queries: Array<string>;
+        provider: string;
+        model: string;
+        location: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        } | null;
+        scope?: {
+            kind: 'market' | 'property';
+            key: string;
+            expectedPlanRevision: number;
+        };
+        template?: {
+            templateId: string;
+            templateVersion: string;
+        };
+    }>;
+};
+
+export type ResearchBatchDto = {
+    runs: Array<{
+        id: string;
+        projectId: string;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        provider: string;
+        requestedModel: string | null;
+        resolvedModel: string;
+        location: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        } | null;
+        scope?: {
+            kind: 'market' | 'property';
+            key: string;
+            label: string;
+            planRevision: number;
+        } | null;
+        template?: {
+            templateId: string;
+            templateVersion: string;
+            template: string;
+            bindings: {
+                [key: string]: string;
+            };
+            output: string;
+        } | null;
+        totalQueries: number;
+        completedQueries: number;
+        failedQueries: number;
+        error: string | null;
+        initiatedBy: {
+            kind: 'api-key' | 'user';
+            id: string;
+            name: string;
+            role: 'admin' | 'viewer';
+            limited?: boolean;
+        } | null;
+        startedAt: string | null;
+        finishedAt: string | null;
+        createdAt: string;
+        queries: Array<{
+            id: string;
+            position: number;
+            query: string;
+            queryClass?: 'branded' | 'non-brand';
+            status: 'queued' | 'running' | 'completed' | 'failed';
+            requestedModel: string | null;
+            resolvedModel: string;
+            servedModel: string | null;
+            answerText: string | null;
+            groundingSources: Array<{
+                uri: string;
+                title: string;
+            }>;
+            citedDomains: Array<string>;
+            searchQueries: Array<string>;
+            namedCompetitors: Array<string>;
+            citedCompetitorDomains: Array<string>;
+            answerMentioned: boolean | null;
+            citationState: 'cited' | 'not-cited';
+            error: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            createdAt: string;
+        }>;
+    }>;
+};
+
 export type ResearchRunCreate = {
     queries: Array<string>;
     provider?: string;
@@ -2843,6 +2940,7 @@ export type ResearchRunDetailDto = {
         id: string;
         name: string;
         role: 'admin' | 'viewer';
+        limited?: boolean;
     } | null;
     startedAt: string | null;
     finishedAt: string | null;
@@ -2913,6 +3011,7 @@ export type ResearchRunListDto = {
             id: string;
             name: string;
             role: 'admin' | 'viewer';
+            limited?: boolean;
         } | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -2928,6 +3027,10 @@ export type ResearchRunListDto = {
             displayName: string;
         }>;
     }>;
+    access?: {
+        canRun: boolean;
+        dailyRunLimit: number | null;
+    };
 };
 
 export type ResultsClearRequest = {
@@ -15030,6 +15133,60 @@ export type PostApiV1ProjectsByNameResearchRunsResponses = {
 };
 
 export type PostApiV1ProjectsByNameResearchRunsResponse = PostApiV1ProjectsByNameResearchRunsResponses[keyof PostApiV1ProjectsByNameResearchRunsResponses];
+
+export type PostApiV1ProjectsByNameResearchBatchesData = {
+    body: ResearchBatchCreate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/research/batches';
+};
+
+export type PostApiV1ProjectsByNameResearchBatchesErrors = {
+    /**
+     * Each destination must explicitly supply a configured provider, model, location or null, and expected plan revision when scoped. The request permits at most 20 destinations and 50 total concrete queries.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Paid research was not granted to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The root idempotency key was reused with different ordered destinations.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Research execution is not available on this deployment.
+     */
+    422: ErrorEnvelope;
+    /**
+     * The viewer reached the per-project UTC-day research limit.
+     */
+    429: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameResearchBatchesError = PostApiV1ProjectsByNameResearchBatchesErrors[keyof PostApiV1ProjectsByNameResearchBatchesErrors];
+
+export type PostApiV1ProjectsByNameResearchBatchesResponses = {
+    /**
+     * Idempotent request returned its existing saved runs.
+     */
+    200: ResearchBatchDto;
+    /**
+     * All research destinations were queued.
+     */
+    202: ResearchBatchDto;
+};
+
+export type PostApiV1ProjectsByNameResearchBatchesResponse = PostApiV1ProjectsByNameResearchBatchesResponses[keyof PostApiV1ProjectsByNameResearchBatchesResponses];
 
 export type GetApiV1ProjectsByNameQueryTrackingData = {
     body?: never;

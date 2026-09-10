@@ -3,9 +3,8 @@ import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { type ResearchScopeOption, type ResearchTemplateOption } from '../src/components/project/ResearchQueriesSection.js'
 import { RESEARCH_COPY, ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
-import { DiscoverySection, QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { DiscoverySection } from '../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -74,196 +73,7 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
-  await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/runs'))
-})
-
-const marketTemplate: ResearchTemplateOption = {
-  id: 'configured-market', version: '1', label: 'Local services',
-  pattern: 'Find services in {market}', variables: ['market'],
-}
-const marketScope: ResearchScopeOption = { kind: 'market', key: 'downtown', label: 'Downtown', planRevision: 7, expectedPlanRevision: 7 }
-
-function setupTemplateResearch(templates: ResearchTemplateOption[] = [marketTemplate], initialScope: ResearchScopeOption | null = marketScope) {
-  const bodies: Array<Record<string, unknown>> = []
-  installApiMock([], bodies)
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  onTestFinished(() => queryClient.clear())
-  const section = (scope: ResearchScopeOption | null) => (
-    <AccountProvider account={null} apiKey={{ id: 'client-key', scopes: ['*'], projectId: 'project_demo', readOnly: false }}>
-      <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" templates={templates} selectedScope={scope} /></QueryClientProvider>
-    </AccountProvider>
-  )
-  const rendered = render(section(initialScope))
-  const selectTemplate = (template: ResearchTemplateOption) => fireEvent.change(screen.getByLabelText(RESEARCH_COPY.templateLabel), { target: { value: `${template.id}:${template.version}` } })
-  return { bodies, selectTemplate, changeScope: (scope: ResearchScopeOption | null) => rendered.rerender(section(scope)) }
-}
-
-test.each(['market', 'property'] as const)('offers only project templates and starts with Custom for a %s', (kind) => {
-  const template = { ...marketTemplate, pattern: `Find services at {${kind}}`, variables: [kind] }
-  setupTemplateResearch([template], { ...marketScope, kind })
-  const selector = screen.getByLabelText(RESEARCH_COPY.templateLabel) as HTMLSelectElement
-  expect(selector.value).toBe('custom')
-  expect(Array.from(selector.options, option => option.text)).toEqual([RESEARCH_COPY.customQuery, template.label])
-  expect((screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement).value).toBe('')
-})
-
-test('expands a configured template and submits distinct questions with the first exact text preserved', async () => {
-  const { bodies, selectTemplate } = setupTemplateResearch()
-  selectTemplate(marketTemplate)
-  const editor = screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement
-  expect(editor.value).toBe('Find services in Downtown')
-  const exactQuestion = '  Which local services are open today?  '
-  const secondQuestion = 'How do I book a visit?'
-  fireEvent.change(editor, { target: { value: [exactQuestion, exactQuestion.trim().toUpperCase(), '', secondQuestion].join('\n') } })
-  expect(screen.getByText(`${2}${RESEARCH_COPY.queryCountLimit}`)).toBeTruthy()
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
-  await waitFor(() => expect(run.disabled).toBe(false))
-  fireEvent.click(run)
-  await waitFor(() => expect(bodies).toHaveLength(1))
-  expect(bodies[0]).toMatchObject({
-    queries: [exactQuestion, secondQuestion], location: null,
-    scope: { kind: marketScope.kind, key: marketScope.key, expectedPlanRevision: marketScope.expectedPlanRevision },
-    template: { templateId: marketTemplate.id, templateVersion: marketTemplate.version },
-  })
-})
-
-test('expands only declared variables, including on template refresh and destination changes', () => {
-  const template = { ...marketTemplate, pattern: 'Compare {market} with {submarket}' }
-  const { selectTemplate, changeScope } = setupTemplateResearch([template])
-  selectTemplate(template)
-  const editor = screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement
-  expect(editor.value).toBe('Compare Downtown with {submarket}')
-  changeScope({ ...marketScope, key: 'uptown', label: 'Uptown' })
-  expect(editor.value).toBe('Compare Uptown with {submarket}')
-  changeScope({ ...marketScope, key: 'uptown', label: 'Midtown', planRevision: 8, expectedPlanRevision: 8 })
-  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshTemplate }))
-  expect(editor.value).toBe('Compare Midtown with {submarket}')
-})
-
-test('blocks a stale template expansion and preserves edits until an explicit refresh', async () => {
-  const { selectTemplate, changeScope, bodies } = setupTemplateResearch()
-  selectTemplate(marketTemplate)
-  const editor = screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement
-  const editedQuestion = 'My edited local-services query'
-  fireEvent.change(editor, { target: { value: editedQuestion } })
-  changeScope({ ...marketScope, label: 'Uptown', planRevision: 8, expectedPlanRevision: 8 })
-  expect(screen.getByRole('alert')).toBeTruthy()
-  expect(editor.value).toBe(editedQuestion)
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
-  expect(run.disabled).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshTemplate }))
-  expect(editor.value).toBe('Find services in Uptown')
-  await waitFor(() => expect(run.disabled).toBe(false))
-  fireEvent.click(run)
-  await waitFor(() => expect(bodies).toHaveLength(1))
-  expect(bodies[0]).toMatchObject({ queries: [editor.value], scope: { expectedPlanRevision: 8 } })
-})
-
-test('clears a variable-free template on Whole site and keeps the edited query runnable', async () => {
-  const template = { ...marketTemplate, pattern: 'Find local services', variables: [] }
-  const { selectTemplate, changeScope, bodies } = setupTemplateResearch([template])
-  selectTemplate(template)
-  const editor = screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement
-  const editedQuestion = '  Find services open on weekends  '
-  fireEvent.change(editor, { target: { value: editedQuestion } })
-  changeScope(null)
-  expect((screen.getByLabelText(RESEARCH_COPY.templateLabel) as HTMLSelectElement).value).toBe('custom')
-  expect(editor.value).toBe(editedQuestion)
-  expect(screen.queryByRole('alert')).toBeNull()
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
-  await waitFor(() => expect(run.disabled).toBe(false))
-  fireEvent.click(run)
-  await waitFor(() => expect(bodies).toHaveLength(1))
-  expect(bodies[0]?.queries).toEqual([editedQuestion])
-  expect(bodies[0]).not.toHaveProperty('scope')
-  expect(bodies[0]).not.toHaveProperty('template')
-})
-
-test('keeps a group selection browse-only and never injects it into an exact research question', async () => {
-  const state = setupGroupResearch()
-  const textArea = await screen.findByPlaceholderText(RESEARCH_COPY.queryPlaceholder) as HTMLTextAreaElement
-  expect(textArea.value).toBe('')
-  fireEvent.change(textArea, { target: { value: 'A freeform question' } })
-  expect((await screen.findByRole('alert')).textContent).toContain(RESEARCH_COPY.scopeError)
-  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
-  expect(state.posts).toEqual([])
-})
-
-function setupGroupResearch() {
-  const posts: string[] = []
-  const restore = mockFetch((url, init) => {
-    const path = new URL(url).pathname
-    if (init?.method === 'POST') posts.push(path)
-    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
-    if (path === '/api/v1/projects/demo') return jsonResponse({ id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null })
-    if (path === '/api/v1/settings') return jsonResponse({ providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'gpt-5-mini' }], providerCatalog: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Use an OpenAI model ID.' }] })
-    throw new Error(`Unexpected request: ${path}`)
-  })
-  onTestFinished(restore)
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  onTestFinished(() => queryClient.clear())
-  render(<AccountProvider account={null} apiKey={{ id: 'client-key', scopes: ['*'], projectId: 'project_demo', readOnly: false }}><QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" scopeOptions={[{ id: 'regional', label: 'Regional comparison', kind: 'group', targetCount: 1 }]} selectedScope={null} scopeError /></QueryClientProvider></AccountProvider>)
-  return { posts }
-}
-
-test('keeps a whole-site freeform question runnable when hierarchy loading fails', async () => {
-  const bodies: Array<Record<string, unknown>> = []
-  const restore = mockFetch((url, init) => {
-    const path = new URL(url).pathname
-    const method = init?.method ?? 'GET'
-    if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Hierarchy unavailable' } }, 500)
-    if (path === '/api/v1/projects/demo/measurement-query-templates') return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Templates unavailable' } }, 500)
-    if (path === '/api/v1/projects/demo/research/runs') {
-      if (method === 'POST') {
-        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test provider unavailable' } }, 503)
-      }
-      return jsonResponse({ runs: [] })
-    }
-    if (path === '/api/v1/projects/demo') return jsonResponse({ id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null })
-    if (path === '/api/v1/settings') return jsonResponse({ providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'gpt-5-mini' }], providerCatalog: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Use an OpenAI model ID.' }] })
-    throw new Error(`Unexpected request: ${method} ${path}`)
-  })
-  onTestFinished(restore)
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  onTestFinished(() => queryClient.clear())
-  render(<AccountProvider account={null} apiKey={{ id: 'client-key', scopes: ['*'], projectId: 'project_demo', readOnly: false }}><QueryClientProvider client={queryClient}><QueriesSection projectName="demo" queryWorkspace="research" researchMode="test" selection={{ measurementScope: 'project', queryClass: 'all' }} /></QueryClientProvider></AccountProvider>)
-
-  await screen.findByRole('option', { name: 'OpenAI' })
-  const exactQuestion = '  Freeform research without hierarchy  '
-  fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: exactQuestion } })
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
-  await waitFor(() => expect(run.disabled).toBe(false))
-  fireEvent.click(run)
-  await waitFor(() => expect(bodies).toHaveLength(1))
-  expect(bodies[0]).toMatchObject({ queries: [exactQuestion], location: null })
-  expect(bodies[0]).not.toHaveProperty('scope')
-  expect(bodies[0]).not.toHaveProperty('template')
-})
-
-test('switches to research, preserves final query lines, gates exact model choice, and states that research is not tracked', async () => {
-  installApiMock()
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <DiscoverySection projectName="demo" />
-    </QueryClientProvider>,
-  )
-
-  expect(screen.getByText('Discover or research queries')).toBeTruthy()
-  fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
-
-  const model = await screen.findByLabelText(/Exact model/)
-  expect((model as HTMLInputElement).disabled).toBe(true)
-  expect(screen.getByText(RESEARCH_COPY.savedNote)).toBeTruthy()
-
-  fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: 'Best AEO platform\nbest aeo platform\nHow do I measure AI citations?\n' } })
-  expect(screen.getByText(`${2}${RESEARCH_COPY.queryCountLimit}`)).toBeTruthy()
-
-  await screen.findByRole('option', { name: 'OpenAI' })
-  fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'openai' } })
-  expect((screen.getByLabelText(/Exact model/) as HTMLInputElement).disabled).toBe(false)
+  await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/batches'))
 })
 
 test('resets the selected query when switching research history batches', async () => {
@@ -384,12 +194,48 @@ test('saved answers render readable Markdown with safe links and no active HTML 
 })
 
 
+test.each([true, false])('key research uses server capability (%s) and safe providers without general write access', async canRun => {
+  const bodies: unknown[] = []
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs' || path === '/api/v1/projects/demo/research/batches') {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)))
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test failure' } }, 500)
+      }
+      return jsonResponse({ runs: [], access: { canRun, dailyRunLimit: canRun ? 7 : null }, providers: [
+        { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [] },
+      ] })
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null,
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<AccountProvider account={null} apiKey={{ id: 'research-key', scopes: ['read', 'research.run'], projectId: 'project_demo', readOnly: false }}>
+    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
+  </AccountProvider>)
+  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-test` })
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
+  const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  await waitFor(() => expect(button.disabled).toBe(!canRun))
+  fireEvent.click(button)
+  if (canRun) {
+    expect(screen.getByText('Up to 7 destination runs per project per day.')).toBeTruthy()
+    await waitFor(() => expect(bodies).toHaveLength(1))
+  } else expect(bodies).toHaveLength(0)
+  expect(screen.queryByRole('button', { name: /Review for tracking/ })).toBeNull()
+})
+
 test('viewer research follows the visibility model, offers discovered alternatives, and resets on engine change', async () => {
   const bodies: Array<Record<string, unknown>> = []
   let availableModels = [{ id: 'gpt-next', displayName: 'New GPT' }]
   const restore = mockFetch((url, init) => {
     const path = new URL(url).pathname
-    if (path === '/api/v1/projects/demo/research/runs') {
+    if (path === '/api/v1/projects/demo/research/runs' || path === '/api/v1/projects/demo/research/batches') {
       if (init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
         return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test failure' } }, 500)
@@ -413,7 +259,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · chat-latest` })
   const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
   expect(model.value).toBe('')
-  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'best apartments' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'best apartments' } })
   const submit = async () => {
     const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(false))
@@ -421,11 +267,11 @@ test('viewer research follows the visibility model, offers discovered alternativ
   }
   await submit()
   await waitFor(() => expect(bodies).toHaveLength(1))
-  expect(bodies[0]).toMatchObject({ provider: 'openai', model: 'chat-latest' })
+  expect(bodies[0]).toMatchObject({ runs: [{ provider: 'openai', model: 'chat-latest' }] })
   fireEvent.change(model, { target: { value: 'gpt-next' } })
   await submit()
   await waitFor(() => expect(bodies).toHaveLength(2))
-  expect(bodies[1]).toMatchObject({ provider: 'openai', model: 'gpt-next' })
+  expect(bodies[1]).toMatchObject({ runs: [{ provider: 'openai', model: 'gpt-next' }] })
   availableModels = []
   await queryClient.refetchQueries()
   expect(model.value).toBe('gpt-next')
@@ -436,5 +282,5 @@ test('viewer research follows the visibility model, offers discovered alternativ
   expect(screen.getByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · claude-sonnet-new` })).toBeTruthy()
   await submit()
   await waitFor(() => expect(bodies).toHaveLength(3))
-  expect(bodies[2]).toMatchObject({ provider: 'claude', model: 'claude-sonnet-new' })
+  expect(bodies[2]).toMatchObject({ runs: [{ provider: 'claude', model: 'claude-sonnet-new' }] })
 })

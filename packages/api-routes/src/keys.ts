@@ -110,7 +110,7 @@ export async function keysRoutes(app: FastifyInstance) {
     if (!row) {
       throw notFound('API key', id)
     }
-    return toApiKeyDto(row, projectNameById(app.db))
+    return toApiKeyDto({ ...row, scopes: request.apiKey?.scopes ?? row.scopes }, projectNameById(app.db))
   })
 
   // Create a key — requires the keys.write scope. Mints a `cnry_…` token,

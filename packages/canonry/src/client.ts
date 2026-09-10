@@ -244,6 +244,8 @@ import type {
   ResultsClearRequest,
   ResultsClearResponse,
   ResearchRunCreate,
+  ResearchBatchCreate,
+  ResearchBatchDto,
   ResearchRunDetailDto,
   ResearchRunListDto,
   ApiKeyDto,
@@ -485,6 +487,7 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsByIdHarvest,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   postApiV1ProjectsByNameResearchRuns,
+  postApiV1ProjectsByNameResearchBatches,
   getApiV1ProjectsByNameResearchRuns,
   getApiV1ProjectsByNameResearchRunsByRunId,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
@@ -3632,6 +3635,13 @@ export class ApiClient {
         body: request,
       }),
     )
+  }
+
+  /** Atomically accept reviewed destinations with a shared retry identity. */
+  async startResearchBatch(project: string, request: ResearchBatchCreate): Promise<ResearchBatchDto> {
+    return this.invoke<ResearchBatchDto>(() => postApiV1ProjectsByNameResearchBatches({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
   }
 
   async listResearchRuns(project: string, opts?: { limit?: number }): Promise<ResearchRunListDto> {

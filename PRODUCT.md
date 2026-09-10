@@ -5,7 +5,8 @@ register: product
 ## Query control and visibility
 
 AI Visibility shows measured trends, query performance, answers, sources, and competitors.
-Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio tracked query type and scope filters follow the URL; assignment details expose property and group memberships. Research reports brand-name matches and project-domain citations separately from verified property measurement. Research is a small query builder, including for Analysts: groups organize choices, one configured Market or Property supplies template names, and the complete expanded question remains editable. Run sends the final question exactly as shown, with no appended scope text or group expansion. Custom research stays available without a portfolio plan. Saved batches retain destination, template provenance, and execution settings; tracking review preselects that destination and exposes its property assignments. Classify the final question against the project brand and configured property names, independent of template or destination.
+Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio filters follow the URL. Assignment details expose property and group memberships.
+Research reports brand-name matches and project-domain citations separately from verified property measurement. Direct query entry is the default for every authorized role. Optional patterns repeat across explicit markets, properties, or configured locations. Groups never become research destinations. Each preview shows editable final query text and a separate provider location. A destination never silently sets provider geography. Users review every concrete query before a repeat request starts. Named saved patterns are optional authoring aids, not active measurement templates. Authorized writers can save patterns in the browser. Research stays available without a portfolio plan. Saved runs retain each destination, pattern provenance, and execution settings. Tracking review preselects the saved destination and exposes its property assignments. The server classifies final text against project and property identities, independent of the source pattern.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
 The Simple dashboard keeps its trend controls, coverage summary, competitive gaps,
@@ -15,7 +16,8 @@ Groups collect properties and can declare a parent Group for navigation. Start w
 ## Product purpose
 
 Canonry is an agent-first AEO operating platform. The API and CLI are the
-primary control surfaces. The web dashboard is the human companion for
+primary control surfaces, alongside MCP. Every dashboard capability must be
+available to equivalently authorized API, CLI, and MCP callers. The web dashboard is the human companion for
 approval, monitoring, investigation, and evidence.
 
 ## Users

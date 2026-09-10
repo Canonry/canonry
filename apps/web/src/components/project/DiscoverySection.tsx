@@ -39,7 +39,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { ResearchQueriesSection, type ResearchScopeOption, type ResearchTemplateOption } from './ResearchQueriesSection.js'
+import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -170,7 +170,6 @@ function QueryResearchWorkspace({
   projectName,
   selection,
   mode,
-  onSelectionChange,
   onModeChange,
   onReviewSavedSource,
   viewerResearchConfig,
@@ -183,7 +182,8 @@ function QueryResearchWorkspace({
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
-  const researchWorkspaceEnabled = viewerResearchConfig !== null || mode === 'test'
+  const { canWrite } = useAccount()
+  const researchWorkspaceEnabled = !canWrite || mode === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
     enabled: researchWorkspaceEnabled,
@@ -220,24 +220,25 @@ function QueryResearchWorkspace({
     pattern: template.pattern,
     variables: template.variables,
   })), [researchTemplatesQuery.data])
-  const selectedScopeOption = researchScopeOptions.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey))
-  const selectedResearchScope: ResearchScopeOption | null = selectedScopeOption && (selectedScopeOption.kind === 'market' || selectedScopeOption.kind === 'property') && workspaceQuery.data?.active
-    ? { kind: selectedScopeOption.kind, key: selectedScopeOption.id, label: selectedScopeOption.label, planRevision: workspaceQuery.data.active.revision, expectedPlanRevision: workspaceQuery.data.active.revision }
-    : null
-  const wantsExplicitScope = selection.measurementScope === 'market' || selection.measurementScope === 'property'
-  const scopePending = wantsExplicitScope && (workspaceQuery.isPending || workspaceQuery.isFetching)
-  const scopeError = wantsExplicitScope && (workspaceQuery.isError || (!scopePending && selectedResearchScope === null))
   const researchProps = {
     projectName,
     scopeOptions: researchScopeOptions,
-    selectedScope: selectedResearchScope,
-    scopePending,
-    scopeError,
+    planRevision: workspaceQuery.data?.active?.revision ?? null,
+    selectedScope: (() => {
+      const option = researchScopeOptions.find(item => item.kind === selection.measurementScope && item.id === selection.measurementScopeKey)
+      const revision = workspaceQuery.data?.active?.revision
+      return option && revision && (option.kind === 'market' || option.kind === 'property')
+        ? { kind: option.kind, key: option.id, label: option.label, planRevision: revision, expectedPlanRevision: revision }
+        : (selection.measurementScope === 'market' || selection.measurementScope === 'property') && selection.measurementScopeKey
+          ? { kind: selection.measurementScope, key: selection.measurementScopeKey, label: selection.measurementScopeKey, planRevision: revision ?? 0, expectedPlanRevision: revision ?? 0 }
+        : null
+    })(),
+    scopePending: workspaceQuery.isPending || workspaceQuery.isFetching,
+    scopeError: workspaceQuery.isError,
     onRetryScope: () => { void workspaceQuery.refetch() },
-    onScopeChange: (scope: VisibilityReportScopeOption) => onSelectionChange?.({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id }),
     templates: researchTemplates,
   }
-  if (viewerResearchConfig) {
+  if (!canWrite) {
     return (
       <ResearchQueriesSection
         {...researchProps}
@@ -888,6 +889,7 @@ function TrackingComposer({
   editorHeadingRef: RefObject<HTMLHeadingElement | null>
   onReview: () => void
 }) {
+  const hasSavedTemplates = templates.length > 0
   if (action.kind === 'remove') {
     return (
       <Card className="surface-card">
@@ -996,16 +998,18 @@ function TrackingComposer({
             <span className="text-sm font-medium text-secondary">Query source</span>
             <select
               id="tracking-query-source"
+              aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
               className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               value={draft.source}
               onChange={(event) => onDraftChange({ ...draft, source: event.target.value as TrackingDraft['source'] })}
             >
               <option value="manual">Write a question</option>
-              <option value="template" disabled={templates.length === 0}>Saved template{templates.length === 0 ? ' (none available)' : ''}</option>
+              {hasSavedTemplates ? <option value="template">Saved template</option> : null}
               <option value="research" disabled={workspace.savedSources.research.length === 0}>Saved research{workspace.savedSources.research.length === 0 ? ' (none available)' : ''}</option>
               <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
             </select>
           </label>
+          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-sm leading-6 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
         </div>
 
         <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />

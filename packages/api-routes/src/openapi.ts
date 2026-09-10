@@ -1614,6 +1614,15 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Idempotent request returned its existing research run.', 'ResearchRunDetailDto'), 202: jsonResponse('Research batch queued.', 'ResearchRunDetailDto'), 400: errorResponse('Invalid provider, model, location, or request.'), 403: errorResponse('Paid research was not granted to this principal.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key was reused with a different payload.'), 422: errorResponse('Research executor is unavailable on this deployment.'), 429: errorResponse('The viewer reached the per-project UTC-day research limit.') },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/research/batches',
+    summary: 'Start bounded explicit research destinations',
+    description: 'Queues one to twenty saved research runs atomically, with no more than fifty exact editor questions in total. Every destination explicitly pins its configured API provider, model, and configured location (or null); a scoped destination also pins the published plan revision. The root idempotency key covers the complete ordered destination list: a retry returns the same saved runs even if plans, templates, or provider defaults later change. A changed, reordered, added, or removed destination conflicts. Research never creates tracked queries, shared runs, snapshots, insights, or notifications.',
+    tags: ['research'], parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchBatchCreate' } } } },
+    responses: { 200: jsonResponse('Idempotent request returned its existing saved runs.', 'ResearchBatchDto'), 202: jsonResponse('All research destinations were queued.', 'ResearchBatchDto'), 400: errorResponse('Each destination must explicitly supply a configured provider, model, location or null, and expected plan revision when scoped. The request permits at most 20 destinations and 50 total concrete queries.'), 403: errorResponse('Paid research was not granted to this principal.'), 404: errorResponse('Project not found.'), 409: errorResponse('The root idempotency key was reused with different ordered destinations.'), 422: errorResponse('Research execution is not available on this deployment.'), 429: errorResponse('The viewer reached the per-project UTC-day research limit.') },
+  },
+  {
     method: 'get', path: '/api/v1/projects/{name}/query-tracking', summary: 'Read tracked queries and their assignments', tags: ['queries'],
     parameters: [nameParameter],
     responses: { 200: jsonResponse('Query workspace with exact assignments and frozen contexts.', 'QueryTrackingWorkspaceResponse'), 404: errorResponse('Project not found.') },

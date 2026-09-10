@@ -33,6 +33,7 @@ on:
       - 'docs/CODEMAP.md'
       - 'docs/GUARDS.md'
       - 'docs/DOC_UPDATE.md'
+      - 'docs/agent-operations/**'
       - 'AGENTS.md'
   pull_request:
     # No `branches:` filter — run CI on every PR, including stacked PRs
@@ -68,6 +69,7 @@ on:
       - 'docs/CODEMAP.md'
       - 'docs/GUARDS.md'
       - 'docs/DOC_UPDATE.md'
+      - 'docs/agent-operations/**'
       - 'AGENTS.md'
 
 # New PR commits replace obsolete validation. Keep main runs for release evidence.

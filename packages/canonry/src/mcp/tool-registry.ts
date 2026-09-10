@@ -2,6 +2,7 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
+  RESEARCH_RUN_SCOPE,
   adsAdCreateRequestSchema,
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
@@ -23,6 +24,7 @@ import {
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   researchRunCreateSchema,
+  researchBatchCreateSchema,
   resultsClearRequestSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
@@ -102,6 +104,8 @@ export interface CanonryMcpTool<
   title: string
   description: string
   access: McpToolAccess
+  /** Named capability that can authorize this operation without general write access. */
+  requiredScope?: string
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -888,6 +892,11 @@ const researchRunStartInputSchema = z.object({
 const researchRunsListInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(100).optional().describe('Max saved research runs returned. Default 20.'),
+})
+
+const researchBatchStartInputSchema = z.object({
+  project: projectNameSchema,
+  request: researchBatchCreateSchema.describe('Reviewed concrete runs, at most 20 destinations and 50 total queries. Specify provider, model and location (null means none) for every run. Pin the plan revision for each market or Property. Reuse the same idempotencyKey and unchanged request after an uncertain response.'),
 })
 
 const researchRunIdInputSchema = z.object({
@@ -2822,6 +2831,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_research_run_start',
+    requiredScope: RESEARCH_RUN_SCOPE,
     title: 'Start research query run',
     description:
       'Run final free-form queries once each against one API provider, with an optional exact model, location, or one configured market or Property destination. Scope never changes query text or fans out a group. Optional template provenance records the source template ID and version; callers must submit the fully expanded, editable final query text. Results retain that destination and provenance for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
@@ -2831,6 +2841,19 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/research/runs'],
     handler: (client, input) => client.startResearchRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_research_batch_start',
+    requiredScope: RESEARCH_RUN_SCOPE,
+    title: 'Start reviewed research across destinations',
+    description:
+      'Accept a reviewed research batch across explicit markets, Properties, or configured locations. Submit fully expanded, editable final queries with explicit provider/model/location for each destination; the API does not expand patterns or groups. All runs are saved together or none are saved, then processed independently. The required idempotencyKey prevents duplicate work on retries; changed input with the same key conflicts. Each run retains its scope, location and optional pattern provenance. Uses paid answer engines, never adds tracked queries or affects visibility measurements.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: researchBatchStartInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/research/batches'],
+    handler: (client, input) => client.startResearchBatch(input.project, input.request),
   }),
   defineTool({
     name: 'canonry_research_runs_list',

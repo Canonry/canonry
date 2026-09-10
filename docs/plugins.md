@@ -2,6 +2,13 @@
 
 Canonry's plugin targets the [Agent Plugins 1.0.0 format](https://agent-plugins.org/). The portable core is `plugins/canonry/plugin.json`, `skills/`, and `mcp.json`. It bundles the Canonry and Aero playbooks and launches the existing `canonry-mcp` stdio adapter. It does not add a second API, execution path, or credential store.
 
+Plugins and skills are optional. A connected remote agent starts with
+`canonry_help(intent)` and does not need a local runtime or resource reader.
+The Canonry skill shared by Codex and Claude is generated from the public
+[Operations Guide v1](agent-operations/v1.md); `pnpm guide:sync` updates it and
+`pnpm plugin:check` rejects drift. The setup below applies only when choosing
+the optional local plugin, not when using an existing hosted MCP connection.
+
 Codex consumes the root Agent Plugins core today and uses
 `.codex-plugin/plugin.json` as a client overlay and older-client fallback.
 Claude Code distribution still uses `.claude-plugin/plugin.json` plus the

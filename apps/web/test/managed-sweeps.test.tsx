@@ -31,11 +31,11 @@ const expectedLocalDate = new Date('2026-09-08T12:00:00.000Z').toLocaleDateStrin
   month: 'short', day: 'numeric', timeZone: 'UTC',
 })
 
-function renderSchedule(response: unknown, status = 200, kind: 'answer-visibility' | 'site-audit' = 'answer-visibility', running = false) {
+function renderSchedule(response: unknown, status = 200, kind: 'answer-visibility' | 'site-audit' = 'answer-visibility', running = false, portfolio = false) {
   const request = vi.fn(async () => new Response(JSON.stringify(response), { status, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" kind={kind} running={running} /></QueryClientProvider>)
+  const page = render(<QueryClientProvider client={client}><ManagedSweepStatus projectName="example" kind={kind} running={running} portfolio={portfolio} /></QueryClientProvider>)
   return { ...page, request, client }
 }
 
@@ -47,6 +47,15 @@ test('reads the answer-visibility schedule and renders its real nextRunAt in the
   expect(url.searchParams.get('kind')).toBe('answer-visibility')
   expect(screen.getByRole('status').textContent).toBe(`${MANAGED_SWEEPS_NEXT_LABEL} ${expectedLocalDate}`)
   expect(container.querySelector('time')?.dateTime).toBe(schedule.nextRunAt)
+})
+
+test('uses the portfolio schedule label and exposes its Canonry-team ownership as help', async () => {
+  const nextRunAt = '2026-09-23T06:00:00.000Z'
+  const { container } = renderSchedule({ ...schedule, nextRunAt }, 200, 'answer-visibility', false, true)
+  await screen.findByText(/Next Portfolio AI visibility Sweep:/)
+  expect(screen.getByRole('status').textContent).toContain('Next Portfolio AI visibility Sweep: September 23rd, 2026')
+  expect(screen.getByRole('button', { name: 'This is managed by your Canonry team.' })).toBeTruthy()
+  expect(container.querySelector('time')?.dateTime).toBe(nextRunAt)
 })
 
 test.each([

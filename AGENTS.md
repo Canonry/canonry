@@ -110,11 +110,12 @@ pnpm run test
 pnpm run lint
 pnpm plugin:sync                  # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check                 # fail on plugin spec, skill, or version drift (CI gate)
+pnpm guide:sync                   # generate MCP guidance + optional native skills from docs/agent-operations/v1.md
 pnpm run dev:web
 
 # MCP workflows (agent): inspect → diagnose → act
 # inspect: get-project / report / property / property-evidence / visibility-stats ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote
-# Use tier=core tools for read; write requires `*` scope — see Deployment Posture. Prefer `canonry_help` + `canonry_load_toolkit` over raw fetch.
+# Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 # CLI
 canonry init
@@ -651,6 +652,7 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 2. **No UI-only state.** Every dashboard panel, section, or page that displays data must map to a CLI command. If the UI shows a "Social Referral Summary" card, there must be a `canonry ga social-referral-summary` command that returns the same information.
 3. **Mirror granularity.** If the UI shows both a summary and a detail view, the CLI must offer both. A single dump endpoint that requires agents to post-process is not equivalent.
 4. **Same data, same shape.** The JSON output of `--format json` for a CLI command should be structurally identical to the API response the UI consumes. An agent should be able to replace a UI `fetch()` call with a `canonry ... --format json` call and get the same fields.
+5. **Same capabilities across UI, API, CLI, and MCP.** Every UI-exposed action must be usable by the equivalent authorized agent credential, not merely present in a registry. Keep explicit scopes, OAuth consent, project boundaries, usage limits, initiating identity, inputs, saved results, and errors aligned. Cover Simple and Advanced paths where applicable. Test real calls across authentication/transport boundaries; tool-list tests alone do not prove parity. Document any deliberate exclusion. Never turn a narrow action grant into general write access.
 
 #### When adding a new UI component
 
