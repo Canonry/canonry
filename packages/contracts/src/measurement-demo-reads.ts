@@ -103,6 +103,26 @@ export const measurementPortfolioMarketSchema = z.object({
 }).strict()
 export type MeasurementPortfolioMarket = z.output<typeof measurementPortfolioMarketSchema>
 
+/** Known mention rates remain rankable even when another Property or signal is unknown. */
+export const measurementPortfolioMentionRankingSchema = z.object({
+  eligiblePropertyCount: measurementDemoCountSchema,
+  strongest: z.array(measurementDemoPropertySchema.extend({
+    mentionCoverage: measurementMetricValueSchema.options[0],
+    citationCoverage: measurementMetricValueSchema,
+  }).strict()).max(50),
+  weakest: z.array(measurementDemoPropertySchema.extend({
+    mentionCoverage: measurementMetricValueSchema.options[0],
+    citationCoverage: measurementMetricValueSchema,
+  }).strict()).max(50),
+  /** All excluded Properties in this scope, independent of the ranked list limit. */
+  excluded: z.array(measurementDemoPropertySchema.extend({
+    reason: measurementMetricUnavailableReasonSchema,
+  }).strict()),
+  /** Each ranked list is limited; tied rates use stable label/key order. */
+  truncated: z.boolean(),
+}).strict()
+export type MeasurementPortfolioMentionRanking = z.output<typeof measurementPortfolioMentionRankingSchema>
+
 export const measurementPortfolioSummaryResponseSchema = z.object({
   /** A null group key means no named reporting group; spot checks may still narrow the effective Property set. */
   portfolio: z.object({
@@ -118,6 +138,8 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
     citationCoverage: measurementMetricValueSchema,
   }).strict(),
   weakestProperties: z.array(measurementPortfolioWeakestPropertySchema),
+  /** Descriptive mention ranking, using the response queryClass and scope; aggregate unavailability does not invalidate it. */
+  mentionRanking: measurementPortfolioMentionRankingSchema,
   /**
    * Every named market, worst-first. Empty when the request already narrowed to
    * one group (a roll-up would only restate the scope) and when the plan defines

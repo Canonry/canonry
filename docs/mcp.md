@@ -198,6 +198,22 @@ Advanced Measurement v2 spans monitoring and setup. Monitoring provides the stor
 
 The matching CLI bridge is `canonry measurement-plan advanced <project> <operation> [<json|->] --format json|jsonl`. It accepts a JSON file or stdin; `--format json` returns the API response unchanged. Read operations take their endpoint query object; structured writes use an envelope so request body and required headers/IDs stay explicit. `draft-action` takes the same typed `{ action, request?, etag?, idempotencyKey? }` object as its MCP `operation` field; deactivation takes `{ request, idempotencyKey }`; query-set/template get, upsert, delete, and apply take their ID plus `request`/`idempotencyKey` where required. The operations are `setup`, `overview`, `portfolio-summary`, `property-questions`, `question-result`, `property-competitors`, `changes`, `data-quality`, `draft`, `draft-targets`, `draft-assignments`, `draft-groups`, `draft-action`, `deactivate`, and query-set/template list, get, upsert, delete, and apply variants. The paged draft collections and query-set/template lists stream a metadata header then records with `--format jsonl`.
 
+For best/worst Property mention performance, use `canonry_measurement_portfolio_summary`.
+It defaults to `queryClass=non-brand`; name that class in the report. Request branded
+results separately, or `all` only when a combined comparison is intended.
+`mentionRanking.strongest` and `.weakest` rank available mention rates before the
+list limit, independently of citation availability. `eligiblePropertyCount` is
+the ranked population; `excluded` lists every excluded Property with its reason,
+without being cut off by the ranked list limit. `truncated` describes the two
+ranked lists. Keep numerator/denominator with each rate; rates can tie and the
+stable label/key tie-break does not establish a unique winner. These are
+descriptive rates from each Property's assigned questions, not matched-query or
+confidence-adjusted comparisons. An unavailable portfolio aggregate does not
+invalidate known Property rates. Flag ambiguous Properties separately; never
+substitute citation ranking without saying the metric changed. Aggregate metrics,
+the existing combined-signal `weakestProperties`, and overview pagination retain
+their existing semantics.
+
 `canonry_measurement_overview` ranks one revision-pinned run snapshot only; it does not infer a trend or compare across revisions. Its optional `sort` is `label-asc` (default), `label-desc`, `citationCoverage-asc`, `citationCoverage-desc`, `mentionCoverage-asc`, or `mentionCoverage-desc`. For coverage sorts, unavailable rows are always the first bucket, then available rates follow the selected direction. Its cursor is sort-aware and pins later pages to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes: reuse it unchanged with the same sort and filters or the API rejects it. Evidence appended to a named running run also invalidates the cursor instead of silently reordering later pages. Legacy label cursors work only when `sort` is omitted; an explicit sort needs a new sort-bound cursor.
 
 Ordinary read-only API keys intentionally may read unpublished setup and draft state for their bound project; treat those callers as authorized to see that portfolio and competitor structure. Embed mode is narrower: its explicit safe-read allowlist denies draft paths, including when a self-hosted embed uses a project-scoped key.

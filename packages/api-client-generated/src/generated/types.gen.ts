@@ -6655,6 +6655,53 @@ export type MeasurementPortfolioSummaryResponse = {
         recommendedInsteadTotal: number;
         recommendedInsteadTruncated: boolean;
     }>;
+    mentionRanking: {
+        eligiblePropertyCount: number;
+        strongest: Array<{
+            targetKey: string;
+            label: string;
+            mentionCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+            };
+            citationCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+            } | {
+                state: 'unavailable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            };
+        }>;
+        weakest: Array<{
+            targetKey: string;
+            label: string;
+            mentionCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+            };
+            citationCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+            } | {
+                state: 'unavailable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            };
+        }>;
+        excluded: Array<{
+            targetKey: string;
+            label: string;
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        }>;
+        truncated: boolean;
+    };
     markets: Array<{
         groupKey: string;
         label: string;
