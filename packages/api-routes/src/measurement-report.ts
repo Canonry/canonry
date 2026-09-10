@@ -1336,7 +1336,7 @@ function scopeMentionRate(
   const mentionable = mentionableTargets(input, targetIds)
   if (mentionable.length === 0) return unavailable('aliasless')
   if (slots.length === 0) return unavailable('no-population')
-  if (answered.length === 0) return unavailable('evidence-incomplete')
+  if (answered.length !== slots.length) return unavailable('evidence-incomplete')
 
   const mentionableIds = new Set(mentionable.map(target => target.id))
   const idsByExecution = new Map<string, Set<string>>()
@@ -1345,6 +1345,7 @@ function scopeMentionRate(
   for (const slot of answered) {
     const observation = prepared.observationsBySlot.get(slot.id)!
     const ids = [...(idsByExecution.get(slot.executionId) ?? [])]
+    if (ids.length === 0) return unavailable('aliasless')
     if (ids.some(id => observation.mentionedTargetIds.has(id))) numerator++
     else if (ids.some(id => observation.unknownMentionTargetIds.has(id))) return unavailable('identity-ambiguous')
   }
@@ -1358,7 +1359,7 @@ function indexedScopeCitationRate(
 ): MeasurementRate {
   if (slots.length === 0) return unavailable('no-population')
   const basis = slots.filter(slot => indexes.sourceCompleteSlotIds.has(slot.id))
-  if (basis.length === 0) return unavailable('evidence-incomplete')
+  if (basis.length !== slots.length) return unavailable('evidence-incomplete')
 
   const assignedSlots = new Set<string>()
   for (const edge of edges) {
@@ -1377,7 +1378,7 @@ function targetMentionRate(
   const mentionable = targets?.filter(target => target.aliases.some(alias => words(alias).length > 0)) ?? []
   if (mentionable.length === 0) return unavailable('aliasless')
   if (slots.length === 0) return unavailable('no-population')
-  if (answered.length === 0) return unavailable('evidence-incomplete')
+  if (answered.length !== slots.length) return unavailable('evidence-incomplete')
 
   const mentioned = indexes.mentionedSlotIdsByTargetId.get(mentionable[0]!.id) ?? new Set<string>()
   const unknown = indexes.unknownMentionSlotIdsByTargetId.get(mentionable[0]!.id)
@@ -1435,6 +1436,9 @@ function scopePropertiesMentioned(
     if (mentioned && own.some(slot => mentioned.has(slot.id))) { numerator++; continue }
     const unknown = indexes.unknownMentionSlotIdsByTargetId.get(target.id)
     if (unknown && own.some(slot => unknown.has(slot.id))) return unavailable('identity-ambiguous')
+    // A verified occurrence establishes reach. Without one, every assigned
+    // answer must be known before the Property can be called unmentioned.
+    if (own.length === 0 || own.some(slot => !indexes.answeredSlotIds.has(slot.id))) return unavailable('evidence-incomplete')
   }
   return { numerator, denominator: mentionable.length, rate: numerator / mentionable.length }
 }

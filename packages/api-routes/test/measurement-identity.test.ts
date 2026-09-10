@@ -31,6 +31,15 @@ describe('assignment-aware identity attribution', () => {
     ])
   })
 
+  it('does not call an answer negative when all its assigned properties have no mention identity', () => {
+    const input = fixture()
+    input.targets[1]!.aliases = []
+    input.observations[0]!.answerText = 'Harbor Point is listed.'
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage.reason).toBe('aliasless')
+    expect(overview.propertiesMentioned).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+
   it('retains property reach when a separate assigned answer is ambiguous', () => {
     const input = fixture()
     input.usageEdges.push({ id: 'second-harbor', type: 'target', targetId: 'harbor', executionId: 'exec-loft' })

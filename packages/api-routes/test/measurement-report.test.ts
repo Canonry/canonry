@@ -513,18 +513,18 @@ describe('scoped overview', () => {
     expect(single.mentionCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
   })
 
-  it('takes mention coverage over the answered slots rather than zeroing partial evidence', () => {
+  it('withholds mention coverage when an expected answer is missing', () => {
     const overview = buildMeasurementOverview(overviewInput({ observations: [baseInput().observations[0]!] }))
 
     expect(overview.eligibleSlots).toBe(2)
     expect(overview.answeredSlots).toBe(1)
-    expect(overview.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(overview.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
   })
 
-  it('takes citation coverage over the source-complete slots only', () => {
+  it('withholds citation coverage when a selected slot has incomplete source capture', () => {
     const overview = buildMeasurementOverview(overviewInput(withPartialSources(['observation-gemini'])))
 
-    expect(overview.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(overview.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
   })
 
   it('withholds every metric with a reason instead of reporting zero', () => {
