@@ -149,10 +149,12 @@ server. `schedule list <project>` lists all schedule kinds, and
 
 MCP returns legacy text JSON plus structured results. Objects keep their shape;
 arrays use `{items: [...]}` in `structuredContent`, and scalars use `{value: ...}`.
-Errors preserve a common error envelope. HTTP 429 and 5xx errors carry retry
-metadata and exit code 2 in the CLI, but clients do not retry automatically.
+Errors preserve the existing envelope and CLI exit codes: HTTP 4xx (including
+429 policy limits) use exit 1; HTTP 5xx use exit 2. Server-provided `Retry-After`
+and request IDs are exposed as `retryAfterMs` and `requestId` when available;
+clients do not infer retryability from HTTP 429 or retry automatically.
 For a write with an ambiguous outcome, inspect saved state or its receipt before
-retrying; retryable transport status is not proof that repeating a write is safe.
+retrying; a retry hint is not proof that repeating a write is safe.
 
 ### Action boundaries
 

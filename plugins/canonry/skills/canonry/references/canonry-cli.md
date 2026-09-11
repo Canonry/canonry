@@ -1162,8 +1162,9 @@ Google setup and telemetry default to local configuration. Pass `--target server
 to use the connected server; settings reads always describe the server.
 Configured providers accept model/quota-only edits without resending secrets.
 `cnry notify events --target server` discovers the remote event catalog while
-the default remains the offline catalog. Retryable HTTP 429/5xx errors use exit 2
-and retain retry/request metadata; no mutation is automatically retried.
+the default remains the offline catalog. HTTP 4xx errors (including 429 policy
+limits) retain exit 1; HTTP 5xx errors retain exit 2. Server-provided retry timing
+and request IDs are exposed when available; no mutation is automatically retried.
 
 ## Config as Code
 

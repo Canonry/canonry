@@ -1,6 +1,6 @@
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
-import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, isRetryableHttpStatus, redactRequestTarget } from './client-reliability.js'
+import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
 import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
@@ -942,7 +942,7 @@ export class ApiClient {
         ? String(errorObj.message)
         : `HTTP ${result.response.status}: ${result.response.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
-      const exitCode = isRetryableHttpStatus(result.response.status) ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
+      const exitCode = result.response.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
       throw new CliError({
         code,
         message: msg,
@@ -1062,7 +1062,7 @@ export class ApiClient {
           : null
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
-      const exitCode = isRetryableHttpStatus(res.status) ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
+      const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
       throw new CliError({ code, message: msg, exitCode, details: httpErrorDetails(errorObj?.details, res) })
     }
 

@@ -21,17 +21,13 @@ export function parseRetryAfterMs(header: string | null, now = Date.now()): numb
   return Number.isSafeInteger(delayMs) ? delayMs : undefined
 }
 
-export function isRetryableHttpStatus(status: number): boolean {
-  return status === 429 || (status >= 500 && status <= 599)
-}
-
+/** Preserve server details; expose retry timing only when the server supplies it. */
 export function httpErrorDetails(serverDetails: unknown, response: Response): Record<string, unknown> {
   const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'))
   const requestId = response.headers.get('x-request-id') ?? response.headers.get('request-id')
   return {
     ...(serverDetails && typeof serverDetails === 'object' && !Array.isArray(serverDetails) ? serverDetails : {}),
     httpStatus: response.status,
-    retryable: isRetryableHttpStatus(response.status),
     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     ...(requestId ? { requestId } : {}),
   }

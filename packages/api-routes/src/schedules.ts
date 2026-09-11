@@ -17,7 +17,7 @@ import {
   notFound,
   describeError,
 } from '@ainyc/canonry-contracts'
-import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 
 /**
@@ -196,13 +196,13 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         }
       }
 
-      writeAuditLog(tx, auditFromRequest(request, {
+      writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: existing ? 'schedule.updated' : 'schedule.created',
         entityType: 'schedule',
         diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId },
-      }))
+      })
 
       return {
         existed: existing !== undefined,
@@ -281,14 +281,14 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         throw scheduleVersionConflict(expectedUpdatedAt ?? schedule.updatedAt, actual?.updatedAt ?? null)
       }
 
-      writeAuditLog(tx, auditFromRequest(request, {
+      writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: 'schedule.deleted',
         entityType: 'schedule',
         entityId: schedule.id,
         diff: { kind },
-      }))
+      })
     })
 
     opts.onScheduleUpdated?.('delete', project.id, kind)

@@ -80,6 +80,8 @@ describe('core HTTP audit attribution', () => {
     expect(rows).toHaveLength(actions.length)
     for (const row of rows) {
       expect(row.actor).toBe(`api-key:${ctx.keyId}`)
+      expect(row.credentialId).toBe(ctx.keyId)
+      expect(row.requestId).toEqual(expect.any(String))
       expect(row.actorSession).toBe(actorSession)
       expect(row.userAgent).toBe(userAgent.slice(0, 512))
       expect(JSON.stringify(row)).not.toContain(ctx.token)

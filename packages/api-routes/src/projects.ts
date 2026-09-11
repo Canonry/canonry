@@ -21,7 +21,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
-import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
@@ -153,13 +153,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }).onConflictDoNothing().run()
       if (result.changes !== 1) return false
 
-      writeAuditLog(tx, auditFromRequest(request, {
+      writeAuditLog(tx, {
         projectId: id,
         actor: 'api',
         action: 'project.created',
         entityType: 'project',
         entityId: id,
-      }))
+      })
       return true
     })
     if (!inserted) throw alreadyExists('Project', name)
@@ -274,13 +274,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           updatedAt: now,
         }).where(eq(projects.id, existing.id)).run()
 
-        writeAuditLog(tx, auditFromRequest(request, {
+        writeAuditLog(tx, {
           projectId: existing.id,
           actor: 'api',
           action: 'project.updated',
           entityType: 'project',
           entityId: existing.id,
-        }))
+        })
       })
 
       opts.onProjectUpserted?.(existing.id, name)
@@ -315,13 +315,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         updatedAt: now,
       }).run()
 
-      writeAuditLog(tx, auditFromRequest(request, {
+      writeAuditLog(tx, {
         projectId: id,
         actor: 'api',
         action: 'project.created',
         entityType: 'project',
         entityId: id,
-      }))
+      })
     })
 
     notifyProjectCreated(id, name)
@@ -410,13 +410,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const rollback = opts.onProjectDeleting?.(project.id)
     try {
       app.db.transaction((tx) => {
-        writeAuditLog(tx, auditFromRequest(request, {
+        writeAuditLog(tx, {
           projectId: project.id,
           actor: 'api',
           action: 'project.deleted',
           entityType: 'project',
           entityId: project.id,
-        }))
+        })
         tx.delete(projects).where(eq(projects.id, project.id)).run()
       })
     } catch (error) {
@@ -452,13 +452,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       updatedAt: now,
     }).where(eq(projects.id, project.id)).run()
 
-    writeAuditLog(app.db, auditFromRequest(request, {
+    writeAuditLog(app.db, {
       projectId: project.id,
       actor: 'api',
       action: 'location.added',
       entityType: 'location',
       entityId: location.label,
-    }))
+    })
 
     return reply.status(201).send(location)
   })
@@ -497,13 +497,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
     app.db.update(projects).set(updates).where(eq(projects.id, project.id)).run()
 
-    writeAuditLog(app.db, auditFromRequest(request, {
+    writeAuditLog(app.db, {
       projectId: project.id,
       actor: 'api',
       action: 'location.removed',
       entityType: 'location',
       entityId: label,
-    }))
+    })
 
     return reply.status(204).send()
   })
@@ -530,13 +530,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       updatedAt: now,
     }).where(eq(projects.id, project.id)).run()
 
-    writeAuditLog(app.db, auditFromRequest(request, {
+    writeAuditLog(app.db, {
       projectId: project.id,
       actor: 'api',
       action: 'location.default-set',
       entityType: 'location',
       entityId: label,
-    }))
+    })
 
     return reply.send({ defaultLocation: label })
   })

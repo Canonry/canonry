@@ -44,34 +44,33 @@ describe('ApiClient reliability metadata', () => {
     const error = await expectCliError(() => client.listProjects())
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(error.exitCode).toBe(EXIT_SYSTEM_ERROR)
+    expect(error.exitCode).toBe(EXIT_USER_ERROR)
     expect(error.details).toEqual({
       reason: 'quota',
       httpStatus: 429,
-      retryable: true,
       retryAfterMs: 2500,
       requestId: 'request-429',
     })
   })
 
-  it.each([400, 401, 403])('marks HTTP %i as nonretryable', async (status) => {
+  it.each([400, 401, 403, 429])('preserves the existing HTTP %i user-error contract without retry headers', async (status) => {
     vi.stubGlobal('fetch', vi.fn(async () => apiError(status)))
     const client = new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true })
 
     const error = await expectCliError(() => client.listProjects())
 
     expect(error.exitCode).toBe(EXIT_USER_ERROR)
-    expect(error.details).toMatchObject({ httpStatus: status, retryable: false })
+    expect(error.details).toEqual({ reason: 'quota', httpStatus: status })
   })
 
-  it('marks 5xx responses retryable and omits invalid Retry-After values', async () => {
+  it('preserves 5xx system errors and omits invalid Retry-After values', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => apiError(503, { 'retry-after': '-1' })))
     const client = new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true })
 
     const error = await expectCliError(() => client.listProjects())
 
     expect(error.exitCode).toBe(EXIT_SYSTEM_ERROR)
-    expect(error.details).toEqual({ reason: 'quota', httpStatus: 503, retryable: true })
+    expect(error.details).toEqual({ reason: 'quota', httpStatus: 503 })
   })
 
   it('parses HTTP-date Retry-After values without producing negative metadata', async () => {
@@ -97,14 +96,31 @@ describe('ApiClient reliability metadata', () => {
 
     const error = await expectCliError(() => client.streamPost('/projects/demo/agent/prompt', { prompt: 'hi' }))
 
-    expect(error.exitCode).toBe(EXIT_SYSTEM_ERROR)
+    expect(error.exitCode).toBe(EXIT_USER_ERROR)
     expect(error.details).toEqual({
       session: 'agent-42',
       httpStatus: 429,
-      retryable: true,
       retryAfterMs: 4000,
       requestId: 'sse-request',
     })
+  })
+
+  it.each(['sdk', 'stream'] as const)('preserves the daily research policy error through %s requests', async (transport) => {
+    const details = { projectName: 'demo', limit: 20, date: '2026-09-08' }
+    const message = 'The viewer research run limit has been reached today.'
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: { code: 'RESEARCH_DAILY_LIMIT_EXCEEDED', message, details },
+    }), { status: 429, headers: { 'content-type': 'application/json' } })))
+    const client = new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true })
+
+    const error = await expectCliError(() => transport === 'sdk'
+      ? client.listProjects()
+      : client.streamPost('/projects/demo/agent/prompt', { prompt: 'hi' }))
+
+    expect(error.code).toBe('RESEARCH_DAILY_LIMIT_EXCEEDED')
+    expect(error.message).toBe(message)
+    expect(error.exitCode).toBe(EXIT_USER_ERROR)
+    expect(error.details).toEqual({ ...details, httpStatus: 429 })
   })
 })
 
