@@ -110,8 +110,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'discovery',
     title: 'Query discovery and research',
-    description: 'Two linked workflows: find queries expands an ICP into a promotable tracked-query basket; research queries runs saved free-form experiments against one API model. Research never adds queries to tracking.',
-    whenToLoad: 'Load when the operator wants to find ICP-led candidates for a tracked basket, or research specific free-form queries, model answers, sources, and location effects without changing tracking.',
+    description: 'Find queries expands an ICP into a promotable tracked-query basket; research queries runs saved free-form experiments against one API model. Research never adds queries to tracking. Prospect snapshots generate a company report without creating a project.',
+    whenToLoad: 'Load for prospect snapshots, ICP-led candidates for a tracked basket, or research into free-form queries, model answers, sources, and location effects without changing tracking.',
   },
 ] as const
 

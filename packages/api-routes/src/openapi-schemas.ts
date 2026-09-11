@@ -257,6 +257,7 @@ import {
   snapshotDiffResponseSchema,
   snapshotListResponseSchema,
   snapshotReportSchema,
+  snapshotRequestInputSchema,
   sourceBreakdownDtoSchema,
   telemetryEventAcceptedDtoSchema,
   telemetryStatusDtoSchema,
@@ -536,6 +537,8 @@ const SCHEMA_TABLE = {
   SnapshotDiffResponse: snapshotDiffResponseSchema,
   SnapshotListResponse: snapshotListResponseSchema,
   SnapshotReportDto: snapshotReportSchema,
+  // The API accepts legacy phrases, but the public contract advertises queries.
+  SnapshotRequest: z.object(snapshotRequestInputSchema.shape).omit({ phrases: true }),
   SourceBreakdownDto: sourceBreakdownDtoSchema,
   TelemetryEventAcceptedDto: telemetryEventAcceptedDtoSchema,
   TelemetryStatusDto: telemetryStatusDtoSchema,

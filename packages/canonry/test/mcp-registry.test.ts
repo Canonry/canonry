@@ -112,6 +112,7 @@ const expectedToolNames = [
   'canonry_traffic_sync',
   'canonry_traffic_backfill',
   'canonry_traffic_reset',
+  'canonry_snapshot',
   'canonry_project_upsert',
   'canonry_apply_config',
   'canonry_queries_generate',
@@ -239,6 +240,22 @@ const expectedToolNames = [
 ] as const
 
 describe('MCP tool registry', () => {
+  it('exposes snapshot selection as a quota-spending tool with optional selectors', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_snapshot')!
+    expect(tool).toMatchObject({ access: 'write', tier: 'discovery', annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true } })
+    expect(getCanonryMcpTools('read-only').some(candidate => candidate.name === tool.name)).toBe(false)
+    const input = { companyName: 'Acme', domain: 'acme.example.com' }
+    expect(tool.inputSchema.safeParse(input).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ ...input, providerMode: 'browser', queries: ['best widgets'] }).success).toBe(true)
+    for (const invalid of [{ providerMode: 'invalid' }, { providers: [] }, { providers: [' '] }, { queries: ['widgets'], phrases: ['widgets'] }]) {
+      expect(tool.inputSchema.safeParse({ ...input, ...invalid }).success).toBe(false)
+    }
+    const schema = z.toJSONSchema(tool.inputSchema)
+    expect(schema.required).toEqual(['companyName', 'domain'])
+    const apiSchema = buildOpenApiDocument().components.schemas.SnapshotRequest
+    expect(apiSchema.required).toEqual(['companyName', 'domain'])
+  })
+
   it('exposes optional requested-model competitor groups without widening read-only access', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitor_landscape')!
     expect(tool).toMatchObject({ access: 'read', tier: 'monitoring', annotations: { readOnlyHint: true } })
@@ -617,7 +634,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(220)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(221)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(148)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -666,7 +683,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('conversion-tracking')).toBe(3)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(10)
+    expect(counts.get('discovery')).toBe(11)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -1111,7 +1128,6 @@ describe('MCP tool registry', () => {
             field: 'project',
             reason: 'missing',
             httpStatus: 400,
-            retryable: false,
           },
         },
       })
@@ -1289,6 +1305,12 @@ type HandlerCase = {
 const projectInput = { project: 'acme' }
 
 const handlerCases: HandlerCase[] = [
+  {
+    tool: 'canonry_snapshot',
+    input: { companyName: 'Acme', domain: 'acme.example.com', providers: ['gemini'], providerMode: 'api' },
+    methods: ['createSnapshot'],
+    expectedArgs: [[{ companyName: 'Acme', domain: 'acme.example.com', providers: ['gemini'], providerMode: 'api' }]],
+  },
   { tool: 'canonry_projects_list', input: {}, methods: ['listProjects'] },
   { tool: 'canonry_project_get', input: projectInput, methods: ['getProject'] },
   { tool: 'canonry_project_overview', input: projectInput, methods: ['getProjectOverview'] },

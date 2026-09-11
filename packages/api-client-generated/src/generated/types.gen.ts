@@ -11192,6 +11192,21 @@ export type SnapshotReportDto = {
     };
 };
 
+export type SnapshotRequest = {
+    companyName: string;
+    domain: string;
+    queries?: Array<string>;
+    competitors?: Array<string>;
+    /**
+     * Configured provider names to use for both answers and analysis. Omit to use all providers matching providerMode.
+     */
+    providers?: Array<string>;
+    /**
+     * Filter providers by transport; defaults to all. Browser-only selection requires manual queries and uses no API provider for analysis.
+     */
+    providerMode?: 'all' | 'api' | 'browser';
+};
+
 export type SourceBreakdownDto = {
     overall: Array<{
         category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
@@ -17573,12 +17588,7 @@ export type DeleteApiV1UsersByNameResponses = {
 export type DeleteApiV1UsersByNameResponse = DeleteApiV1UsersByNameResponses[keyof DeleteApiV1UsersByNameResponses];
 
 export type PostApiV1SnapshotData = {
-    body: {
-        companyName: string;
-        domain: string;
-        queries?: Array<string>;
-        competitors?: Array<string>;
-    };
+    body: SnapshotRequest;
     path?: never;
     query?: never;
     url: '/api/v1/snapshot';

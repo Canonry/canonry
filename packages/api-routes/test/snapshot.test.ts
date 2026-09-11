@@ -1,11 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
+import { validationError } from '@ainyc/canonry-contracts'
+import { hashApiKey } from '../src/auth.js'
 
 function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-routes-snapshot-'))
@@ -14,7 +16,7 @@ function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
 
   const app = Fastify()
   app.register(apiRoutes, { db, skipAuth: true, ...opts })
-  return { app, tmpDir }
+  return { app, tmpDir, db }
 }
 
 const SNAPSHOT_FIXTURE = {
@@ -152,6 +154,60 @@ describe('snapshot routes', () => {
       })
 
       expect(res.statusCode).toBe(200)
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    { providerMode: 'invalid' }, { providers: [] }, { providers: [' '] }, { providers: 'openai' },
+  ])('rejects malformed provider selection without invoking providers: %j', async selection => {
+    const onSnapshotRequested = vi.fn()
+    const ctx = buildApp({ onSnapshotRequested })
+    try {
+      const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/snapshot', payload: {
+        companyName: 'Acme', domain: 'acme.example.com', ...selection,
+      } })
+      expect(res.statusCode).toBe(400)
+      expect(onSnapshotRequested).not.toHaveBeenCalled()
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('forwards selection and preserves runtime provider validation errors as 400', async () => {
+    const onSnapshotRequested = vi.fn().mockRejectedValue(validationError('Snapshot provider "missing" is not configured'))
+    const ctx = buildApp({ onSnapshotRequested })
+    try {
+      const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/snapshot', payload: {
+        companyName: 'Acme', domain: 'acme.example.com', providers: ['missing'], providerMode: 'api',
+      } })
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', message: 'Snapshot provider "missing" is not configured' } })
+      expect(onSnapshotRequested).toHaveBeenCalledWith(expect.objectContaining({ providers: ['missing'], providerMode: 'api' }))
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([['read'], ['research.run']])('does not let %s credentials spend snapshot quota', async scope => {
+    const onSnapshotRequested = vi.fn()
+    const ctx = buildApp({ skipAuth: false, onSnapshotRequested })
+    const key = 'cnry_snapshot_restricted_test'
+    ctx.db.insert(apiKeys).values({
+      id: 'restricted', name: 'restricted', keyHash: hashApiKey(key),
+      keyPrefix: key.slice(0, 9), scopes: [scope], createdAt: new Date().toISOString(),
+    }).run()
+    try {
+      const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/snapshot',
+        headers: { authorization: `Bearer ${key}` },
+        payload: { companyName: 'Acme', domain: 'acme.example.com', providerMode: 'api' },
+      })
+      expect(res.statusCode).toBe(403)
+      expect(onSnapshotRequested).not.toHaveBeenCalled()
     } finally {
       await ctx.app.close()
       fs.rmSync(ctx.tmpDir, { recursive: true, force: true })

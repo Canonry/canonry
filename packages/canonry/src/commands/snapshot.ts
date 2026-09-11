@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { SnapshotProviderResultDto, SnapshotReportDto } from '@ainyc/canonry-contracts'
+import type { SnapshotProviderResultDto, SnapshotReportDto, SnapshotRequestInput } from '@ainyc/canonry-contracts'
 import { factorStatusFromScore } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
@@ -24,7 +24,7 @@ function autoOutputPath(companyName: string, ext: string): string {
 
 export async function createSnapshotReport(
   companyName: string,
-  opts: {
+  opts: Pick<SnapshotRequestInput, 'providers' | 'providerMode'> & {
     domain: string
     queries?: string[]
     competitors?: string[]
@@ -38,6 +38,8 @@ export async function createSnapshotReport(
   const report = await client.createSnapshot({
     companyName,
     domain: opts.domain,
+    ...(opts.providers !== undefined ? { providers: opts.providers } : {}),
+    ...(opts.providerMode !== undefined ? { providerMode: opts.providerMode } : {}),
     ...(opts.queries && opts.queries.length > 0 ? { queries: opts.queries } : {}),
     ...(opts.competitors && opts.competitors.length > 0 ? { competitors: opts.competitors } : {}),
   })

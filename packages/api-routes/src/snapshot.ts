@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@ainyc/canonry-contracts'
+import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@ainyc/canonry-contracts'
 
 export interface SnapshotRoutesOptions {
   onSnapshotRequested?: (input: SnapshotRequestDto) => Promise<SnapshotReportDto>
@@ -32,6 +32,7 @@ export async function snapshotRoutes(app: FastifyInstance, opts: SnapshotRoutesO
     try {
       return await opts.onSnapshotRequested(input)
     } catch (err) {
+      if (err instanceof AppError) throw err
       request.log.error({ err }, 'Snapshot report generation failed')
       throw internalError(err instanceof Error ? err.message : 'Failed to generate snapshot report')
     }
