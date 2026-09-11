@@ -1,4 +1,4 @@
-import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
+import { mcpHealthSchema, RunKinds } from '@ainyc/canonry-contracts'
 import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -127,8 +127,29 @@ import {
   postApiV1ProjectsByNameBacklinksExtract,
   postApiV1TelemetryOnboarding,
   getApiV1KeysSelf,
+  getApiV1AuthProviders,
+  postApiV1AuthGoogleStart,
+  postApiV1AuthGoogleLink,
+  getApiV1AuthMethods,
+  deleteApiV1AuthMethodsById,
+  postApiV1AuthActivity,
+  getApiV1SettingsAuthGoogle,
+  putApiV1SettingsAuthGoogle,
+  getApiV1Users,
+  patchApiV1UsersById,
+  postApiV1UsersByIdRevokeAccess,
+  getApiV1UsersByIdAccessHistory,
+  getApiV1UsersInvitations,
+  postApiV1UsersInvitations,
+  postApiV1UsersInvitationsByIdReplace,
+  postApiV1UsersInvitationsByIdRevoke,
+  getApiV1AuthSession,
+  postApiV1AuthLogin,
+  postApiV1AuthLogout,
+  getApiV1AuthSessions,
+  deleteApiV1AuthSessions,
 } from '@ainyc/canonry-api-client'
-import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
+import type { RunDto, RunDetailDto, AuthProvidersDto, AuthMethodsDto, GoogleSignInSettingsDto, UserDto, UserInvitationListDto, CreatedUserInvitationDto, UserAccessHistoryDto } from '@ainyc/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
@@ -317,40 +338,6 @@ export function isDashboardManagedRunKind(kind: SchedulableRunKind): boolean {
   return kind === RunKinds['answer-visibility'] && dashboard?.managedSweeps === true
 }
 
-export interface ViewerResearchConfig {
-  allowViewers: true
-  viewerDailyRunLimit: number
-}
-
-/** Paid viewer research is fail-closed unless the server injects the grant. */
-export function getViewerResearchConfig(): ViewerResearchConfig | null {
-  if (typeof window === 'undefined') return null
-  const research = window.__CANONRY_CONFIG__?.research
-  if (research?.allowViewers !== true) return null
-  const limit = research.viewerDailyRunLimit
-  return {
-    allowViewers: true,
-    viewerDailyRunLimit: Number.isInteger(limit) && (limit ?? 0) > 0 ? limit! : DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
-  }
-}
-
-/**
- * What to call a viewer account in the sidebar.
- *
- * "View only" is accurate when the account can genuinely only read. Once a
- * deployment grants viewer research the account can run real queries against
- * an answer engine, and telling that person they are view-only contradicts the
- * surface in front of them. The label follows the CAPABILITY rather than the
- * role, so it stays true on both kinds of deployment without a second role.
- *
- * The disabled-control tooltip (VIEW_ONLY_LABEL) does NOT change: sweeps,
- * scans and settings really are unavailable, and that message is about one
- * control rather than about the account.
- */
-export function viewerRoleLabel(): string {
-  return getViewerResearchConfig() ? 'Analyst' : 'View only'
-}
-
 /**
  * True in the read-only embed render. embed presence == read-only for v1 (the
  * embed key is the read-only project-scoped key), so operator/write controls hide
@@ -490,9 +477,14 @@ export const heyClient = createHeyClient({
 // project hasn't enabled the API). Logging out on those is wrong — re-login
 // changes nothing — and it produced the "connect GSC → instantly booted to
 // login" bug. Those surface to the calling component to render inline instead.
-// Skips /session/* — a 401 there means "wrong password," not "session expired."
+// Skip only endpoints that are actively CHECKING a supplied credential. A 401
+// from authenticated self-service routes such as /auth/methods, /auth/sessions
+// or /auth/activity does mean the current session expired or was revoked.
 heyClient.interceptors.response.use((res, req) => {
-  if (res.status === 401 && !req.url.includes('/api/v1/session')) {
+  const credentialAttempt = req.url.includes('/api/v1/session')
+    || req.url.includes('/api/v1/auth/login')
+    || req.url.includes('/api/v1/auth/google/link')
+  if (res.status === 401 && !credentialAttempt) {
     handleAuthExpired()
   }
   return res
@@ -1004,7 +996,7 @@ export interface ApiSessionState {
   setupRequired?: boolean
 }
 
-// /session* routes are not in the OpenAPI spec — keep on raw apiFetch.
+// The legacy shared-password `/session*` routes are not in the OpenAPI spec.
 
 export function fetchSession(): Promise<ApiSessionState> {
   return apiFetch('/session')
@@ -1053,24 +1045,98 @@ export function fetchCurrentApiKey(): Promise<ApiKeyDto> {
  * screen, the dashboard opens straight up. This is asked BEFORE anything else,
  * because the answer decides which of the two sign-in surfaces even applies.
  */
-export interface ApiAccountSession {
-  authRequired: boolean
-  user: { name: string; role: 'admin' | 'viewer' } | null
-}
-
 export function fetchAccountSession(): Promise<ApiAccountSession> {
-  return apiFetch('/auth/session')
+  return invokeWeb<ApiAccountSession>(() => getApiV1AuthSession({ client: heyClient }))
 }
 
 export function signInWithAccount(name: string, password: string): Promise<ApiAccountSession> {
-  return apiFetch('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ name, password }),
-  })
+  return invokeWeb<ApiAccountSession>(() => postApiV1AuthLogin({ client: heyClient, body: { name, password } }))
 }
 
 export function signOutOfAccount(): Promise<void> {
-  return apiFetch('/auth/logout', { method: 'POST' })
+  return invokeWeb<void>(() => postApiV1AuthLogout({ client: heyClient }))
+}
+
+export type ApiAccountSession = { authRequired: boolean; user: UserDto | null }
+export type ApiAuthProviders = AuthProvidersDto
+export type ApiAuthMethods = AuthMethodsDto
+export type ApiGoogleSignInSettings = GoogleSignInSettingsDto
+export type ApiUser = UserDto
+export type ApiUserInvitationList = UserInvitationListDto
+export type ApiCreatedUserInvitation = CreatedUserInvitationDto
+export type ApiUserAccessHistory = UserAccessHistoryDto
+
+export function fetchAuthProviders(): Promise<ApiAuthProviders> {
+  return invokeWeb<ApiAuthProviders>(() => getApiV1AuthProviders({ client: heyClient }))
+}
+
+export function startGoogleSignIn(body: { invitationToken?: string; returnTo?: string }): Promise<{ redirectUrl: string }> {
+  return invokeWeb<{ redirectUrl: string }>(() => postApiV1AuthGoogleStart({ client: heyClient, body }))
+}
+
+export function fetchAuthMethods(): Promise<ApiAuthMethods> {
+  return invokeWeb<ApiAuthMethods>(() => getApiV1AuthMethods({ client: heyClient }))
+}
+
+export function linkGoogleSignIn(password: string): Promise<{ redirectUrl: string }> {
+  return invokeWeb<{ redirectUrl: string }>(() => postApiV1AuthGoogleLink({ client: heyClient, body: { password } }))
+}
+
+export function unlinkAuthMethod(id: string): Promise<{ ok: true }> {
+  return invokeWeb<{ ok: true }>(() => deleteApiV1AuthMethodsById({ client: heyClient, path: { id } }))
+}
+
+export function reportForegroundActivity(): Promise<{ ok: true }> {
+  return invokeWeb<{ ok: true }>(() => postApiV1AuthActivity({ client: heyClient }))
+}
+
+export function fetchGoogleSignInSettings(): Promise<ApiGoogleSignInSettings> {
+  return invokeWeb<ApiGoogleSignInSettings>(() => getApiV1SettingsAuthGoogle({ client: heyClient }))
+}
+
+export function updateGoogleSignInSettings(body: { enabled?: boolean; clientId?: string; clientSecret?: string }): Promise<ApiGoogleSignInSettings> {
+  return invokeWeb<ApiGoogleSignInSettings>(() => putApiV1SettingsAuthGoogle({ client: heyClient, body }))
+}
+
+export function fetchUsers(): Promise<{ users: ApiUser[] }> {
+  return invokeWeb<{ users: ApiUser[] }>(() => getApiV1Users({ client: heyClient }))
+}
+
+export function updateUser(id: string, body: { role?: ApiUser['role']; status?: ApiUser['status']; displayName?: string | null; email?: string | null }): Promise<ApiUser> {
+  return invokeWeb<ApiUser>(() => patchApiV1UsersById({ client: heyClient, path: { id }, body }))
+}
+
+export function revokeUserAccess(id: string): Promise<{ revoked: true }> {
+  return invokeWeb<{ revoked: true }>(() => postApiV1UsersByIdRevokeAccess({ client: heyClient, path: { id } }))
+}
+
+export function fetchUserAccessHistory(id: string): Promise<ApiUserAccessHistory> {
+  return invokeWeb<ApiUserAccessHistory>(() => getApiV1UsersByIdAccessHistory({ client: heyClient, path: { id } }))
+}
+
+export function fetchUserInvitations(): Promise<ApiUserInvitationList> {
+  return invokeWeb<ApiUserInvitationList>(() => getApiV1UsersInvitations({ client: heyClient }))
+}
+
+export function createUserInvitation(body: { email: string; role: ApiUser['role'] }): Promise<ApiCreatedUserInvitation> {
+  return invokeWeb<ApiCreatedUserInvitation>(() => postApiV1UsersInvitations({ client: heyClient, body }))
+}
+
+export function replaceUserInvitation(id: string): Promise<ApiCreatedUserInvitation> {
+  return invokeWeb<ApiCreatedUserInvitation>(() => postApiV1UsersInvitationsByIdReplace({ client: heyClient, path: { id } }))
+}
+
+export function revokeUserInvitation(id: string): Promise<{ ok: true }> {
+  return invokeWeb<{ ok: true }>(() => postApiV1UsersInvitationsByIdRevoke({ client: heyClient, path: { id } }))
+}
+
+/** Self-service live session list. The current spec carries a loose response schema. */
+export function fetchAccountSessions(): Promise<{ sessions: Array<{ id: string; createdAt: string; expiresAt: string }> }> {
+  return invokeWeb<{ sessions: Array<{ id: string; createdAt: string; expiresAt: string }> }>(() => getApiV1AuthSessions({ client: heyClient }))
+}
+
+export function revokeAllAccountSessions(): Promise<void> {
+  return invokeWeb<void>(() => deleteApiV1AuthSessions({ client: heyClient }))
 }
 
 // /health is outside /api/v1 — keep on raw fetch.

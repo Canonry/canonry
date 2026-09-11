@@ -27,3 +27,7 @@ Cloud API entry point. A thin Fastify server that imports and mounts `packages/a
 
 - `packages/api-routes/` — the shared route plugins this app mounts
 - `docs/architecture.md` — local vs. cloud architecture comparison
+
+## Instance authentication
+
+The shared API mounts native Google login and user administration with the environment-resolved configuration. Native login callbacks follow the configured API base path. Cloud credentials are environment-managed and have no in-process settings writer. Shared `initializeUserAccess` performs the same once-only legacy Research role migration as the local host.

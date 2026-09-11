@@ -232,7 +232,7 @@ describe('viewer research grants', () => {
     expect((await create(keyHeaders('cnry_analyst'), 'api')).statusCode).toBe(202)
     const delegated = await create(keyHeaders('cnry_mcp'), 'mcp')
     expect(delegated.statusCode).toBe(202)
-    expect(delegated.json().initiatedBy).toMatchObject({ kind: 'user', id: 'viewer-user', role: 'viewer', limited: true })
+    expect(delegated.json().initiatedBy).toMatchObject({ kind: 'user', id: 'viewer-user', role: 'analyst', limited: true })
     expect((await app.inject({ method: 'GET', url: '/api/v1/settings', headers: keyHeaders('cnry_mcp') })).statusCode).toBe(403)
     for (const headers of [cookieHeaders(viewer), keyHeaders('cnry_analyst'), keyHeaders('cnry_mcp')]) {
       const limited = await create(headers, 'over-budget')
@@ -356,7 +356,7 @@ describe('viewer research grants', () => {
     expect(db.select().from(researchRuns).all()).toEqual([])
   })
 
-  it('allows and attributes viewer research after opt-in', async () => {
+  it('migrates legacy Research viewers and attributes their Analyst runs', async () => {
     const { app, db, viewer } = await harness(true)
 
     const response = await app.inject({
@@ -371,7 +371,7 @@ describe('viewer research grants', () => {
       kind: 'user',
       id: 'viewer-user',
       name: 'viewer',
-      role: 'viewer',
+      role: 'analyst',
       limited: true,
     })
     expect(db.select().from(researchRuns).get()?.initiatedBy).toEqual(response.json().initiatedBy)

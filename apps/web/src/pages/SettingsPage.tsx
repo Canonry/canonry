@@ -6,6 +6,7 @@ import { AdminOnly } from '../components/shared/AccessControls.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
+import { PeopleAccessSection } from '../components/settings/PeopleAccessSection.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { asyncHandler } from '../lib/async-handler.js'
@@ -51,18 +52,21 @@ function SettingsPageBody() {
   const [bingError, setBingError] = useState<string | null>(null)
   const [bingSuccess, setBingSuccess] = useState(false)
 
-  if (!settings) return null
-
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Settings</h1>
-          <p className="page-subtitle">Connections and answer engines.</p>
+          <p className="page-subtitle">People, connections and answer engines.</p>
         </div>
       </div>
 
       <section className="space-y-6">
+        <PeopleAccessSection />
+
+        {!settings ? (
+          <p className="text-sm text-secondary" role="status">Loading connection settings…</p>
+        ) : <>
         <section>
           <div className="section-head">
             <div>
@@ -313,9 +317,10 @@ function SettingsPageBody() {
             </div>
           </div>
         </Card>
+        </>}
       </section>
 
-      <details className="page-section">
+      {settings ? <details className="page-section">
         <summary className="cursor-pointer text-sm font-medium text-secondary hover:text-strong">Self-hosting details</summary>
         <Card className="surface-card mt-3">
           <ul className="detail-list">
@@ -325,7 +330,7 @@ function SettingsPageBody() {
           </ul>
           <p className="supporting-copy">{settings.bootstrapNote}</p>
         </Card>
-      </details>
+      </details> : null}
     </div>
   )
 }

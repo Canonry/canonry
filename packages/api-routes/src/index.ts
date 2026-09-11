@@ -45,6 +45,11 @@ import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo } from './settings.js'
 import { keysRoutes } from './keys.js'
 import { userRoutes } from './users.js'
+import { userAccountDetailsRoutes } from './user-account-details.js'
+import { googleSignInRoutes } from './google-sign-in.js'
+import { userInvitationRoutes } from './user-invitations.js'
+import { googleSignInSettingsRoutes } from './google-sign-in-settings.js'
+import type { GoogleSignInOptions } from './google-sign-in-options.js'
 import { userSessionRoutes } from './user-session.js'
 import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
@@ -143,6 +148,7 @@ export interface ApiRoutesOptions {
    * gets a TLS-terminating proxy right.
    */
   userSessionCookie?: UserSessionCookieOptions
+  googleSignIn?: GoogleSignInOptions
   /**
    * True when this host has declared which proxy hops to believe (its Fastify
    * instance was built with `trustProxy`). Everything that budgets per caller
@@ -492,6 +498,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     // the error handler and prefix, but each of its routes is on the auth
     // skip-list — a sign-in screen cannot present a credential it has not been
     // given yet.
+    const credentials = opts.credentials ?? createCredentialChecker({ db: opts.db, trustProxyConfigured: opts.trustProxyConfigured ?? false })
     await api.register(userSessionRoutes, {
       cookie: opts.userSessionCookie,
       trustProxyConfigured: opts.trustProxyConfigured ?? false,
@@ -499,12 +506,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       // canonry does, so /auth/login and the OAuth consent page count against
       // the same budgets — and built here otherwise so an embedder that never
       // mounts OAuth still gets the limits.
-      credentials: opts.credentials ?? createCredentialChecker({
-        db: opts.db,
-        trustProxyConfigured: opts.trustProxyConfigured ?? false,
-      }),
+      credentials,
     })
     await api.register(userRoutes)
+    await api.register(userAccountDetailsRoutes, { googleSignIn: opts.googleSignIn })
+    await api.register(googleSignInRoutes, { googleSignIn: opts.googleSignIn, cookie: opts.userSessionCookie, credentials })
+    await api.register(userInvitationRoutes, { googleSignIn: opts.googleSignIn })
+    await api.register(googleSignInSettingsRoutes, { googleSignIn: opts.googleSignIn })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     await api.register(projectRoutes, {
@@ -745,7 +753,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@ainyc/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
-export { anyUsersExist, createCredentialChecker, createUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
+export { anyUsersExist, createCredentialChecker, createUserSession, createNamedUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
@@ -1091,3 +1099,5 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   }
   return Object.keys(validators).length > 0 ? validators : undefined
 }
+
+export type { GoogleSignInOptions } from './google-sign-in-options.js'

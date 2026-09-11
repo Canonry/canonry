@@ -167,6 +167,15 @@ export function buildApp(env: PlatformEnv) {
       providerSummary.filter(provider => provider.configured).map(provider => provider.name),
     getEffectiveProviderModels: effectiveProviderModels,
     googleStateSecret: env.googleStateSecret,
+    // Cloud settings are injected through deployment environment, so exposing
+    // a PUT callback would falsely imply durable in-process configuration.
+    googleSignIn: {
+      getConfig: () => env.googleSignIn.config,
+      publicUrl: env.publicUrl,
+      basePath: env.basePath === '/' ? undefined : env.basePath,
+      environmentOverride: true,
+    },
+    userSessionCookie: { path: env.basePath },
     trustProxyConfigured: trustProxy !== false,
     researchAllowViewers: env.research.allowViewers,
     researchViewerDailyRunLimit: env.research.viewerDailyRunLimit,

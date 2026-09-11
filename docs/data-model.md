@@ -76,6 +76,11 @@ erDiagram
   projects ||--o{ research_runs : has
   research_runs ||--o{ research_run_queries : contains
   users ||--o{ api_keys : delegates
+  users ||--o{ user_sessions : authenticates
+  users ||--o{ user_external_identities : links
+  users ||--o{ user_invitations : invites
+  users ||--o{ google_login_transactions : binds
+  users ||--o{ audit_log : acts
 ```
 
 ## Table Groups
@@ -389,3 +394,16 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 - All project-owned tables cascade delete when the project is deleted.
 - Google/Bing connections are domain-scoped (not project-scoped) to support multiple projects per domain.
 - GA4 connections are project-scoped (1:1).
+
+## Instance access
+
+| Table | Purpose |
+| --- | --- |
+| users | Stable account ID, display/contact data, optional password digest, role/status and authorization version. |
+| user_auth_state | Once-only permission migration and persistent named-auth protection. |
+| user_sessions | Hashed local sessions bound to an account authorization version. |
+| user_external_identities | Google issuer + subject uniqueness and owning account. No provider tokens. |
+| user_invitations | Hashed single-use admission token, normalized email, role, expiry and acceptance/revocation records. |
+| google_login_transactions | State hash, expiry and optional linking account. Recoverable PKCE state stays in an encrypted browser cookie. |
+| oauth_authorization_codes / oauth_tokens / api_keys | User-bound credentials carry the originating authorization version. |
+| audit_log | Nullable stable actor user ID plus historical actor-name snapshot. Existing records remain unchanged. |

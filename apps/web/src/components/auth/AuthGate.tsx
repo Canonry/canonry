@@ -7,14 +7,18 @@ import {
   ApiError,
   clearDashboardSession,
   fetchAccountSession,
+  fetchAuthProviders,
   fetchCurrentApiKey,
   fetchSession,
   hasExplicitBrowserApiKey,
   loginWithApiKey,
+  isEmbed,
   loginWithPassword,
+  reportForegroundActivity,
   setupDashboardPassword,
   setOnAuthExpired,
   signInWithAccount,
+  startGoogleSignIn,
   type ApiAccountSession,
 } from '../../api.js'
 import { AccountProvider, type SignedInAccount } from '../../contexts/account-context.js'
@@ -34,6 +38,11 @@ const SESSION_RECHECK_MS = 60_000
 type AuthState = 'checking' | 'ready' | 'setup' | 'login' | 'account-login' | 'api-key-error'
 type SharedLoginMethod = 'password' | 'api-key'
 
+/** Cache identity must move when an administrator changes a role or revokes auth. */
+export function accountPrincipalCacheKey(account: SignedInAccount): string {
+  return `${account.id ?? account.name}:${account.authVersion ?? 0}:${account.role}`
+}
+
 export function AuthGate() {
   const explicitBrowserApiKey = useRef(hasExplicitBrowserApiKey()).current
   const [authState, setAuthState] = useState<AuthState>(
@@ -51,6 +60,11 @@ export function AuthGate() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [googleEnabled, setGoogleEnabled] = useState(false)
+  const [invitationToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return new URLSearchParams(window.location.hash.slice(1)).get('invitation')
+  })
 
   // Lazy-initialize router + query client only when needed for rendering.
   //
@@ -69,7 +83,7 @@ export function AuthGate() {
     // the cache and rebuilding the router a moment after first paint, which
     // discards in-flight queries and every piece of local component state.
     const principalKey = account
-      ? `${account.name}:${account.role}`
+      ? accountPrincipalCacheKey(account)
       : explicitBrowserApiKey
         ? 'api-key:explicit'
         : apiKey
@@ -186,6 +200,55 @@ export function AuthGate() {
     }
   }, [])
 
+  // Invitation tokens are intentionally one-hop only: retain them in component
+  // memory for the Google redirect request, then remove the URL fragment before
+  // any navigation, analytics, or copied address can expose it.
+  useEffect(() => {
+    if (!invitationToken || typeof window === 'undefined') return
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`)
+  }, [invitationToken])
+
+  useEffect(() => {
+    if (authState !== 'account-login' || explicitBrowserApiKey) return
+    let cancelled = false
+    void fetchAuthProviders()
+      .then((providers) => {
+        if (!cancelled) setGoogleEnabled(providers.google.enabled && Boolean(providers.google.startUrl))
+      })
+      .catch(() => {
+        // Password sign-in remains usable if a newly wired provider route is unavailable.
+        if (!cancelled) setGoogleEnabled(false)
+      })
+    return () => { cancelled = true }
+  }, [authState, explicitBrowserApiKey])
+
+  useEffect(() => {
+    if (!account || explicitBrowserApiKey || isEmbed() || typeof window === 'undefined') return
+    let lastReportedAt = 0
+    const report = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastReportedAt < 5 * 60_000) return
+      lastReportedAt = now
+      void reportForegroundActivity().catch(() => {
+        // Presence is advisory. A transient miss must not interrupt work.
+      })
+    }
+    const onVisibility = () => { if (document.visibilityState === 'visible') report() }
+    window.addEventListener('focus', report)
+    window.addEventListener('pointerdown', report, { passive: true })
+    window.addEventListener('keydown', report)
+    window.addEventListener('popstate', report)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', report)
+      window.removeEventListener('pointerdown', report)
+      window.removeEventListener('keydown', report)
+      window.removeEventListener('popstate', report)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [account, explicitBrowserApiKey])
+
   // Periodic session re-check + auth expiry callback while authenticated.
   // Skipped in explicit-API-key mode — those users have no login form to fall
   // back to, so kicking them out of the dashboard would strand them.
@@ -206,6 +269,9 @@ export function AuthGate() {
               setAccount(null)
               setApiKey(null)
               setAuthState('account-login')
+            } else if (session.authRequired && session.user) {
+              // Role/auth-version changes invalidate the principal-keyed cache.
+              setAccount(session.user)
             }
           })
           .catch(() => {
@@ -360,6 +426,21 @@ export function AuthGate() {
     }
   }
 
+  const handleGoogleSignIn = async () => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const { redirectUrl } = await startGoogleSignIn({
+        invitationToken: invitationToken ?? undefined,
+        returnTo: typeof window === 'undefined' ? undefined : `${window.location.pathname}${window.location.search}`,
+      })
+      window.location.assign(redirectUrl)
+    } catch {
+      setError('Google sign-in could not be started. Try again or use your password.')
+      setSubmitting(false)
+    }
+  }
+
   if (authState === 'ready') {
     const { queryClient, router } = getRouter()
     return (
@@ -417,6 +498,11 @@ export function AuthGate() {
                 <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
               </CardHeader>
               <CardContent>
+                {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('authError') === 'google-sign-in-failed' ? (
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
+                    Google sign-in did not complete. Try again or use your password.
+                  </p>
+                ) : null}
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
                     You were signed out — please sign in again.
@@ -459,6 +545,11 @@ export function AuthGate() {
                   <Button type="submit" disabled={submitting || !name.trim() || !password}>
                     {submitting ? 'Signing in…' : 'Sign in'}
                   </Button>
+                  {googleEnabled ? (
+                    <Button type="button" variant="outline" disabled={submitting} onClick={asyncHandler(handleGoogleSignIn)}>
+                      Continue with Google
+                    </Button>
+                  ) : null}
                 </form>
               </CardContent>
             </>

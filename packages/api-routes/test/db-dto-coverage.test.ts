@@ -777,11 +777,16 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       passwordHash: 'Salted password digest; never leaves the server under any circumstance.',
       nameKey: 'Lower-cased name used only to keep near-duplicate accounts from existing.',
+      permissionsMigrated: 'One-time legacy permission upgrade marker; not user-facing state.',
     },
   },
+  userAuthState: { kind: 'internal-only', reason: 'Persistent authentication-required and upgrade state, not an account DTO.' },
+  userExternalIdentities: { kind: 'internal-only', reason: 'Issuer/subject binding is private; own methods expose only safe method metadata.' },
+  userInvitations: { kind: 'internal-only', reason: 'Invitation authority includes token hashes; invitation APIs return derived safe lifecycle metadata.' },
+  googleLoginTransactions: { kind: 'internal-only', reason: 'Single-use state replay protection; never returned through public reads.' },
   userSessions: {
     kind: 'internal-only',
-    reason: 'Live sign-in sessions; the row id IS the cookie value and is never returned in a response body.',
+    reason: 'Hashed sign-in session records; raw cookie values are never stored or returned in a response body.',
   },
   measurementPlans: {
     kind: 'internal-only',

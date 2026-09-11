@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
 
-import { oauthAuthorizationCodes, oauthClients, oauthTokens, type DatabaseClient } from '@ainyc/canonry-db'
+import { oauthAuthorizationCodes, oauthClients, oauthTokens, users, type DatabaseClient } from '@ainyc/canonry-db'
 import { and, eq, isNull, lt } from 'drizzle-orm'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
-import { notFound, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
+import { LOGIN_FAILED_MESSAGE, notFound, RESEARCH_RUN_SCOPE, UserStatuses } from '@ainyc/canonry-contracts'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
 
@@ -49,18 +49,22 @@ export interface OAuthRoutesOptions {
    * endpoint reuses the product's existing sign-in rather than introducing a
    * second identity system.
    */
-  resolveUser: (request: FastifyRequest) => { id: string; name: string } | null
+  resolveUser: (request: FastifyRequest) => { id: string; name: string; authVersion: number } | null
   /**
    * Establish a session for a person who signed in on the consent page, and
    * return the cookie header to set.
    */
-  startSession: (userId: string) => string
+  startSession: (userId: string, expectedAuthVersion: number) => string | null
   /**
    * The SAME credential check /auth/login uses, budgets and all. Passed in
    * rather than reimplemented so the two sign-in doors cannot drift apart —
    * they already did once, and the second one had no rate limiting at all.
    */
   credentials: CredentialChecker
+  /** Additional subpath routes; root OAuth endpoints remain compatible. */
+  authorizationBasePath?: string
+  /** Native Google entry point, available only when configured. */
+  googleSignInUrl?: () => string | undefined
 }
 
 function sha256(value: string): string {
@@ -157,9 +161,10 @@ function escapeHtml(value: string): string {
 }
 
 /** Minimal self-contained sign-in. No SPA route, no bundle, no base-path trap. */
-function signInPage(action: string, error: string | null): string {
+function signInPage(action: string, error: string | null, googleUrl?: string): string {
   return page(`<h1>Sign in to continue</h1>
  ${error ? `<p class="err">${escapeHtml(error)}</p>` : ''}
+ ${googleUrl ? `<p><a href="${escapeHtml(googleUrl)}">Continue with Google</a></p>` : ''}
  <label for="name">Name</label><input id="name" name="name" autocomplete="username" autofocus>
  <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password">
  <button type="submit">Sign in</button>`, action)
@@ -299,6 +304,17 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   )
 
   const { db, issuer } = opts
+  const authorizationBasePath = (opts.authorizationBasePath ?? '').replace(/\/$/, '')
+  function oauthRoute(method: 'get' | 'post', path: string, handler: RouteHandlerMethod) {
+    app[method](path, handler)
+    if (authorizationBasePath) app[method](authorizationBasePath + path, handler)
+  }
+  function googleSignInHref(request: FastifyRequest): string | undefined {
+    const entry = opts.googleSignInUrl?.()
+    if (!entry) return undefined
+    const query = request.url.includes('?') ? request.url.slice(request.url.indexOf('?')) : ''
+    return entry + '?returnTo=' + encodeURIComponent(authorizationBasePath + '/oauth/authorize' + query)
+  }
   const resourcePaths = opts.resourcePaths
   // The canonical resource for audience binding. Segments are the same resource
   // reached through narrower doors, so a token is bound to one audience rather
@@ -312,25 +328,25 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
    * a form posted from another origin cannot approve anything, and one where
    * the client or scope was swapped after render fails to verify.
    */
-  function consentToken(userId: string, clientId: string, redirectUri: string, scope: string): string {
+  function consentToken(userId: string, authVersion: number, clientId: string, redirectUri: string, scope: string): string {
     return crypto.createHmac('sha256', CONSENT_SECRET)
-      .update([userId, clientId, redirectUri, scope].join('\u0000'))
+      .update([userId, authVersion, clientId, redirectUri, scope].join('\u0000'))
       .digest('base64url')
   }
 
   function authorizationServerMetadata() {
     return {
     issuer,
-    authorization_endpoint: `${issuer}/oauth/authorize`,
-    token_endpoint: `${issuer}/oauth/token`,
-    revocation_endpoint: `${issuer}/oauth/revoke`,
+    authorization_endpoint: `${issuer}${authorizationBasePath}/oauth/authorize`,
+    token_endpoint: `${issuer}${authorizationBasePath}/oauth/token`,
+    revocation_endpoint: `${issuer}${authorizationBasePath}/oauth/revoke`,
     // RFC 7591. The current MCP revision calls DCR deprecated and prefers
     // pre-registered clients or CIMD — but a desktop client has no way to be
     // pre-registered: its UI takes a URL and nothing else, so there is nowhere
     // for a human to type a client_id. Codex proved it, walking discovery
     // correctly and then stopping dead because there was no registration
     // endpoint. Deprecated in the spec is not the same as unused by clients.
-    registration_endpoint: `${issuer}/oauth/register`,
+    registration_endpoint: `${issuer}${authorizationBasePath}/oauth/register`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     // S256 only. Advertising `plain` would invite a downgrade attempt.
@@ -370,7 +386,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   /** RFC 8414. */
   app.get('/.well-known/oauth-authorization-server', async () => authorizationServerMetadata())
 
-  app.get('/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('get', '/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
     const q = request.query as Record<string, string | undefined>
     const clientId = q.client_id
     const redirectUri = q.redirect_uri
@@ -407,7 +423,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       // a bounce to the product's sign-in with a `next` parameter, dead-ends:
       // the dashboard has no /signin route, never reads `next`, and 404s under
       // a base path.
-      return sendGatePage(reply, signInPage(request.url, null))
+      return sendGatePage(reply, signInPage(request.url, null, googleSignInHref(request)))
     }
 
     // A SESSION IS NOT CONSENT.
@@ -428,11 +444,11 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       redirectUri,
       scope: grantedScope,
       userName: user.name,
-      csrf: consentToken(user.id, clientId, redirectUri, grantedScope),
+      csrf: consentToken(user.id, user.authVersion, clientId, redirectUri, grantedScope),
     }))
   })
 
-  app.post('/oauth/authorize/consent', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('post', '/oauth/authorize/consent', async (request: FastifyRequest, reply: FastifyReply) => {
     // Belt and braces beside the consent token: this is the grant itself.
     assertCookieWriteOrigin(request)
     const q = request.query as Record<string, string | undefined>
@@ -458,7 +474,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     // The CSRF token binds the approval to THIS person and THESE exact
     // parameters, so a form posted from elsewhere, or one where the client or
     // scope was swapped after the page rendered, cannot approve anything.
-    const expected = consentToken(user.id, clientId, redirectUri, grantedScope)
+    const expected = consentToken(user.id, user.authVersion, clientId, redirectUri, grantedScope)
     const presented = body.csrf ?? ''
     const a = Buffer.from(expected)
     const b = Buffer.from(presented)
@@ -474,17 +490,28 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
 
     const code = newToken()
     const now = new Date()
-    db.insert(oauthAuthorizationCodes).values({
-      codeHash: sha256(code),
-      clientId,
-      userId: user.id,
-      redirectUri,
-      codeChallenge: challenge,
-      resource: q.resource ?? resourceUrl,
-      scope: grantedScope,
-      expiresAt: new Date(now.getTime() + CODE_TTL_MS).toISOString(),
-      createdAt: now.toISOString(),
-    }).run()
+    const issued = db.transaction((tx) => {
+      const current = tx.select().from(users).where(eq(users.id, user.id)).get()
+      if (
+        !current
+        || current.status !== UserStatuses.active
+        || current.authVersion !== user.authVersion
+      ) return false
+      tx.insert(oauthAuthorizationCodes).values({
+        codeHash: sha256(code),
+        clientId,
+        userId: user.id,
+        userAuthVersion: current.authVersion,
+        redirectUri,
+        codeChallenge: challenge,
+        resource: q.resource ?? resourceUrl,
+        scope: grantedScope,
+        expiresAt: new Date(now.getTime() + CODE_TTL_MS).toISOString(),
+        createdAt: now.toISOString(),
+      }).run()
+      return true
+    })
+    if (!issued) return badRequest(reply, 'access_denied', 'Account access changed. Start again.')
 
     const target = new URL(redirectUri)
     target.searchParams.set('code', code)
@@ -524,7 +551,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   const REGISTER_MAX_PER_CALLER = 10
   const REGISTER_MAX_TOTAL = 200
 
-  app.post('/oauth/register', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('post', '/oauth/register', async (request: FastifyRequest, reply: FastifyReply) => {
     const nowMs = Date.now()
     const cutoff = nowMs - REGISTER_WINDOW_MS
     const caller = request.ip || 'unidentified'
@@ -589,7 +616,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     })
   })
 
-  app.post('/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('post', '/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
     // This route writes the real dashboard session cookie, and the urlencoded
     // parser below makes it a CORS-simple post — no preflight, unlike the
     // JSON-only /auth/login. Without this check a cross-site form could force a
@@ -608,12 +635,14 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     if (!result.ok) {
       return sendGatePage(reply, signInPage(request.url, result.message))
     }
-    void reply.header('set-cookie', opts.startSession(result.user.id))
+    const session = opts.startSession(result.user.id, result.user.authVersion)
+    if (!session) return sendGatePage(reply, signInPage(request.url, LOGIN_FAILED_MESSAGE))
+    void reply.header('set-cookie', session)
     // Re-enter the GET, which now renders the approval page.
     return reply.redirect(request.url)
   })
 
-  app.post('/oauth/token', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('post', '/oauth/token', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as Record<string, string | undefined>
     const now = new Date()
 
@@ -644,34 +673,49 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       return 'ok'
     }
 
-    function issue(clientId: string, userId: string, resource: string | null, scope: string | null) {
+    function issue(
+      clientId: string,
+      userId: string,
+      userAuthVersion: number,
+      resource: string | null,
+      scope: string | null,
+    ) {
       const accessToken = newToken()
       const refreshToken = newToken()
       const rows = [
         { token: accessToken, kind: 'access' as const, ttl: ACCESS_TTL_MS },
         { token: refreshToken, kind: 'refresh' as const, ttl: REFRESH_TTL_MS },
       ]
-      for (const row of rows) {
-        db.insert(oauthTokens).values({
-          tokenHash: sha256(row.token),
-          kind: row.kind,
-          clientId,
-          userId,
-          resource,
-          scope,
-          expiresAt: new Date(now.getTime() + row.ttl).toISOString(),
-          createdAt: now.toISOString(),
-        }).run()
-      }
-      return {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: Math.floor(ACCESS_TTL_MS / 1000),
-        // Without a refresh token the client silently loses access at the
-        // first expiry, which reads to a user as the connector breaking.
-        refresh_token: refreshToken,
-        scope: scope ?? 'read',
-      }
+      return db.transaction((tx) => {
+        const user = tx.select().from(users).where(eq(users.id, userId)).get()
+        if (
+          !user
+          || user.status !== UserStatuses.active
+          || user.authVersion !== userAuthVersion
+        ) return null
+        for (const row of rows) {
+          tx.insert(oauthTokens).values({
+            tokenHash: sha256(row.token),
+            kind: row.kind,
+            clientId,
+            userId,
+            userAuthVersion,
+            resource,
+            scope,
+            expiresAt: new Date(now.getTime() + row.ttl).toISOString(),
+            createdAt: now.toISOString(),
+          }).run()
+        }
+        return {
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: Math.floor(ACCESS_TTL_MS / 1000),
+          // Without a refresh token the client silently loses access at the
+          // first expiry, which reads to a user as the connector breaking.
+          refresh_token: refreshToken,
+          scope: scope ?? 'read',
+        }
+      })
     }
 
     if (body.grant_type === 'authorization_code') {
@@ -694,7 +738,8 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       if (body.redirect_uri !== row.redirectUri) return badRequest(reply, 'invalid_grant', 'redirect_uri does not match the authorization request.')
       if (!verifyPkce(verifier, row.codeChallenge)) return badRequest(reply, 'invalid_grant', 'PKCE verification failed.')
 
-      return issue(row.clientId, row.userId, row.resource, row.scope)
+      const issued = issue(row.clientId, row.userId, row.userAuthVersion, row.resource, row.scope)
+      return issued ?? badRequest(reply, 'invalid_grant', 'Account access changed.')
     }
 
     if (body.grant_type === 'refresh_token') {
@@ -707,13 +752,49 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       const refreshClientState = checkClient(row.clientId)
       if (refreshClientState !== 'ok') return badRequest(reply, 'invalid_client', 'Client is unknown, revoked, or failed authentication.')
 
-      // Rotation: the presented token dies with the request that used it, so a
-      // stolen refresh token is usable at most once and the theft is visible
-      // as a failure on the legitimate client's next refresh.
-      db.update(oauthTokens).set({ revokedAt: now.toISOString() })
-        .where(eq(oauthTokens.tokenHash, row.tokenHash)).run()
+      // Rotation, account/version verification, and token issuance share one
+      // transaction. A stale refresh cannot win a race with suspension or a
+      // role change, and two concurrent presentations cannot both rotate it.
+      const issued = db.transaction((tx) => {
+        const current = tx.select().from(oauthTokens)
+          .where(and(eq(oauthTokens.tokenHash, row.tokenHash), eq(oauthTokens.kind, 'refresh'))).get()
+        if (!current || current.revokedAt || Date.parse(current.expiresAt) <= now.getTime()) return null
+        const user = tx.select().from(users).where(eq(users.id, current.userId)).get()
+        if (
+          !user
+          || user.status !== UserStatuses.active
+          || user.authVersion !== current.userAuthVersion
+        ) return null
+        tx.update(oauthTokens).set({ revokedAt: now.toISOString() })
+          .where(eq(oauthTokens.tokenHash, current.tokenHash)).run()
 
-      return issue(row.clientId, row.userId, row.resource, row.scope)
+        const accessToken = newToken()
+        const refreshToken = newToken()
+        for (const next of [
+          { token: accessToken, kind: 'access' as const, ttl: ACCESS_TTL_MS },
+          { token: refreshToken, kind: 'refresh' as const, ttl: REFRESH_TTL_MS },
+        ]) {
+          tx.insert(oauthTokens).values({
+            tokenHash: sha256(next.token),
+            kind: next.kind,
+            clientId: current.clientId,
+            userId: current.userId,
+            userAuthVersion: current.userAuthVersion,
+            resource: current.resource,
+            scope: current.scope,
+            expiresAt: new Date(now.getTime() + next.ttl).toISOString(),
+            createdAt: now.toISOString(),
+          }).run()
+        }
+        return {
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: Math.floor(ACCESS_TTL_MS / 1000),
+          refresh_token: refreshToken,
+          scope: current.scope ?? 'read',
+        }
+      })
+      return issued ?? badRequest(reply, 'invalid_grant', 'Refresh token is no longer valid.')
     }
 
     return badRequest(reply, 'unsupported_grant_type', 'Supported grants: authorization_code, refresh_token.')
@@ -728,7 +809,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
    * Mounted under the API prefix so it inherits the api-key auth and the admin
    * gate. The OAuth protocol endpoints stay public; this is not one of them.
    */
-  app.post('/oauth/revoke', async (request: FastifyRequest, reply: FastifyReply) => {
+  oauthRoute('post', '/oauth/revoke', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as Record<string, string | undefined>
     if (body.token) {
       db.update(oauthTokens).set({ revokedAt: new Date().toISOString() })
@@ -751,13 +832,24 @@ export function resolveOAuthAccessToken(
   token: string,
   expectedResource: string,
   now = new Date(),
-): { userId: string; clientId: string; scope: string | null } | null {
+): { userId: string; clientId: string; scope: string | null; userAuthVersion: number } | null {
   const row = db.select().from(oauthTokens)
     .where(and(eq(oauthTokens.tokenHash, sha256(token)), eq(oauthTokens.kind, 'access'))).get()
   if (!row || row.revokedAt) return null
   if (Date.parse(row.expiresAt) <= now.getTime()) return null
   if (row.resource && row.resource !== expectedResource) return null
-  return { userId: row.userId, clientId: row.clientId, scope: row.scope }
+  const user = db.select().from(users).where(eq(users.id, row.userId)).get()
+  if (
+    !user
+    || user.status !== UserStatuses.active
+    || user.authVersion !== row.userAuthVersion
+  ) return null
+  return {
+    userId: row.userId,
+    clientId: row.clientId,
+    scope: row.scope,
+    userAuthVersion: row.userAuthVersion,
+  }
 }
 
 /**

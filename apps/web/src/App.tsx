@@ -25,8 +25,7 @@ import { CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
-import { viewerRoleLabel,
-  getEmbedConfig,
+import { getEmbedConfig,
   heyClient,
   shouldShowDashboardAgentBar,
   shouldShowDashboardResourceLinks,
@@ -68,6 +67,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { AccountPanel } from './components/auth/AccountPanel.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
@@ -673,12 +673,7 @@ export function RootLayout() {
 
         {account && (
           <div className="sidebar-account">
-            <div className="sidebar-account-identity">
-              <span className="sidebar-account-name">{account.name}</span>
-              {account.role === 'viewer' ? (
-                <span className="sidebar-account-role">{viewerRoleLabel()}</span>
-              ) : null}
-            </div>
+            <AccountPanel />
             <Button
               type="button"
               variant="ghost"
@@ -842,12 +837,7 @@ export function RootLayout() {
             <div className="mobile-nav-section">
               <p className="mobile-nav-section-title">Signed in</p>
               <div className="sidebar-account">
-                <div className="sidebar-account-identity">
-                  <span className="sidebar-account-name">{account.name}</span>
-                  {account.role === 'viewer' ? (
-                    <span className="sidebar-account-role">{viewerRoleLabel()}</span>
-                  ) : null}
-                </div>
+                <AccountPanel />
                 <Button
                   type="button"
                   variant="ghost"

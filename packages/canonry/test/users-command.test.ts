@@ -4,12 +4,18 @@ import type { UserDto, UserListDto } from '@ainyc/canonry-contracts'
 const mockListUsers = vi.fn()
 const mockCreateUser = vi.fn()
 const mockDeleteUser = vi.fn()
+const mockUpdateUser = vi.fn()
+const mockCreateInvitation = vi.fn()
+const mockGoogleSettings = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     listUsers: mockListUsers,
     createUser: mockCreateUser,
     deleteUser: mockDeleteUser,
+    updateUser: mockUpdateUser,
+    createUserInvitation: mockCreateInvitation,
+    updateGoogleSignInSettings: mockGoogleSettings,
   }),
 }))
 
@@ -25,11 +31,11 @@ function captureLog(): { logs: string[]; restore: () => void } {
   return { logs, restore: () => { console.log = orig } }
 }
 
-const { listUsers, createUser, deleteUser } = await import('../src/commands/users.js')
+const { listUsers, createUser, deleteUser, updateUser, createUserInvitation, configureGoogleSignIn } = await import('../src/commands/users.js')
 
 const USERS: UserDto[] = [
-  { id: 'u1', name: 'owner', role: 'admin', createdAt: '2026-05-01T00:00:00.000Z', lastLoginAt: '2026-05-30T00:00:00.000Z' },
-  { id: 'u2', name: 'watcher', role: 'viewer', createdAt: '2026-05-02T00:00:00.000Z', lastLoginAt: null },
+  { id: 'u1', name: 'owner', displayName: null, email: null, role: 'admin', status: 'active', createdAt: '2026-05-01T00:00:00.000Z', lastLoginAt: '2026-05-30T00:00:00.000Z', lastSeenAt: null, authVersion: 0, hasPassword: true },
+  { id: 'u2', name: 'watcher', displayName: null, email: null, role: 'viewer', status: 'active', createdAt: '2026-05-02T00:00:00.000Z', lastLoginAt: null, lastSeenAt: null, authVersion: 0, hasPassword: true },
 ]
 
 describe('user list', () => {
@@ -84,9 +90,15 @@ describe('user create', () => {
   const created: UserDto = {
     id: 'u3',
     name: 'newcomer',
+    displayName: null,
+    email: null,
     role: 'viewer',
+    status: 'active',
     createdAt: '2026-05-31T00:00:00.000Z',
     lastLoginAt: null,
+    lastSeenAt: null,
+    authVersion: 0,
+    hasPassword: true,
   }
 
   it('asks for the password rather than taking it from the command line', async () => {
@@ -159,6 +171,46 @@ describe('user create', () => {
       createUser({ name: 'newcomer', role: 'viewer', format: undefined }),
     ).rejects.toThrow(/do not match/i)
     expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('account access controls', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('uses the typed status mutation for a suspension', async () => {
+    mockUpdateUser.mockResolvedValue({ ...USERS[1], status: 'suspended' })
+    await updateUser('u2', { status: 'suspended', format: 'json' })
+    expect(mockUpdateUser).toHaveBeenCalledWith('u2', { status: 'suspended' })
+  })
+
+  it('updates profile fields and accepts explicit clearing without changing roles', async () => {
+    const patch = { displayName: 'Profile label', email: 'profile@example.test' }
+    mockUpdateUser.mockResolvedValue({ ...USERS[1], ...patch })
+    await updateUser(USERS[1]!.id, { ...patch, format: 'json' })
+    expect(mockUpdateUser).toHaveBeenLastCalledWith(USERS[1]!.id, patch)
+    await updateUser(USERS[1]!.id, { displayName: '', email: '', format: 'json' })
+    expect(mockUpdateUser).toHaveBeenLastCalledWith(USERS[1]!.id, { displayName: null, email: null })
+  })
+
+  it('creates an analyst invitation with the requested capability role', async () => {
+    mockCreateInvitation.mockResolvedValue({ invitation: { id: 'i1', email: 'person@example.test', role: 'analyst' } })
+    await createUserInvitation({ email: 'person@example.test', role: 'analyst', format: 'json' })
+    expect(mockCreateInvitation).toHaveBeenCalledWith({ email: 'person@example.test', role: 'analyst' })
+  })
+
+  it('reads a Google client secret from stdin and never prints it', async () => {
+    mockGoogleSettings.mockResolvedValue({ enabled: true, configured: true })
+    const cap = captureLog()
+    try {
+      await configureGoogleSignIn({
+        clientSecretStdin: true,
+        readStdin: async () => 'google-secret-value\n',
+      })
+    } finally {
+      cap.restore()
+    }
+    expect(mockGoogleSettings).toHaveBeenCalledWith({ clientSecret: 'google-secret-value' })
+    expect(cap.logs.join('\n')).not.toContain('google-secret-value')
   })
 })
 

@@ -61,6 +61,8 @@ export interface AuditEntry {
    * sequence of mutations can be grouped. Optional.
    */
   actorSession?: string | null
+  actorUserId?: string | null
+  actorName?: string | null
 }
 
 /** Accepts both the main DatabaseClient and a Drizzle transaction context */
@@ -76,6 +78,8 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
     diff: entry.diff != null ? JSON.stringify(entry.diff) : null,
     userAgent: entry.userAgent ?? null,
     actorSession: entry.actorSession ?? null,
+    actorUserId: entry.actorUserId ?? null,
+    actorName: entry.actorName ?? null,
     createdAt: now,
   }).run()
 }
@@ -91,7 +95,7 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
  *   }))
  */
 export function auditFromRequest(
-  request: Pick<import('fastify').FastifyRequest, 'headers'>,
+  request: Pick<import('fastify').FastifyRequest, 'headers'> & Partial<Pick<import('fastify').FastifyRequest, 'principal'>>,
   entry: AuditEntry,
 ): AuditEntry {
   const ua = request.headers['user-agent']
@@ -106,6 +110,8 @@ export function auditFromRequest(
   const actorSession = Array.isArray(sess) ? sess.join(', ') : sess ?? null
   return {
     ...entry,
+    actorUserId: request.principal?.kind === 'user' ? request.principal.id : request.principal?.delegatedUser?.id ?? null,
+    actorName: request.principal?.kind === 'user' ? request.principal.name : request.principal?.delegatedUser?.name ?? null,
     userAgent: entry.userAgent ?? userAgent,
     actorSession: entry.actorSession ?? actorSession,
   }

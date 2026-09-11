@@ -12,11 +12,15 @@
  * somebody's time.
  */
 import { createContext, useContext, type ReactNode } from 'react'
-import { WILDCARD_SCOPE, type ApiKeyDto } from '@ainyc/canonry-contracts'
+import { UserRoles, userRoleScopes, WILDCARD_SCOPE, type ApiKeyDto, type UserRole } from '@ainyc/canonry-contracts'
 
 export interface SignedInAccount {
+  /** Account sessions always supply these; optional keeps older embedded test harnesses compatible. */
+  id?: string
   name: string
-  role: 'admin' | 'viewer'
+  role: UserRole
+  authVersion?: number
+  displayName?: string | null
 }
 
 export interface AccountState {
@@ -24,12 +28,14 @@ export interface AccountState {
   account: SignedInAccount | null
   /** True when this person may change things. Also true when nobody signed in. */
   canWrite: boolean
+  /** True when the named account can use the bounded Research workspace. */
+  canResearch: boolean
   /** True when administrator-only screens should be offered. */
   isAdmin: boolean
 }
 
-const NO_ACCOUNTS: AccountState = { account: null, canWrite: true, isAdmin: true }
-const RESTRICTED_API_KEY: AccountState = { account: null, canWrite: false, isAdmin: false }
+const NO_ACCOUNTS: AccountState = { account: null, canWrite: true, canResearch: true, isAdmin: true }
+const RESTRICTED_API_KEY: AccountState = { account: null, canWrite: false, canResearch: false, isAdmin: false }
 
 export type ApiKeyAccess = Pick<ApiKeyDto, 'id' | 'scopes' | 'projectId' | 'readOnly'>
 
@@ -44,6 +50,7 @@ export function accountStateForApiKey(apiKey: ApiKeyAccess): AccountState {
   return {
     account: null,
     canWrite: !apiKey.readOnly && hasGeneralWrite,
+    canResearch: !apiKey.readOnly && (hasGeneralWrite || apiKey.scopes.includes('research.run')),
     isAdmin: apiKey.projectId === null && apiKey.scopes.includes(WILDCARD_SCOPE),
   }
 }
@@ -67,7 +74,12 @@ export function AccountProvider({
     : apiKey
       ? accountStateForApiKey(apiKey)
       : account
-        ? { account, canWrite: account.role === 'admin', isAdmin: account.role === 'admin' }
+        ? {
+            account,
+            canWrite: account.role === UserRoles.admin,
+            canResearch: userRoleScopes(account.role).includes(WILDCARD_SCOPE) || account.role === UserRoles.analyst,
+            isAdmin: account.role === UserRoles.admin,
+          }
         : NO_ACCOUNTS
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>

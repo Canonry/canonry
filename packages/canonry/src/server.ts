@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveGoogleSignInConfig } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 
 const _require = createRequire(import.meta.url);
@@ -56,6 +56,7 @@ import {
   RunTriggers,
   ResearchRunStatuses,
   DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
+  type GoogleSignInConfig,
   adsAccountDtoSchema,
   adsGeoSearchResponseSchema,
   adsConversionPixelListResponseSchema,
@@ -236,7 +237,7 @@ import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
-import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
+import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createNamedUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
   createRecommendationExplainer,
@@ -644,6 +645,25 @@ export function resolveGooglePublicUrl(
     return `${url.protocol}//localhost${portSuffix}${pathSuffix}`;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Native sign-in is a browser identity boundary, so it requires an explicit
+ * externally configured public URL. Unlike product OAuth, it must not infer a
+ * loopback callback from an otherwise local API URL: an absent public address
+ * is a configuration state, not a reason to stop a disabled local server.
+ */
+export function resolveGoogleSignInPublicUrl(config: Pick<CanonryConfig, 'publicUrl'>): string | undefined {
+  const configured = config.publicUrl?.trim()
+  if (!configured) return undefined
+  try {
+    const url = new URL(configured)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+    if (url.username || url.password || url.search || url.hash) return undefined
+    return configured.replace(/\/$/, '') || undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -2161,6 +2181,11 @@ export async function createServer(opts: {
   })
 
   const googlePublicUrl = resolveGooglePublicUrl(opts.config, basePath);
+  const googleSignInPublicUrl = resolveGoogleSignInPublicUrl(opts.config);
+  // Native Google sign-in uses the same config file as the local host's other
+  // credentials, never SQLite. Environment-owned values are intentionally
+  // read-only in settings so an accepted PUT cannot pretend it persisted.
+  const googleSignIn = resolveGoogleSignInConfig(process.env, opts.config);
   // The OAuth issuer is an ORIGIN, never a base path: RFC 9728 inserts the
   // well-known segment between host and path, so the document lives at the
   // root of the host regardless of where the resource itself is mounted.
@@ -2644,6 +2669,23 @@ export async function createServer(opts: {
       };
     },
     googleConnectionStore,
+    googleSignIn: {
+      getConfig: () => resolveGoogleSignInConfig(process.env, opts.config).config,
+      ...(googleSignIn.environmentOverride
+        ? {}
+        : {
+            updateConfig: (value: GoogleSignInConfig) => {
+              const nextAuth = { ...opts.config.auth, google: value };
+              // A failed durable write must not leave a transient in-memory
+              // sign-in policy active until the next restart.
+              saveConfigPatch({ auth: nextAuth });
+              opts.config.auth = nextAuth;
+            },
+          }),
+      publicUrl: googleSignInPublicUrl,
+      basePath,
+      environmentOverride: googleSignIn.environmentOverride,
+    },
     googleStateSecret,
     publicUrl: googlePublicUrl,
     googleMarketingCredentialStore,
@@ -3558,6 +3600,12 @@ export async function createServer(opts: {
   if (publicOrigin) {
     registerOAuthRoutes(app, {
       db: opts.db,
+      authorizationBasePath: basePath,
+      googleSignInUrl: () => {
+        const config = resolveGoogleSignInConfig(process.env, opts.config).config;
+        return googleSignInPublicUrl && config.enabled && config.clientId && config.clientSecret
+          ? `${apiPrefix}/auth/google/start` : undefined;
+      },
       issuer: publicOrigin,
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
@@ -3567,13 +3615,14 @@ export async function createServer(opts: {
         const token = cookies[USER_SESSION_COOKIE_NAME];
         if (!token) return null;
         const resolved = resolveUserSession(opts.db, token);
-        return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
+        return resolved ? { id: resolved.user.id, name: resolved.user.name, authVersion: resolved.user.authVersion } : null;
       },
       credentials: credentialChecker,
-      startSession: (userId) => {
-        const token = createUserSession(opts.db, userId);
+      startSession: (userId, expectedAuthVersion) => {
+        const session = createNamedUserSession(opts.db, userId, expectedAuthVersion);
+        if (!session) return null;
         return serializeUserSessionCookie({
-          value: token,
+          value: session.token,
           path: basePath ?? "/",
           secure: opts.config.publicUrl?.startsWith("https://") ?? false,
         });

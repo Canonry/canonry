@@ -336,3 +336,7 @@ A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rej
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.
 
 Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Canonry API/client errors and Zod input-validation errors return MCP tool results with `isError: true` and a structured `{ "error": { "code", "message", "details" } }` envelope (`VALIDATION_ERROR` for bad input, with `details.issues` listing the per-field problems). Malformed JSON-RPC and unknown tools remain MCP protocol errors.
+
+## Instance account administration
+
+Native account tools cover safe user/config reads, invitations, role/status changes and access revocation. They require the same administrator and instance-wide authority as the API. Google-only accounts use the browser Google button in MCP consent; their delegated scopes remain bounded by the approved grant and current role. Browser redirects, session credentials, password bootstrap and secret configuration are explicit catalog exceptions. See [Google sign-in and recovery](google-sign-in.md).

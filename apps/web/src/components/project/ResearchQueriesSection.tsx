@@ -21,7 +21,7 @@ import {
   type VisibilityReportScopeOption,
 } from '@ainyc/canonry-contracts'
 
-import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
+import { heyClient, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
@@ -84,11 +84,9 @@ export function ResearchQueriesSection({
   scopeError,
   onRetryScope,
   templates = [],
-  viewerResearchConfig = null,
 }: {
   projectName: string
   onReviewForTracking?: (source: ResearchTrackingSource) => void
-  viewerResearchConfig?: ViewerResearchConfig | null
   scopeOptions?: VisibilityReportScopeOption[]
   planRevision?: number | null
   selectedScope?: ResearchScopeOption | null
@@ -98,8 +96,7 @@ export function ResearchQueriesSection({
   templates?: readonly ResearchTemplateOption[]
 }) {
   const queryClient = useQueryClient()
-  const { account, canWrite } = useAccount()
-  const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
+  const { canResearch, canWrite } = useAccount()
   const limitedAccess = !canWrite
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
@@ -133,8 +130,8 @@ export function ResearchQueriesSection({
   const historyError = runsQuery.isError && !runsQuery.isFetchNextPageError
   const historyPolicy = runsQuery.data?.pages.at(-1)
   const runs = historyError ? [] : [...new Map((runsQuery.data?.pages.flatMap(page => page.runs) ?? []).map(run => [run.id, run])).values()]
-  const canRun = historyPolicy?.access?.canRun ?? (canWrite || isViewerResearch)
-  const dailyRunLimit = historyPolicy?.access ? historyPolicy.access.dailyRunLimit : (isViewerResearch ? viewerResearchConfig.viewerDailyRunLimit : null)
+  const canRun = historyPolicy?.access?.canRun ?? canResearch
+  const dailyRunLimit = historyPolicy?.access?.dailyRunLimit ?? null
 
   useEffect(() => {
     if (!selectedRunId && runs[0]) setSelectedRunId(runs[0].id)

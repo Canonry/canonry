@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE, WILDCARD_SCOPE } from './scopes.js'
 
 /**
  * Named sign-in accounts for the dashboard.
@@ -9,8 +10,9 @@ import { z } from 'zod'
  * switch, and it is deliberately the act of creating an account rather than a
  * separate setting nobody would remember to turn on.
  *
- * There are two roles and no plans for a third:
+ * Roles describe a person's instance-wide authority:
  *   - `admin`  — everything the install could already do, now behind a sign-in.
+ *   - `analyst` — reads plus bounded Research runs.
  *   - `viewer` — reads only. Every request that changes something is refused.
  *
  * API keys are unaffected by any of this. A key and a signed-in person are two
@@ -18,12 +20,34 @@ import { z } from 'zod'
  */
 export const UserRoles = {
   admin: 'admin',
+  analyst: 'analyst',
   viewer: 'viewer',
 } as const
 
 export type UserRole = (typeof UserRoles)[keyof typeof UserRoles]
 
-export const userRoleSchema = z.enum(['admin', 'viewer'])
+export const userRoleSchema = z.enum(['admin', 'analyst', 'viewer'])
+
+export const UserStatuses = {
+  active: 'active',
+  suspended: 'suspended',
+} as const
+
+export type UserStatus = (typeof UserStatuses)[keyof typeof UserStatuses]
+
+export const userStatusSchema = z.enum(['active', 'suspended'])
+
+/** The effective capability ceiling for a named account role. */
+export function userRoleScopes(role: UserRole): string[] {
+  switch (role) {
+    case UserRoles.admin:
+      return [WILDCARD_SCOPE]
+    case UserRoles.analyst:
+      return [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE]
+    case UserRoles.viewer:
+      return [READ_ONLY_SCOPE]
+  }
+}
 
 /**
  * Account names are the thing people type into the sign-in box, so they are
@@ -61,9 +85,15 @@ export function normalizeUserName(name: string): string {
 export const userDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
+  displayName: z.string().nullable(),
+  email: z.string().nullable(),
   role: userRoleSchema,
+  status: userStatusSchema,
   createdAt: z.string(),
   lastLoginAt: z.string().nullable(),
+  lastSeenAt: z.string().nullable(),
+  authVersion: z.number().int().nonnegative(),
+  hasPassword: z.boolean(),
 })
 
 export type UserDto = z.infer<typeof userDtoSchema>
@@ -80,9 +110,21 @@ export const createUserRequestSchema = z.object({
   name: userNameSchema,
   password: userPasswordSchema,
   role: userRoleSchema,
+  displayName: z.string().trim().min(1).max(200).optional(),
+  email: z.string().email().max(320).optional(),
 })
 
 export type CreateUserRequest = z.infer<typeof createUserRequestSchema>
+
+/** Request body for `PATCH /users/:id`. Null clears optional profile fields. */
+export const updateUserRequestSchema = z.object({
+  role: userRoleSchema.optional(),
+  status: userStatusSchema.optional(),
+  displayName: z.string().trim().min(1).max(200).nullable().optional(),
+  email: z.string().email().max(320).nullable().optional(),
+})
+
+export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>
 
 /** Request body for `POST /auth/login`. */
 export const loginRequestSchema = z.object({
@@ -103,7 +145,7 @@ export const authSessionDtoSchema = z.object({
   /** True once at least one account exists, so the dashboard must sign in. */
   authRequired: z.boolean(),
   /** The signed-in person, or null when nobody is signed in. */
-  user: userDtoSchema.pick({ name: true, role: true }).nullable(),
+  user: userDtoSchema.nullable(),
 })
 
 export type AuthSessionDto = z.infer<typeof authSessionDtoSchema>

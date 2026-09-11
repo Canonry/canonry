@@ -57,7 +57,16 @@ function grantsWrite(scope: string): boolean {
 /** Named mutation grants constrained to explicit routes; null means legacy broad access. */
 export function restrictedWriteScopes(scopes: readonly string[]): readonly string[] | null {
   const writes = scopes.filter(grantsWrite)
-  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE])
+  const restricted = new Set([
+    ADS_WRITE_SCOPE,
+    ADS_APPROVE_SCOPE,
+    ADS_ACTIVATE_SCOPE,
+    RESEARCH_RUN_SCOPE,
+    // Account administration is a named, bounded capability. Without listing
+    // it here, `users.write` is mistaken for legacy broad write authority and
+    // can pass the global gate on unrelated mutation routes.
+    'users.write',
+  ])
   return writes.length > 0 && writes.every(scope => restricted.has(scope)) ? writes : null
 }
 

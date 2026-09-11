@@ -61,6 +61,15 @@ const expectedToolNames = [
   'canonry_backlinks_domains',
   'canonry_backlinks_sources',
   'canonry_settings_get',
+  'canonry_user_list',
+  'canonry_user_update',
+  'canonry_user_revoke_access',
+  'canonry_user_access_history',
+  'canonry_user_invitation_list',
+  'canonry_user_invitation_create',
+  'canonry_user_invitation_replace',
+  'canonry_user_invitation_revoke',
+  'canonry_user_google_sign_in_settings_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
   'canonry_gsc_performance_daily',
@@ -610,11 +619,65 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(213)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(143)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(222)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(147)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
+  })
+
+  it('exposes bounded instance-user administration through the setup tier', () => {
+    const expected = [
+      ['canonry_user_list', 'read', 'users.read', 'GET /api/v1/users'],
+      ['canonry_user_update', 'write', 'users.write', 'PATCH /api/v1/users/{id}'],
+      ['canonry_user_revoke_access', 'write', 'users.write', 'POST /api/v1/users/{id}/revoke-access'],
+      ['canonry_user_access_history', 'read', 'users.read', 'GET /api/v1/users/{id}/access-history'],
+      ['canonry_user_invitation_list', 'read', 'users.read', 'GET /api/v1/users/invitations'],
+      ['canonry_user_invitation_create', 'write', 'users.write', 'POST /api/v1/users/invitations'],
+      ['canonry_user_invitation_replace', 'write', 'users.write', 'POST /api/v1/users/invitations/{id}/replace'],
+      ['canonry_user_invitation_revoke', 'write', 'users.write', 'POST /api/v1/users/invitations/{id}/revoke'],
+      ['canonry_user_google_sign_in_settings_get', 'read', 'users.read', 'GET /api/v1/settings/auth/google'],
+    ] as const
+
+    for (const [name, access, requiredScope, operation] of expected) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)
+      expect(tool, name).toMatchObject({
+        access,
+        requiredScope,
+        tier: 'setup',
+        openApiOperations: [operation],
+        annotations: { readOnlyHint: access === 'read' },
+      })
+      expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('included')
+    }
+
+    const update = canonryMcpTools.find(tool => tool.name === 'canonry_user_update')!
+    expect(update.inputSchema.safeParse({
+      userId: '250c2bfe-7c62-46c6-a7ee-1cf654426dd4',
+      request: { role: 'analyst', status: 'suspended', displayName: 'Avery', email: 'avery@example.test' },
+    }).success).toBe(true)
+    expect(update.inputSchema.safeParse({ userId: 'not-a-uuid', request: { role: 'analyst' } }).success).toBe(false)
+
+    const invitation = canonryMcpTools.find(tool => tool.name === 'canonry_user_invitation_create')!
+    expect(invitation.inputSchema.safeParse({ request: { email: 'invitee@example.test', role: 'viewer' } }).success).toBe(true)
+    expect(invitation.inputSchema.safeParse({ request: { email: 'not-an-email', role: 'viewer' } }).success).toBe(false)
+
+    const readOnlyNames = getCanonryMcpTools('read-only').map(tool => tool.name)
+    expect(readOnlyNames).toEqual(expect.arrayContaining(expected
+      .filter(([, access]) => access === 'read')
+      .map(([name]) => name)))
+    expect(readOnlyNames).not.toContain('canonry_user_invitation_create')
+
+    const accountWriterTools = getCanonryMcpTools('all', undefined, ['users.read', 'users.write'])
+      .filter(tool => tool.access === 'write')
+      .map(tool => tool.name)
+    expect(accountWriterTools).toEqual([
+      'canonry_user_update',
+      'canonry_user_revoke_access',
+      'canonry_user_invitation_create',
+      'canonry_user_invitation_replace',
+      'canonry_user_invitation_revoke',
+    ])
   })
 
   it('tags every tool with a tier from the published list', () => {
@@ -648,7 +711,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(48)
-    expect(counts.get('setup')).toBe(54)
+    expect(counts.get('setup')).toBe(63)
     expect(counts.get('gsc')).toBe(10)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(13)
