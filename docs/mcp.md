@@ -231,6 +231,12 @@ analysis calls. Browser-only selection requires manual `queries` and uses
 deterministic analysis. Unknown providers, mode conflicts, and empty selections
 fail before site fetching or provider work.
 
+Start with `canonry_help({intent: "prospect snapshot"})`. Help offers stored
+provider settings in `next` and, on progressive stdio, the discovery toolkit to
+load. After loading, `actions` includes `canonry_snapshot` when this connection
+permits it. Fixed catalogs offer the action immediately when available. Help
+starts no provider work; execution requires approval for the selected work.
+
 ```bash
 canonry snapshot "Acme" --domain acme.example --provider gemini --format json
 canonry snapshot "Acme" --domain acme.example --provider-mode api --format json
