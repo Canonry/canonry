@@ -62,7 +62,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   // Build the client once, auto-detect a read-only key, then reuse the same
   // client for the server (keeps one client per server instance).
-  const client = createApiClient()
+  const client = createApiClient({ clientName: 'canonry-mcp' })
   const authorization = await resolveEffectiveAuthorization(client, options.scope)
   const server = createCanonryMcpServer({ ...authorization, eager: options.eager, clientFactory: () => client })
   await server.connect(new StdioServerTransport())

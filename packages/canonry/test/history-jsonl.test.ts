@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import type { AuditLogEntry } from '@ainyc/canonry-contracts'
+import { CliError } from '../src/cli-error.js'
 
 const mockClearResults = vi.fn()
 const mockGetHistory = vi.fn()
@@ -25,6 +26,8 @@ function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: ()
 }
 
 const { clearResults, showHistory } = await import('../src/commands/history.js')
+const { OPERATOR_CLI_COMMANDS } = await import('../src/cli-commands/operator.js')
+const { dispatchRegisteredCommand } = await import('../src/cli-dispatch.js')
 
 const entries: AuditLogEntry[] = [
   {
@@ -108,6 +111,49 @@ describe('showHistory --format jsonl', () => {
       console.log = origLog
     }
     expect(JSON.parse(logs.join(''))).toEqual(entries)
+  })
+
+  it('forwards an offset unchanged to the existing typed client API', async () => {
+    mockGetHistory.mockResolvedValue([])
+    await showHistory('demo', 'json', { limit: 500, offset: 500 })
+    expect(mockGetHistory).toHaveBeenCalledWith('demo', { limit: 500, offset: 500 })
+  })
+
+  it('preserves a typed client error, including its retry-safe exit code and details', async () => {
+    const err = new CliError({
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'history service is temporarily unavailable',
+      details: { retryAfterMs: 1_000 },
+      exitCode: 2,
+    })
+    mockGetHistory.mockRejectedValue(err)
+    await expect(showHistory('demo', 'json')).rejects.toBe(err)
+  })
+})
+
+describe('history CLI paging arguments', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetHistory.mockResolvedValue([])
+    mockGetGlobalHistory.mockResolvedValue([])
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  it('accepts and forwards a nonnegative offset beyond the first 500 entries', async () => {
+    await dispatchRegisteredCommand(['history', 'demo', '--limit', '500', '--offset', '500'], 'json', OPERATOR_CLI_COMMANDS)
+    expect(mockGetHistory).toHaveBeenCalledWith('demo', { limit: 500, offset: 500, since: undefined, action: undefined, actor: undefined, entityType: undefined })
+  })
+
+  it.each([
+    ['--offset=-1'],
+    ['--offset=1.5'],
+    ['--limit=0'],
+    ['--limit=501'],
+    ['--limit=1.5'],
+  ])('rejects invalid paging input %s as usage', async (argument) => {
+    await expect(dispatchRegisteredCommand(['history', 'demo', argument], 'json', OPERATOR_CLI_COMMANDS))
+      .rejects.toMatchObject({ code: 'CLI_USAGE_ERROR', exitCode: 1 })
+    expect(mockGetHistory).not.toHaveBeenCalled()
   })
 })
 

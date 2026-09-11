@@ -5,7 +5,7 @@ import { projects, competitors, schedules, notifications } from '@ainyc/canonry-
 import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
-import { writeAuditLog } from './helpers.js'
+import { auditFromRequest, writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -178,13 +178,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           updatedAt: now,
         }).where(eq(projects.id, existing.id)).run()
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId,
           actor: 'api',
           action: 'project.applied',
           entityType: 'project',
           entityId: projectId,
-        })
+        }))
       } else {
         projectId = crypto.randomUUID()
         lifecycle.projectCreated = true
@@ -211,13 +211,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           updatedAt: now,
         }).run()
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId,
           actor: 'api',
           action: 'project.created',
           entityType: 'project',
           entityId: projectId,
-        })
+        }))
       }
 
       // Replace queries + competitors. Query rows are the FK anchor for every
@@ -230,13 +230,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         assertQueryReplacementAllowed(tx, { projectId, projectName: name }, configQueries)
         replaceProjectQueries(tx, projectId, configQueries, now)
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId,
           actor: 'api',
           action: 'queries.replaced',
           entityType: 'query',
           diff: { queries: configQueries },
-        })
+        }))
       }
 
       tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()
@@ -251,13 +251,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         }).run()
       }
 
-      writeAuditLog(tx, {
+      writeAuditLog(tx, auditFromRequest(request, {
         projectId,
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
         diff: { competitors: normalizedCompetitors },
-      })
+      }))
 
       // Handle schedule. `canonry apply` only manages the answer-visibility
       // schedule — traffic-sync schedules have no surface in the YAML config-
@@ -343,13 +343,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           }).run()
         }
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId,
           actor: 'api',
           action: 'notifications.replaced',
           entityType: 'notification',
           diff: { notifications: config.spec.notifications },
-        })
+        }))
       }
     }, { behavior: 'immediate' })
 

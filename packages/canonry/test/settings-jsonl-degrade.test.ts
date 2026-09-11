@@ -2,17 +2,20 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 
 const mockGetSettings = vi.fn()
 const mockUpdateProvider = vi.fn()
+const mockUpdateGoogleSettings = vi.fn()
+const mockSaveConfigPatch = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getSettings: mockGetSettings,
     updateProvider: mockUpdateProvider,
+    updateGoogleSettings: mockUpdateGoogleSettings,
   }),
 }))
 
 vi.mock('../src/config.js', () => ({
   loadConfig: () => ({ google: { clientId: 'cid', clientSecret: 'secret' } }),
-  saveConfigPatch: vi.fn(),
+  saveConfigPatch: mockSaveConfigPatch,
   getConfigPath: () => '/tmp/canonry/config.yaml',
 }))
 
@@ -28,13 +31,16 @@ function captureLog(fn: () => Promise<void> | void): Promise<string> {
     .then(() => logs.join('\n'))
 }
 
-const { showSettings, setProvider } = await import('../src/commands/settings.js')
+const { showSettings, setGoogleAuth, setProvider } = await import('../src/commands/settings.js')
 
 const settings = {
   providers: [
     { name: 'openai', model: 'gpt-x', configured: true, quota: { maxConcurrency: 1, maxRequestsPerMinute: 2, maxRequestsPerDay: 3 } },
     { name: 'gemini', configured: false },
   ],
+  providerCatalog: [],
+  google: { configured: false },
+  bing: { configured: true },
 }
 
 describe('showSettings — jsonl degrades to the json document', () => {
@@ -49,10 +55,7 @@ describe('showSettings — jsonl degrades to the json document', () => {
 
     expect(jsonlOut).toBe(jsonOut)
     expect(JSON.parse(jsonlOut)).toEqual(JSON.parse(jsonOut))
-    expect(JSON.parse(jsonlOut)).toMatchObject({
-      providers: settings.providers,
-      google: { configured: true },
-    })
+    expect(JSON.parse(jsonlOut)).toEqual(settings)
   })
 
   it('format=jsonl does NOT print the human settings table', async () => {
@@ -65,7 +68,31 @@ describe('showSettings — jsonl degrades to the json document', () => {
     const out = await captureLog(() => showSettings(undefined))
     expect(out).toMatch(/Provider settings:/)
     expect(out).toMatch(/Google OAuth:/)
+    expect(out).toMatch(/not configured/)
     expect(() => JSON.parse(out)).toThrow()
+  })
+})
+
+describe('setGoogleAuth — explicit target', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUpdateGoogleSettings.mockResolvedValue({ configured: true })
+  })
+
+  it('updates the server without persisting the local config, including JSON output', async () => {
+    const out = await captureLog(() => setGoogleAuth({
+      clientId: 'server-client-id',
+      clientSecret: 'server-client-secret',
+      target: 'server',
+      format: 'json',
+    }))
+
+    expect(mockUpdateGoogleSettings).toHaveBeenCalledWith({
+      clientId: 'server-client-id',
+      clientSecret: 'server-client-secret',
+    })
+    expect(mockSaveConfigPatch).not.toHaveBeenCalled()
+    expect(JSON.parse(out)).toEqual({ configured: true })
   })
 })
 

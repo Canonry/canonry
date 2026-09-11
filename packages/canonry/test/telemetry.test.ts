@@ -134,6 +134,30 @@ describe('telemetry', () => {
     })
   })
 
+  describe('effective telemetry status', () => {
+    it('uses the documented environment precedence over persisted configuration', async () => {
+      const { resolveTelemetryStatus } = await import('../src/telemetry.js')
+      const base = { configuredEnabled: false, configState: 'present' as const }
+      expect(resolveTelemetryStatus({ ...base, canonryTelemetryDisabled: '1', doNotTrack: '1', ci: '1' }))
+        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'CANONRY_TELEMETRY_DISABLED' })
+      expect(resolveTelemetryStatus({ ...base, doNotTrack: '1', ci: '1' }))
+        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'DO_NOT_TRACK' })
+      expect(resolveTelemetryStatus({ ...base, ci: '1' }))
+        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'CI' })
+      expect(resolveTelemetryStatus(base))
+        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'configured_disabled' })
+    })
+
+    it('inspects status without creating an anonymous identifier', async () => {
+      const { getTelemetryStatus } = await import('../src/telemetry.js')
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+      saveConfig(makeConfig())
+
+      expect(getTelemetryStatus()).toMatchObject({ enabled: true, configuredEnabled: true, reason: 'enabled' })
+      expect(loadConfig().anonymousId).toBeUndefined()
+    })
+  })
+
   // ── getOrCreateAnonymousId ──────────────────────────────────────────
 
   describe('getOrCreateAnonymousId', () => {

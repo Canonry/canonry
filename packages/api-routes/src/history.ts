@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, like, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
@@ -48,7 +48,7 @@ export async function historyRoutes(app: FastifyInstance) {
         // Query definitions, plans, schedules, audit history, and usage remain.
         tx.delete(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.id, input.researchRunIds))).run()
         tx.delete(runs).where(and(eq(runs.projectId, project.id), inArray(runs.id, input.runIds))).run()
-        writeAuditLog(tx, { projectId: project.id, actor: request.principal ? `${request.principal.kind}:${request.principal.id}` : 'api', action: 'results.cleared', entityType: 'project', entityId: project.id, diff: result, userAgent: request.headers['user-agent'] })
+        writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'results.cleared', entityType: 'project', entityId: project.id, diff: result })
       }
       return result
     })
@@ -67,7 +67,7 @@ export async function historyRoutes(app: FastifyInstance) {
       .select()
       .from(auditLog)
       .where(and(...filters))
-      .orderBy(desc(auditLog.createdAt))
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
       .limit(parseBoundedInt(request.query.limit, 100, 500))
       .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
@@ -88,7 +88,7 @@ export async function historyRoutes(app: FastifyInstance) {
       .select()
       .from(auditLog)
       .where(filters.length > 0 ? and(...filters) : undefined)
-      .orderBy(desc(auditLog.createdAt))
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
       .limit(parseBoundedInt(request.query.limit, 100, 500))
       .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
@@ -561,6 +561,8 @@ function formatAuditEntry(row: {
   diff: string | null
   userAgent: string | null
   actorSession: string | null
+  requestId: string | null
+  credentialId: string | null
   createdAt: string
 }) {
   return {
@@ -577,6 +579,8 @@ function formatAuditEntry(row: {
       : null,
     userAgent: row.userAgent,
     actorSession: row.actorSession,
+    requestId: row.requestId,
+    credentialId: row.credentialId,
     createdAt: row.createdAt,
   }
 }
@@ -593,7 +597,15 @@ interface AuditHistoryQuery {
 function addAuditHistoryFilters(filters: SQL[], query: AuditHistoryQuery): void {
   if (query.since && !Number.isNaN(Date.parse(query.since))) filters.push(gte(auditLog.createdAt, query.since))
   if (query.action) filters.push(eq(auditLog.action, query.action))
-  if (query.actor) filters.push(eq(auditLog.actor, query.actor))
+  // `api` was the historical category for HTTP writes. Keep it useful after
+  // attribution gained exact key/user identities, while exact actor lookups
+  // (including `api-key:<id>` and `user:<id>`) remain exact.
+  if (query.actor === 'api') filters.push(or(
+    eq(auditLog.actor, 'api'),
+    like(auditLog.actor, 'api-key:%'),
+    like(auditLog.actor, 'user:%'),
+  )!)
+  else if (query.actor) filters.push(eq(auditLog.actor, query.actor))
   if (query.entityType) filters.push(eq(auditLog.entityType, query.entityType))
 }
 

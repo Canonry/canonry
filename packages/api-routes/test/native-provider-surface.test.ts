@@ -22,8 +22,13 @@ describe('native provider surface', () => {
       db,
       skipAuth: true,
       onProviderUpdate,
-      providerSummary: [{ name: 'openai', configured: true }, { name: 'local', configured: true }],
-      providerAdapters: ['openai', 'local'].map(name => ({
+      providerSummary: [
+        { name: 'openai', configured: true },
+        { name: 'local', configured: true },
+        { name: 'claude', configured: false },
+        { name: 'gemini', configured: false, vertexConfigured: true },
+      ],
+      providerAdapters: ['openai', 'local', 'claude', 'gemini'].map(name => ({
         name, displayName: name, mode: 'api' as const, modelConfigurable: true,
         defaultModel: name === 'openai' ? 'gpt-4.1' : 'llama3', knownModels: [],
         modelValidationPattern: /.+/, modelValidationHint: 'nonempty model',
@@ -60,7 +65,7 @@ describe('native provider surface', () => {
   it('keeps native settings and caller-supplied endpoints without a route catalog', async () => {
     const settings = await app.inject({ method: 'GET', url: '/api/v1/settings' })
     expect(settings.statusCode).toBe(200)
-    expect(settings.json().providerCatalog.map((provider: { name: string }) => provider.name)).toEqual(['openai', 'local'])
+    expect(settings.json().providerCatalog.map((provider: { name: string }) => provider.name)).toEqual(['openai', 'local', 'claude', 'gemini'])
     expect(settings.json()).not.toHaveProperty('engineRoutes')
     expect(settings.json()).not.toHaveProperty('engineConnections')
 
@@ -69,14 +74,48 @@ describe('native provider surface', () => {
       method: 'PUT', url: '/api/v1/settings/providers/local', payload: { baseUrl: endpoint, model: 'llama3' },
     })
     expect(local.statusCode).toBe(200)
-    expect(onProviderUpdate).toHaveBeenLastCalledWith('local', '', 'llama3', endpoint, undefined)
+    expect(onProviderUpdate).toHaveBeenLastCalledWith('local', '', 'llama3', endpoint, undefined, expect.objectContaining({ actor: 'api' }))
 
     const native = await app.inject({
       method: 'PUT', url: '/api/v1/settings/providers/openai',
       payload: { apiKey: 'test-only-key', model: 'gpt-4.1', baseUrl: 'https://provider.example/v1' },
     })
     expect(native.statusCode).toBe(200)
-    expect(onProviderUpdate).toHaveBeenLastCalledWith('openai', 'test-only-key', 'gpt-4.1', 'https://provider.example/v1', undefined)
+    expect(onProviderUpdate).toHaveBeenLastCalledWith('openai', 'test-only-key', 'gpt-4.1', 'https://provider.example/v1', undefined, expect.objectContaining({ actor: 'api' }))
+  })
+
+  it('allows credential-free model and quota edits for configured providers only', async () => {
+    const openai = await app.inject({
+      method: 'PUT', url: '/api/v1/settings/providers/openai',
+      payload: { model: 'gpt-4.1', quota: { maxConcurrency: 3 } },
+    })
+    expect(openai.statusCode).toBe(200)
+    expect(onProviderUpdate).toHaveBeenLastCalledWith(
+      'openai', '', 'gpt-4.1', undefined, { maxConcurrency: 3 }, expect.objectContaining({ actor: 'api' }),
+    )
+
+    const local = await app.inject({
+      method: 'PUT', url: '/api/v1/settings/providers/local',
+      payload: { model: 'llama3' },
+    })
+    expect(local.statusCode).toBe(200)
+    expect(onProviderUpdate).toHaveBeenLastCalledWith('local', '', 'llama3', undefined, undefined, expect.objectContaining({ actor: 'api' }))
+
+    const empty = await app.inject({
+      method: 'PUT', url: '/api/v1/settings/providers/openai', payload: {},
+    })
+    expect(empty.statusCode).toBe(400)
+
+    const unconfigured = await app.inject({
+      method: 'PUT', url: '/api/v1/settings/providers/claude', payload: { model: 'claude-test' },
+    })
+    expect(unconfigured.statusCode).toBe(400)
+
+    const vertexGemini = await app.inject({
+      method: 'PUT', url: '/api/v1/settings/providers/gemini', payload: { model: 'gemini-test' },
+    })
+    expect(vertexGemini.statusCode).toBe(200)
+    expect(onProviderUpdate).toHaveBeenLastCalledWith('gemini', '', 'gemini-test', undefined, undefined, expect.objectContaining({ actor: 'api' }))
   })
 
   it('preserves project model overrides but cannot select a generic route for tracking or research', async () => {

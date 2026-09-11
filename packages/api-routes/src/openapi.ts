@@ -2496,6 +2496,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Update provider settings',
+    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. An unconfigured provider still requires its connection credentials.',
     tags: ['settings'],
     parameters: [providerNameParameter],
     requestBody: {
@@ -2515,9 +2516,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `ProviderSettingsDto` Zod schema in contracts.
-      200: rawJsonResponse('Provider updated.', looseObjectSchema),
+      200: jsonResponse('Provider updated.', 'ProviderSummaryEntryDto'),
       400: errorResponse('Invalid provider settings.'),
+      403: errorResponse('The credential lacks settings.write.'),
       501: errorResponse('Provider updates are not supported.'),
     },
   },
@@ -2542,8 +2543,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `GoogleSettingsDto` Zod schema in contracts.
-      200: rawJsonResponse('Google settings updated.', looseObjectSchema),
+      200: jsonResponse('Google settings updated.', 'IntegrationSettingsSummaryDto'),
       400: errorResponse('Invalid Google settings.'),
       501: errorResponse('Google settings updates are not supported.'),
     },
@@ -2956,12 +2956,32 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/operations/logs',
+    summary: 'Read bounded, redacted runtime logs',
+    description: 'Requires logs.read (or wildcard), an admin role for user sessions, and an instance-wide credential. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.',
+    tags: ['operations'],
+    parameters: [
+      { name: 'limit', in: 'query', required: false, description: 'Maximum entries (default 100).', schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } },
+      { name: 'cursor', in: 'query', required: false, description: 'Opaque cursor bound to the log store and query filters.', schema: { type: 'string', minLength: 1, maxLength: 512 } },
+      { name: 'level', in: 'query', required: false, description: 'Exact log level.', schema: { type: 'string', enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] } },
+      ...['module', 'runId', 'projectId', 'actor', 'requestId'].map(name => ({ name, in: 'query' as const, required: false, description: `Exact ${name} filter (does not grant project-scoped log access).`, schema: { type: 'string', minLength: 1, maxLength: name === 'actor' ? 512 : 256 } })),
+      ...['since', 'until'].map(name => ({ name, in: 'query' as const, required: false, description: `Inclusive ${name} event timestamp.`, schema: { type: 'string', format: 'date-time' } })),
+    ],
+    responses: {
+      200: jsonResponse('Runtime log page with retention and capture-loss metadata.', 'OperationalLogListDto'),
+      400: errorResponse('Invalid filters or expired cursor.'),
+      401: errorResponse('Authentication required.'),
+      403: errorResponse('Instance logs.read permission required.'),
+      501: errorResponse('This deployment does not provide operational logs.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/telemetry',
     summary: 'Get telemetry status',
     tags: ['telemetry'],
     responses: {
-      // TODO: Add `TelemetryStatusDto` Zod schema in contracts.
-      200: rawJsonResponse('Telemetry status returned.', looseObjectSchema),
+      200: jsonResponse('Telemetry status returned.', 'TelemetryStatusDto'),
       501: errorResponse('Telemetry status is not available.'),
     },
   },
@@ -2969,6 +2989,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/telemetry',
     summary: 'Update telemetry status',
+    description: 'Requires settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.',
     tags: ['telemetry'],
     requestBody: {
       required: true,
@@ -2985,9 +3006,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `TelemetryStatusDto` Zod schema in contracts.
-      200: rawJsonResponse('Telemetry updated.', looseObjectSchema),
+      200: jsonResponse('Telemetry updated.', 'TelemetryStatusDto'),
       400: errorResponse('Invalid telemetry request.'),
+      403: errorResponse('The credential lacks settings.write.'),
       501: errorResponse('Telemetry configuration is not available.'),
     },
   },

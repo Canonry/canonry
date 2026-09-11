@@ -52,7 +52,7 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 const SERVER_INSTRUCTIONS = OPERATIONS_GUIDE.initialize
 
 export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
-  const clientFactory = options.clientFactory ?? createApiClient
+  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp' }))
   const client = clientFactory()
   const scope = options.scope ?? 'all'
   const server = new McpServer({
@@ -74,6 +74,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
         annotations: tool.annotations,
       },
       async (input: unknown) => withToolErrors(async () => {

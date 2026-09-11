@@ -24,7 +24,7 @@ import {
   parseRunError,
   serializeRunError,
 } from '@ainyc/canonry-contracts'
-import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { auditFromRequest, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
@@ -222,13 +222,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
       const results = []
       for (const { runId, loc } of result.inserted) {
-        writeAuditLog(app.db, {
+        writeAuditLog(app.db, auditFromRequest(request, {
           projectId: project.id,
           actor: 'api',
           action: 'run.created',
           entityType: 'run',
           entityId: runId,
-        })
+        }))
         const r = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
         if (opts.onRunCreated) {
           opts.onRunCreated(runId, project.id, providers, loc)
@@ -256,13 +256,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     const runId = queueResult.runId
 
-    writeAuditLog(app.db, {
+    writeAuditLog(app.db, auditFromRequest(request, {
       projectId: project.id,
       actor: 'api',
       action: 'run.created',
       entityType: 'run',
       entityId: runId,
-    })
+    }))
 
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
 
@@ -534,13 +534,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
       const runId = queueResult.runId
 
-      writeAuditLog(app.db, {
+      writeAuditLog(app.db, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'run.created',
         entityType: 'run',
         entityId: runId,
-      })
+      }))
 
       const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
       if (opts.onRunCreated) {
@@ -577,13 +577,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       throw runNotCancellable(run.id, current.status)
     }
 
-    writeAuditLog(app.db, {
+    writeAuditLog(app.db, auditFromRequest(request, {
       projectId: run.projectId,
       actor: 'api',
       action: 'run.cancelled',
       entityType: 'run',
       entityId: run.id,
-    })
+    }))
 
     // Update durable state first. A host callback may synchronously abort a
     // worker that throws, and its CAS finalization must observe `cancelled`.

@@ -367,6 +367,7 @@ cnry schedule set <project> --kind data-refresh --preset daily   # refresh all c
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule show <project>
+cnry schedule list <project> --format json      # all configured schedule kinds
 cnry schedule enable <project>
 cnry schedule disable <project>
 cnry schedule remove <project>
@@ -1134,7 +1135,35 @@ cnry cdp screenshot <query> --targets chatgpt  # screenshot a query result
 cnry telemetry status                          # show telemetry status
 cnry telemetry enable                          # enable anonymous telemetry
 cnry telemetry disable                         # disable telemetry
+cnry telemetry status --target server --format json  # connected server, effective state and override reason
+cnry telemetry disable --target server --format json # requires settings.write
 ```
+
+## Operational diagnostics
+
+`cnry logs [--level trace|debug|info|warn|error|fatal] [--module <name>]
+[--run-id <id>] [--project-id <id>] [--actor <user:id|api-key:id>]
+[--request-id <id>] [--since <ISO>] [--until <ISO>]
+[--limit <1..200>] [--cursor <cursor>] --format json`
+returns `{entries,nextCursor,truncated,dropped,retention,retentionPolicy,captureErrors,observedAt}`.
+`jsonl` preserves this object envelope. It requires an instance-wide `logs.read`
+grant (or wildcard); project-scoped credentials are rejected. Only allowlisted
+diagnostic metadata and sanitized messages are exposed, including application
+and HTTP failures. File-backed hosts retain logs across restarts, capped at
+10,000 events and seven days; in-memory hosts report process retention. Raw
+request/response bodies, headers, cookies, provider payloads, and stacks are
+excluded. Cursors bind the store and filters; expired or mismatched cursors
+return a validation error. Inspect retention/loss counters before assuming
+coverage. Use `history` for durable audit
+events, with `--limit 1..500 --offset <n>` for traversal. Offset pages are not a
+concurrent-write snapshot.
+
+Google setup and telemetry default to local configuration. Pass `--target server`
+to use the connected server; settings reads always describe the server.
+Configured providers accept model/quota-only edits without resending secrets.
+`cnry notify events --target server` discovers the remote event catalog while
+the default remains the offline catalog. Retryable HTTP 429/5xx errors use exit 2
+and retain retry/request metadata; no mutation is automatically retried.
 
 ## Config as Code
 

@@ -12,7 +12,7 @@ import {
 } from '../src/mcp/tool-registry.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
 import { createCanonryMcpServer, createCanonryMcpServerWithCatalog, getCanonryMcpTools } from '../src/mcp/server.js'
-import { withToolErrors } from '../src/mcp/results.js'
+import { jsonToolResult, withToolErrors } from '../src/mcp/results.js'
 import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKITS } from '../src/mcp/toolkits.js'
 
 const expectedToolNames = [
@@ -57,10 +57,17 @@ const expectedToolNames = [
   'canonry_keywords_list',
   'canonry_competitors_list',
   'canonry_schedule_get',
+  'canonry_schedules_list',
+  'canonry_notification_events',
   'canonry_backlinks_latest_release',
   'canonry_backlinks_domains',
   'canonry_backlinks_sources',
   'canonry_settings_get',
+  'canonry_key_self',
+  'canonry_logs_list',
+  'canonry_telemetry_update',
+  'canonry_provider_settings_update',
+  'canonry_telemetry_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
   'canonry_gsc_performance_daily',
@@ -610,8 +617,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(213)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(143)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(220)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(148)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -621,7 +628,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(10)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(11)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
@@ -630,6 +637,7 @@ describe('MCP tool registry', () => {
       'canonry_search',
       'canonry_doctor',
       'canonry_settings_get',
+      'canonry_key_self',
       'canonry_apply_config',
       'canonry_run_trigger',
       'canonry_run_cancel',
@@ -648,7 +656,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(48)
-    expect(counts.get('setup')).toBe(54)
+    expect(counts.get('setup')).toBe(60)
     expect(counts.get('gsc')).toBe(10)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(13)
@@ -1021,13 +1029,51 @@ describe('MCP tool registry', () => {
     })
 
     expect(result.isError).toBe(true)
-    expect(JSON.parse(result.content[0]!.type === 'text' ? result.content[0]!.text : '{}')).toEqual({
+    const envelope = {
       error: {
         code: 'VALIDATION_ERROR',
         message: 'bad input',
         details: { field: 'project' },
       },
-    })
+    }
+    expect(JSON.parse(result.content[0]!.type === 'text' ? result.content[0]!.text : '{}')).toEqual(envelope)
+    expect(result.structuredContent).toEqual(envelope)
+  })
+
+  it('keeps legacy JSON text while normalizing structured MCP results to objects', () => {
+    const cases: Array<[unknown, unknown, unknown]> = [
+      [{ project: 'acme' }, { project: 'acme' }, { project: 'acme' }],
+      [[{ id: 'schedule-1' }], [{ id: 'schedule-1' }], { items: [{ id: 'schedule-1' }] }],
+      ['enabled', 'enabled', { value: 'enabled' }],
+      [0, 0, { value: 0 }],
+      [null, null, { value: null }],
+      [undefined, { ok: true }, { ok: true }],
+    ]
+
+    for (const [value, legacyText, structuredContent] of cases) {
+      const result = jsonToolResult(value)
+      expect(JSON.parse(result.content[0]!.type === 'text' ? result.content[0]!.text : '{}')).toEqual(legacyText)
+      expect(result.structuredContent).toEqual(structuredContent)
+    }
+  })
+
+  it('declares bounded output schemas for simple safe reads', () => {
+    const cases: Array<[string, unknown, unknown]> = [
+      ['canonry_settings_get', { providers: [], providerCatalog: [], google: { configured: false }, bing: { configured: false } }, { providers: [], providerCatalog: [], google: { configured: false }, bing: { configured: false } }],
+      ['canonry_key_self', { id: 'key-1', name: 'agent', keyPrefix: 'cnry_test', scopes: ['read'], projectId: null, projectName: null, readOnly: true, createdAt: '2026-01-01T00:00:00.000Z', lastUsedAt: null, revokedAt: null }, { id: 'key-1', name: 'agent', keyPrefix: 'cnry_test', scopes: ['read'], projectId: null, projectName: null, readOnly: true, createdAt: '2026-01-01T00:00:00.000Z', lastUsedAt: null, revokedAt: null }],
+      ['canonry_telemetry_get', { enabled: false, configuredEnabled: false, reason: 'configured_disabled' }, { enabled: false, configuredEnabled: false, reason: 'configured_disabled' }],
+      ['canonry_schedules_list', [], { items: [] }],
+      ['canonry_notification_events', ['run.completed'], { items: ['run.completed'] }],
+    ]
+
+    for (const [name, value, expectedStructuredContent] of cases) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)
+      expect(tool, name).toBeDefined()
+      expect(tool!.outputSchema, name).toBeDefined()
+      const result = jsonToolResult(value)
+      expect(result.structuredContent).toEqual(expectedStructuredContent)
+      expect(tool!.outputSchema!.parse(result.structuredContent)).toEqual(expectedStructuredContent)
+    }
   })
 
   it('maps ZodErrors to VALIDATION_ERROR envelopes', async () => {
@@ -1065,6 +1111,7 @@ describe('MCP tool registry', () => {
             field: 'project',
             reason: 'missing',
             httpStatus: 400,
+            retryable: false,
           },
         },
       })
@@ -1142,6 +1189,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_search',
       'canonry_doctor',
       'canonry_settings_get',
+      'canonry_key_self',
       'canonry_apply_config',
       'canonry_run_trigger',
       'canonry_run_cancel',
@@ -1302,8 +1350,15 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
   { tool: 'canonry_schedule_get', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['getSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
   { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'], expectedArgs: [['acme', undefined]] },
+  { tool: 'canonry_schedules_list', input: projectInput, methods: ['listSchedules'], expectedArgs: [['acme']] },
   { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
   { tool: 'canonry_settings_get', input: {}, methods: ['getSettings'] },
+  { tool: 'canonry_key_self', input: {}, methods: ['getApiKeySelf'] },
+  { tool: 'canonry_telemetry_get', input: {}, methods: ['getTelemetry'] },
+  { tool: 'canonry_telemetry_update', input: { enabled: false }, methods: ['updateTelemetry'], expectedArgs: [[false]] },
+  { tool: 'canonry_provider_settings_update', input: { provider: 'openai', model: 'gpt-test' }, methods: ['updateProvider'], expectedArgs: [['openai', { model: 'gpt-test' }]] },
+  { tool: 'canonry_logs_list', input: { limit: 5, module: 'Runner' }, methods: ['listOperationalLogs'], expectedArgs: [[{ limit: 5, module: 'Runner' }]] },
+  { tool: 'canonry_notification_events', input: {}, methods: ['listNotificationEvents'] },
   { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
   { tool: 'canonry_gsc_performance', input: { project: 'acme', window: '30d' }, methods: ['gscPerformance'] },
   { tool: 'canonry_gsc_performance_daily', input: { project: 'acme', window: '30d' }, methods: ['gscPerformanceDaily'] },

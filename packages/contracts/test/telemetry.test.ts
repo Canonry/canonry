@@ -4,6 +4,7 @@ import {
   isGhostTelemetryEvent,
   normalizeOnboardingEventForCollection,
   onboardingTelemetryEventSchema,
+  telemetryStatusDtoSchema,
 } from '../src/telemetry.js'
 
 describe('isGhostTelemetryEvent', () => {
@@ -204,5 +205,37 @@ describe('bucketOnboardingCount', () => {
     expect(bucketOnboardingCount(5)).toBe('4-5')
     expect(bucketOnboardingCount(10)).toBe('6-10')
     expect(bucketOnboardingCount(11)).toBe('11+')
+  })
+})
+
+describe('telemetryStatusDtoSchema', () => {
+  it('exposes only safe effective-state metadata', () => {
+    expect(telemetryStatusDtoSchema.parse({
+      enabled: false,
+      configuredEnabled: true,
+      reason: 'DO_NOT_TRACK',
+      target: 'local',
+      anonymousId: '01234567...',
+    })).toEqual({
+      enabled: false,
+      configuredEnabled: true,
+      reason: 'DO_NOT_TRACK',
+      target: 'local',
+      anonymousId: '01234567...',
+    })
+  })
+
+  it('rejects unknown reasons and unmasked identifiers', () => {
+    expect(telemetryStatusDtoSchema.safeParse({
+      enabled: false,
+      configuredEnabled: true,
+      reason: 'operator said no',
+    }).success).toBe(false)
+    expect(telemetryStatusDtoSchema.safeParse({
+      enabled: true,
+      configuredEnabled: true,
+      reason: 'enabled',
+      anonymousId: '01234567-89ab-4cde-8fab-0123456789ab',
+    }).success).toBe(false)
   })
 })

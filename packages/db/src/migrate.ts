@@ -4098,6 +4098,45 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE api_keys ADD COLUMN delegated_user_id TEXT REFERENCES users(id) ON DELETE CASCADE`,
     ],
   },
+  {
+    version: 155,
+    name: 'durable-operational-logs',
+    statements: [
+      // Audit attribution is intentionally a plain nullable identity string:
+      // deleting/revoking a credential must not delete its historical trail.
+      `ALTER TABLE audit_log ADD COLUMN credential_id TEXT`,
+      `ALTER TABLE audit_log ADD COLUMN request_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_credential_created ON audit_log(credential_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_request_created ON audit_log(request_id, created_at)`,
+      `CREATE TABLE IF NOT EXISTS runtime_logs (
+        sequence    INTEGER PRIMARY KEY,
+        ts          TEXT NOT NULL,
+        level       TEXT NOT NULL,
+        module      TEXT NOT NULL,
+        action      TEXT NOT NULL,
+        msg         TEXT,
+        project_id  TEXT,
+        run_id      TEXT,
+        actor       TEXT,
+        request_id  TEXT,
+        context     TEXT NOT NULL DEFAULT '{}',
+        entry_bytes INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS runtime_log_metadata (
+        id                TEXT PRIMARY KEY,
+        cursor_namespace  TEXT NOT NULL,
+        next_sequence     INTEGER NOT NULL,
+        dropped           INTEGER NOT NULL DEFAULT 0,
+        capture_errors    INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_project_ts ON runtime_logs(project_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_run_ts ON runtime_logs(run_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_actor_ts ON runtime_logs(actor, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_request_ts ON runtime_logs(request_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_module_level_ts ON runtime_logs(module, level, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_ts ON runtime_logs(ts, sequence)`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {
