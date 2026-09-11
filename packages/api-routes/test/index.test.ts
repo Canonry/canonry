@@ -103,11 +103,14 @@ describe('api-routes', () => {
         requestBody?: {
           content?: {
             'application/json'?: {
-              schema?: { properties?: Record<string, unknown> }
+              schema?: { $ref?: string }
             }
           }
         }
       }>>
+      components: {
+        schemas: Record<string, { properties?: Record<string, unknown> }>
+      }
     }
 
     // OpenAPI 3.0 (not 3.1) — see comment in openapi.ts. 3.0 is required so
@@ -118,9 +121,13 @@ describe('api-routes', () => {
     expect(body.paths['/api/v1/openapi.json']).toBeDefined()
     expect(body.paths['/api/v1/projects']).toBeDefined()
     expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])
-    const snapshotProperties = body.paths['/api/v1/snapshot']?.post?.requestBody?.content?.['application/json']?.schema?.properties
+    expect(body.paths['/api/v1/snapshot']?.post?.requestBody?.content?.['application/json']?.schema?.$ref)
+      .toBe('#/components/schemas/SnapshotRequest')
+    const snapshotProperties = body.components.schemas.SnapshotRequest?.properties
     expect(snapshotProperties?.queries).toBeDefined()
     expect(snapshotProperties?.phrases).toBeUndefined()
+    expect(snapshotProperties?.providers).toMatchObject({ type: 'array', items: { type: 'string' }, minItems: 1 })
+    expect(snapshotProperties?.providerMode).toMatchObject({ enum: ['all', 'api', 'browser'] })
   })
 
   it('GET /api/v1/projects/:name gets a single project', async () => {

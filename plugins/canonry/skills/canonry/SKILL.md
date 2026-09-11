@@ -14,7 +14,7 @@ prerequisite or a permission mechanism.
 ## Connect and choose a route
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
-`status`, `diagnose`, `measurement`, `integrations`, `reports`, or a short task
+`status`, `diagnose`, `prospecting`, `measurement`, `integrations`, `reports`, or a short task
 description. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
 help suggests tool names, not invented arguments or authorization.
@@ -22,6 +22,8 @@ help suggests tool names, not invented arguments or authorization.
 Help returns a versioned, compact route: connection `mode`, available `next`
 tools, workflow guidance, approval boundaries, and this guide's URL. It performs
 no provider calls, reads no project data, and changes no permissions.
+`next` lists stored reads. Optional `actions` lists loaded tools for work that
+requires approval; listing an action does not authorize or execute it.
 `includeCatalog: true` additionally returns toolkit details when needed.
 
 Hosted connections use a fixed catalog. Help only suggests tools offered by that
@@ -60,6 +62,14 @@ missing instead of silently creating it.
 **Diagnose:** inspect stored history and comparable evidence. Explain what
 changed separately from why it might have changed. A hypothesis is not a
 measured cause. Propose bounded verification if stored evidence is insufficient.
+
+**Prospecting:** generate a one-shot company snapshot without creating a project.
+Inspect stored provider settings first. Agree on the company, domain, selected
+providers, and queries before starting the quota-spending snapshot action.
+Browser-only selection requires manual queries. Progressive stdio help offers
+the discovery toolkit when this connection permits snapshots; load it, then
+call help again. Fixed catalogs offer only already available actions. Read-only
+and restricted connections must not bypass missing snapshot access.
 
 **Measurement:** inspect the existing setup and results before proposing edits.
 Keep research, query tracking, plan publication, and sweep execution separate.

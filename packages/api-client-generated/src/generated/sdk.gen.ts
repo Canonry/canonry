@@ -2492,6 +2492,8 @@ export const deleteApiV1UsersByName = <ThrowOnError extends boolean = false>(opt
 
 /**
  * Generate a one-shot AI perception snapshot
+ *
+ * Runs configured providers without creating a project. Optional providers and providerMode constrain both answer queries and analysis; omitted selection uses all configured providers. Browser-only selection requires manual queries. Spends provider quota.
  */
 export const postApiV1Snapshot = <ThrowOnError extends boolean = false>(options: Options<PostApiV1SnapshotData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1SnapshotResponses, PostApiV1SnapshotErrors, ThrowOnError>({

@@ -222,7 +222,31 @@ For an existing-draft mutation, pass the ETag returned by `canonry_measurement_d
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_queries_generate` returns suggestions only; persist accepted suggestions with `canonry_queries_add` or replace the tracked set with `canonry_queries_replace`. The `canonry_keywords_*` tools remain as legacy aliases over the same query store for older clients.
 
-Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete, snapshot generation, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
+`canonry_snapshot` (discovery toolkit) generates a prospect report without creating
+a project. It calls `POST /api/v1/snapshot` and spends provider quota, so it is
+unavailable to read-only connections. `providers: ["gemini"]` selects configured
+providers; `providerMode: "all" | "api" | "browser"` filters by transport.
+Omitting both uses all configured providers. Both selectors also constrain
+analysis calls. Browser-only selection requires manual `queries` and uses
+deterministic analysis. Unknown providers, mode conflicts, and empty selections
+fail before site fetching or provider work.
+
+Start with `canonry_help({intent: "prospect snapshot"})`. Help offers stored
+provider settings in `next` and, on progressive stdio, the discovery toolkit to
+load. After loading, `actions` includes `canonry_snapshot` when this connection
+permits it. Fixed catalogs offer the action immediately when available. Help
+starts no provider work; execution requires approval for the selected work.
+
+```bash
+canonry snapshot "Acme" --domain acme.example --provider gemini --format json
+canonry snapshot "Acme" --domain acme.example --provider-mode api --format json
+canonry snapshot "Acme" --domain acme.example --provider-mode browser --queries "best widget suppliers"
+```
+
+Repeat `--provider` to select several providers. The CLI and MCP accept the same
+selection as the API; a named provider must match an explicitly selected mode.
+
+Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
 
 Some write tools compose existing API calls rather than using a native atomic endpoint. The agent webhook attach/detach tools are best-effort under concurrent calls until the public API grows narrower attach/detach operations for that domain.
 
@@ -267,7 +291,7 @@ before enabling spend.
 
 ## Progressive Tool Discovery
 
-The full 213-tool catalog (211 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
+The full 216-tool catalog (214 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
 
 For shared query assignments and measured results, see [Query control and AI visibility](query-visibility.md). The setup toolkit provides workspace, preview, and commit tools. Monitoring provides `canonry_visibility_report`. Its optional `marketKey` narrows a project, group, or property report to exact saved market assignments, including metrics, competitors and answer details. Omit it to read the full selected scope. Preview requires write access but starts no provider calls.
 

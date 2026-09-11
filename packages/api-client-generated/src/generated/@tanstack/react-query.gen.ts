@@ -2964,6 +2964,8 @@ export const deleteApiV1UsersByNameMutation = (options?: Partial<Options<DeleteA
 
 /**
  * Generate a one-shot AI perception snapshot
+ *
+ * Runs configured providers without creating a project. Optional providers and providerMode constrain both answer queries and analysis; omitted selection uses all configured providers. Browser-only selection requires manual queries. Spends provider quota.
  */
 export const postApiV1SnapshotMutation = (options?: Partial<Options<PostApiV1SnapshotData>>): UseMutationOptions<PostApiV1SnapshotResponse, PostApiV1SnapshotError, Options<PostApiV1SnapshotData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1SnapshotResponse, PostApiV1SnapshotError, Options<PostApiV1SnapshotData>> = {

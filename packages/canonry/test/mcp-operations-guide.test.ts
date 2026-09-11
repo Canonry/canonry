@@ -18,8 +18,10 @@ afterEach(async () => { await Promise.all(cleanups.splice(0).map(close => close(
 async function connect(options: CanonryMcpServerOptions = {}) {
   const listProjects = vi.fn().mockResolvedValue([{ name: 'demo' }])
   const getProjectOverview = vi.fn().mockResolvedValue({ project: 'demo', evidence: null })
+  const getSettings = vi.fn().mockResolvedValue({ providers: [] })
+  const createSnapshot = vi.fn().mockResolvedValue({ companyName: 'Acme' })
   const { server, catalog } = createCanonryMcpServerWithCatalog({
-    clientFactory: () => ({ listProjects, getProjectOverview }) as unknown as ApiClient,
+    clientFactory: () => ({ listProjects, getProjectOverview, getSettings, createSnapshot }) as unknown as ApiClient,
     ...options,
   })
   const client = new Client({ name: 'guide-test', version: '1' }, { capabilities: {} })
@@ -27,7 +29,7 @@ async function connect(options: CanonryMcpServerOptions = {}) {
   await server.connect(serverTransport)
   await client.connect(clientTransport)
   cleanups.push(async () => { await client.close(); await server.close() })
-  return { client, catalog, listProjects, getProjectOverview }
+  return { client, catalog, listProjects, getProjectOverview, getSettings, createSnapshot }
 }
 
 describe('universal MCP operations guidance', () => {
@@ -79,6 +81,56 @@ describe('universal MCP operations guidance', () => {
     const after = await client.callTool({ name: 'canonry_help', arguments: { intent: 'reports' } })
     expect(after.structuredContent?.next).toContain('canonry_report')
     expect(after.structuredContent).not.toHaveProperty('loadToolkits')
+  })
+
+  it.each(['prospect', 'prospecting', 'snapshot', 'generate a prospect snapshot', 'prospect report with manual queries'])('discovers snapshot execution from "%s" without starting provider work', async intent => {
+    const { client, listProjects, getSettings, createSnapshot } = await connect()
+    expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_snapshot')
+    const before = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+    expect(before.structuredContent).toMatchObject({
+      workflow: 'prospecting', next: ['canonry_settings_get'], loadToolkits: ['discovery'],
+    })
+    expect(before.structuredContent).not.toHaveProperty('actions')
+    expect(getSettings).not.toHaveBeenCalled()
+    expect(createSnapshot).not.toHaveBeenCalled()
+    await client.callTool({ name: 'canonry_settings_get', arguments: {} })
+    await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'discovery' } })
+    const after = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+    expect(after.structuredContent).toMatchObject({ next: ['canonry_settings_get'], actions: ['canonry_snapshot'] })
+    expect(after.structuredContent).not.toHaveProperty('loadToolkits')
+    expect((await client.listTools()).tools.map(tool => tool.name)).toContain('canonry_snapshot')
+    expect(listProjects).not.toHaveBeenCalled()
+    expect(createSnapshot).not.toHaveBeenCalled()
+    const input = { companyName: 'Acme', domain: 'acme.example', providers: ['gemini'] }
+    const result = await client.callTool({ name: 'canonry_snapshot', arguments: input })
+    expect(result.isError).not.toBe(true)
+    expect(createSnapshot).toHaveBeenCalledExactlyOnceWith(input)
+  })
+
+  it.each<CanonryMcpServerOptions>([{ eager: true }, { tiers: CANONRY_MCP_TIERS }])('offers available snapshot actions without loading on fixed catalogs: %j', async options => {
+    const { client, createSnapshot } = await connect(options)
+    const response = await client.callTool({ name: 'canonry_help', arguments: { intent: 'prospect snapshot' } })
+    expect(response.structuredContent).toMatchObject({ next: ['canonry_settings_get'], actions: ['canonry_snapshot'] })
+    expect(response.structuredContent).not.toHaveProperty('loadToolkits')
+    expect(createSnapshot).not.toHaveBeenCalled()
+  })
+
+  it.each<CanonryMcpServerOptions>([
+    { scope: 'read-only' },
+    { credentialScopes: ['read'] },
+    { credentialScopes: ['read', 'research.run'] },
+    { credentialScopes: ['ads.write'] },
+    { tiers: ['core', 'monitoring'] },
+    { tiers: CANONRY_MCP_TIERS, scope: 'read-only' },
+    { tiers: CANONRY_MCP_TIERS, credentialScopes: ['research.run'] },
+  ])('does not offer excluded snapshot actions or their toolkit: %j', async options => {
+    const { client, createSnapshot } = await connect(options)
+    const response = await client.callTool({ name: 'canonry_help', arguments: { intent: 'prospect snapshot' } })
+    expect(response.structuredContent).toMatchObject({ workflow: 'prospecting', next: ['canonry_settings_get'] })
+    expect(response.structuredContent).not.toHaveProperty('actions')
+    expect(response.structuredContent).not.toHaveProperty('loadToolkits')
+    expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_snapshot')
+    expect(createSnapshot).not.toHaveBeenCalled()
   })
 
   it.each(['all', 'read-only'] as const)('keeps research guidance inside the %s credential-filtered catalog', async scope => {

@@ -1,6 +1,10 @@
 import { createSnapshotReport } from '../commands/snapshot.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
+import { snapshotProviderModeSchema } from '@ainyc/canonry-contracts'
+import { usageError } from '../cli-error.js'
+
+const SNAPSHOT_USAGE = 'canonry snapshot <company-name> --domain <domain> [--provider <name>...] [--provider-mode all|api|browser] [--queries "a,b"] [--phrases "a,b" (legacy alias)] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
 
 function parseCsvOption(value: string | undefined): string[] | undefined {
   if (!value) return undefined
@@ -14,9 +18,11 @@ function parseCsvOption(value: string | undefined): string[] | undefined {
 export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['snapshot'],
-    usage: 'canonry snapshot <company-name> --domain <domain> [--queries "a,b"] [--phrases "a,b" (legacy alias)] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]',
+    usage: SNAPSHOT_USAGE,
     options: {
       domain: stringOption(),
+      provider: multiStringOption(),
+      'provider-mode': stringOption(),
       queries: stringOption(),
       phrases: stringOption(),
       competitors: stringOption(),
@@ -25,7 +31,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       output: stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry snapshot <company-name> --domain <domain> [--queries "a,b"] [--phrases "a,b" (legacy alias)] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
+      const usage = SNAPSHOT_USAGE
       const companyName = requirePositional(input, 0, {
         command: 'snapshot',
         usage,
@@ -37,6 +43,16 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: '--domain is required',
       })
 
+      const rawMode = getString(input.values, 'provider-mode')
+      const mode = snapshotProviderModeSchema.optional().safeParse(rawMode)
+      if (!mode.success) {
+        throw usageError('Error: --provider-mode must be all, api, or browser', {
+          details: { command: 'snapshot', usage },
+        })
+      }
+      const providers = getStringArray(input.values, 'provider')?.map(name => name.trim())
+      if (providers?.some(name => !name)) throw usageError('Error: --provider must not be blank')
+
       const outputPath = getString(input.values, 'output')
       const explicitMd = getBoolean(input.values, 'md')
       const wantsPdf = getBoolean(input.values, 'pdf')
@@ -45,6 +61,8 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
       await createSnapshotReport(companyName, {
         domain,
+        providers: providers === undefined ? undefined : [...new Set(providers)],
+        providerMode: mode.data,
         queries: parseCsvOption(getString(input.values, 'queries') ?? getString(input.values, 'phrases')),
         competitors: parseCsvOption(getString(input.values, 'competitors')),
         md: wantsMd,
