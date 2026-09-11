@@ -11752,6 +11752,7 @@ export type CreateUserRequest = {
     name: string;
     password: string;
     role: 'admin' | 'analyst' | 'viewer';
+    onlyIfFirstAdmin?: boolean;
     displayName?: string;
     email?: string;
 };

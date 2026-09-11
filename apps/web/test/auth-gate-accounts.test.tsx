@@ -12,6 +12,7 @@ import React from 'react'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 
 import { AuthGate } from '../src/components/auth/AuthGate.js'
+import { AUTH_COPY } from '../src/components/auth/auth-copy.js'
 import { handleAuthExpired } from '../src/api.js'
 import { activeQueryCacheKeys } from '../src/queries/query-client.js'
 import { mockFetch as installMockFetch, jsonResponse } from './mock-fetch.js'
@@ -99,7 +100,7 @@ describe('an install with no accounts', () => {
 
     render(<AuthGate />)
     expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
-    expect(screen.queryByLabelText('Name')).toBeNull()
+    expect(screen.queryByLabelText(AUTH_COPY.usernameLabel)).toBeNull()
   })
 })
 
@@ -108,11 +109,11 @@ describe('signing in with an account', () => {
     serveAccounts({ authRequired: true, user: null })
 
     render(<AuthGate />)
-    expect(await screen.findByText('Sign in to Canonry')).toBeTruthy()
-    expect(screen.getByLabelText('Name')).toBeTruthy()
-    expect(screen.getByLabelText('Password')).toBeTruthy()
+    expect(await screen.findByText(AUTH_COPY.signInHeading)).toBeTruthy()
+    expect(await screen.findByLabelText(AUTH_COPY.usernameLabel)).toBeTruthy()
+    expect(screen.getByLabelText(AUTH_COPY.passwordLabel)).toBeTruthy()
     // The shared-password screen must not be what is offered here.
-    expect(screen.queryByText('Create a dashboard password')).toBeNull()
+    expect(screen.queryByRole('heading', { name: AUTH_COPY.createAdministratorHeading })).toBeNull()
   })
 
   // This screen is the first thing a client sees, often before they know what
@@ -122,15 +123,12 @@ describe('signing in with an account', () => {
     serveAccounts({ authRequired: true, user: null })
 
     render(<AuthGate />)
-    await screen.findByText('Sign in to Canonry')
+    await screen.findByText(AUTH_COPY.signInHeading)
 
     const brand = screen.getByTestId('auth-brand')
-    expect(brand.textContent).toContain('Canonry')
+    expect(brand.textContent).toContain(AUTH_COPY.brandName)
     expect(brand.querySelector('img')).toBeTruthy()
 
-    // Two labelled fields already say what to type; a sentence repeating it is
-    // noise on the one screen that should be shortest.
-    expect(screen.queryByText('Enter the name and password for your account.')).toBeNull()
   })
 
   test('opens the dashboard once the name and password are accepted', async () => {
@@ -150,12 +148,12 @@ describe('signing in with an account', () => {
     })
 
     render(<AuthGate />)
-    await screen.findByText('Sign in to Canonry')
+    await screen.findByLabelText(AUTH_COPY.usernameLabel)
 
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'owner' } })
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    fireEvent.change(screen.getByLabelText(AUTH_COPY.usernameLabel), { target: { value: 'owner' } })
+    fireEvent.change(screen.getByLabelText(AUTH_COPY.passwordLabel), { target: { value: 'a-long-enough-password' } })
     await act(async () => {
-      fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
+      fireEvent.submit(screen.getByRole('button', { name: AUTH_COPY.signIn }))
     })
 
     expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
@@ -172,16 +170,16 @@ describe('signing in with an account', () => {
     })
 
     render(<AuthGate />)
-    await screen.findByText('Sign in to Canonry')
+    await screen.findByLabelText(AUTH_COPY.usernameLabel)
 
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'owner' } })
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong-password-here' } })
+    fireEvent.change(screen.getByLabelText(AUTH_COPY.usernameLabel), { target: { value: 'owner' } })
+    fireEvent.change(screen.getByLabelText(AUTH_COPY.passwordLabel), { target: { value: 'wrong-password-here' } })
     await act(async () => {
-      fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
+      fireEvent.submit(screen.getByRole('button', { name: AUTH_COPY.signIn }))
     })
 
-    expect(await screen.findByText('Incorrect name or password.')).toBeTruthy()
-    expect(screen.getByText('Sign in to Canonry')).toBeTruthy()
+    expect(await screen.findByText(AUTH_COPY.incorrectAccountCredentials)).toBeTruthy()
+    expect(screen.getByText(AUTH_COPY.signInHeading)).toBeTruthy()
   })
 })
 
@@ -258,12 +256,12 @@ test('P2.7: one account does not inherit the cached data of the one before it', 
   await act(async () => {
     handleAuthExpired()
   })
-  await screen.findByText('Sign in to Canonry')
+  await screen.findByLabelText(AUTH_COPY.usernameLabel)
 
-  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'watcher' } })
-  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+  fireEvent.change(screen.getByLabelText(AUTH_COPY.usernameLabel), { target: { value: 'watcher' } })
+  fireEvent.change(screen.getByLabelText(AUTH_COPY.passwordLabel), { target: { value: 'a-long-enough-password' } })
   await act(async () => {
-    fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
+    fireEvent.submit(screen.getByRole('button', { name: AUTH_COPY.signIn }))
   })
   await screen.findByRole('heading', { name: 'Portfolio' })
 

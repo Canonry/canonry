@@ -1,11 +1,17 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { ApiKeyDto } from '@ainyc/canonry-contracts'
+import {
+  USER_PASSWORD_MIN_LENGTH,
+  userNameSchema,
+  userPasswordSchema,
+  type ApiKeyDto,
+} from '@ainyc/canonry-contracts'
 
 import {
   ApiError,
   clearDashboardSession,
+  createFirstAdministrator,
   fetchAccountSession,
   fetchAuthProviders,
   fetchCurrentApiKey,
@@ -15,9 +21,9 @@ import {
   isEmbed,
   loginWithPassword,
   reportForegroundActivity,
-  setupDashboardPassword,
   setOnAuthExpired,
   signInWithAccount,
+  signOutOfAccount,
   startGoogleSignIn,
   type ApiAccountSession,
 } from '../../api.js'
@@ -25,8 +31,10 @@ import { AccountProvider, type SignedInAccount } from '../../contexts/account-co
 import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
+import { _BASE_PREFIX } from '../../lib/base-path.js'
 import { Button } from '../ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
+import { AUTH_COPY } from './auth-copy.js'
 
 const SESSION_RECHECK_MS = 60_000
 
@@ -55,12 +63,14 @@ export function AuthGate() {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [setupKey, setSetupKey] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [useAccountPassword, setUseAccountPassword] = useState(false)
   const [sharedLoginMethod, setSharedLoginMethod] = useState<SharedLoginMethod>('password')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
-  const [googleEnabled, setGoogleEnabled] = useState(false)
+  const [googleEnabled, setGoogleEnabled] = useState<boolean | null>(null)
   const [invitationToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     return new URLSearchParams(window.location.hash.slice(1)).get('invitation')
@@ -169,8 +179,23 @@ export function AuthGate() {
       .then(([accountResult, legacyResult]) => {
         if (cancelled) return
 
-        if (accountResult.status === 'fulfilled' && applyAccountSession(accountResult.value)) {
-          return
+        if (accountResult.status === 'fulfilled') {
+          if (applyAccountSession(accountResult.value)) return
+
+          // `authRequired: false` is authoritative: there are no named
+          // accounts. Keep an already-unlocked legacy install unlocked, but
+          // let a fresh Cloud install (which has no legacy session endpoint)
+          // create its first administrator.
+          if (legacyResult.status === 'rejected') {
+            const err: unknown = legacyResult.reason
+            if (err instanceof ApiError && err.statusCode === 404) {
+              setAuthState('setup')
+              return
+            }
+            setError(err instanceof Error ? err.message : 'Failed to reach the Canonry API')
+            setAuthState('login')
+            return
+          }
         }
 
         if (legacyResult.status === 'rejected') {
@@ -209,7 +234,7 @@ export function AuthGate() {
   }, [invitationToken])
 
   useEffect(() => {
-    if (authState !== 'account-login' || explicitBrowserApiKey) return
+    if ((authState !== 'account-login' && !invitationToken) || explicitBrowserApiKey && !invitationToken) return
     let cancelled = false
     void fetchAuthProviders()
       .then((providers) => {
@@ -220,7 +245,7 @@ export function AuthGate() {
         if (!cancelled) setGoogleEnabled(false)
       })
     return () => { cancelled = true }
-  }, [authState, explicitBrowserApiKey])
+  }, [authState, explicitBrowserApiKey, invitationToken])
 
   useEffect(() => {
     if (!account || explicitBrowserApiKey || isEmbed() || typeof window === 'undefined') return
@@ -310,8 +335,15 @@ export function AuthGate() {
 
   const handleSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!password.trim() || password.trim().length < 8) {
-      setError('Password must be at least 8 characters')
+    const parsedName = userNameSchema.safeParse(name.trim())
+    const parsedPassword = userPasswordSchema.safeParse(password)
+    if (!parsedName.success) {
+      setError(parsedName.error.issues[0]?.message ?? 'Enter a valid username.')
+      return
+    }
+    if (!setupKey.trim()) return
+    if (!parsedPassword.success) {
+      setError(parsedPassword.error.issues[0]?.message ?? AUTH_COPY.shortPasswordHelp)
       return
     }
     if (password !== confirmPassword) {
@@ -322,33 +354,52 @@ export function AuthGate() {
     setSubmitting(true)
     setError(null)
     try {
-      const session = await setupDashboardPassword(password.trim())
-      if (!session.authenticated) {
-        setError('Setup failed')
-        return
-      }
-      // Password creation is committed. Hide its fields before the separate
-      // access read, and never offer the one-time setup mutation as its retry.
+      await createFirstAdministrator({ name: parsedName.data, password: parsedPassword.data }, setupKey.trim())
+      // A setup key authorizes exactly this one request. It never enters
+      // storage and is discarded before the normal browser session begins.
+      setSetupKey('')
       setPassword('')
       setConfirmPassword('')
       setShowPassword(false)
-      setSessionExpired(false)
-      setApiKey(null)
-      setApiKeyPending(true)
-      setAuthState('checking')
       try {
-        const currentApiKey = await fetchCurrentApiKey()
-        setApiKey(currentApiKey)
+        const session = await signInWithAccount(parsedName.data, parsedPassword.data)
+        if (!session.user) throw new Error('Sign-in did not establish an account session')
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(window.history.state, '', `${_BASE_PREFIX}/settings?section=sign-in`)
+        }
+        setSessionExpired(false)
+        setAccountsInUse(true)
+        setAccount(session.user)
+        setApiKey(null)
         setApiKeyPending(false)
         setAuthState('ready')
-      } catch (err) {
-        // Stay fail-closed. The existing retry reloads the authenticated
-        // session and verifies access without creating another password.
-        setError(err instanceof Error ? err.message : 'Could not verify API key access')
-        setAuthState('api-key-error')
+      } catch {
+        // The account exists now. Never replay creation on a retry: return to
+        // ordinary account sign-in instead.
+        setAccountsInUse(true)
+        setPassword('')
+        setError(AUTH_COPY.administratorCreatedSignIn)
+        setAuthState('account-login')
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Setup failed')
+      // The insert may have committed even when its response was lost. Ask the
+      // public session state before offering setup again; once named auth is
+      // durable, this browser must never replay first-account creation.
+      try {
+        const session = await fetchAccountSession()
+        if (session.authRequired) {
+          setAccountsInUse(true)
+          setSetupKey('')
+          setPassword('')
+          setConfirmPassword('')
+          setError(AUTH_COPY.administratorSetupCompleteSignIn)
+          setAuthState('account-login')
+          return
+        }
+      } catch {
+        // Preserve the original setup failure when the state check is also unavailable.
+      }
+      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Could not create administrator account')
     } finally {
       setSubmitting(false)
     }
@@ -408,7 +459,7 @@ export function AuthGate() {
     try {
       const session = await signInWithAccount(name.trim(), password)
       if (!session.user) {
-        setError('Incorrect name or password.')
+        setError(AUTH_COPY.incorrectAccountCredentials)
         return
       }
       setPassword('')
@@ -420,7 +471,7 @@ export function AuthGate() {
     } catch (err) {
       // The server answers the same way for every failure, so whatever it says
       // is what the person is shown.
-      setError(err instanceof ApiError ? err.message : 'Incorrect name or password.')
+      setError(err instanceof ApiError ? err.message : AUTH_COPY.incorrectAccountCredentials)
     } finally {
       setSubmitting(false)
     }
@@ -436,12 +487,35 @@ export function AuthGate() {
       })
       window.location.assign(redirectUrl)
     } catch {
-      setError('Google sign-in could not be started. Try again or use your password.')
+      setError(invitationToken
+        ? AUTH_COPY.invitationUnavailable
+        : 'Google sign-in could not be started. Try again or use a password.')
       setSubmitting(false)
     }
   }
 
-  if (authState === 'ready') {
+  const handleInvitationSignOut = async () => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await signOutOfAccount()
+      setAccount(null)
+      setApiKey(null)
+      setApiKeyPending(false)
+      setSessionExpired(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : AUTH_COPY.invitationUnavailable)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const googleCallbackError = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('authError')
+    : null
+  const invitationFailed = googleCallbackError === 'google-invitation-failed'
+
+  if (authState === 'ready' && !invitationToken && !invitationFailed) {
     const { queryClient, router } = getRouter()
     return (
       <AccountProvider account={account} apiKey={apiKey} apiKeyPending={apiKeyPending}>
@@ -452,10 +526,16 @@ export function AuthGate() {
     )
   }
 
-  const trimmedPassword = password.trim()
-  const setupPasswordIsShort = password.length > 0 && trimmedPassword.length < 8
+  const setupNameResult = userNameSchema.safeParse(name.trim())
+  const setupNameError = name.length > 0 && !setupNameResult.success
+    ? setupNameResult.error.issues[0]?.message
+    : undefined
+  const setupPasswordResult = userPasswordSchema.safeParse(password)
+  const setupPasswordIsShort = password.length > 0 && !setupPasswordResult.success
   const setupConfirmationMismatch = confirmPassword.length > 0 && password !== confirmPassword
-  const setupFormIsValid = trimmedPassword.length >= 8 && password === confirmPassword
+  const setupFormIsValid = setupNameResult.success && Boolean(setupKey.trim())
+    && setupPasswordResult.success && password === confirmPassword
+  const invitationFlow = Boolean(invitationToken) && authState !== 'checking'
 
   return (
     <div className="min-h-screen bg-bg px-4 py-8">
@@ -465,18 +545,18 @@ export function AuthGate() {
             built on router <Link>s — this gate renders before the router. */}
         <div data-testid="auth-brand" className="flex items-center gap-2.5">
           <img className="size-7" src="./favicon.svg" alt="" aria-hidden="true" />
-          <span className="text-lg font-semibold tracking-tight text-heading">Canonry</span>
+          <span className="text-lg font-semibold tracking-tight text-heading">{AUTH_COPY.brandName}</span>
         </div>
         <Card className="surface-card w-full">
           {authState === 'checking' ? (
             <CardContent className="py-8">
-              <p className="supporting-copy text-center">Connecting to Canonry…</p>
+              <p className="supporting-copy text-center">{AUTH_COPY.connecting}</p>
             </CardContent>
           ) : authState === 'api-key-error' ? (
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Could not verify API key access</h1>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.apiKeyErrorHeading}</h1>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="supporting-copy">
@@ -487,18 +567,57 @@ export function AuthGate() {
                   className="w-full"
                   onClick={() => { window.location.reload() }}
                 >
-                  Try again
+                  {AUTH_COPY.tryAgain}
                 </Button>
+              </CardContent>
+            </>
+          ) : invitationFailed ? (
+            <>
+              <CardHeader>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.invitationHeading}</h1>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p role="alert" className="supporting-copy">{AUTH_COPY.invitationFailed}</p>
+                <Button type="button" className="w-full" onClick={() => { window.location.replace(`${_BASE_PREFIX}/`) }}>
+                  {account ? AUTH_COPY.backToDashboard : AUTH_COPY.backToSignIn}
+                </Button>
+              </CardContent>
+            </>
+          ) : invitationFlow ? (
+            <>
+              <CardHeader>
+                <p className="eyebrow eyebrow-soft">Dashboard invitation</p>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.invitationHeading}</h1>
+                <CardDescription>{AUTH_COPY.invitationInstruction}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {error ? <p role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                {account ? (
+                  <>
+                    <p className="supporting-copy">{AUTH_COPY.invitationSignedInInstruction}</p>
+                    <Button type="button" className="w-full" disabled={submitting} onClick={asyncHandler(handleInvitationSignOut)}>
+                      {AUTH_COPY.signOutToAcceptInvitation}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button type="button" className="w-full" disabled={submitting || googleEnabled !== true} onClick={asyncHandler(handleGoogleSignIn)}>
+                      {AUTH_COPY.continueWithGoogle}
+                    </Button>
+                    {googleEnabled === null ? <p className="supporting-copy" role="status">{AUTH_COPY.checkingSignInOptions}</p> : null}
+                    {googleEnabled === false ? <p className="supporting-copy">{AUTH_COPY.invitationUnavailable}</p> : null}
+                  </>
+                )}
               </CardContent>
             </>
           ) : authState === 'account-login' ? (
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.signInHeading}</h1>
               </CardHeader>
               <CardContent>
-                {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('authError') === 'google-sign-in-failed' ? (
+                {googleCallbackError === 'google-sign-in-failed' ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
                     Google sign-in did not complete. Try again or use your password.
                   </p>
@@ -508,9 +627,21 @@ export function AuthGate() {
                     You were signed out — please sign in again.
                   </p>
                 ) : null}
+                {googleEnabled === null ? (
+                  <p className="supporting-copy" role="status">{AUTH_COPY.checkingSignInOptions}</p>
+                ) : googleEnabled && !useAccountPassword ? (
+                  <div className="space-y-3">
+                    <Button type="button" className="w-full" disabled={submitting} onClick={asyncHandler(handleGoogleSignIn)}>
+                      {AUTH_COPY.continueWithGoogle}
+                    </Button>
+                    <Button type="button" variant="ghost" className="w-full" disabled={submitting} onClick={() => { setUseAccountPassword(true); setError(null) }}>
+                      {AUTH_COPY.usePassword}
+                    </Button>
+                  </div>
+                ) : (
                 <form className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
                   <label className="block space-y-1.5" htmlFor="account-name">
-                    <span className="text-xs font-medium text-secondary">Name</span>
+                    <span className="text-xs font-medium text-secondary">{AUTH_COPY.usernameLabel}</span>
                     <input
                       autoFocus
                       id="account-name"
@@ -528,7 +659,7 @@ export function AuthGate() {
                     />
                   </label>
                   <label className="block space-y-1.5" htmlFor="account-password">
-                    <span className="text-xs font-medium text-secondary">Password</span>
+                    <span className="text-xs font-medium text-secondary">{AUTH_COPY.passwordLabel}</span>
                     <input
                       id="account-password"
                       className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
@@ -542,40 +673,73 @@ export function AuthGate() {
                     />
                   </label>
                   {error ? <p id="account-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
-                  <Button type="submit" disabled={submitting || !name.trim() || !password}>
-                    {submitting ? 'Signing in…' : 'Sign in'}
+                  <Button type="submit" className="w-full" disabled={submitting || !name.trim() || !password}>
+                    {submitting ? 'Signing in…' : AUTH_COPY.signIn}
                   </Button>
                   {googleEnabled ? (
-                    <Button type="button" variant="outline" disabled={submitting} onClick={asyncHandler(handleGoogleSignIn)}>
-                      Continue with Google
+                    <Button type="button" variant="ghost" className="w-full" disabled={submitting} onClick={() => { setUseAccountPassword(false); setError(null) }}>
+                      {AUTH_COPY.useGoogle}
                     </Button>
                   ) : null}
                 </form>
+                )}
               </CardContent>
             </>
           ) : authState === 'setup' ? (
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
-                <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.createAdministratorHeading}</h1>
                 <CardDescription>
-                  Stored on this Canonry install as a salted, one-way hash. Canonry cannot recover it.
+                  Create the first account for this Canonry install. {AUTH_COPY.googleOptional}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
                   <div className="space-y-1.5">
+                    <label className="block space-y-1.5" htmlFor="administrator-name">
+                      <span className="text-xs font-medium text-secondary">{AUTH_COPY.usernameLabel}</span>
+                      <input
+                        autoFocus
+                        id="administrator-name"
+                        className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                        type="text"
+                        name="username"
+                        autoComplete="username"
+                        maxLength={64}
+                        required
+                        value={name}
+                        onChange={(event) => { setName(event.target.value); setError(null) }}
+                        aria-invalid={Boolean(setupNameError)}
+                        aria-describedby={setupNameError ? 'administrator-name-help' : undefined}
+                      />
+                    </label>
+                    {setupNameError ? <span id="administrator-name-help" className="block text-sm text-negative-400">{setupNameError}</span> : null}
+                  </div>
+                  <label className="block space-y-1.5" htmlFor="administrator-setup-key">
+                    <span className="text-xs font-medium text-secondary">{AUTH_COPY.setupKeyLabel}</span>
+                    <input
+                      id="administrator-setup-key"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      type="password"
+                      name="setup-key"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={setupKey}
+                      onChange={(event) => { setSetupKey(event.target.value); setError(null) }}
+                    />
+                  </label>
+                  <div className="space-y-1.5">
                     <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-new">
-                      Password
+                      {AUTH_COPY.passwordLabel}
                     </label>
                     <input
-                      autoFocus
                       id="dashboard-password-new"
                       className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name="new-password"
                       autoComplete="new-password"
-                      minLength={8}
+                      minLength={USER_PASSWORD_MIN_LENGTH}
                       required
                       value={password}
                       onChange={(event) => updatePassword(event.target.value)}
@@ -587,12 +751,12 @@ export function AuthGate() {
                       aria-live="polite"
                       className={setupPasswordIsShort ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
                     >
-                      {setupPasswordIsShort ? 'Enter at least 8 characters.' : 'Use at least 8 characters.'}
+                      {setupPasswordIsShort ? AUTH_COPY.shortPasswordHelp : AUTH_COPY.minPasswordHelp}
                     </span>
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-confirm">
-                      Confirm password
+                      {AUTH_COPY.confirmPasswordLabel}
                     </label>
                     <input
                       id="dashboard-password-confirm"
@@ -600,7 +764,7 @@ export function AuthGate() {
                       type={showPassword ? 'text' : 'password'}
                       name="confirm-password"
                       autoComplete="new-password"
-                      minLength={8}
+                      minLength={USER_PASSWORD_MIN_LENGTH}
                       required
                       value={confirmPassword}
                       onChange={(event) => updateConfirmPassword(event.target.value)}
@@ -612,7 +776,7 @@ export function AuthGate() {
                       aria-live="polite"
                       className={setupConfirmationMismatch ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
                     >
-                      {setupConfirmationMismatch ? 'Passwords do not match.' : 'Enter the same password again.'}
+                      {setupConfirmationMismatch ? AUTH_COPY.passwordsDoNotMatch : 'Enter the same password again.'}
                     </span>
                   </div>
                   <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-password-show">
@@ -625,8 +789,8 @@ export function AuthGate() {
                     Show passwords
                   </label>
                   {error ? <p id="dashboard-password-setup-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
-                  <Button type="submit" disabled={submitting || !setupFormIsValid}>
-                    {submitting ? 'Creating password…' : 'Create password and continue'}
+                  <Button type="submit" className="w-full" disabled={submitting || !setupFormIsValid}>
+                    {submitting ? AUTH_COPY.creatingAdministrator : AUTH_COPY.createAdministrator}
                   </Button>
                 </form>
               </CardContent>
@@ -638,20 +802,20 @@ export function AuthGate() {
                 <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
                 <CardDescription>
                   {sharedLoginMethod === 'api-key'
-                    ? 'Enter an API key from this Canonry install. This opens the dashboard with that key’s access and does not change the password.'
+                    ? AUTH_COPY.legacyRecoveryDescription
                     : 'Enter your dashboard password to continue.'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
-                    Your session expired — please sign in again.
+                    {AUTH_COPY.legacySessionExpired}
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>
                   <label className="block space-y-1.5" htmlFor="dashboard-password-current">
                     <span className="text-xs font-medium text-secondary">
-                      {sharedLoginMethod === 'api-key' ? 'Canonry API key' : 'Password'}
+                      {sharedLoginMethod === 'api-key' ? AUTH_COPY.apiKeyLabel : AUTH_COPY.passwordLabel}
                     </span>
                     <input
                       autoFocus
@@ -679,15 +843,20 @@ export function AuthGate() {
                   </label>
                   {error ? <p id="dashboard-password-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !password.trim()}>
-                    {submitting ? 'Signing in…' : 'Open dashboard'}
+                    {submitting ? 'Signing in…' : AUTH_COPY.openDashboard}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     onClick={() => changeSharedLoginMethod(sharedLoginMethod === 'api-key' ? 'password' : 'api-key')}
                   >
-                    {sharedLoginMethod === 'api-key' ? 'Use dashboard password instead' : 'Forgot password? Use API key'}
+                    {sharedLoginMethod === 'api-key' ? AUTH_COPY.useDashboardPassword : AUTH_COPY.recoverWithApiKey}
                   </Button>
+                  {!accountsInUse ? (
+                    <Button type="button" variant="ghost" onClick={() => { setAuthState('setup'); setError(null); setPassword(''); setShowPassword(false) }}>
+                      {AUTH_COPY.createAdministrator}
+                    </Button>
+                  ) : null}
                 </form>
               </CardContent>
             </>

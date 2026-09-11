@@ -17,24 +17,34 @@ what both its saved consent and the user's current role allow.
 
 ## Set up an instance
 
-1. Keep a working root API key and password administrator for recovery.
-   From the trusted CLI configuration, create the initial administrator:
-   `canonry user create --name owner --role admin`. Enter the password at the
-   hidden prompt. Automation can use `--password-stdin`.
-2. Configure the externally reachable URL. For `canonry serve`, set
+1. Open the new instance in a browser. Use **Create administrator account**
+   and enter the instance's existing setup/root API key, a username and a
+   password. The key authorizes this one request and is not saved in browser
+   storage. The first-account check is atomic; an already protected instance
+   cannot be claimed through setup. Existing shared-password installs keep
+   their current login and can explicitly choose administrator setup.
+   The CLI remains available: `canonry user create --name owner --role admin`.
+2. After account creation, the browser signs in and opens **Settings → Sign-in**.
+   Google is optional; keep the password administrator and root key for recovery.
+3. Configure the externally reachable URL. For `canonry serve`, set
    `publicUrl` in the existing config file. A subpath must match `basePath`.
    For `apps/api`, use `CANONRY_PUBLIC_URL` and, if needed, `CANONRY_BASE_PATH`.
    HTTPS is required except for localhost development.
-3. Create a separate Google OAuth web client for sign-in. This client uses only
+4. Create a separate Google OAuth web client for sign-in. This client uses only
    `openid email profile`; it does not grant Search Console, Analytics or other
-   integration access.
-4. In Settings → People & access → Google sign-in setup, copy the callback URL
-   and register that exact URL in the Google client. For example:
+   integration access. Copy the callback URL from **Sign-in** and register it
+   exactly in the Google client, for example:
    `https://dashboard.example.com/team/api/v1/auth/google/callback`.
-5. Save the client ID and secret, then enable Google sign-in. Secrets are
-   replace-only and are never returned by the settings API.
-6. Invite one test person. Copy the single-use link and share it yourself.
-   Canonry does not send an invitation email.
+5. Enter the client ID and secret, then save and enable Google sign-in. Secrets
+   are replace-only and are never returned by the settings API. To use Google
+   for your existing administrator account, open **Account** from your name in
+   the sidebar and link Google after confirming your password.
+6. Open **Settings → People** and invite one test person with their intended role.
+   Copy and share the single-use link. Canonry does not send invitation email.
+7. The invited person sees an invitation page with **Continue with Google**,
+   chooses the invited Google account, and enters the dashboard. No Canonry
+   password is required. Returning users use Google on the normal sign-in page;
+   password sign-in remains available as a secondary action.
 
 Local configuration uses this block in the existing config file:
 
@@ -108,7 +118,7 @@ user-bound MCP credentials. Revoking access signs the person out without
 changing their role. A suspended person cannot sign in until reactivated.
 Independent service keys are not reassigned to people or silently revoked.
 
-People & access shows last sign-in. Details shows last foreground activity;
+Settings → People shows last sign-in. Details shows last foreground activity;
 background dashboard polling does not count as a visit. Access history records
 the authenticated actor, not a caller-supplied display name or tracing header.
 

@@ -155,6 +155,13 @@ export async function userRoutes(app: FastifyInstance) {
 
     const created = app.db.transaction((tx) => {
       assertCurrentCreateAuthority(tx, request)
+      if (parsed.data.onlyIfFirstAdmin && (
+        role !== UserRoles.admin
+        || tx.select({ id: users.id }).from(users).limit(1).get()
+        || tx.select().from(userAuthState).where(eq(userAuthState.id, 'instance')).get()?.namedAuthenticationRequired
+      )) {
+        throw validationError('Administrator setup is already complete. Sign in to manage accounts.')
+      }
       // These checks must share the insertion transaction. Password hashing is
       // intentionally outside it, so concurrent first-account requests can
       // race only here, where one is atomically refused instead of creating an

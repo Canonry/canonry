@@ -137,6 +137,7 @@ import {
   putApiV1SettingsAuthGoogle,
   getApiV1Users,
   patchApiV1UsersById,
+  postApiV1Users,
   postApiV1UsersByIdRevokeAccess,
   getApiV1UsersByIdAccessHistory,
   getApiV1UsersInvitations,
@@ -1047,6 +1048,19 @@ export function fetchCurrentApiKey(): Promise<ApiKeyDto> {
  */
 export function fetchAccountSession(): Promise<ApiAccountSession> {
   return invokeWeb<ApiAccountSession>(() => getApiV1AuthSession({ client: heyClient }))
+}
+
+/** A one-request setup credential must never become the dashboard's shared credential. */
+export function createFirstAdministrator(
+  body: { name: string; password: string; displayName?: string },
+  setupKey: string,
+): Promise<ApiUser> {
+  const setupClient = createHeyClient({ baseUrl: getApiOrigin(), apiKey: setupKey.trim() })
+  return invokeWeb<ApiUser>(() => postApiV1Users({
+    client: setupClient,
+    credentials: 'omit',
+    body: { ...body, role: 'admin', onlyIfFirstAdmin: true },
+  }))
 }
 
 export function signInWithAccount(name: string, password: string): Promise<ApiAccountSession> {

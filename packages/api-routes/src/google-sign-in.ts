@@ -186,6 +186,7 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
     let basePath = opts.cookie?.path ?? '/'
     let secure = opts.cookie?.secure ?? true
     let validatedAttempt = false
+    let invitationAttempt = false
     try {
       const current = configured()
       basePath = current.urls.basePath
@@ -193,6 +194,7 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
       const raw = parseCookieHeader(request.headers.cookie)[GOOGLE_LOGIN_COOKIE]
       if (!raw) throw authInvalid()
       const state = openGoogleLoginState(raw, current.secret, current.urls.callbackUrl)
+      invitationAttempt = Boolean(state.invitationHash)
       const callback = new URL(current.urls.callbackUrl)
       callback.search = new URL(request.raw.url ?? '', current.urls.baseUrl).search
       if (callback.searchParams.get('state') !== state.state) throw authInvalid()
@@ -223,7 +225,8 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
       }
       // Provider errors and token contents never enter logs or the redirect.
       reply.header('set-cookie', stateCookie('', basePath, secure))
-      return reply.redirect(basePath + '?authError=google-sign-in-failed', 303)
+      const error = invitationAttempt ? 'google-invitation-failed' : 'google-sign-in-failed'
+      return reply.redirect(basePath + '?authError=' + error, 303)
     }
   })
 }

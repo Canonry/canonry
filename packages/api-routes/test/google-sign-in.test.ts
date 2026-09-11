@@ -96,6 +96,7 @@ test.each(['uninvited', 'wrong-email', 'expired', 'revoked', 'unverified', 'thir
   if (kind === 'unverified') f.identity.emailVerified = false
   if (kind === 'third-party-email') f.identity.hostedDomain = null
   const response = await f.finish(await f.start(invitation?.token))
+  expect(new URL(String(response.headers.location), 'https://instance.example.test').searchParams.get('authError')).toBe(invitation ? 'google-invitation-failed' : 'google-sign-in-failed')
   expect(response.cookies.find(value => value.name === USER_SESSION_COOKIE_NAME)?.value).toBeFalsy()
   expect(f.db.select().from(users).all()).toHaveLength(1)
   expect(f.db.select().from(userExternalIdentities).all()).toHaveLength(0)

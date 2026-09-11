@@ -110,6 +110,8 @@ export const createUserRequestSchema = z.object({
   name: userNameSchema,
   password: userPasswordSchema,
   role: userRoleSchema,
+  /** Refuse if this instance has ever enabled named accounts; used by first-run setup. */
+  onlyIfFirstAdmin: z.boolean().optional(),
   displayName: z.string().trim().min(1).max(200).optional(),
   email: z.string().email().max(320).optional(),
 })

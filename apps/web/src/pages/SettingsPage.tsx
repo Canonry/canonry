@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link, useSearch } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -7,6 +8,7 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { PeopleAccessSection } from '../components/settings/PeopleAccessSection.js'
+import { GoogleSignInSettingsSection } from '../components/settings/GoogleSignInSettingsSection.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { asyncHandler } from '../lib/async-handler.js'
@@ -23,6 +25,27 @@ const defaultHealthSnapshot: HealthSnapshot = {
   workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' },
 }
 
+export const SETTINGS_SECTIONS = ['connections', 'people', 'sign-in'] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+export const SETTINGS_SECTION_COPY = {
+  navigationLabel: 'Settings sections',
+  connections: 'Connections',
+  people: 'People',
+  signIn: 'Sign-in',
+} as const
+
+export const SETTINGS_SECTION_TEST_IDS = {
+  navigation: 'settings-section-navigation',
+  connections: 'settings-section-connections',
+  people: 'settings-section-people',
+  signIn: 'settings-section-sign-in',
+} as const
+
+function resolveSettingsSection(value: unknown): SettingsSection {
+  return SETTINGS_SECTIONS.includes(value as SettingsSection) ? value as SettingsSection : 'connections'
+}
+
 /**
  * Settings holds provider credentials, the Google/Bing connections and the API
  * keys. The server refuses this whole surface to a view-only account; the
@@ -37,9 +60,11 @@ export function SettingsPage() {
 }
 
 function SettingsPageBody() {
+  const search = useSearch({ strict: false }) as { section?: unknown }
+  const section = resolveSettingsSection(search.section)
   const contextDashboard = useInitialDashboard()
   const { dashboard } = useDashboard()
-  const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
+  const settings = dashboard === null ? undefined : dashboard.settings
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
@@ -61,8 +86,27 @@ function SettingsPageBody() {
         </div>
       </div>
 
-      <section className="space-y-6">
-        <PeopleAccessSection />
+      <nav className="mb-6 flex gap-5 border-b border-default" aria-label={SETTINGS_SECTION_COPY.navigationLabel} data-testid={SETTINGS_SECTION_TEST_IDS.navigation}>
+        {SETTINGS_SECTIONS.map(item => {
+          const label = item === 'sign-in' ? SETTINGS_SECTION_COPY.signIn : SETTINGS_SECTION_COPY[item]
+          const active = section === item
+          return <Link
+            key={item}
+            to="/settings"
+            search={{ section: item }}
+            data-testid={SETTINGS_SECTION_TEST_IDS[item === 'sign-in' ? 'signIn' : item]}
+            aria-current={active ? 'page' : undefined}
+            className={`-mb-px min-h-11 border-b-2 px-1 pt-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${active ? 'border-strong text-heading' : 'border-transparent text-secondary hover:border-base hover:text-heading'}`}
+          >
+            {label}
+          </Link>
+        })}
+      </nav>
+
+      {section === 'people' ? <PeopleAccessSection /> : null}
+      {section === 'sign-in' ? <GoogleSignInSettingsSection /> : null}
+
+      {section === 'connections' ? <section className="space-y-6">
 
         {!settings ? (
           <p className="text-sm text-secondary" role="status">Loading connection settings…</p>
@@ -318,9 +362,9 @@ function SettingsPageBody() {
           </div>
         </Card>
         </>}
-      </section>
+      </section> : null}
 
-      {settings ? <details className="page-section">
+      {section === 'connections' && settings ? <details className="page-section">
         <summary className="cursor-pointer text-sm font-medium text-secondary hover:text-strong">Self-hosting details</summary>
         <Card className="surface-card mt-3">
           <ul className="detail-list">
