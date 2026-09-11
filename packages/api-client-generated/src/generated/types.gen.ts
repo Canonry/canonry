@@ -11174,7 +11174,6 @@ export type SnapshotRequest = {
     companyName: string;
     domain: string;
     queries?: Array<string>;
-    phrases?: Array<string>;
     competitors?: Array<string>;
     /**
      * Configured provider names to use for both answers and analysis. Omit to use all providers matching providerMode.

@@ -531,7 +531,8 @@ const SCHEMA_TABLE = {
   SnapshotDiffResponse: snapshotDiffResponseSchema,
   SnapshotListResponse: snapshotListResponseSchema,
   SnapshotReportDto: snapshotReportSchema,
-  SnapshotRequest: snapshotRequestInputSchema,
+  // The API accepts legacy phrases, but the public contract advertises queries.
+  SnapshotRequest: z.object(snapshotRequestInputSchema.shape).omit({ phrases: true }),
   SourceBreakdownDto: sourceBreakdownDtoSchema,
   TelemetryEventAcceptedDto: telemetryEventAcceptedDtoSchema,
   CloudflareWorkerIngestRequest: cloudflareWorkerIngestRequestSchema,
