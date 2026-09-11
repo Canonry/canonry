@@ -2734,21 +2734,13 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/snapshot',
     summary: 'Generate a one-shot AI perception snapshot',
+    description: 'Runs configured providers without creating a project. Optional providers and providerMode constrain both answer queries and analysis; omitted selection uses all configured providers. Browser-only selection requires manual queries. Spends provider quota.',
     tags: ['snapshot'],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['companyName', 'domain'],
-            properties: {
-              companyName: stringSchema,
-              domain: stringSchema,
-              queries: stringArraySchema,
-              competitors: stringArraySchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/SnapshotRequest' },
         },
       },
     },

@@ -138,7 +138,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/settings': 'included',
   'PUT /api/v1/settings/providers/{name}': 'deferred',
   'PUT /api/v1/settings/google': 'deferred',
-  'POST /api/v1/snapshot': 'deferred',
+  'POST /api/v1/snapshot': 'included',
   'PUT /api/v1/settings/bing': 'deferred',
   'PUT /api/v1/settings/cdp': 'deferred',
   // API key management — deliberately not surfaced as MCP tools. Minting and

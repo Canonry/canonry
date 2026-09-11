@@ -81,6 +81,7 @@ import type {
   ScheduleDto,
   NotificationDto,
   SnapshotReportDto,
+  SnapshotRequestInput,
   BrandMetricsDto,
   CompetitorLandscapeQuery,
   CompetitorLandscapeResponse,
@@ -2214,12 +2215,7 @@ export class ApiClient {
     )
   }
 
-  async createSnapshot(body: {
-    companyName: string
-    domain: string
-    queries?: string[]
-    competitors?: string[]
-  }): Promise<SnapshotReportDto> {
+  async createSnapshot(body: SnapshotRequestInput): Promise<SnapshotReportDto> {
     return this.invoke<SnapshotReportDto>(() => postApiV1Snapshot({ client: this.heyClient, body }))
   }
 

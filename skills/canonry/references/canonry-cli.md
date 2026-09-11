@@ -92,6 +92,9 @@ cnry snapshot "Acme Corp" --domain acme.example.com --md          # save markdow
 cnry snapshot "Acme Corp" --domain acme.example.com --output report.md  # custom path
 cnry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
 cnry snapshot "Acme Corp" --domain acme.example.com --format json
+cnry snapshot "Acme Corp" --domain acme.example.com --provider gemini --format json  # repeat --provider to select several
+cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode api  # all configured API providers
+cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --queries "best widget suppliers"
 
 cnry run <project>                             # sweep all configured providers
 cnry run <project> --provider gemini           # single provider only
@@ -127,6 +130,14 @@ consume. A probe still costs provider quota and writes a snapshot; approval for
 one probe does not authorize repeats.
 
 `snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
+
+`--provider <name>...` and `--provider-mode all|api|browser` constrain both answers
+and analysis calls. Omit both to use every configured provider. A named provider
+must be configured and match the selected mode. Browser-only selection requires
+manual `--queries` and uses no API provider for analysis. API:
+`POST /api/v1/snapshot` with optional `providers` and `providerMode`. MCP:
+`canonry_snapshot` in the discovery toolkit; unavailable to read-only connections
+because generation spends provider quota.
 
 ## Mention + Citation Data
 

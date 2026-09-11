@@ -1,17 +1,24 @@
 import { z } from 'zod'
 import { groundingSourceSchema } from './run.js'
 
+export const snapshotProviderModeSchema = z.enum(['all', 'api', 'browser'])
+export const SnapshotProviderModes = snapshotProviderModeSchema.enum
+
 export const snapshotAccuracySchema = z.enum(['yes', 'no', 'unknown', 'not-mentioned'])
 export type SnapshotAccuracy = z.infer<typeof snapshotAccuracySchema>
 
 const snapshotQueryListSchema = z.array(z.string().min(1))
 
-export const snapshotRequestSchema = z.object({
+export const snapshotRequestInputSchema = z.object({
   companyName: z.string().min(1),
   domain: z.string().min(1),
   queries: snapshotQueryListSchema.optional(),
   phrases: snapshotQueryListSchema.optional(),
-  competitors: z.array(z.string().min(1)).optional().default([]),
+  competitors: z.array(z.string().min(1)).optional(),
+  providers: z.array(z.string().trim().min(1)).min(1).optional()
+    .describe('Configured provider names to use for both answers and analysis. Omit to use all providers matching providerMode.'),
+  providerMode: snapshotProviderModeSchema.optional()
+    .describe('Filter providers by transport; defaults to all. Browser-only selection requires manual queries and uses no API provider for analysis.'),
 }).superRefine((input, ctx) => {
   if (input.queries !== undefined && input.phrases !== undefined) {
     ctx.addIssue({
@@ -22,7 +29,12 @@ export const snapshotRequestSchema = z.object({
   }
 })
 
+export const snapshotRequestSchema = snapshotRequestInputSchema.safeExtend({
+  competitors: snapshotRequestInputSchema.shape.competitors.default([]),
+})
+
 export type SnapshotRequestDto = z.infer<typeof snapshotRequestSchema>
+export type SnapshotRequestInput = z.input<typeof snapshotRequestSchema>
 
 export function resolveSnapshotRequestQueries(input: { queries?: string[]; phrases?: string[] }): string[] {
   return input.queries ?? input.phrases ?? []

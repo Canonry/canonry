@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
+import type { SnapshotRequestDto } from '@ainyc/canonry-contracts'
 import { invokeCli } from './cli-test-utils.js'
 import { formatSnapshotText, formatSnapshotMarkdown, writeSnapshotMarkdown } from '../src/commands/snapshot.js'
 import { writeSnapshotPdf } from '../src/snapshot-pdf.js'
@@ -108,7 +109,7 @@ describe('snapshot command', () => {
   let originalConfigDir: string | undefined
   let originalTelemetryDisabled: string | undefined
   let originalCi: string | undefined
-  let snapshotInputs: Array<{ queries: string[] }>
+  let snapshotInputs: SnapshotRequestDto[]
 
   beforeEach(async () => {
     tmpDir = path.join(os.tmpdir(), `canonry-snapshot-${crypto.randomUUID()}`)
@@ -131,7 +132,7 @@ describe('snapshot command', () => {
       db,
       skipAuth: true,
       onSnapshotRequested: async (input) => {
-        snapshotInputs.push({ queries: input.queries ?? [] })
+        snapshotInputs.push(input)
         return SNAPSHOT_FIXTURE
       },
     })
@@ -197,6 +198,25 @@ describe('snapshot command', () => {
       'best enterprise widget provider',
       'who offers enterprise widget support',
     ])
+  })
+
+  it('forwards provider selection through the generated client and API', async () => {
+    const result = await invokeCli([
+      'snapshot', 'Acme Corp', '--domain', 'acme.example.com',
+      '--provider', 'gemini', '--provider', 'local', '--provider', 'gemini',
+      '--provider-mode', 'api', '--format', 'json',
+    ])
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toBe('')
+    expect(JSON.parse(result.stdout)).toMatchObject({ companyName: 'Acme Corp' })
+    expect(snapshotInputs.at(-1)).toMatchObject({ providers: ['gemini', 'local'], providerMode: 'api' })
+  })
+
+  it.each([['--provider-mode', 'invalid'], ['--provider', '  ']])('rejects %s %s before calling the API', async (flag, value) => {
+    const result = await invokeCli(['snapshot', 'Acme', '--domain', 'acme.example.com', flag, value, '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(flag)
+    expect(snapshotInputs).toEqual([])
   })
 
   it('creates a markdown report when --md is provided', async () => {
