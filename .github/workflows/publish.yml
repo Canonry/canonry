@@ -328,7 +328,7 @@ jobs:
             echo "org.opencontainers.image.url=https://github.com/Canonry/canonry"
             echo "org.opencontainers.image.revision=$GITHUB_SHA"
             echo "org.opencontainers.image.version=$VERSION"
-            echo "org.opencontainers.image.licenses=FSL-1.1-ALv2"
+            echo "org.opencontainers.image.licenses=MIT"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

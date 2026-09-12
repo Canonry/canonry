@@ -1,5 +1,6 @@
 # Canonry <img src="https://raw.githubusercontent.com/Canonry/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
 
 Canonry is an **agent-first, self-hosted AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
@@ -261,4 +262,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-[FSL-1.1-ALv2](./LICENSE). Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
+[MIT](./LICENSE), starting with Canonry 5.0.0. Use, modify, self-host, redistribute, and build commercial products with Canonry. Keep the copyright and permission notice with copies or substantial portions of the software.
+
+Earlier releases retain their original licenses, including any future-license grants. Dependencies and bundled assets retain their own licenses; see [third-party notices](packages/canonry/THIRD_PARTY_NOTICES.md).

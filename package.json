@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "4.195.0",
+  "version": "5.0.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
@@ -74,5 +74,6 @@
   },
   "engines": {
     "node": ">=22.14.0 <27"
-  }
+  },
+  "license": "MIT"
 }

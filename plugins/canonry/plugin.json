@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "canonry",
-  "version": "4.195.0",
+  "version": "5.0.0",
   "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
   "author": {
     "name": "Canonry",
@@ -9,7 +9,7 @@
   },
   "homepage": "https://canonry.ai",
   "repository": "https://github.com/Canonry/canonry",
-  "license": "FSL-1.1-ALv2",
+  "license": "MIT",
   "keywords": [
     "aeo",
     "answer-engine-optimization",
