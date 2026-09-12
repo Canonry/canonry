@@ -1,6 +1,6 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
-import { isMachineFormat } from '../cli-error.js'
+import { isMachineFormat, usageError } from '../cli-error.js'
 import { notificationEventSchema } from '@ainyc/canonry-contracts'
 
 function getClient() {
@@ -100,14 +100,19 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'health.recovered': 'A previously degraded health check is passing again',
 }
 
-export function listEvents(format?: string): void {
-  const events = notificationEventSchema.options
+export function listEvents(format?: string, target = 'local'): void | Promise<void> {
+  if (target === 'server') return getClient().listNotificationEvents().then(events => printEvents(events, format))
+  if (target !== 'local') throw usageError('--target must be local or server')
+  printEvents(notificationEventSchema.options, format)
+}
+
+function printEvents(events: readonly string[], format?: string): void {
   const catalog = events.map(e => ({ event: e, description: EVENT_DESCRIPTIONS[e] ?? '' }))
   if (format === 'json') {
     console.log(JSON.stringify(catalog, null, 2))
     return
   } else if (format === 'jsonl') {
-    // Global static catalog — each record self-identifies via `event`, so it's
+    // Each record self-identifies via `event`, so it's
     // emitted bare (no project / context tag to prepend).
     emitJsonl(catalog)
     return

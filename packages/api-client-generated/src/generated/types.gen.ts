@@ -1648,6 +1648,8 @@ export type AuditLogEntry = {
     diff?: unknown;
     userAgent?: string | null;
     actorSession?: string | null;
+    requestId?: string | null;
+    credentialId?: string | null;
     createdAt: string;
 };
 
@@ -5118,6 +5120,10 @@ export type IndexingRequestResponseDto = {
         status: 'success' | 'error';
         error?: string;
     }>;
+};
+
+export type IntegrationSettingsSummaryDto = {
+    configured: boolean;
 };
 
 export type KeywordDto = {
@@ -9992,6 +9998,22 @@ export type ProjectSearchResponseDto = {
     }>;
 };
 
+export type ProviderSummaryEntryDto = {
+    name: string;
+    displayName?: string;
+    keyUrl?: string;
+    modelHint?: string;
+    model?: string;
+    defaultModel?: string;
+    configured: boolean;
+    quota?: {
+        maxConcurrency: number;
+        maxRequestsPerMinute: number;
+        maxRequestsPerDay: number;
+    };
+    vertexConfigured?: boolean;
+};
+
 export type QueryDto = {
     id: string;
     query: string;
@@ -11259,6 +11281,66 @@ export type SourceBreakdownDto = {
 
 export type TelemetryEventAcceptedDto = {
     accepted: boolean;
+};
+
+export type TelemetryStatusDto = {
+    enabled: boolean;
+    configuredEnabled: boolean;
+    reason: 'enabled' | 'configured_disabled' | 'CANONRY_TELEMETRY_DISABLED' | 'DO_NOT_TRACK' | 'CI' | 'NO_CONFIG' | 'CONFIG_UNAVAILABLE';
+    anonymousId?: string;
+    target?: 'server' | 'local';
+};
+
+export type OperationalLogListDto = {
+    entries: Array<{
+        cursor: string;
+        ts: string;
+        level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+        module: string;
+        action: string;
+        message?: string;
+        runId?: string;
+        projectId?: string;
+        context: {
+            runId?: string;
+            projectId?: string;
+            requestId?: string;
+            actor?: string;
+            credentialId?: string;
+            userAgent?: string;
+            actorSession?: string;
+            method?: string;
+            route?: string;
+            operationId?: string;
+            jobId?: string;
+            taskId?: string;
+            traceId?: string;
+            errorCode?: string;
+            attempt?: number;
+            count?: number;
+            total?: number;
+            progress?: number;
+            httpStatus?: number;
+            statusCode?: number;
+            durationMs?: number;
+            bytes?: number;
+            retryAfterMs?: number;
+            retriable?: boolean;
+            retrying?: boolean;
+            cancelled?: boolean;
+            success?: boolean;
+        };
+    }>;
+    nextCursor: string | null;
+    truncated: number;
+    dropped: number;
+    retention: 'process' | 'durable';
+    retentionPolicy?: {
+        maxEntries: number;
+        maxAgeSeconds: number;
+    };
+    captureErrors?: number;
+    observedAt: string;
 };
 
 export type CloudflareWorkerIngestRequest = {
@@ -17126,6 +17208,10 @@ export type PutApiV1SettingsProvidersByNameErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The credential lacks settings.write.
+     */
+    403: ErrorEnvelope;
+    /**
      * Provider updates are not supported.
      */
     501: ErrorEnvelope;
@@ -17137,9 +17223,7 @@ export type PutApiV1SettingsProvidersByNameResponses = {
     /**
      * Provider updated.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: ProviderSummaryEntryDto;
 };
 
 export type PutApiV1SettingsProvidersByNameResponse = PutApiV1SettingsProvidersByNameResponses[keyof PutApiV1SettingsProvidersByNameResponses];
@@ -17171,9 +17255,7 @@ export type PutApiV1SettingsGoogleResponses = {
     /**
      * Google settings updated.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: IntegrationSettingsSummaryDto;
 };
 
 export type PutApiV1SettingsGoogleResponse = PutApiV1SettingsGoogleResponses[keyof PutApiV1SettingsGoogleResponses];
@@ -17896,6 +17978,84 @@ export type PostApiV1ProjectsByNameNotificationsByIdTestResponses = {
 
 export type PostApiV1ProjectsByNameNotificationsByIdTestResponse = PostApiV1ProjectsByNameNotificationsByIdTestResponses[keyof PostApiV1ProjectsByNameNotificationsByIdTestResponses];
 
+export type GetApiV1OperationsLogsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Maximum entries (default 100).
+         */
+        limit?: number;
+        /**
+         * Opaque cursor bound to the log store and query filters.
+         */
+        cursor?: string;
+        /**
+         * Exact log level.
+         */
+        level?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+        /**
+         * Exact module filter (does not grant project-scoped log access).
+         */
+        module?: string;
+        /**
+         * Exact runId filter (does not grant project-scoped log access).
+         */
+        runId?: string;
+        /**
+         * Exact projectId filter (does not grant project-scoped log access).
+         */
+        projectId?: string;
+        /**
+         * Exact actor filter (does not grant project-scoped log access).
+         */
+        actor?: string;
+        /**
+         * Exact requestId filter (does not grant project-scoped log access).
+         */
+        requestId?: string;
+        /**
+         * Inclusive since event timestamp.
+         */
+        since?: string;
+        /**
+         * Inclusive until event timestamp.
+         */
+        until?: string;
+    };
+    url: '/api/v1/operations/logs';
+};
+
+export type GetApiV1OperationsLogsErrors = {
+    /**
+     * Invalid filters or expired cursor.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Authentication required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Instance logs.read permission required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * This deployment does not provide operational logs.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1OperationsLogsError = GetApiV1OperationsLogsErrors[keyof GetApiV1OperationsLogsErrors];
+
+export type GetApiV1OperationsLogsResponses = {
+    /**
+     * Runtime log page with retention and capture-loss metadata.
+     */
+    200: OperationalLogListDto;
+};
+
+export type GetApiV1OperationsLogsResponse = GetApiV1OperationsLogsResponses[keyof GetApiV1OperationsLogsResponses];
+
 export type GetApiV1TelemetryData = {
     body?: never;
     path?: never;
@@ -17916,9 +18076,7 @@ export type GetApiV1TelemetryResponses = {
     /**
      * Telemetry status returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: TelemetryStatusDto;
 };
 
 export type GetApiV1TelemetryResponse = GetApiV1TelemetryResponses[keyof GetApiV1TelemetryResponses];
@@ -17938,6 +18096,10 @@ export type PutApiV1TelemetryErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The credential lacks settings.write.
+     */
+    403: ErrorEnvelope;
+    /**
      * Telemetry configuration is not available.
      */
     501: ErrorEnvelope;
@@ -17949,9 +18111,7 @@ export type PutApiV1TelemetryResponses = {
     /**
      * Telemetry updated.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: TelemetryStatusDto;
 };
 
 export type PutApiV1TelemetryResponse = PutApiV1TelemetryResponses[keyof PutApiV1TelemetryResponses];

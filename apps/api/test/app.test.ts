@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { getPlatformEnv } from '@ainyc/canonry-config'
 import { PROVIDER_NAMES } from '@ainyc/canonry-contracts'
-import { createClient, migrate, apiKeys, queries, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@ainyc/canonry-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
@@ -98,6 +98,50 @@ test('buildApp refuses to start when CANONRY_TRUST_PROXY is not set', () => {
   delete process.env.CANONRY_TRUST_PROXY
   const env = getPlatformEnv({})
   expect(() => buildApp(env)).toThrow(/CANONRY_TRUST_PROXY/)
+})
+
+test('cloud REST host exposes durable redacted runtime logs without weakening access control', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-runtime-logs-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+  const db = createClient(dbPath)
+  migrate(db)
+  const token = 'cnry_cloud_runtime_fixture'
+  db.insert(apiKeys).values({
+    id: 'runtime-key', name: 'runtime-fixture', keyHash: crypto.createHash('sha256').update(token).digest('hex'),
+    keyPrefix: token.slice(0, 9), scopes: ['read', 'logs.read'], createdAt: new Date().toISOString(),
+  }).run()
+  db.$client.close()
+  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', WORKER_PORT: '3001', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
+  const app = buildApp(env)
+  onTestFinished(async () => { await app.close(); fs.rmSync(tmpDir, { recursive: true, force: true }) })
+  await app.ready()
+  app.log.error({ runId: 'cloud-runtime-fixture', password: 'never-expose-this' }, 'Cloud worker failed')
+  const denied = await app.inject({ url: '/api/v1/operations/logs' })
+  expect(denied.statusCode).toBe(401)
+  const result = await app.inject({ url: '/api/v1/operations/logs?runId=cloud-runtime-fixture', headers: { authorization: `Bearer ${token}` } })
+  expect(result.statusCode, result.body).toBe(200)
+  expect(result.headers['x-request-id']).toMatch(/^[\da-f-]{36}$/)
+  expect(result.json()).toMatchObject({ retention: 'durable', entries: [expect.objectContaining({ message: 'Cloud worker failed' })] })
+  expect(result.body).not.toContain('never-expose-this')
+})
+
+test.each(['fresh', 'upgrade'] as const)('cloud boot prepares runtime storage on a %s database', async kind => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-runtime-migration-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+  if (kind === 'upgrade') {
+    const previous = createClient(dbPath)
+    migrate(previous, MIGRATION_VERSIONS.filter(migration => migration.version < 155))
+    previous.$client.close()
+  }
+  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', WORKER_PORT: '3001', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
+  const app = buildApp(env)
+  onTestFinished(async () => { await app.close(); fs.rmSync(tmpDir, { recursive: true, force: true }) })
+  await app.ready()
+  const verified = createClient(dbPath)
+  try {
+    expect(verified.$client.prepare("SELECT name FROM sqlite_master WHERE name = 'runtime_logs'").get()).toEqual({ name: 'runtime_logs' })
+    expect(verified.$client.prepare('PRAGMA table_info(audit_log)').all()).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'credential_id' })]))
+  } finally { verified.$client.close() }
 })
 
 test('buildApp registers health and API routes', async () => {

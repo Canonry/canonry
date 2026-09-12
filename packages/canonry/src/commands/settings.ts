@@ -39,24 +39,10 @@ export async function setProvider(name: string, opts: {
 
 export async function showSettings(format?: string): Promise<void> {
   const client = getClient()
-  const config = loadConfig()
-  const settings = await client.getSettings() as {
-    providers: Array<{
-      name: string
-      model?: string
-      defaultModel?: string
-      configured: boolean
-      quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
-    }>
-  }
+  const settings = await client.getSettings()
 
   if (isMachineFormat(format)) {
-    console.log(JSON.stringify({
-      ...settings,
-      google: {
-        configured: Boolean(config.google?.clientId && config.google?.clientSecret),
-      },
-    }, null, 2))
+    console.log(JSON.stringify(settings, null, 2))
     return
   }
 
@@ -79,10 +65,32 @@ export async function showSettings(format?: string): Promise<void> {
   }
 
   console.log('\nGoogle OAuth:\n')
-  console.log(`  ${config.google?.clientId && config.google?.clientSecret ? 'configured' : 'not configured'}`)
+  console.log(`  ${settings.google.configured ? 'configured' : 'not configured'}`)
 }
 
-export function setGoogleAuth(opts: { clientId: string; clientSecret: string; format?: string }): void {
+type GoogleSettingsTarget = 'local' | 'server'
+
+export async function setGoogleAuth(opts: {
+  clientId: string
+  clientSecret: string
+  target?: GoogleSettingsTarget
+  format?: string
+}): Promise<void> {
+  if (opts.target === 'server') {
+    const result = await getClient().updateGoogleSettings({
+      clientId: opts.clientId,
+      clientSecret: opts.clientSecret,
+    })
+
+    if (isMachineFormat(opts.format)) {
+      console.log(JSON.stringify(result, null, 2))
+      return
+    }
+
+    console.log('Google OAuth credentials updated on the server.')
+    return
+  }
+
   const config = loadConfig()
   setGoogleAuthConfig(config, {
     clientId: opts.clientId,

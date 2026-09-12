@@ -4,6 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import fs from 'node:fs'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
+import { registerRequestContext } from './request-context.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
@@ -50,6 +51,7 @@ import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
+import { operationalLogsRoutes } from './operational-logs.js'
 import type { TelemetryRoutesOptions } from './telemetry.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
@@ -226,6 +228,7 @@ export interface ApiRoutesOptions {
   briefPromptVersion?: string
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
+  listOperationalLogs?: NonNullable<Parameters<typeof operationalLogsRoutes>[1]>['listOperationalLogs']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
@@ -460,6 +463,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // When a basePath is set and the reverse proxy does not strip it, pass
   // routePrefix: `${basePath}api/v1` so routes match the full incoming path.
   await app.register(async (api) => {
+    // Must be registered before authPlugin so its preHandler sees the
+    // authenticated principal while AsyncLocalStorage remains request-local.
+    registerRequestContext(api)
     // Expensive POST-based previews opt in per route. Run after authentication
     // so API keys and named users get independent budgets; unauthenticated test
     // harnesses safely fall back to the caller IP.
@@ -598,6 +604,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies NotificationRoutesOptions)
+    await api.register(operationalLogsRoutes, { listOperationalLogs: opts.listOperationalLogs })
     await api.register(telemetryRoutes, {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,

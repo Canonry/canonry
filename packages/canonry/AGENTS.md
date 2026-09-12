@@ -9,6 +9,8 @@ The publishable npm package (`@canonry/canonry`, plus compatibility publish as `
 | File | Role |
 |------|------|
 | `src/cli.ts` | CLI entry point — shebang, telemetry, command dispatch |
+| `src/logger.ts` | Compatibility exports of the shared runtime logger in api-routes. Application and Fastify logging use the same pure redaction policy before stdout/stderr and durable capture. Do not add a second sanitizer or raw request logger. |
+| `src/commands/logs.ts` | `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires instance-wide `logs.read`, not project scope. |
 | `src/telemetry.ts` | `trackEvent`, source attribution (incl. the validated `CANONRY_TELEMETRY_SOURCE` harness override), per-process `sessionId`, `cli.upgraded` detection |
 | `src/setup-nudge.ts` | The stalled-setup stderr line: human-mode + TTY only, lazy state read, exempt roots |
 | `src/activation-notice.ts` | Once-ever first-activation notice; marker written before printing, TTY-gated |

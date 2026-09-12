@@ -1,8 +1,10 @@
 import Fastify from 'fastify'
+import { randomUUID } from 'node:crypto'
 
 import type { PlatformEnv } from '@ainyc/canonry-config'
-import { createClient } from '@ainyc/canonry-db'
+import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
 import { apiRoutes, resolveTrustProxy } from '@ainyc/canonry-api-routes'
+import { addLogListener, createFastifyLogger } from '@ainyc/canonry-api-routes/runtime-logger'
 
 import { registerHealthRoutes } from './routes/health.js'
 import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
@@ -32,12 +34,19 @@ export function buildApp(env: PlatformEnv) {
   }
   const trustProxy = resolveTrustProxy(rawTrustProxy)
   const app = Fastify({
-    logger: true,
+    loggerInstance: createFastifyLogger({ module: 'CloudApi' }),
+    genReqId: () => randomUUID(),
     trustProxy,
   })
 
   // Connect to database and register shared API routes
   const db = createClient(env.databaseUrl)
+  // Runtime capture needs the new tables before the first log event. Apply
+  // additive migrations on fresh installs and upgrades, just like local serve.
+  try { migrate(db) } catch (error) { db.$client.close(); throw error }
+  const operationalLogs = new OperationalLogStore(db, {
+    retention: env.databaseUrl === ':memory:' ? 'process' : 'durable',
+  })
 
   const providerSummary = (['gemini', 'openai', 'claude', 'perplexity'] as const).map(name => ({
     name,
@@ -166,6 +175,7 @@ export function buildApp(env: PlatformEnv) {
     getRunnableProviderNames: () =>
       providerSummary.filter(provider => provider.configured).map(provider => provider.name),
     getEffectiveProviderModels: effectiveProviderModels,
+    listOperationalLogs: query => operationalLogs.list(query),
     googleStateSecret: env.googleStateSecret,
     trustProxyConfigured: trustProxy !== false,
     researchAllowViewers: env.research.allowViewers,
@@ -189,6 +199,12 @@ export function buildApp(env: PlatformEnv) {
   // sends clients somewhere that 404s.
   registerTelemetryCollectorRoutes(app)
   registerHealthRoutes(app, env)
+
+  const stopLogCapture = addLogListener(entry => operationalLogs.append(entry))
+  app.addHook('onClose', async () => {
+    stopLogCapture()
+    db.$client.close()
+  })
 
   return app
 }

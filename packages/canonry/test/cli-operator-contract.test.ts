@@ -788,7 +788,15 @@ describe('operator CLI contract', () => {
     const openai = after.providers.find(entry => entry.name === 'openai')
     expect(openai?.configured).toBe(true)
     expect(openai?.model).toBe('gpt-4.1')
-    expect(after.google.configured).toBe(true)
+    // Local setup requests a restart; it must not overwrite the remote status.
+    expect(after.google.configured).toBe(false)
+    const remoteGoogleResult = await invokeCli([
+      'settings', 'google', '--target', 'server', '--client-id', 'google-client-id',
+      '--client-secret', 'google-client-secret', '--format', 'json',
+    ])
+    expect(JSON.parse(remoteGoogleResult.stdout)).toEqual({ configured: true })
+    const remoteAfter = await invokeCli(['settings', '--format', 'json'])
+    expect(JSON.parse(remoteAfter.stdout).google.configured).toBe(true)
   })
 
   it('prints a JSON usage error for local settings provider without base-url', async () => {

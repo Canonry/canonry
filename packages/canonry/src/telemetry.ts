@@ -1,6 +1,10 @@
 import crypto from 'node:crypto'
 import os from 'node:os'
-import { isGhostTelemetryEvent } from '@ainyc/canonry-contracts'
+import {
+  isGhostTelemetryEvent,
+  maskTelemetryAnonymousId,
+  type TelemetryStatusDto,
+} from '@ainyc/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
 import type { SetupState } from './setup-state.js'
 
@@ -180,19 +184,72 @@ export function setTelemetrySource(source: TelemetrySource): void {
  * Check whether telemetry is enabled.
  * Priority: env vars > config file. Disabled in CI by default.
  */
-export function isTelemetryEnabled(): boolean {
-  if (process.env.CANONRY_TELEMETRY_DISABLED === '1') return false
-  if (process.env.DO_NOT_TRACK === '1') return false
-  if (process.env.CI) return false
+export interface TelemetryStatusResolutionInput {
+  canonryTelemetryDisabled?: string
+  doNotTrack?: string
+  ci?: string
+  configuredEnabled: boolean
+  configState: 'present' | 'absent' | 'unavailable'
+  anonymousId?: string
+}
 
-  if (!configExists()) return true
+/**
+ * Resolve environment policy and persisted preference without performing I/O.
+ * Environment opt-outs deliberately win in the same order used by event
+ * emission, so status and collection cannot disagree.
+ */
+export function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): TelemetryStatusDto {
+  const base = {
+    configuredEnabled: input.configuredEnabled,
+    ...(input.anonymousId ? { anonymousId: maskAnonymousId(input.anonymousId) } : {}),
+    target: 'local' as const,
+  }
+  if (input.canonryTelemetryDisabled === '1') {
+    return { ...base, enabled: false, reason: 'CANONRY_TELEMETRY_DISABLED' }
+  }
+  if (input.doNotTrack === '1') {
+    return { ...base, enabled: false, reason: 'DO_NOT_TRACK' }
+  }
+  if (input.ci) return { ...base, enabled: false, reason: 'CI' }
+  if (!input.configuredEnabled) return { ...base, enabled: false, reason: 'configured_disabled' }
+  if (input.configState === 'absent') return { ...base, enabled: true, reason: 'NO_CONFIG' }
+  if (input.configState === 'unavailable') return { ...base, enabled: true, reason: 'CONFIG_UNAVAILABLE' }
+  return { ...base, enabled: true, reason: 'enabled' }
+}
 
+/** Mask an install identifier before it can reach a status response or CLI. */
+export function maskAnonymousId(value: string | undefined): string | undefined {
+  return maskTelemetryAnonymousId(value)
+}
+
+/**
+ * Inspect telemetry state without generating or persisting an anonymous ID.
+ * A missing preference retains the legacy local default of enabled.
+ */
+export function getTelemetryStatus(): TelemetryStatusDto {
+  const env = {
+    canonryTelemetryDisabled: process.env.CANONRY_TELEMETRY_DISABLED,
+    doNotTrack: process.env.DO_NOT_TRACK,
+    ci: process.env.CI,
+  }
+  if (!configExists()) {
+    return resolveTelemetryStatus({ ...env, configuredEnabled: true, configState: 'absent' })
+  }
   try {
     const config = loadConfig()
-    return config.telemetry !== false
+    return resolveTelemetryStatus({
+      ...env,
+      configuredEnabled: config.telemetry !== false,
+      configState: 'present',
+      anonymousId: config.anonymousId,
+    })
   } catch {
-    return true
+    return resolveTelemetryStatus({ ...env, configuredEnabled: true, configState: 'unavailable' })
   }
+}
+
+export function isTelemetryEnabled(): boolean {
+  return getTelemetryStatus().enabled
 }
 
 /**

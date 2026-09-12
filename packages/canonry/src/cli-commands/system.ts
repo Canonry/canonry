@@ -3,6 +3,7 @@ import { startDaemon, stopDaemon } from '../commands/daemon.js'
 import { initCommand } from '../commands/init.js'
 import { serveCommand } from '../commands/serve.js'
 import { telemetryCommand } from '../commands/telemetry.js'
+import { showOperationalLogs } from '../commands/logs.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -28,6 +29,20 @@ export function applyServerEnv(values: CliValues): void {
 }
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['logs'],
+    usage: 'canonry logs [--level trace|debug|info|warn|error|fatal] [--module <name>] [--run-id <id>] [--project-id <id>] [--actor <user:id|api-key:id>] [--request-id <id>] [--since <ISO>] [--until <ISO>] [--limit <1..200>] [--cursor <cursor>] [--format json|jsonl]',
+    help: 'Read bounded, redacted runtime logs. Inspect retention and captureErrors for coverage. Requires an instance-wide logs.read grant; project filters do not grant access. Use history for audit events.',
+    options: { level: stringOption(), module: stringOption(), 'run-id': stringOption(), 'project-id': stringOption(), actor: stringOption(), 'request-id': stringOption(), since: stringOption(), until: stringOption(), limit: stringOption(), cursor: stringOption() },
+    allowPositionals: false,
+    run: async input => showOperationalLogs({
+      level: getString(input.values, 'level'), module: getString(input.values, 'module'),
+      runId: getString(input.values, 'run-id'), projectId: getString(input.values, 'project-id'),
+      actor: getString(input.values, 'actor'), requestId: getString(input.values, 'request-id'),
+      since: getString(input.values, 'since'), until: getString(input.values, 'until'),
+      limit: getString(input.values, 'limit'), cursor: getString(input.values, 'cursor'),
+    }, input.format),
+  },
   {
     path: ['init'],
     usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
@@ -136,35 +151,38 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['telemetry', 'status'],
-    usage: 'canonry telemetry status [--format json]',
+    usage: 'canonry telemetry status [--target local|server] [--format json]',
+    options: { target: stringOption() },
     allowPositionals: false,
-    run: (input) => {
-      telemetryCommand('status', input.format)
+    run: async (input) => {
+      await telemetryCommand('status', input.format, getString(input.values, 'target'))
     },
   },
   {
     path: ['telemetry', 'enable'],
-    usage: 'canonry telemetry enable [--format json]',
+    usage: 'canonry telemetry enable [--target local|server] [--format json]',
+    options: { target: stringOption() },
     allowPositionals: false,
-    run: (input) => {
-      telemetryCommand('enable', input.format)
+    run: async (input) => {
+      await telemetryCommand('enable', input.format, getString(input.values, 'target'))
     },
   },
   {
     path: ['telemetry', 'disable'],
-    usage: 'canonry telemetry disable [--format json]',
+    usage: 'canonry telemetry disable [--target local|server] [--format json]',
+    options: { target: stringOption() },
     allowPositionals: false,
-    run: (input) => {
-      telemetryCommand('disable', input.format)
+    run: async (input) => {
+      await telemetryCommand('disable', input.format, getString(input.values, 'target'))
     },
   },
   {
     path: ['telemetry'],
-    usage: 'canonry telemetry <status|enable|disable> [--format json]',
+    usage: 'canonry telemetry <status|enable|disable> [--target local|server] [--format json]',
     run: (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'telemetry',
-        usage: 'canonry telemetry <status|enable|disable> [--format json]',
+        usage: 'canonry telemetry <status|enable|disable> [--target local|server] [--format json]',
         available: ['status', 'enable', 'disable'],
       })
     },

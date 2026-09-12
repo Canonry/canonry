@@ -515,6 +515,18 @@ describe('MCP over Streamable HTTP', () => {
     expect(res.statusCode).toBeLessThan(400)
   })
 
+  it('automatically narrows a logs.read-only credential to read tools', async () => {
+    const created = await request(built, {
+      method: 'POST', url: '/api/v1/keys', headers: { authorization: `Bearer ${built.wildcardKey}` },
+      payload: { name: 'log observer', scopes: ['logs.read'] },
+    })
+    expect(created.statusCode).toBe(200)
+    const key = created.json().key as string
+    const tools = await toolsFor(built, '/api/v1/mcp', key)
+    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name), 'canonry_help'])
+    expect(tools).toContain('canonry_logs_list')
+  })
+
   it('issues a session id on initialize and accepts it on a follow-up', async () => {
     const first = await initRequest(built, built.readOnlyKey)
     const sessionId = first.headers['mcp-session-id']

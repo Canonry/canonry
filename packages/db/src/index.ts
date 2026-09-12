@@ -1,6 +1,7 @@
 export * from './client.js'
 export * from './json.js'
 export * from './migrate.js'
+export * from './operational-logs.js'
 export * from './run-helpers.js'
 export * from './schema.js'
 export * from './snapshot-helpers.js'

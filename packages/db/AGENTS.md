@@ -13,6 +13,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 | `src/client.ts` | `createClient()` factory — WAL journal, foreign keys, 5s busy timeout |
 | `src/json.ts` | `parseJsonColumn<T>(value, fallback)` — safe JSON deserialization for DB columns |
 | `src/index.ts` | Re-exports all public API |
+| `src/operational-logs.ts` | Bounded durable runtime diagnostics; sanitized, cursor-bound reads. Diagnostic writes/pruning use zero lock-wait and synchronously restore the application's busy timeout; failed capture falls back to an in-memory error counter. |
 
 ## Table Groups
 
@@ -122,6 +123,8 @@ db.insert(usageCounters).values({
 - **Using raw `JSON.parse` on DB column values** — use `parseJsonColumn()` instead.
 - **Doing async I/O inside SQLite transactions** — better-sqlite3 requires synchronous transactions.
 - **Read-then-write for counters** — use INSERT ON CONFLICT UPDATE instead.
+- **Treating runtime logs as audit history** — `OperationalLogStore` is bounded,
+  sanitizes every projection, and retention loss is explicit in its DTO.
 
 ## See Also
 

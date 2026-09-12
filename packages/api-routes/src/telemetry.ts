@@ -1,14 +1,19 @@
 import type { FastifyInstance } from 'fastify'
 import {
   notImplemented,
+  normalizeTelemetryStatus,
   normalizeOnboardingEventForCollection,
   onboardingTelemetryEventSchema,
   validationError,
   type OnboardingTelemetryEvent,
+  type TelemetryStatusInput,
 } from '@ainyc/canonry-contracts'
+import { requireScope } from './auth.js'
+import { SETTINGS_WRITE_SCOPE } from './settings.js'
+import { auditFromRequest, writeAuditLog } from './helpers.js'
 
 export interface TelemetryRoutesOptions {
-  getTelemetryStatus?: () => { enabled: boolean; anonymousId?: string }
+  getTelemetryStatus?: () => TelemetryStatusInput
   setTelemetryEnabled?: (enabled: boolean) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
 }
@@ -19,14 +24,11 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       throw notImplemented('Telemetry status is not available in this deployment')
     }
 
-    const status = opts.getTelemetryStatus()
-    return {
-      enabled: status.enabled,
-      anonymousId: status.anonymousId ? status.anonymousId.slice(0, 8) + '...' : undefined,
-    }
+    return normalizeTelemetryStatus(opts.getTelemetryStatus())
   })
 
-  app.put<{ Body: { enabled: boolean } }>('/telemetry', async (request) => {
+  app.put<{ Body?: { enabled?: boolean } }>('/telemetry', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
     if (!opts.setTelemetryEnabled) {
       throw notImplemented('Telemetry configuration is not available in this deployment')
     }
@@ -38,10 +40,28 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
 
     opts.setTelemetryEnabled(enabled)
     const status = opts.getTelemetryStatus?.()
-    return {
-      enabled: status?.enabled ?? enabled,
-      anonymousId: status?.anonymousId ? status.anonymousId.slice(0, 8) + '...' : undefined,
+    const effective = normalizeTelemetryStatus(status ?? { enabled })
+
+    // The host persists config and this route persists audit history in
+    // separate stores. Do not report a successful setting change as failed
+    // merely because the best-effort audit insert is unavailable.
+    if (app.hasDecorator('db')) {
+      try {
+        writeAuditLog(app.db, auditFromRequest(request, {
+          actor: 'api',
+          action: 'telemetry.updated',
+          entityType: 'telemetry',
+          diff: {
+            target: effective.target,
+            configuredEnabled: effective.configuredEnabled,
+            reason: effective.reason,
+          },
+        }))
+      } catch {
+        app.log.warn({ action: 'telemetry.updated' }, 'Telemetry setting audit write failed')
+      }
     }
+    return effective
   })
 
   app.post<{ Body: unknown }>('/telemetry/onboarding', async (request, reply) => {

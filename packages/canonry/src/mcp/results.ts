@@ -13,6 +13,7 @@ type CanonryErrorEnvelope = {
 export function jsonToolResult(value: unknown): CallToolResult {
   const result = value === undefined ? { ok: true } : value
   return {
+    structuredContent: toStructuredContent(result),
     content: [
       {
         type: 'text',
@@ -23,15 +24,24 @@ export function jsonToolResult(value: unknown): CallToolResult {
 }
 
 export function errorToolResult(error: unknown): CallToolResult {
+  const envelope = toCanonryErrorEnvelope(error)
   return {
     isError: true,
+    structuredContent: envelope,
     content: [
       {
         type: 'text',
-        text: JSON.stringify(toCanonryErrorEnvelope(error), null, 2),
+        text: JSON.stringify(envelope, null, 2),
       },
     ],
   }
+}
+
+/** MCP structured content must be an object; preserve the legacy text payload verbatim. */
+function toStructuredContent(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) return { items: value }
+  if (value !== null && typeof value === 'object') return value as Record<string, unknown>
+  return { value }
 }
 
 export async function withToolErrors(handler: () => Promise<unknown>): Promise<CallToolResult> {

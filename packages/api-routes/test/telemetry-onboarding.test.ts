@@ -1,6 +1,13 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import Fastify from 'fastify'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { OnboardingTelemetryEvent } from '@ainyc/canonry-contracts'
+import { apiKeys, auditLog, createClient, migrate } from '@ainyc/canonry-db'
+import { apiRoutes } from '../src/index.js'
+import { hashApiKey } from '../src/auth.js'
 import { telemetryRoutes } from '../src/telemetry.js'
 
 async function buildApp(recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void) {
@@ -91,5 +98,92 @@ describe('onboarding telemetry route', () => {
 
     expect(response.statusCode).toBe(400)
     await app.close()
+  })
+})
+
+describe('telemetry settings authorization', () => {
+  const dirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  async function buildAuthenticatedApp() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-telemetry-auth-'))
+    dirs.push(dir)
+    const db = createClient(path.join(dir, 'test.db'))
+    migrate(db)
+    let configuredEnabled = true
+    const app = Fastify()
+    await app.register(apiRoutes, {
+      db,
+      getTelemetryStatus: () => ({
+        enabled: configuredEnabled,
+        configuredEnabled,
+        reason: configuredEnabled ? 'enabled' : 'configured_disabled',
+        anonymousId: '01234567-89ab-4cde-8fab-0123456789ab',
+      }),
+      setTelemetryEnabled: (enabled) => { configuredEnabled = enabled },
+    })
+    await app.ready()
+
+    const seed = (name: string, scopes: string[]) => {
+      const token = `cnry_${name}_${crypto.randomUUID().replaceAll('-', '')}`
+      db.insert(apiKeys).values({
+        id: crypto.randomUUID(),
+        name,
+        keyHash: hashApiKey(token),
+        keyPrefix: token.slice(0, 9),
+        scopes,
+        createdAt: new Date().toISOString(),
+      }).run()
+      return token
+    }
+
+    return { app, db, seed, configured: () => configuredEnabled }
+  }
+
+  it('allows root and settings.write keys, and rejects unrelated scopes', async () => {
+    const { app, db, seed, configured } = await buildAuthenticatedApp()
+    try {
+      const root = seed('root', ['*'])
+      const settings = seed('settings', ['settings.write'])
+      const empty = seed('empty', [])
+      const runs = seed('runs', ['runs.write'])
+      const reader = seed('reader', ['read'])
+      const research = seed('research', ['research.run'])
+
+      for (const token of [empty, runs, reader, research]) {
+        const denied = await app.inject({
+          method: 'PUT', url: '/api/v1/telemetry',
+          headers: { authorization: `Bearer ${token}` }, payload: { enabled: false },
+        })
+        expect(denied.statusCode).toBe(403)
+        expect(configured()).toBe(true)
+      }
+
+      const settingsWrite = await app.inject({
+        method: 'PUT', url: '/api/v1/telemetry',
+        headers: { authorization: `Bearer ${settings}` }, payload: { enabled: false },
+      })
+      expect(settingsWrite.statusCode).toBe(200)
+      expect(settingsWrite.json()).toMatchObject({
+        enabled: false, configuredEnabled: false, reason: 'configured_disabled', target: 'server',
+      })
+      expect(settingsWrite.body).not.toContain('01234567-89ab')
+
+      const rootWrite = await app.inject({
+        method: 'PUT', url: '/api/v1/telemetry',
+        headers: { authorization: `Bearer ${root}` }, payload: { enabled: true },
+      })
+      expect(rootWrite.statusCode).toBe(200)
+      expect(configured()).toBe(true)
+      const audit = db.select().from(auditLog).all()
+      expect(audit).toHaveLength(2)
+      expect(audit[0]).toMatchObject({ action: 'telemetry.updated', entityType: 'telemetry' })
+      expect(audit[0].diff).not.toContain('01234567-89ab')
+    } finally {
+      await app.close()
+    }
   })
 })

@@ -101,7 +101,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
       const id = crypto.randomUUID()
       tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, scope, template, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, initiatedBy, createdAt: now }).run()
       for (const [position, query] of input.queries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, queryClass: queryClasses[position] ?? null, status: ResearchQueryStatuses.queued, requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
-      writeAuditLog(tx, { projectId: project.id, actor: initiatedBy ? `${initiatedBy.kind}:${initiatedBy.id}` : 'api', action: 'research.created', entityType: 'research_run', entityId: id })
+      writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'research.created', entityType: 'research_run', entityId: id })
       return { reused: false as const, id, shouldDispatch: true }
     })
     const result = getDetail(app, project.id, decision.id)
@@ -170,7 +170,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
           requestedModel: run.requestedModel, resolvedModel: run.resolvedModel,
           groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now,
         }).run()
-        writeAuditLog(tx, { projectId: project.id, actor: initiatedBy ? `${initiatedBy.kind}:${initiatedBy.id}` : 'api', action: 'research.created', entityType: 'research_run', entityId: id })
+        writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'research.created', entityType: 'research_run', entityId: id })
       }
       return { ids }
     })
