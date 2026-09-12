@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
-import { createApiClient, type ApiClient } from '../client.js'
+import { createApiClient, runWithUsageTags, type ApiClient } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
 import { errorToolResult, jsonToolResult, withToolErrors } from './results.js'
@@ -54,7 +55,7 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 const SERVER_INSTRUCTIONS = OPERATIONS_GUIDE.initialize
 
 export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
-  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp' }))
+  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp', surface: 'mcp-stdio', actorSession: randomUUID() }))
   const client = clientFactory()
   const scope = options.scope ?? 'all'
   const server = new McpServer({
@@ -81,7 +82,13 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
       },
       async (input: unknown) => withToolErrors(async () => {
         const parsed = tool.inputSchema.parse(input ?? {})
-        return handler(client, parsed)
+        // Label every API request this tool call makes, so the server can
+        // attribute it to the tool and to the MCP client that asked for it.
+        return runWithUsageTags(client, {
+          mcpTool: tool.name,
+          mcpCall: randomUUID(),
+          mcpClient: server.server.getClientVersion()?.name,
+        }, () => handler(client, parsed))
       }),
     )
     entries.push({ tool, registered })

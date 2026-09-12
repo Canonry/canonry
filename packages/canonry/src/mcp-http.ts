@@ -232,6 +232,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, {
       skipProbe: true,
       clientName: `canonry-mcp/${PACKAGE_VERSION}`,
+      surface: 'mcp-http',
       // Correlation only: this is never accepted as caller identity or authority.
       actorSession: crypto.randomUUID(),
     })

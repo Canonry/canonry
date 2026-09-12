@@ -1,6 +1,7 @@
 import { Type, type TSchema } from '@sinclair/typebox'
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
-import type { ApiClient } from '../client.js'
+import { randomUUID } from 'node:crypto'
+import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
   type CanonryMcpRegistryTool,
@@ -251,7 +252,8 @@ export function mcpToAgentTool(
     params: Record<string, unknown>,
   ): Promise<AgentToolResult<unknown>> => {
     const handlerInput = hadProject ? { ...params, project: ctx.projectName } : params
-    const result = await tool.handler(ctx.client, handlerInput as never)
+    const result = await runWithUsageTags(ctx.client, { mcpTool: tool.name, mcpCall: randomUUID() }, () =>
+      tool.handler(ctx.client, handlerInput as never))
     return textResult(result)
   }
 

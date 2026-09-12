@@ -3,6 +3,7 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
+import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge } from './skills.js'
@@ -143,6 +144,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     trackEvent('serve.started', {
       providerCount: providerNames.length,
       providers: providerNames,
+      // Who launched the server: an agent-started install is its own funnel.
+      ...cliRuntimeContext(),
     })
   } catch (err) {
     const message = describeError(err)

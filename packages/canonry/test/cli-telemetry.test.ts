@@ -80,6 +80,8 @@ describe('CLI command lifecycle telemetry', () => {
     expect(mocks.trackEvent).toHaveBeenCalledWith('cli.command', {
       command: 'wordpress.schema.deploy',
       setup_state: beforeState,
+      agent: expect.any(String),
+      interactive: expect.any(Boolean),
     })
     expect(mocks.trackFinished).toHaveBeenCalledWith({
       command: 'wordpress.schema.deploy',
@@ -158,6 +160,8 @@ describe('CLI command lifecycle telemetry', () => {
 
     expect(mocks.trackEvent).toHaveBeenCalledWith('cli.command', {
       command: 'unknown',
+      agent: expect.any(String),
+      interactive: expect.any(Boolean),
     })
     expect(mocks.trackFinished).toHaveBeenCalledWith(
       expect.objectContaining({

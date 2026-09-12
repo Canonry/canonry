@@ -7,6 +7,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
 import type { SetupState } from './setup-state.js'
+import { cliRuntimeContext } from './runtime-context.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -136,6 +137,7 @@ export function trackCliCommandFinished(input: CliCommandFinishedInput): void {
       success: input.success,
       duration_bucket: bucketCliCommandDuration(input.durationMs),
       ...(input.setupState ? { setup_state: input.setupState } : {}),
+      ...cliRuntimeContext(),
     },
     input.errorCode ? { errorCode: input.errorCode } : undefined,
   )

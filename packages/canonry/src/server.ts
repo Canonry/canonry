@@ -142,6 +142,7 @@ import {
   setTelemetryPreference,
   trackEvent,
 } from "./telemetry.js";
+import { createApiUsageTelemetry } from "./usage-telemetry.js";
 import { checkLatestVersionForServer } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
@@ -944,6 +945,7 @@ export async function createServer(opts: {
   // server don't fail at construction time.
   const aeroClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: "aero",
   });
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
@@ -2504,6 +2506,9 @@ export async function createServer(opts: {
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
+    // Agent-surface usage (MCP, Aero, raw API). CLI and dashboard requests are
+    // measured elsewhere and skipped inside.
+    onRequestCompleted: createApiUsageTelemetry(),
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,

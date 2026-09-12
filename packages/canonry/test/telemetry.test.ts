@@ -395,6 +395,8 @@ describe('telemetry', () => {
             project_count: 1,
             is_first_run: false,
           },
+          agent: expect.any(String),
+          interactive: expect.any(Boolean),
         })
       } finally {
         globalThis.fetch = originalFetch
