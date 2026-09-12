@@ -110,8 +110,49 @@ jobs:
             echo "docker_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+  ci:
+    name: Wait for CI
+    needs: version
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+    steps:
+      # The push already starts ci.yml. Reuse its completed validation for this
+      # exact commit instead of repeating cold typechecks and a serial suite.
+      - name: Require successful CI for the release commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const branch = context.ref.replace('refs/heads/', '');
+            const deadline = Date.now() + 25 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...context.repo,
+                workflow_id: 'ci.yml',
+                head_sha: context.sha,
+                branch,
+                event: 'push',
+                per_page: 100,
+              });
+              const run = data.workflow_runs
+                .filter(run => run.head_sha === context.sha && run.event === 'push' && run.head_branch === branch)
+                .sort((a, b) => b.id - a.id)[0];
+              if (run?.status === 'completed') {
+                if (run.conclusion !== 'success') {
+                  throw new Error(`CI ${run.id} ended with ${run.conclusion}: ${run.html_url}`);
+                }
+                core.info(`CI passed for ${context.sha}: ${run.html_url}`);
+                return;
+              }
+              core.info(`Waiting for CI on ${context.sha} (${run?.status ?? 'not started'})`);
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            throw new Error(`Timed out waiting for successful CI on ${context.sha}`);
+
   publish-npm:
-    needs: [version, plugin-drift]
+    needs: [version, plugin-drift, ci]
     if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -131,10 +172,6 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm run typecheck
-
-      - run: pnpm run test
 
       - name: Build and publish npm packages
         run: node scripts/publish-canonry-npm.mjs

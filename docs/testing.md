@@ -119,6 +119,34 @@ Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
 CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
 
+### CI caches
+
+Lint and typechecks use four concurrent package processes without dependency ordering.
+They read workspace source directly and produce no artifacts needed by another package's check.
+Builds retain dependency ordering.
+
+Typechecks reuse TypeScript incremental state, including the root `scripts/` and `test/` projects.
+CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
+This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
+
+Tests run in four shards on each of Node 22 and Node 26. CI persists Vitest's experimental module-transform cache and Node's compile cache.
+These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
+Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
+Adding or removing tracked files also invalidates the cache because it can change import resolution.
+Vitest checks module contents before reusing a transform. Changes to transform plugins or their external inputs must also invalidate the CI cache key.
+
+Successful `main` runs warm caches that PRs can restore. Each PR can also reuse its own caches.
+A cache miss runs the checks normally. Local test commands keep their existing behavior.
+To bypass the test compilation caches in CI, omit the two `--experimental` flags and set `NODE_DISABLE_COMPILE_CACHE=1`.
+
+Npm publishing waits for the successful `ci.yml` push run on the exact release commit and branch.
+It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
+The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish jobs to retry the gate.
+
+The build job packs Canonry once and uploads the tarball for the install smoke test.
+The smoke job installs that artifact in a scratch directory without a repository checkout or workspace dependencies.
+Artifacts remain available for seven days; after expiry, rerun the build job before retrying the smoke test.
+
 ## Package Verification
 
 To verify the publishable package:
