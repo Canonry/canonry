@@ -111,4 +111,22 @@ describe('telemetry.disabled', () => {
     await expect(setTelemetryPreference(false, 'api')).resolves.toBeUndefined()
     expect(await configuredTelemetry()).toBe(false)
   })
+
+  // File modes do not stop root, which would make the write succeed and the test meaningless.
+  it.skipIf(process.getuid?.() === 0)('announces nothing when the opt-out cannot be written, so a retry never counts twice', async () => {
+    const { setTelemetryPreference } = await import('../src/telemetry.js')
+    const configPath = path.join(configDir, 'config.yaml')
+    fs.chmodSync(configPath, 0o444)
+    fs.chmodSync(configDir, 0o555)
+    try {
+      expect(() => setTelemetryPreference(false, 'cli')).toThrow()
+      expect(() => setTelemetryPreference(false, 'cli')).toThrow()
+    } finally {
+      fs.chmodSync(configDir, 0o755)
+      fs.chmodSync(configPath, 0o644)
+    }
+
+    expect(payloads).toEqual([])
+    expect(await configuredTelemetry()).toBe(true)
+  })
 })

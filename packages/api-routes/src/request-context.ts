@@ -59,11 +59,6 @@ export function requestAuditIdentity(
 }
 
 /**
- * Register the request scope before authPlugin. The callback-style onRequest
- * hook is important: Fastify resumes the rest of its lifecycle through
- * `done`, preserving this AsyncLocalStorage scope for concurrent requests.
- */
-/**
  * What a completed request can tell usage telemetry, and nothing more: the
  * route TEMPLATE (never a URL, parameter, or query string), the outcome, and
  * the caller-supplied usage labels. The labels are unvalidated here; the host
@@ -97,6 +92,11 @@ function headerValue(value: string | string[] | undefined): string | undefined {
   return first ? first.slice(0, MAX_REQUEST_CONTEXT_LENGTH) : undefined
 }
 
+/**
+ * Register the request scope before authPlugin. The callback-style onRequest
+ * hook is important: Fastify resumes the rest of its lifecycle through
+ * `done`, preserving this AsyncLocalStorage scope for concurrent requests.
+ */
 export function registerRequestContext(app: FastifyInstance, options: RequestContextOptions = {}): void {
   app.addHook('onRequest', (request, reply, done) => {
     reply.header('x-request-id', request.id)

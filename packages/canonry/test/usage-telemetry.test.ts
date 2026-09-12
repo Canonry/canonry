@@ -119,6 +119,19 @@ describe('createApiUsageTelemetry', () => {
     ])
   })
 
+  it('does not re-count still-open MCP sessions once the tracked-session cap is reached', () => {
+    const { events, hook } = recorder()
+    const sessionCount = () => events.filter(e => e.event === 'mcp.session.started').length
+
+    for (let i = 0; i < 2000; i++) hook(request({ actorSession: `session-${i}` }))
+    expect(sessionCount()).toBe(2000)
+
+    // One more connection evicts only the oldest; an open session's next tool call is not a new session.
+    hook(request({ actorSession: 'session-new' }))
+    hook(request({ actorSession: 'session-1999' }))
+    expect(sessionCount()).toBe(2001)
+  })
+
   it('stays inside the collector hourly per-IP budget under a sustained agent loop', () => {
     // The collector drops every event from an IP past 1,000/hour, so this stream
     // must leave room for the install's other events.

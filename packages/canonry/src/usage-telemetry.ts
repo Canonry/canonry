@@ -100,8 +100,9 @@ export function createApiUsageTelemetry(options: ApiUsageTelemetryOptions = {}):
     const labels = info.usageLabels
     const mcpClient = normalizeAgentSlug(labels.mcpClient)
     const detected = normalizeAgentSlug(labels.agent)
-    // A hosted MCP server runs in no agent's environment, so its env-detected
-    // label is always `none`; the MCP client's own name is the better signal.
+    // Server-built clients (hosted MCP, Aero) send no env-detected agent, since
+    // the server's environment says nothing about the caller; the MCP client's
+    // own name is the better signal there.
     const agent = detected && detected !== AGENT_NONE ? detected : (mcpClient ?? detected ?? AGENT_NONE)
     const mcpTool = labels.mcpTool && MCP_TOOL_PATTERN.test(labels.mcpTool) ? labels.mcpTool : undefined
     const mcpCallId = labels.mcpCall && MCP_CALL_ID_PATTERN.test(labels.mcpCall) ? labels.mcpCall.toLowerCase() : undefined
@@ -111,7 +112,12 @@ export function createApiUsageTelemetry(options: ApiUsageTelemetryOptions = {}):
     // first request carrying the client name, which initialize only provides
     // after the adapter's startup probe has already gone out.
     if (isMcp && mcpTool && info.actorSession && !seenSessions.has(info.actorSession)) {
-      if (seenSessions.size >= MAX_TRACKED_MCP_SESSIONS) seenSessions.clear()
+      // Evict the oldest connection only. Clearing the whole set would re-count
+      // every still-open session on its next tool call.
+      if (seenSessions.size >= MAX_TRACKED_MCP_SESSIONS) {
+        const oldest = seenSessions.values().next().value
+        if (oldest !== undefined) seenSessions.delete(oldest)
+      }
       seenSessions.add(info.actorSession)
       emit('mcp.session.started', { surface, agent, ...(mcpClient ? { mcpClient } : {}) }, { source: 'cli-server' })
     }

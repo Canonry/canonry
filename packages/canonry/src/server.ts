@@ -947,12 +947,19 @@ export async function createServer(opts: {
     skipProbe: true,
     surface: "aero",
   });
+  // The scheduler callbacks below (data-refresh, traffic, doctor, backlinks)
+  // are server automation, not Aero, so they get their own client without the
+  // `aero` usage label. Otherwise every scheduled sync would be reported as
+  // `api.request` agent traffic and spend the per-process telemetry budget
+  // that real agent requests need. Unlabelled, usage telemetry skips them like
+  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
+    skipProbe: true,
+  });
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
-  // the data/intelligence/notification pipeline is unaffected. `aeroClient`
-  // itself stays: the scheduler callbacks below reuse it (data-refresh,
-  // traffic, backlinks), which is unrelated to Aero.
+  // the data/intelligence/notification pipeline is unaffected.
   const agentEnabled = resolveAgentEnabled(process.env, opts.config);
   const sessionRegistry = agentEnabled
     ? new SessionRegistry({
@@ -1654,10 +1661,10 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
-      // Reuse the same in-process API client Aero uses. The traffic-sync
+      // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      aeroClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
         app.log.error(
           {
             projectName,
@@ -1683,7 +1690,7 @@ export async function createServer(opts: {
       // degraded instrument kept emitting `run.completed` and looked healthy.
       void (async () => {
         try {
-          const report = await aeroClient.runDoctor({ project: projectName });
+          const report = await schedulerClient.runDoctor({ project: projectName });
           const project = opts.db
             .select()
             .from(projects)
@@ -1710,7 +1717,7 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(aeroClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName);
     },
     onBacklinksSyncRequested: (projectName) => {
       // Re-probe Common Crawl for the newest rolling window. The release sync is
@@ -1749,7 +1756,7 @@ export async function createServer(opts: {
           );
           return;
         }
-        aeroClient
+        schedulerClient
           .backlinksTriggerSync(probed.release)
           .catch((err: unknown) => {
             app.log.error(

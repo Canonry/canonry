@@ -48,6 +48,34 @@ describe('ApiClient usage labels', () => {
     ])
   })
 
+  it('never fails a tool call over an MCP client name a header cannot carry', async () => {
+    const client = new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true, surface: 'mcp-stdio' })
+    const requests = captureRequests()
+
+    // Headers.set throws on non-Latin-1 and control characters; clientInfo.name is free text.
+    await expect(runWithUsageTags(client, { mcpTool: 'canonry_a', mcpClient: 'Claude — Desktop 日本' }, () => client.listProjects())).resolves.toEqual([])
+    await expect(runWithUsageTags(client, { mcpTool: 'canonry_a', mcpClient: 'bad\nname' }, () => client.listProjects())).resolves.toEqual([])
+    await expect(runWithUsageTags(client, { mcpTool: 'canonry_a', mcpClient: '日本' }, () => client.listProjects())).resolves.toEqual([])
+
+    expect(requests.map(r => r.headers.get('x-canonry-mcp-client'))).toEqual(['claude-desktop', 'bad-name', null])
+  })
+
+  it('claims no env-detected agent for clients the server builds for itself', async () => {
+    vi.stubEnv('CLAUDECODE', '1')
+    try {
+      const requests = captureRequests()
+
+      await new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true, surface: 'aero' }).listProjects()
+      await new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true, surface: 'mcp-http' }).listProjects()
+      await new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true, surface: 'mcp-stdio' }).listProjects()
+
+      // `canonry serve` launched from Claude Code must not label hosted MCP or Aero traffic as Claude.
+      expect(requests.map(r => r.headers.get('x-canonry-agent'))).toEqual([null, null, 'claude'])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('runs the work unlabelled for a client double that cannot carry labels', async () => {
     const fake = { listProjects: vi.fn().mockResolvedValue([]) }
     await expect(runWithUsageTags(fake, { mcpTool: 'canonry_a' }, () => fake.listProjects())).resolves.toEqual([])

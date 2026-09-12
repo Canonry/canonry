@@ -436,8 +436,10 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * `telemetry.disabled` is the last event an install sends. Without it an
  * opt-out is indistinguishable from a user who stopped using Canonry, so the
  * opt-out rate cannot be measured and every retention figure silently absorbs
- * it. The event is composed while telemetry is still on, before the preference
- * is written, and carries only how the preference was changed.
+ * it. Whether to announce is decided while telemetry is still on, before the
+ * preference is written; the event is sent only after the write succeeds, so an
+ * opt-out that could not be persisted (read-only config) is never announced and
+ * a retry cannot announce it twice. It carries only how the preference changed.
  *
  * Nothing is sent when telemetry is already effectively off, including when an
  * environment override (CI, DO_NOT_TRACK, CANONRY_TELEMETRY_DISABLED) wins, so
@@ -448,9 +450,11 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * event that can never be retried.
  */
 export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
-  const delivery = enabled ? Promise.resolve() : deliverEvent('telemetry.disabled', { method })
+  const announce = !enabled && isTelemetryEnabled()
   saveConfigPatch({ telemetry: enabled })
-  return delivery
+  return announce
+    ? deliverEvent('telemetry.disabled', { method }, undefined, { preferenceChecked: true })
+    : Promise.resolve()
 }
 
 /** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
@@ -458,8 +462,11 @@ function deliverEvent(
   event: string,
   properties?: TelemetryProperties,
   options?: TrackEventOptions,
+  delivery: { preferenceChecked?: boolean } = {},
 ): Promise<void> {
-  if (!isTelemetryEnabled()) return Promise.resolve()
+  // `preferenceChecked`: the caller already confirmed telemetry was on before
+  // it wrote the opt-out that would otherwise suppress this final event.
+  if (!delivery.preferenceChecked && !isTelemetryEnabled()) return Promise.resolve()
   if (shouldDropTelemetryEvent(event, properties)) return Promise.resolve()
 
   const anonymousId = getOrCreateAnonymousId()
