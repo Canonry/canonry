@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type UsageSurface } from '@ainyc/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
@@ -742,6 +744,28 @@ export interface ApiClientOptions {
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
   actorSession?: string
+  /** Usage-telemetry label for the interface this client serves. Defaults to `cli`. Never identity. */
+  surface?: UsageSurface
+}
+
+/** Per-call usage labels, e.g. the MCP tool that issued the requests. */
+export interface UsageTags {
+  mcpTool?: string
+  mcpCall?: string
+  mcpClient?: string
+}
+
+const usageTagStore = new AsyncLocalStorage<UsageTags>()
+
+/**
+ * Run `fn` with usage labels attached to every API request it makes through an
+ * `ApiClient`. Scoped by AsyncLocalStorage, so concurrent tool calls never
+ * borrow each other's labels. A client without tagging support (a test double)
+ * just runs `fn`.
+ */
+export function runWithUsageTags<T>(client: unknown, tags: UsageTags, fn: () => Promise<T>): Promise<T> {
+  if (!(client instanceof ApiClient)) return fn()
+  return usageTagStore.run(tags, fn)
 }
 
 const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
@@ -823,12 +847,29 @@ export class ApiClient {
     this.probeSkipped = opts?.skipProbe ?? false
     this.heyClientBaseUrl = this.originUrl
     const actorSession = safeActorSession(opts?.actorSession)
+    const surface = opts?.surface ?? 'cli'
+    // A client the server builds for itself (hosted MCP, Aero) runs in the
+    // server's environment: whichever agent launched `canonry serve` is not the
+    // agent issuing these requests, so no env-detected agent is claimed.
+    const serverHosted = surface === 'mcp-http' || surface === 'aero'
     this.requestHeaders = {
       authorization: `Bearer ${this.apiKey}`,
       'user-agent': safeClientName(opts?.clientName),
       ...(actorSession ? { 'x-canonry-actor-session': actorSession } : {}),
+      [USAGE_TELEMETRY_HEADERS.surface]: surface,
+      ...(serverHosted ? {} : { [USAGE_TELEMETRY_HEADERS.agent]: detectAgentRuntime(process.env) }),
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
+    this.heyClient.interceptors.request.use((request) => {
+      const tags = usageTagStore.getStore()
+      if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
+      if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
+      // clientInfo.name is free text from the MCP client. A non-Latin-1 or
+      // control character would make Headers.set throw and fail the tool call.
+      const mcpClient = normalizeAgentSlug(tags?.mcpClient)
+      if (mcpClient) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpClient, mcpClient)
+      return request
+    })
   }
 
   /**
@@ -1173,8 +1214,10 @@ export class ApiClient {
 
     let res: Response
     try {
+      // The shared headers carry the surface label; without them a CLI export
+      // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
+        headers: { ...this.requestHeaders },
       })
     } catch (err) {
       const message = describeError(err)

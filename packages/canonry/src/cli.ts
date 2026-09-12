@@ -11,6 +11,7 @@ import {
 } from './telemetry.js'
 import { autoSyncSkills, formatAutoSyncNotice } from './skills-autosync.js'
 import { buildSetupState } from './setup-state.js'
+import { cliRuntimeContext } from './runtime-context.js'
 import type { CliFormat } from './cli-error.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
@@ -203,6 +204,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     trackEvent('cli.command', {
       command: resolvedCommand,
       ...(setupState ? { setup_state: setupState } : {}),
+      ...cliRuntimeContext(),
     })
   }
 

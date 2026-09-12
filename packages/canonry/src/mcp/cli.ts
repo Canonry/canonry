@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { isReadOnlyKey } from '@ainyc/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
@@ -62,7 +63,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   // Build the client once, auto-detect a read-only key, then reuse the same
   // client for the server (keeps one client per server instance).
-  const client = createApiClient({ clientName: 'canonry-mcp' })
+  // `actorSession` is a per-process correlation value: the server counts one
+  // MCP session per value. It is never accepted as identity or authority.
+  const client = createApiClient({ clientName: 'canonry-mcp', surface: 'mcp-stdio', actorSession: randomUUID() })
   const authorization = await resolveEffectiveAuthorization(client, options.scope)
   const server = createCanonryMcpServer({ ...authorization, eager: options.eager, clientFactory: () => client })
   await server.connect(new StdioServerTransport())

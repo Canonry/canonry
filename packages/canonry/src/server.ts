@@ -75,7 +75,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentEnabled } from "./agent-config.js";
-import { saveConfigPatch, loadConfig, getConfigPath } from "./config.js";
+import { saveConfigPatch, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -139,8 +139,10 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  setTelemetryPreference,
   trackEvent,
 } from "./telemetry.js";
+import { createApiUsageTelemetry } from "./usage-telemetry.js";
 import { checkLatestVersionForServer } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
@@ -943,13 +945,21 @@ export async function createServer(opts: {
   // server don't fail at construction time.
   const aeroClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: "aero",
+  });
+  // The scheduler callbacks below (data-refresh, traffic, doctor, backlinks)
+  // are server automation, not Aero, so they get their own client without the
+  // `aero` usage label. Otherwise every scheduled sync would be reported as
+  // `api.request` agent traffic and spend the per-process telemetry budget
+  // that real agent requests need. Unlabelled, usage telemetry skips them like
+  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
+    skipProbe: true,
   });
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
-  // the data/intelligence/notification pipeline is unaffected. `aeroClient`
-  // itself stays: the scheduler callbacks below reuse it (data-refresh,
-  // traffic, backlinks), which is unrelated to Aero.
+  // the data/intelligence/notification pipeline is unaffected.
   const agentEnabled = resolveAgentEnabled(process.env, opts.config);
   const sessionRegistry = agentEnabled
     ? new SessionRegistry({
@@ -1651,10 +1661,10 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
-      // Reuse the same in-process API client Aero uses. The traffic-sync
+      // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      aeroClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
         app.log.error(
           {
             projectName,
@@ -1680,7 +1690,7 @@ export async function createServer(opts: {
       // degraded instrument kept emitting `run.completed` and looked healthy.
       void (async () => {
         try {
-          const report = await aeroClient.runDoctor({ project: projectName });
+          const report = await schedulerClient.runDoctor({ project: projectName });
           const project = opts.db
             .select()
             .from(projects)
@@ -1707,7 +1717,7 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(aeroClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName);
     },
     onBacklinksSyncRequested: (projectName) => {
       // Re-probe Common Crawl for the newest rolling window. The release sync is
@@ -1746,7 +1756,7 @@ export async function createServer(opts: {
           );
           return;
         }
-        aeroClient
+        schedulerClient
           .backlinksTriggerSync(probed.release)
           .catch((err: unknown) => {
             app.log.error(
@@ -2503,6 +2513,9 @@ export async function createServer(opts: {
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
+    // Agent-surface usage (MCP, Aero, raw API). CLI and dashboard requests are
+    // measured elsewhere and skipped inside.
+    onRequestCompleted: createApiUsageTelemetry(),
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
@@ -3186,9 +3199,9 @@ export async function createServer(opts: {
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
     setTelemetryEnabled: (enabled: boolean) => {
-      const config = loadConfig();
-      config.telemetry = enabled;
-      saveConfigPatch(config);
+      // Persists synchronously; an opt-out's `telemetry.disabled` event is
+      // delivered in the background, since this process keeps running.
+      void setTelemetryPreference(enabled, "api");
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },

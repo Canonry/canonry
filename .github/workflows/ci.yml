@@ -426,7 +426,10 @@ jobs:
       - name: Smoke test container
         shell: bash
         run: |
-          docker run -d --rm --name canonry-ci -p 4100:4100 -e CANONRY_API_KEY=test canonry:ci
+          # The container does not inherit the runner's CI=true, so telemetry must
+          # be disabled explicitly: every run is a fresh install ID that otherwise
+          # reports `serve.started` and `cli.command` as a real user.
+          docker run -d --rm --name canonry-ci -p 4100:4100 -e CANONRY_API_KEY=test -e CANONRY_TELEMETRY_DISABLED=1 canonry:ci
 
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4100/health >/dev/null; then

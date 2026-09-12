@@ -1,6 +1,6 @@
 {
   "name": "@canonry/canonry",
-  "version": "5.1.1",
+  "version": "5.1.2",
   "type": "module",
   "description": "Self-hosted AI visibility (AEO) platform: track how ChatGPT, Claude, Gemini, and Perplexity cite your domain, join it with Search Console, GA4, server-side traffic, and paid media, and fix what you find through agent tools (CLI, REST, MCP). Local SQLite.",
   "keywords": [

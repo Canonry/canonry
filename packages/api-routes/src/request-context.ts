@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { redactLogString } from '@ainyc/canonry-contracts'
+import { redactLogString, USAGE_TELEMETRY_HEADERS } from '@ainyc/canonry-contracts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -59,11 +59,45 @@ export function requestAuditIdentity(
 }
 
 /**
+ * What a completed request can tell usage telemetry, and nothing more: the
+ * route TEMPLATE (never a URL, parameter, or query string), the outcome, and
+ * the caller-supplied usage labels. The labels are unvalidated here; the host
+ * that turns them into telemetry must validate them, and they must never be
+ * read as identity.
+ */
+export interface ApiRequestCompletedInfo {
+  method: string
+  route: string
+  statusCode: number
+  durationMs: number
+  userAgent?: string
+  actorSession?: string
+  principalKind?: 'user' | 'api-key'
+  usageLabels: {
+    surface?: string
+    agent?: string
+    mcpClient?: string
+    mcpTool?: string
+    mcpCall?: string
+  }
+}
+
+export interface RequestContextOptions {
+  /** Called once per completed request with a matched route. Must not throw; failures are swallowed. */
+  onRequestCompleted?: (info: ApiRequestCompletedInfo) => void
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value
+  return first ? first.slice(0, MAX_REQUEST_CONTEXT_LENGTH) : undefined
+}
+
+/**
  * Register the request scope before authPlugin. The callback-style onRequest
  * hook is important: Fastify resumes the rest of its lifecycle through
  * `done`, preserving this AsyncLocalStorage scope for concurrent requests.
  */
-export function registerRequestContext(app: FastifyInstance): void {
+export function registerRequestContext(app: FastifyInstance, options: RequestContextOptions = {}): void {
   app.addHook('onRequest', (request, reply, done) => {
     reply.header('x-request-id', request.id)
     requestContext.run({
@@ -93,6 +127,30 @@ export function registerRequestContext(app: FastifyInstance): void {
     populateIdentity(request)
     const context = requestContext.getStore()
     if (context) context.statusCode = reply.statusCode
+    const route = request.routeOptions.url
+    if (options.onRequestCompleted && route) {
+      try {
+        const kind = request.principal?.kind
+        options.onRequestCompleted({
+          method: request.method,
+          route,
+          statusCode: reply.statusCode,
+          durationMs: reply.elapsedTime,
+          userAgent: headerValue(request.headers['user-agent']),
+          actorSession: headerValue(request.headers['x-canonry-actor-session']),
+          principalKind: kind === 'user' ? 'user' : kind ? 'api-key' : undefined,
+          usageLabels: {
+            surface: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.surface]),
+            agent: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.agent]),
+            mcpClient: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.mcpClient]),
+            mcpTool: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.mcpTool]),
+            mcpCall: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.mcpCall]),
+          },
+        })
+      } catch {
+        // Usage telemetry must never affect a response that has already been sent.
+      }
+    }
     done()
     if (context) context.completed = true
   })

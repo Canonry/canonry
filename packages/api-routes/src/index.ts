@@ -4,7 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import fs from 'node:fs'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
-import { registerRequestContext } from './request-context.js'
+import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
@@ -113,6 +113,7 @@ export {
 } from './gsc-totals.js'
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
+export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
 export * from './notifications/alert.js'
 export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
@@ -234,6 +235,8 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
+  /** Per-request usage telemetry hook (route template + usage labels only). The host validates labels and applies rate limits. */
+  onRequestCompleted?: RequestContextOptions['onRequestCompleted']
   /** Google auth config and storage */
   getGoogleAuthConfig?: GoogleRoutesOptions['getGoogleAuthConfig']
   /** Resolved Google Places config for the `gbp.places.api-key` doctor check. */
@@ -467,7 +470,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   await app.register(async (api) => {
     // Must be registered before authPlugin so its preHandler sees the
     // authenticated principal while AsyncLocalStorage remains request-local.
-    registerRequestContext(api)
+    registerRequestContext(api, { onRequestCompleted: opts.onRequestCompleted })
     // Expensive POST-based previews opt in per route. Run after authentication
     // so API keys and named users get independent budgets; unauthenticated test
     // harnesses safely fall back to the caller IP.

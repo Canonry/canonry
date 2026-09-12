@@ -290,6 +290,36 @@ describe('telemetry', () => {
       expect(config.apiKey).toBe('cnry_test')
       expect(config.anonymousId).toBeTruthy()
     })
+
+    it('keeps one ID across a command that creates the config, as `canonry bootstrap` does', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+
+      // Start event: no config yet, so the machine-derived fallback is used.
+      const beforeConfig = getOrCreateAnonymousId()
+      expect(beforeConfig).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+
+      // The command writes a config without an ID; its finish event and every
+      // later process (`canonry serve`) must report as the same install.
+      saveConfig(makeConfig())
+      expect(getOrCreateAnonymousId()).toBe(beforeConfig)
+      expect(loadConfig().anonymousId).toBe(beforeConfig)
+    })
+
+    it('never carries a pre-config ID into a different config', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig } = await import('../src/config.js')
+
+      const beforeConfig = getOrCreateAnonymousId()
+      const otherDir = path.join(tmpDir, crypto.randomUUID())
+      fs.mkdirSync(otherDir, { recursive: true })
+      process.env.CANONRY_CONFIG_DIR = otherDir
+      saveConfig(makeConfig())
+
+      const id = getOrCreateAnonymousId()
+      expect(id).not.toBe(beforeConfig)
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    })
   })
 
   // ── isFirstRun ──────────────────────────────────────────────────────
@@ -395,6 +425,8 @@ describe('telemetry', () => {
             project_count: 1,
             is_first_run: false,
           },
+          agent: expect.any(String),
+          interactive: expect.any(Boolean),
         })
       } finally {
         globalThis.fetch = originalFetch
