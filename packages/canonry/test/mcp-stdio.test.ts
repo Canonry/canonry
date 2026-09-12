@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CANONRY_MCP_TOOL_COUNT } from '../src/mcp/tool-registry.js'
+import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const repoRoot = path.resolve(packageRoot, '..', '..')
@@ -179,7 +179,7 @@ describe('canonry-mcp stdio', () => {
     expect(docs).toContain('MCP error -32602: Tool ... disabled')
   })
 
-  it('loads every toolkit at startup when --eager is passed', async () => {
+  it('loads every permitted toolkit with --eager without granting unknown operator authority', async () => {
     const api = await startStubApi()
     servers.push(api)
 
@@ -193,9 +193,15 @@ describe('canonry-mcp stdio', () => {
     clients.push(client)
 
     const list = await client.listTools()
-    // Every API tool plus the two meta-tools (canonry_help, canonry_load_toolkit).
-    expect(list.tools).toHaveLength(CANONRY_MCP_TOOL_COUNT + 2)
+    // This older host has no /keys/self: internal tools must fail closed.
+    const permitted = canonryMcpTools.filter(tool => !tool.requiresOperator)
+    expect(list.tools).toHaveLength(permitted.length + 2)
     const names = list.tools.map(tool => tool.name)
+    expect(names).toEqual(expect.arrayContaining(permitted.map(tool => tool.name)))
+    for (const name of ['canonry_logs_list', 'canonry_telemetry_get', 'canonry_telemetry_update']) {
+      expect(names).not.toContain(name)
+      expect((await client.callTool({ name, arguments: {} })).isError).toBe(true)
+    }
     expect(list.tools.find(tool => tool.name === 'canonry_results_clear')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
