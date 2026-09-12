@@ -3,6 +3,21 @@
   "version": "5.0.0",
   "type": "module",
   "description": "Self-hosted AI visibility (AEO) platform: track how ChatGPT, Claude, Gemini, and Perplexity cite your domain, join it with Search Console, GA4, server-side traffic, and paid media, and fix what you find through agent tools (CLI, REST, MCP). Local SQLite.",
+  "keywords": [
+    "aeo",
+    "answer-engine-optimization",
+    "geo",
+    "generative-engine-optimization",
+    "ai-visibility",
+    "citation-tracking",
+    "seo",
+    "mcp",
+    "chatgpt",
+    "claude",
+    "gemini",
+    "perplexity",
+    "self-hosted"
+  ],
   "license": "MIT",
   "homepage": "https://canonry.ai",
   "repository": {
