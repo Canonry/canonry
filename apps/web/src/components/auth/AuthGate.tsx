@@ -38,6 +38,18 @@ import { AUTH_COPY } from './auth-copy.js'
 
 const SESSION_RECHECK_MS = 60_000
 
+function browserAuthReturnPath(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  const search = new URLSearchParams(window.location.search)
+  search.delete('authError')
+  return `${window.location.pathname}${search.size > 0 ? `?${search}` : ''}`
+}
+
+function clearBrowserAuthError(): void {
+  const path = browserAuthReturnPath()
+  if (path !== undefined) window.history.replaceState(window.history.state, '', path)
+}
+
 /**
  * `account-login` is the named-account sign-in. `setup` and `login` are the
  * older shared-password screens, which apply only to an install that has no
@@ -462,6 +474,7 @@ export function AuthGate() {
         setError(AUTH_COPY.incorrectAccountCredentials)
         return
       }
+      clearBrowserAuthError()
       setPassword('')
       setSessionExpired(false)
       setAccount(session.user)
@@ -483,13 +496,11 @@ export function AuthGate() {
     try {
       const { redirectUrl } = await startGoogleSignIn({
         invitationToken: invitationToken ?? undefined,
-        returnTo: typeof window === 'undefined' ? undefined : `${window.location.pathname}${window.location.search}`,
+        returnTo: browserAuthReturnPath(),
       })
       window.location.assign(redirectUrl)
     } catch {
-      setError(invitationToken
-        ? AUTH_COPY.invitationUnavailable
-        : 'Google sign-in could not be started. Try again or use a password.')
+      setError(invitationToken ? AUTH_COPY.invitationUnavailable : AUTH_COPY.googleStartFailed)
       setSubmitting(false)
     }
   }
@@ -514,8 +525,20 @@ export function AuthGate() {
     ? new URLSearchParams(window.location.search).get('authError')
     : null
   const invitationFailed = googleCallbackError === 'google-invitation-failed'
+  const googleSignInFailed = googleCallbackError === 'google-sign-in-failed'
+  const googleLinkFailed = googleSignInFailed && Boolean(account)
+  const accountLoginError = error ?? (googleSignInFailed ? AUTH_COPY.googleSignInFailed : null)
 
-  if (authState === 'ready' && !invitationToken && !invitationFailed) {
+  const returnToDashboard = () => {
+    if (typeof window === 'undefined') return
+    const dashboardPath = `${_BASE_PREFIX}/`
+    // Clear the callback marker before navigation so a failed link cannot be
+    // replayed by refresh or remain in the browser history.
+    window.history.replaceState(window.history.state, '', dashboardPath)
+    window.location.replace(dashboardPath)
+  }
+
+  if (authState === 'ready' && !invitationToken && !invitationFailed && !googleLinkFailed) {
     const { queryClient, router } = getRouter()
     return (
       <AccountProvider account={account} apiKey={apiKey} apiKeyPending={apiKeyPending}>
@@ -571,6 +594,18 @@ export function AuthGate() {
                 </Button>
               </CardContent>
             </>
+          ) : googleLinkFailed ? (
+            <>
+              <CardHeader>
+                <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.googleLinkFailedHeading}</h1>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p role="alert" className="supporting-copy">{AUTH_COPY.googleLinkFailed}</p>
+                <Button type="button" className="w-full" onClick={returnToDashboard}>
+                  {AUTH_COPY.backToDashboard}
+                </Button>
+              </CardContent>
+            </>
           ) : invitationFailed ? (
             <>
               <CardHeader>
@@ -578,7 +613,7 @@ export function AuthGate() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p role="alert" className="supporting-copy">{AUTH_COPY.invitationFailed}</p>
-                <Button type="button" className="w-full" onClick={() => { window.location.replace(`${_BASE_PREFIX}/`) }}>
+                <Button type="button" className="w-full" onClick={returnToDashboard}>
                   {account ? AUTH_COPY.backToDashboard : AUTH_COPY.backToSignIn}
                 </Button>
               </CardContent>
@@ -617,20 +652,30 @@ export function AuthGate() {
                 <h1 className="font-medium tracking-tight text-primary">{AUTH_COPY.signInHeading}</h1>
               </CardHeader>
               <CardContent>
-                {googleCallbackError === 'google-sign-in-failed' ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
-                    Google sign-in did not complete. Try again or use your password.
-                  </p>
-                ) : null}
                 {sessionExpired ? (
                   <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
                     You were signed out — please sign in again.
                   </p>
                 ) : null}
                 {googleEnabled === null ? (
-                  <p className="supporting-copy" role="status">{AUTH_COPY.checkingSignInOptions}</p>
+                  <>
+                    {accountLoginError ? (
+                      <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
+                        {accountLoginError}
+                      </p>
+                    ) : null}
+                    <p className="supporting-copy" role="status">{AUTH_COPY.checkingSignInOptions}</p>
+                  </>
                 ) : googleEnabled && !useAccountPassword ? (
                   <div className="space-y-3">
+                    {accountLoginError ? (
+                      <p
+                        className={error ? 'text-sm text-negative-400' : 'rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution'}
+                        role="alert"
+                      >
+                        {accountLoginError}
+                      </p>
+                    ) : null}
                     <Button type="button" className="w-full" disabled={submitting} onClick={asyncHandler(handleGoogleSignIn)}>
                       {AUTH_COPY.continueWithGoogle}
                     </Button>
@@ -672,7 +717,15 @@ export function AuthGate() {
                       aria-describedby={error ? 'account-login-error' : undefined}
                     />
                   </label>
-                  {error ? <p id="account-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {accountLoginError ? (
+                    <p
+                      id={error ? 'account-login-error' : undefined}
+                      role="alert"
+                      className={error ? 'text-sm text-negative-400' : 'mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution'}
+                    >
+                      {accountLoginError}
+                    </p>
+                  ) : null}
                   <Button type="submit" className="w-full" disabled={submitting || !name.trim() || !password}>
                     {submitting ? 'Signing in…' : AUTH_COPY.signIn}
                   </Button>

@@ -312,6 +312,6 @@ set that identity through key creation or forge it through a key name.
 
 ## Native instance accounts
 
-Google login is separate from Google data integrations. `google-sign-in.ts` owns browser admission/linking; `google-sign-in-client.ts` validates OIDC with openid-client; `google-login-state.ts` seals browser state and validates configured URLs. `user-invitations.ts` and `google-sign-in-settings.ts` own admin APIs. `user-account-details.ts` owns self-service methods/activity and safe audit history.
+Google login is separate from Google data integrations. `google-sign-in.ts` owns browser admission/linking; `google-sign-in-client.ts` builds authorization URLs with openid-client and validates the single token response with oauth4webapi, accepting both documented Google issuers and verifying the signature; `google-login-state.ts` seals browser state and validates configured URLs. `user-invitations.ts` and `google-sign-in-settings.ts` own admin APIs. `user-account-details.ts` owns self-service methods/activity and safe audit history.
 
 `user-access.ts` centralizes safe user DTOs, one-time legacy Viewer→Analyst migration, persistent named-auth protection, and cross-carrier revocation. Recheck credentials after asynchronous work before committing authority changes. Keep password-admin recovery. Never auto-link by email, log provider tokens, persist raw invitation tokens, or broaden saved delegated scopes. Shared contracts and generated OpenAPI clients define the transport. See [setup and recovery](../../docs/google-sign-in.md).

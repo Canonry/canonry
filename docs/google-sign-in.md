@@ -81,6 +81,7 @@ Do not place secrets in command arguments.
   or Workspace identity. A Google account using a third-party email must first
   have a password account and explicitly link Google.
 - Google identities are bound by issuer and subject, not by a mutable email.
+  Both documented Google issuer formats resolve to the same identity after token verification.
   Matching an existing account's contact email never automatically links it.
 - A password user links Google from their Account panel after entering their
   current password. Linking and unlinking are browser-only flows.
@@ -89,6 +90,9 @@ Do not place secrets in command arguments.
   project in this instance.
 
 CLI administration:
+
+Create and replace commands print the one-time invitation URL in normal output.
+Use `--format json` for the full machine-readable response.
 
 ```text
 canonry user list --format json
@@ -137,10 +141,11 @@ Analysts. Other Viewers remain Viewers. Later changes to the legacy flag do not
 change migrated roles. Existing delegated grants retain their original scope
 ceiling; an upgrade does not add Research to a read-only grant.
 
-Back up the database and config before upgrading. Migrations 155 and 156 extend
-account storage; an older binary is not a supported rollback against the migrated
-database. Restore the matching pre-upgrade database/config backup when rolling
-back. Restoring a backup also restores the access state from that time.
+Back up the database and config before upgrading. Migrations 155–157 extend
+account and Google login transaction storage; an older binary is not a supported
+rollback against the migrated database. Restore the matching pre-upgrade
+database/config backup when rolling back. Restoring a backup also restores the
+access state from that time.
 
 ## Smoke checkpoints
 

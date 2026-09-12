@@ -131,4 +131,4 @@ db.insert(usageCounters).values({
 
 ## Native account migrations
 
-Migrations 155–156 preserve user IDs while introducing Analyst/status/auth-version fields, optional password digests, persistent account protection, external identities, hashed invitations, single-use Google login transactions and stable audit actors. Version stamps bind browser sessions, OAuth codes/tokens and delegated keys to current authority. Config/client secrets are not database rows. Scope migration integrity checks to the rebuilt tables; unrelated legacy orphans must not prevent an otherwise valid upgrade.
+Migrations 155–157 preserve user IDs while introducing Analyst/status/auth-version fields, optional password digests, persistent account protection, external identities, hashed invitations, single-use Google login transactions with server-side return targets, and stable audit actors. Version stamps bind browser sessions, OAuth codes/tokens and delegated keys to current authority. Config/client secrets are not database rows. Scope migration integrity checks to the rebuilt tables; unrelated legacy orphans must not prevent an otherwise valid upgrade.

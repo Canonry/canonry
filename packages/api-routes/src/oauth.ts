@@ -4,7 +4,7 @@ import { oauthAuthorizationCodes, oauthClients, oauthTokens, users, type Databas
 import { and, eq, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify'
 
-import { requireAdminSession } from './auth.js'
+import { requireAdminSession, requireBroadInstanceKey, requireScope, USERS_WRITE_SCOPE } from './auth.js'
 import { LOGIN_FAILED_MESSAGE, notFound, RESEARCH_RUN_SCOPE, UserStatuses } from '@ainyc/canonry-contracts'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
@@ -864,6 +864,7 @@ export function registerOAuthAdminRoutes(app: FastifyInstance, opts: { db: Datab
   const { db } = opts
   app.get('/oauth/clients', async (request: FastifyRequest) => {
     requireAdminSession(request)
+    requireBroadInstanceKey(request)
     const now = new Date().toISOString()
     const clients = db.select().from(oauthClients).all()
     const tokens = db.select().from(oauthTokens).all()
@@ -886,8 +887,10 @@ export function registerOAuthAdminRoutes(app: FastifyInstance, opts: { db: Datab
     }
   })
 
-  app.delete('/oauth/clients/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/oauth/clients/:id', { config: { writeScope: USERS_WRITE_SCOPE } }, async (request: FastifyRequest, reply: FastifyReply) => {
     requireAdminSession(request)
+    requireBroadInstanceKey(request)
+    requireScope(request, USERS_WRITE_SCOPE)
     const { id } = request.params as { id: string }
     const client = db.select().from(oauthClients).where(eq(oauthClients.id, id)).get()
     if (!client) {

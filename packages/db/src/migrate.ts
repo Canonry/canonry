@@ -4154,6 +4154,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_audit_entity_time ON audit_log(entity_type, entity_id, created_at)`,
     ],
   },
+  {
+    version: 157,
+    name: 'google-login-transaction-return-target',
+    statements: [
+      `ALTER TABLE google_login_transactions ADD COLUMN return_to TEXT`,
+    ],
+  },
 ]
 
 /** Rebuild the v121 users table without changing any user id or child row. */

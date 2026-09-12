@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, expect, test } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { AuthGate } from '../src/components/auth/AuthGate.js'
 import { AUTH_COPY } from '../src/components/auth/auth-copy.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
@@ -22,6 +22,11 @@ test.each([true, false])('invitation callback failure stays visible with an exis
     expect(screen.queryByRole('main')).toBeNull()
     expect(screen.queryByLabelText(AUTH_COPY.passwordLabel)).toBeNull()
     expect(screen.queryByRole('button', { name: AUTH_COPY.continueWithGoogle })).toBeNull()
+    expect(screen.queryByRole('heading', { name: AUTH_COPY.googleLinkFailedHeading })).toBeNull()
     expect(screen.getAllByRole('button')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: signedIn ? AUTH_COPY.backToDashboard : AUTH_COPY.backToSignIn }))
+    expect(window.location.pathname).toBe('/')
+    expect(window.location.search).toBe('')
   } finally { restore() }
 })

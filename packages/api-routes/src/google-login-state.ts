@@ -6,7 +6,9 @@ const loginStateSchema = z.object({
   state: z.string().min(16).max(128),
   nonce: z.string().min(16).max(128),
   codeVerifier: z.string().min(43).max(128),
-  returnTo: z.string().max(4096),
+  // v1 cookies carried this. New attempts keep it on the single-use database
+  // transaction, but accepting it here lets an in-flight old cookie finish.
+  returnTo: z.string().max(4096).optional(),
   expiresAt: z.number().finite(),
   invitationHash: z.string().length(64).optional(),
   linkUserId: z.string().max(128).optional(),

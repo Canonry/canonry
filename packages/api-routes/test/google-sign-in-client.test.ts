@@ -54,16 +54,21 @@ describe('Google OIDC login adapter', () => {
     expect(url.searchParams.get('code_challenge')).toBe(crypto.createHash('sha256').update(f.codeVerifier).digest('base64url'))
   })
 
-  test('verifies a signed identity and returns no provider bearer tokens', async () => {
-    const f = fixture()
+  test.each([GOOGLE_ISSUER, 'accounts.google.com'])('verifies a signed identity from %s and returns no provider bearer tokens', async issuer => {
+    const f = fixture({ iss: issuer })
     const identity = await f.client.authenticate(f)
     expect(identity).toMatchObject({ issuer: GOOGLE_ISSUER, subject: f.subject, email: f.email, emailVerified: true })
     expect(Object.keys(identity).sort()).toEqual(['email', 'emailVerified', 'hostedDomain', 'issuer', 'name', 'subject'].sort())
     expect(f.fetcher).toHaveBeenCalledTimes(2)
+    expect(f.fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://oauth2.googleapis.com/token', 'https://www.googleapis.com/oauth2/v3/certs',
+    ])
   })
 
   test.each([
     { iss: 'https://other.example.test' },
+    { iss: 'accounts.google.com.evil.test' },
+    { iss: 'http://accounts.google.com' },
     { aud: crypto.randomUUID() },
     { exp: 1 },
     { nonce: crypto.randomUUID() },
@@ -73,8 +78,19 @@ describe('Google OIDC login adapter', () => {
     await expect(f.client.authenticate(f)).rejects.toThrow()
   })
 
-  test('rejects a valid-looking token signed by a different key', async () => {
-    const f = fixture({}, true)
+  test.each([
+    { aud: crypto.randomUUID() },
+    { exp: 1 },
+    { nonce: crypto.randomUUID() },
+    { sub: '' },
+  ])('rejects invalid claims with the legacy issuer: %j', async overrides => {
+    const f = fixture({ iss: 'accounts.google.com', ...overrides })
+    await expect(f.client.authenticate(f)).rejects.toThrow()
+    expect(f.fetcher.mock.calls.filter(([url]) => String(url) === 'https://oauth2.googleapis.com/token')).toHaveLength(1)
+  })
+
+  test.each([GOOGLE_ISSUER, 'accounts.google.com'])('rejects a token from %s signed by a different key', async issuer => {
+    const f = fixture({ iss: issuer }, true)
     await expect(f.client.authenticate(f)).rejects.toThrow()
   })
 

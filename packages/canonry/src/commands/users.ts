@@ -20,6 +20,9 @@ function getClient() {
 const ROLE_NAMES = Object.values(UserRoles)
 const STATUS_NAMES = Object.values(UserStatuses)
 
+/** Copy label for the one-time invitation link in normal CLI output. */
+export const INVITATION_URL_OUTPUT_PREFIX = 'Invitation URL:'
+
 function parseRole(role: string): UserRole {
   const normalized = role.trim().toLowerCase()
   if ((ROLE_NAMES as string[]).includes(normalized)) return normalized as UserRole
@@ -170,7 +173,7 @@ export async function listUserInvitations(format?: string): Promise<void> {
 export async function createUserInvitation(input: { email: string; role: string; format?: string }): Promise<void> {
   const role = parseRole(input.role)
   const result = await getClient().createUserInvitation({ email: input.email, role })
-  printResponse(result, input.format, `Invitation created for ${result.invitation.email}.`)
+  printInvitationResponse(result, input.format, `Invitation created for ${result.invitation.email}.`)
 }
 
 export async function revokeUserInvitation(id: string, format?: string): Promise<void> {
@@ -180,7 +183,7 @@ export async function revokeUserInvitation(id: string, format?: string): Promise
 
 export async function replaceUserInvitation(id: string, format?: string): Promise<void> {
   const result = await getClient().replaceUserInvitation(id)
-  printResponse(result, format, `Invitation replaced for ${result.invitation.email}.`)
+  printInvitationResponse(result, format, `Invitation replaced for ${result.invitation.email}.`)
 }
 
 export async function revokeUserAccess(id: string, format?: string): Promise<void> {
@@ -231,6 +234,15 @@ function printResponse(value: unknown, format: string | undefined, human: string
     return
   }
   console.log(human)
+}
+
+function printInvitationResponse(value: { invitationUrl: string }, format: string | undefined, human: string): void {
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(value, null, 2))
+    return
+  }
+  console.log(human)
+  console.log(`${INVITATION_URL_OUTPUT_PREFIX} ${value.invitationUrl}`)
 }
 
 export async function deleteUser(name: string, format?: string): Promise<void> {

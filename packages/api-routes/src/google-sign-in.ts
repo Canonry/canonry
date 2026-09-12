@@ -20,6 +20,7 @@ import type { GoogleSignInOptions } from './google-sign-in-options.js'
 import { writeAuditLog } from './helpers.js'
 
 export const GOOGLE_LOGIN_COOKIE = 'canonry_google_login'
+const googleStartQuerySchema = googleStartRequestSchema.pick({ returnTo: true }).strict()
 
 interface RouteOptions {
   googleSignIn?: GoogleSignInOptions
@@ -69,11 +70,11 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
       state: crypto.randomBytes(32).toString('base64url'),
       nonce: crypto.randomBytes(32).toString('base64url'),
       codeVerifier: crypto.randomBytes(32).toString('base64url'),
-      returnTo: safeAuthReturnPath(input.returnTo, current.urls),
       expiresAt: now + GOOGLE_LOGIN_TRANSACTION_TTL_MS,
       ...(input.invitationToken ? { invitationHash: hashSessionToken(input.invitationToken) } : {}),
       ...(link ? { linkUserId: link.id, linkAuthVersion: link.authVersion } : {}),
     }
+    const returnTo = safeAuthReturnPath(input.returnTo, current.urls)
     const redirectUrl = await current.client.authorizationUrl({ ...state, redirectUri: current.urls.callbackUrl })
     if (configured().key !== current.key) throw authInvalid()
     app.db.transaction(tx => {
@@ -84,7 +85,7 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
       tx.delete(googleLoginTransactions).where(lte(googleLoginTransactions.expiresAt, new Date(now).toISOString())).run()
       tx.insert(googleLoginTransactions).values({
         stateHash: hashSessionToken(state.state), userId: link?.id ?? null,
-        expiresAt: new Date(state.expiresAt).toISOString(),
+        returnTo, expiresAt: new Date(state.expiresAt).toISOString(),
       }).run()
     })
     headers(reply)
@@ -112,8 +113,10 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
   })
 
   // Direct navigation supports the existing server-rendered MCP consent page.
-  app.get<{ Querystring: { returnTo?: string } }>('/auth/google/start', { logLevel: 'silent', config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
-    const result = await begin(request, reply, { returnTo: request.query.returnTo })
+  app.get('/auth/google/start', { logLevel: 'silent', config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const parsed = googleStartQuerySchema.safeParse(request.query ?? {})
+    if (!parsed.success) throw validationError('The sign-in request is invalid.')
+    const result = await begin(request, reply, parsed.data)
     return reply.redirect(result.redirectUrl)
   })
 
@@ -198,13 +201,13 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
       const callback = new URL(current.urls.callbackUrl)
       callback.search = new URL(request.raw.url ?? '', current.urls.baseUrl).search
       if (callback.searchParams.get('state') !== state.state) throw authInvalid()
-      const consumed = app.db.transaction(tx => {
+      const transaction = app.db.transaction(tx => {
         const row = tx.select().from(googleLoginTransactions).where(eq(googleLoginTransactions.stateHash, hashSessionToken(state.state))).get()
-        if (!row || row.expiresAt <= new Date().toISOString()) return false
+        if (!row || row.expiresAt <= new Date().toISOString()) return null
         tx.delete(googleLoginTransactions).where(eq(googleLoginTransactions.stateHash, row.stateHash)).run()
-        return true
+        return row
       })
-      if (!consumed) throw authInvalid()
+      if (!transaction) throw authInvalid()
       validatedAttempt = true
       const identity = await current.client.authenticate({ ...state, callbackUrl: callback })
       if (configured().key !== current.key) throw authInvalid()
@@ -215,7 +218,9 @@ export async function googleSignInRoutes(app: FastifyInstance, opts: RouteOption
         stateCookie('', basePath, secure),
         serializeUserSessionCookie({ value: session.token, path: basePath, secure }),
       ])
-      return reply.redirect(safeAuthReturnPath(state.returnTo, current.urls), 303)
+      // Existing rows predate server-side return storage; only they can use
+      // the legacy encrypted-cookie field.
+      return reply.redirect(safeAuthReturnPath(transaction.returnTo ?? state.returnTo, current.urls), 303)
     } catch {
       // Only record browser-bound, consumed attempts: random callback traffic
       // must not fill the security history. No provider error/token is stored.

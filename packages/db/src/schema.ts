@@ -3072,10 +3072,11 @@ export const userInvitations = sqliteTable('user_invitations', {
   index('idx_user_invitation_email').on(table.emailKey),
 ])
 
-/** Single-use browser transactions. Recoverable state stays in an encrypted cookie. */
+/** Single-use browser transactions. PKCE state stays in an encrypted cookie. */
 export const googleLoginTransactions = sqliteTable('google_login_transactions', {
   stateHash: text('state_hash').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  returnTo: text('return_to'),
   expiresAt: text('expires_at').notNull(),
 }, table => [
   index('idx_google_login_transaction_expires').on(table.expiresAt),

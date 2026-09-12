@@ -9,6 +9,7 @@ import { initializeUserAccess, revokeUserAccess } from '../src/user-access.js'
 import { hashSessionToken, USER_SESSION_COOKIE_NAME, resolveUserSession, createNamedUserSession, createCredentialChecker, serializeUserSessionCookie, parseCookieHeader } from '../src/user-session.js'
 import { registerOAuthRoutes } from '../src/oauth.js'
 import { GOOGLE_ISSUER, type GoogleIdentity } from '../src/google-sign-in-client.js'
+import { sealGoogleLoginState } from '../src/google-login-state.js'
 
 const apps: Array<ReturnType<typeof Fastify>> = []
 const dbs: Array<ReturnType<typeof createClient>> = []
@@ -69,7 +70,7 @@ async function fixture() {
     return { state: url.searchParams.get('state')!, cookie: `${cookie.name}=${cookie.value}` }
   }
   const finish = (start: {state:string;cookie:string}) => app.inject({ method: 'GET', url: '/nested/api/v1/auth/google/callback?code=' + crypto.randomUUID() + '&state=' + start.state, headers: { cookie: start.cookie } })
-  return { db, app, config, identity, invite, start, finish }
+  return { db, app, config, identity, owner, invite, start, finish }
 }
 
 test('an invitation binds a named Google-only Analyst and consumes the transaction', async () => {
@@ -85,6 +86,68 @@ test('an invitation binds a named Google-only Analyst and consumes the transacti
   expect(f.db.select().from(userInvitations).where(eq(userInvitations.id, invitation.id)).get()?.acceptedAt).not.toBeNull()
   expect(f.db.select().from(googleLoginTransactions).all()).toHaveLength(0)
   expect((await f.finish(started)).cookies.find(value => value.name === USER_SESSION_COOKIE_NAME)?.value).toBeFalsy()
+})
+
+test('stores a maximum-length return target server-side and redirects to it once', async () => {
+  const f = await fixture()
+  const encodedUnicodePath = encodeURIComponent('✓')
+  const returnTo = '/nested/' + encodedUnicodePath + 'r'.repeat(4096 - '/nested/'.length - encodedUnicodePath.length)
+  const invitation = f.invite()
+  const started = await f.app.inject({
+    method: 'POST', url: '/nested/api/v1/auth/google/start',
+    headers: { host: 'instance.example.test', origin: 'https://instance.example.test' },
+    payload: { invitationToken: invitation.token, returnTo },
+  })
+
+  expect(started.statusCode).toBe(200)
+  const loginCookie = started.cookies.find(cookie => cookie.name === GOOGLE_LOGIN_COOKIE)!
+  expect(Buffer.byteLength(`${loginCookie.name}=${loginCookie.value}`)).toBeLessThanOrEqual(4096)
+  const state = new URL(started.json<{ redirectUrl: string }>().redirectUrl).searchParams.get('state')!
+  const transaction = f.db.select().from(googleLoginTransactions).get()!
+  expect(transaction).toMatchObject({ returnTo })
+  expect(transaction).not.toHaveProperty('nonce')
+  expect(transaction).not.toHaveProperty('codeVerifier')
+
+  const completed = await f.finish({ state, cookie: `${loginCookie.name}=${loginCookie.value}` })
+  expect(completed.headers.location).toBe(returnTo)
+  const replay = await f.finish({ state, cookie: `${loginCookie.name}=${loginCookie.value}` })
+  expect(replay.cookies.find(cookie => cookie.name === USER_SESSION_COOKIE_NAME)?.value).toBeFalsy()
+})
+
+test('uses legacy cookie return targets only when the consumed transaction predates server storage', async () => {
+  const f = await fixture()
+  const state = crypto.randomBytes(32).toString('base64url')
+  const legacyReturnTo = '/nested/' + encodeURIComponent('✓')
+  const expiresAt = Date.now() + 60_000
+  const callbackUrl = 'https://instance.example.test/nested/api/v1/auth/google/callback'
+  const value = sealGoogleLoginState({
+    state, nonce: crypto.randomBytes(32).toString('base64url'),
+    codeVerifier: crypto.randomBytes(32).toString('base64url'), returnTo: legacyReturnTo, expiresAt,
+  }, f.config.clientId + '\0' + f.config.clientSecret, callbackUrl)
+  f.db.insert(googleLoginTransactions).values({
+    stateHash: hashSessionToken(state), expiresAt: new Date(expiresAt).toISOString(), returnTo: null,
+  }).run()
+  f.db.insert(userExternalIdentities).values({
+    id: crypto.randomUUID(), userId: f.owner, issuer: f.identity.issuer, subject: f.identity.subject,
+    email: f.identity.email, createdAt: new Date().toISOString(),
+  }).run()
+
+  const response = await f.finish({ state, cookie: `${GOOGLE_LOGIN_COOKIE}=${value}` })
+  expect(response.headers.location).toBe(legacyReturnTo)
+})
+
+test('rejects unsupported and oversized query inputs on direct Google sign-in navigation', async () => {
+  const f = await fixture()
+  const responses = await Promise.all([
+    f.app.inject({
+      url: '/nested/api/v1/auth/google/start?invitationToken=' + crypto.randomBytes(32).toString('hex'),
+    }),
+    f.app.inject({
+      url: '/nested/api/v1/auth/google/start?returnTo=' + encodeURIComponent('/nested/' + 'r'.repeat(4096)),
+    }),
+  ])
+  expect(responses.map(response => response.statusCode)).toEqual([400, 400])
+  expect(f.db.select().from(googleLoginTransactions).all()).toHaveLength(0)
 })
 
 test.each(['uninvited', 'wrong-email', 'expired', 'revoked', 'unverified', 'third-party-email'] as const)('refuses %s invitation admission', async kind => {
