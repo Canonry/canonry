@@ -116,6 +116,8 @@ export interface CanonryMcpTool<
   access: McpToolAccess
   /** Named capability that can authorize this operation without general write access. */
   requiredScope?: string
+  /** Internal surface: customer roles/scopes alone never authorize it. */
+  requiresOperator?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -1720,7 +1722,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_key_self',
     title: 'Get current API key identity',
-    description: 'Read safe metadata for the credential backing this MCP connection, including its scopes, project reach, and derived read-only status. It never exposes the bearer token or stored hash and does not grant mutation access.',
+    description: 'Read safe metadata for the credential backing this MCP connection, including scopes, project reach, read-only status, and host-derived operator authority. It never exposes the bearer token or stored hash and cannot grant authority.',
     access: 'read',
     tier: 'core',
     inputSchema: emptyInputSchema,
@@ -1731,8 +1733,9 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_logs_list',
+    requiresOperator: true,
     title: 'Read runtime logs',
-    description: 'Read bounded, redacted runtime logs, including application and HTTP failures. Filter by actor, request, run, project, level, module, or time. Inspect retention, retentionPolicy, dropped, and captureErrors for coverage; file-backed hosts retain logs across restarts. Separate from audit history. Requires instance-wide logs.read (or wildcard), and an admin role for user sessions; project-scoped keys are refused even with a project filter. Cursors expire on retention eviction; reuse with the same filters. No provider calls.',
+    description: 'Read bounded, redacted runtime logs, including application and HTTP failures. Filter by actor, request, run, project, level, module, or time. Inspect retention, retentionPolicy, dropped, and captureErrors for coverage; file-backed hosts retain logs across restarts. Separate from audit history. Requires a host-approved operator bearer and instance-wide logs.read (or wildcard). Customer admins, browser/OAuth/delegated sessions, and project-scoped keys cannot grant access. Cursors expire on retention eviction; reuse with the same filters. No provider calls.',
     access: 'read',
     tier: 'setup',
     inputSchema: logQuerySchema,
@@ -1743,8 +1746,9 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_telemetry_update',
+    requiresOperator: true,
     title: 'Update server telemetry preference',
-    description: 'Set the connected server telemetry preference with explicit approval and settings.write. Returns effective state including environment overrides. Does not change the agent machine configuration.',
+    description: 'Set the connected server telemetry preference with explicit approval, host-approved operator authority, and settings.write. Customer roles and scopes alone cannot grant operator access. Returns effective state including environment overrides. Does not change the agent machine configuration.',
     access: 'write',
     requiredScope: 'settings.write',
     tier: 'setup',
@@ -1770,8 +1774,9 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_telemetry_get',
+    requiresOperator: true,
     title: 'Get telemetry status',
-    description: 'Read the server telemetry status and effective reason. This safe settings read does not change telemetry collection.',
+    description: 'Read internal server telemetry status and effective reason. Requires a host-approved operator bearer, not a customer admin role or scopes alone. Does not change telemetry collection.',
     access: 'read',
     tier: 'setup',
     inputSchema: emptyInputSchema,

@@ -2711,7 +2711,7 @@ export const postApiV1ProjectsByNameNotificationsByIdTest = <ThrowOnError extend
 /**
  * Read bounded, redacted runtime logs
  *
- * Requires logs.read (or wildcard), an admin role for user sessions, and an instance-wide credential. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
+ * Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist, plus logs.read (or wildcard). Customer admin roles, scopes alone, browser sessions, OAuth/delegated keys, and project-scoped keys cannot grant access. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
  */
 export const getApiV1OperationsLogs = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1OperationsLogsData, ThrowOnError>) => {
     return (options?.client ?? client).get<GetApiV1OperationsLogsResponses, GetApiV1OperationsLogsErrors, ThrowOnError>({
@@ -2728,6 +2728,8 @@ export const getApiV1OperationsLogs = <ThrowOnError extends boolean = false>(opt
 
 /**
  * Get telemetry status
+ *
+ * Internal surface. Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist; customer admin roles and wildcard scopes alone are insufficient.
  */
 export const getApiV1Telemetry = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1TelemetryData, ThrowOnError>) => {
     return (options?.client ?? client).get<GetApiV1TelemetryResponses, GetApiV1TelemetryErrors, ThrowOnError>({
@@ -2745,7 +2747,7 @@ export const getApiV1Telemetry = <ThrowOnError extends boolean = false>(options?
 /**
  * Update telemetry status
  *
- * Requires settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.
+ * Requires host-approved direct-bearer operator authority and settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.
  */
 export const putApiV1Telemetry = <ThrowOnError extends boolean = false>(options: Options<PutApiV1TelemetryData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1TelemetryResponses, PutApiV1TelemetryErrors, ThrowOnError>({

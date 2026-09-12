@@ -7,6 +7,16 @@ export const researchAllowViewersSchema = z.boolean().nullish()
 export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).nullish()
 
+/** Host-only trust anchor. No API, account role, or key scope can modify it. */
+export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
+  const raw = source.CANONRY_OPERATOR_KEY_IDS?.trim()
+  if (!raw) return []
+  const parsed = z.array(z.string().regex(/^[\w-]{1,256}$/)).max(100)
+    .safeParse(raw.split(',').map(id => id.trim()))
+  if (!parsed.success) throw new Error('CANONRY_OPERATOR_KEY_IDS must contain at most 100 comma-separated API key IDs (letters, digits, underscores, hyphens; no wildcards).')
+  return [...new Set(parsed.data)]
+}
+
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
   API_PORT: z.coerce.number().int().positive().default(3000),

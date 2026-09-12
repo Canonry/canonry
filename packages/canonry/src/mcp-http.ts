@@ -240,6 +240,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       server = createCanonryMcpServer({
         scope: segment.readOnly || isReadOnlyKey(scopes) ? 'read-only' : 'all',
         credentialScopes: scopes,
+        operator: request.operatorAccess === true,
         tiers: segment.tiers,
         clientFactory: () => client,
       })
@@ -310,6 +311,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       id: principal.id,
       scopes: [...new Set(principal.scopes)].sort(),
       projectId: principal.projectId ?? null,
+      operator: request.operatorAccess === true,
     }))
 
     const sessionId = request.headers['mcp-session-id']

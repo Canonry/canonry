@@ -1224,6 +1224,17 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Every guard has its own rule id in `eslint.config.js`; **never add options to core `no-restricted-syntax`** (flat config last-wins override clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
 
+## Internal observability authority
+
+- **Internal observability is operator-only.** Runtime logs and server telemetry
+  reads/updates require a direct bearer ID in host-only `CANONRY_OPERATOR_KEY_IDS`.
+  Unset denies all; `*`, customer admin roles, OAuth/delegated keys, browser cookies,
+  and project-scoped keys never substitute for this trust grant. Normal route scopes
+  still apply. Never approve a shared customer/proxy key. `/keys/self` reports
+  `operator`; MCP discovery fails closed when it is missing/false. Ordinary audit
+  history excludes internal telemetry state. Do not add an API that self-grants this
+  host authority.
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.

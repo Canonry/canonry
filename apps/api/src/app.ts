@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import { randomUUID } from 'node:crypto'
 
 import type { PlatformEnv } from '@ainyc/canonry-config'
+import { resolveOperatorApiKeyIds } from '@ainyc/canonry-config'
 import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
 import { apiRoutes, resolveTrustProxy } from '@ainyc/canonry-api-routes'
 import { addLogListener, createFastifyLogger } from '@ainyc/canonry-api-routes/runtime-logger'
@@ -10,6 +11,7 @@ import { registerHealthRoutes } from './routes/health.js'
 import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
 
 export function buildApp(env: PlatformEnv) {
+  const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env)
   // A cloud deployment is always behind at least one load balancer, so the
   // socket's peer is never the caller. Anything keyed on `request.ip` — the
   // sign-in budget in particular — is meaningless until this says which hops
@@ -175,6 +177,7 @@ export function buildApp(env: PlatformEnv) {
     getRunnableProviderNames: () =>
       providerSummary.filter(provider => provider.configured).map(provider => provider.name),
     getEffectiveProviderModels: effectiveProviderModels,
+    operatorApiKeyIds,
     listOperationalLogs: query => operationalLogs.list(query),
     googleStateSecret: env.googleStateSecret,
     trustProxyConfigured: trustProxy !== false,

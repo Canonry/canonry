@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 
 const _require = createRequire(import.meta.url);
@@ -829,6 +829,7 @@ export async function createServer(opts: {
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
+  const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env);
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
   const operationalLogs = new OperationalLogStore(opts.db, {
     retention: opts.config.database === ':memory:' ? 'process' : 'durable',
@@ -3181,6 +3182,7 @@ export async function createServer(opts: {
         }
       });
     },
+    operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
     setTelemetryEnabled: (enabled: boolean) => {

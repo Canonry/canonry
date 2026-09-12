@@ -459,6 +459,30 @@ test('offers accessible supported locale selects with exact API codes', async ()
   expect(screen.getByText('United Kingdom · French')).toBeTruthy()
 })
 
+test.each([false, true])('hides internal telemetry after operator denial without blocking setup (cached: %s)', async cached => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  let allowed = cached
+  const restore = mockFetch(async url => {
+    const path = pathOf(url)
+    if (path === '/api/v1/telemetry') return allowed
+      ? jsonResponse({ enabled: true, anonymousId: 'abcd1234...' })
+      : jsonResponse({ error: { code: 'FORBIDDEN', message: 'Host-approved operator required.' } }, 403)
+    if (path === '/api/v1/telemetry/onboarding') return jsonResponse({ accepted: true }, 202)
+    return jsonResponse({})
+  })
+  onTestFinished(restore)
+  const { queryClient } = await renderSetup()
+  const key = getApiV1TelemetryQueryKey({ client: heyClient })
+  if (cached) {
+    await screen.findByRole('checkbox', { name: /Share anonymous product telemetry/ })
+    allowed = false
+    await queryClient.invalidateQueries({ queryKey: key })
+  }
+  await waitFor(() => expect(queryClient.getQueryState(key)?.status).toBe('error'))
+  expect(screen.queryByRole('checkbox', { name: /Share anonymous product telemetry/ })).toBeNull()
+  expect(screen.getByLabelText('Website URL')).toBeTruthy()
+})
+
 function mockTelemetryPreferences(initialEnabled: boolean, update?: (enabled: boolean) => Response | Promise<Response>) {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   let serverEnabled = initialEnabled

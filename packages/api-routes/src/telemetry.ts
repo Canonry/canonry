@@ -8,7 +8,7 @@ import {
   type OnboardingTelemetryEvent,
   type TelemetryStatusInput,
 } from '@ainyc/canonry-contracts'
-import { requireScope } from './auth.js'
+import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
 
@@ -19,7 +19,8 @@ export interface TelemetryRoutesOptions {
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
-  app.get('/telemetry', async () => {
+  app.get('/telemetry', async (request) => {
+    requireOperator(request)
     if (!opts.getTelemetryStatus) {
       throw notImplemented('Telemetry status is not available in this deployment')
     }
@@ -28,6 +29,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
   })
 
   app.put<{ Body?: { enabled?: boolean } }>('/telemetry', async (request) => {
+    requireOperator(request)
     requireScope(request, SETTINGS_WRITE_SCOPE)
     if (!opts.setTelemetryEnabled) {
       throw notImplemented('Telemetry configuration is not available in this deployment')

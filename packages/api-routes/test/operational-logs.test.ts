@@ -21,6 +21,7 @@ async function build(callback?: Parameters<typeof operationalLogsRoutes>[1]['lis
         kind: 'api-key', id: 'key_1', name: 'key', scopes: credential.scopes,
         projectId: credential.projectId ?? null, viaCookie: false,
       }
+      request.operatorAccess = true // This route-only harness models a host-approved bearer.
     }
   })
   await app.register(operationalLogsRoutes, { listOperationalLogs: callback })

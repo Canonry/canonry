@@ -72,7 +72,8 @@ export interface AuthedApiKey {
  * There are exactly two kinds and they are peers: an API key, and a person
  * signed in with a named account. Neither one gates the other, and both are
  * expressed in the SAME currency — a scope list — so every existing gate keeps
- * working unchanged instead of growing a second permission model beside it.
+ * working unchanged. Internal diagnostics additionally require the host-only
+ * operator trust grant; it is deliberately not an account role or a mintable scope.
  *
  * An admin carries `['*']`: precisely the authority the install already had,
  * now behind a sign-in. A viewer carries `['read']`, which the global write
@@ -103,6 +104,8 @@ export interface AuthPrincipal {
 
 declare module 'fastify' {
   interface FastifyRequest {
+    /** Derived only from the host allowlist and direct bearer authentication. */
+    operatorAccess?: boolean
     /**
      * The API key that authenticated the current request. Present on every
      * request that passed `authPlugin` (i.e. everything not in the
@@ -245,6 +248,14 @@ export function requireAdminSession(request: FastifyRequest): void {
   const role = principal?.kind === 'user' ? principal.role : principal?.delegatedUser?.role
   if (!role || role === UserRoles.admin) return
   throw forbidden(ADMIN_ONLY_MESSAGE)
+}
+
+/** Operator authority is separate from customer admin roles and all API scopes. */
+export function requireOperator(request: FastifyRequest): void {
+  const principal = request.principal
+  if (request.operatorAccess === true && principal?.kind === 'api-key'
+    && !principal.viaCookie && !principal.projectId && !principal.delegatedUser) return
+  throw forbidden('Internal diagnostics require a host-approved operator API key. Customer accounts and scopes cannot grant operator access.')
 }
 
 /**
@@ -436,6 +447,8 @@ export interface ResolvedOAuthToken {
 }
 
 export interface AuthPluginOptions {
+  /** Trusted deployment configuration only; empty/unset denies all operators. */
+  operatorApiKeyIds?: readonly string[]
   /** Same deployment opt-in used by research admission and the dashboard. */
   researchAllowViewers?: boolean
   /**
@@ -846,6 +859,8 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       viaCookie: keyArrivedInCookie,
       ...(delegatedUser ? { delegatedUser: { id: delegatedUser.id, name: delegatedUser.name, role: delegatedUser.role } } : {}),
     }
+    request.operatorAccess = !keyArrivedInCookie && !key.projectId && !key.delegatedUserId
+      && opts.operatorApiKeyIds?.includes(key.id) === true
 
     assertSameOriginWrite(request)
 

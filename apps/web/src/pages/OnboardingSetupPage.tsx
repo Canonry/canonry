@@ -649,7 +649,8 @@ function PlatformSetupPageBody({
   const [createConflict, setCreateConflict] = useState(false)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [agentRequestCopied, setAgentRequestCopied] = useState(false)
-  const telemetryStatus = telemetryQuery.data
+  // A denied refresh must not keep showing internal state from an older cache.
+  const telemetryStatus = telemetryQuery.isError ? undefined : telemetryQuery.data
   const telemetryEnabled = typeof telemetryStatus?.enabled === 'boolean'
     ? telemetryStatus.enabled
     : null
