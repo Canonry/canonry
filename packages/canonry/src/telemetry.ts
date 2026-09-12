@@ -423,11 +423,45 @@ export function trackEvent(
   properties?: TelemetryProperties,
   options?: TrackEventOptions,
 ): void {
-  if (!isTelemetryEnabled()) return
-  if (shouldDropTelemetryEvent(event, properties)) return
+  void deliverEvent(event, properties, options)
+}
+
+export type TelemetryPreferenceMethod = 'cli' | 'api'
+
+/**
+ * Persist the telemetry preference, announcing an opt-out first.
+ *
+ * `telemetry.disabled` is the last event an install sends. Without it an
+ * opt-out is indistinguishable from a user who stopped using Canonry, so the
+ * opt-out rate cannot be measured and every retention figure silently absorbs
+ * it. The event is composed while telemetry is still on, before the preference
+ * is written, and carries only how the preference was changed.
+ *
+ * Nothing is sent when telemetry is already effectively off, including when an
+ * environment override (CI, DO_NOT_TRACK, CANONRY_TELEMETRY_DISABLED) wins, so
+ * re-running `disable` never counts twice.
+ *
+ * The write is synchronous; the returned promise tracks only delivery. The
+ * server ignores it, and the CLI awaits it so process exit cannot drop the one
+ * event that can never be retried.
+ */
+export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+  const delivery = enabled ? Promise.resolve() : deliverEvent('telemetry.disabled', { method })
+  saveConfigPatch({ telemetry: enabled })
+  return delivery
+}
+
+/** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
+function deliverEvent(
+  event: string,
+  properties?: TelemetryProperties,
+  options?: TrackEventOptions,
+): Promise<void> {
+  if (!isTelemetryEnabled()) return Promise.resolve()
+  if (shouldDropTelemetryEvent(event, properties)) return Promise.resolve()
 
   const anonymousId = getOrCreateAnonymousId()
-  if (!anonymousId) return
+  if (!anonymousId) return Promise.resolve()
 
   const payload: TelemetryEvent = {
     eventId: options?.eventId ?? crypto.randomUUID(),
@@ -450,17 +484,18 @@ export function trackEvent(
   timeout.unref() // Don't keep the process alive waiting for telemetry
 
   try {
-    void fetch(TELEMETRY_ENDPOINT, {
+    return fetch(TELEMETRY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     })
-      .catch(() => {})
+      .then(() => undefined, () => undefined)
       .finally(() => clearTimeout(timeout))
   } catch {
     // A custom fetch implementation can throw synchronously. Telemetry must
     // still never affect the command's result or keep its timeout alive.
     clearTimeout(timeout)
+    return Promise.resolve()
   }
 }

@@ -75,7 +75,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentEnabled } from "./agent-config.js";
-import { saveConfigPatch, loadConfig, getConfigPath } from "./config.js";
+import { saveConfigPatch, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -139,6 +139,7 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  setTelemetryPreference,
   trackEvent,
 } from "./telemetry.js";
 import { checkLatestVersionForServer } from "./update-check.js";
@@ -3186,9 +3187,9 @@ export async function createServer(opts: {
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
     setTelemetryEnabled: (enabled: boolean) => {
-      const config = loadConfig();
-      config.telemetry = enabled;
-      saveConfigPatch(config);
+      // Persists synchronously; an opt-out's `telemetry.disabled` event is
+      // delivered in the background, since this process keeps running.
+      void setTelemetryPreference(enabled, "api");
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },
