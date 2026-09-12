@@ -6,7 +6,7 @@ import { exportProject } from '../commands/export-cmd.js'
 import { exportResults } from '../commands/results-export.js'
 import { clearResults, showHistory } from '../commands/history.js'
 import { showStatus } from '../commands/status.js'
-import type { CliCommandSpec } from '../cli-dispatch.js'
+import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
@@ -19,6 +19,24 @@ function parseResultsExportFormat(value: string | undefined): 'json' | 'csv' {
 }
 
 const RESULTS_CLEAR_USAGE = 'canonry results clear <project> [--run <id> ...] [--research-run <id> ...] [--confirm] [--format json|jsonl]'
+
+function parseHistoryPageOption(
+  input: CliCommandInput,
+  key: 'limit' | 'offset',
+  usage: string,
+): number | undefined {
+  const value = getString(input.values, key)
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value)) {
+    throw usageError(`Error: --${key} must be a ${key === 'limit' ? 'whole number from 1 to 500' : 'nonnegative integer'}\nUsage: ${usage}`)
+  }
+  const parsed = Number(value)
+  const valid = Number.isSafeInteger(parsed) && (key === 'limit' ? parsed >= 1 && parsed <= 500 : parsed >= 0)
+  if (!valid) {
+    throw usageError(`Error: --${key} must be a ${key === 'limit' ? 'whole number from 1 to 500' : 'nonnegative integer'}\nUsage: ${usage}`)
+  }
+  return parsed
+}
 
 export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -72,20 +90,22 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['history'],
-    usage: 'canonry history <project> [--limit <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
+    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
     options: {
       all: { type: 'boolean', default: false },
       limit: stringOption(),
+      offset: stringOption(),
       since: stringOption(),
       action: stringOption(),
       actor: stringOption(),
       'entity-type': stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry history <project> [--limit <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
       const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
       await showHistory(project, input.format, {
-        limit: parseIntegerOption(input, 'limit', { command: 'history', usage, message: '--limit must be an integer' }),
+        limit: parseHistoryPageOption(input, 'limit', usage),
+        offset: parseHistoryPageOption(input, 'offset', usage),
         since: getString(input.values, 'since'),
         action: getString(input.values, 'action'),
         actor: getString(input.values, 'actor'),

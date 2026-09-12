@@ -27,6 +27,7 @@ import {
   dropLegacyCredentialColumns,
   type DatabaseClient,
   type LegacyCredentialRows,
+  OperationalLogStore,
 } from "@ainyc/canonry-db";
 import os from "node:os";
 import {
@@ -138,8 +139,7 @@ import {
   upsertWordpressConnection,
 } from "./wordpress-config.js";
 import {
-  isTelemetryEnabled,
-  getOrCreateAnonymousId,
+  getTelemetryStatus,
   trackEvent,
 } from "./telemetry.js";
 import { checkLatestVersionForServer } from "./update-check.js";
@@ -247,7 +247,7 @@ import {
 import { ApiClient } from "./client.js";
 import { SnapshotService } from "./snapshot-service.js";
 import { fetchSiteText } from "./site-fetch.js";
-import { createLogger } from "./logger.js";
+import { addLogListener, createLogger, createFastifyLogger } from "./logger.js";
 import { executeResearchRun } from "./research-runner.js";
 import { createGoogleMarketingRuntime } from "./google-marketing-runtime.js";
 import {
@@ -850,22 +850,10 @@ export async function createServer(opts: {
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
-  const logger =
-    opts.logger === false
-      ? false
-      : process.stdout.isTTY
-        ? {
-            transport: {
-              target: "pino-pretty",
-              options: {
-                colorize: true,
-                translateTime: "HH:MM:ss",
-                ignore: "pid,hostname,reqId",
-                messageFormat: "{msg} {req.method} {req.url}",
-              },
-            },
-          }
-        : true;
+  const operationalLogs = new OperationalLogStore(opts.db, {
+    retention: opts.config.database === ':memory:' ? 'process' : 'durable',
+  });
+  const logger = createFastifyLogger({ enabled: opts.logger !== false, module: 'Server' });
 
   // Which hops in front of this server may be believed about who is calling.
   // Everything that budgets per caller — the sign-in limiter above all — reads
@@ -876,7 +864,8 @@ export async function createServer(opts: {
   // proxy's address.
   const trustProxy = resolveTrustProxy(process.env.CANONRY_TRUST_PROXY);
   const app = Fastify({
-    logger,
+    loggerInstance: logger,
+    genReqId: () => crypto.randomUUID(),
     trustProxy,
   });
 
@@ -3058,6 +3047,7 @@ export async function createServer(opts: {
       incomingQuota?: Partial<
         import("@ainyc/canonry-contracts").ProviderQuotaPolicy
       >,
+      auditContext?,
     ) => {
       const name = providerName;
       if (!adapterMap[name]) return null;
@@ -3141,7 +3131,13 @@ export async function createServer(opts: {
             targetProjectIds.map((projectId) => ({
               id: crypto.randomUUID(),
               projectId,
-              actor: "api",
+              actor: auditContext?.actor ?? "api",
+              actorUserId: auditContext?.actorUserId ?? null,
+              actorName: auditContext?.actorName ?? null,
+              userAgent: auditContext?.userAgent ?? null,
+              actorSession: auditContext?.actorSession ?? null,
+              credentialId: auditContext?.credentialId ?? null,
+              requestId: auditContext?.requestId ?? null,
               action: existing ? "provider.updated" : "provider.created",
               entityType: "provider",
               entityId: name,
@@ -3229,15 +3225,8 @@ export async function createServer(opts: {
         }
       });
     },
-    getTelemetryStatus: () => {
-      const enabled = isTelemetryEnabled();
-      return {
-        enabled,
-        // Only read/create the anonymous ID if telemetry is enabled.
-        // Don't mutate config for opted-out users.
-        anonymousId: enabled ? getOrCreateAnonymousId() : undefined,
-      };
-    },
+    listOperationalLogs: (query) => operationalLogs.list(query),
+    getTelemetryStatus,
     setTelemetryEnabled: (enabled: boolean) => {
       const config = loadConfig();
       config.telemetry = enabled;
@@ -3678,8 +3667,13 @@ export async function createServer(opts: {
     }
   });
 
+  // Subscribe only after construction succeeds. Both application and Fastify
+  // logger events pass through the shared sanitizer before durable capture.
+  const stopLogCapture = addLogListener(entry => operationalLogs.append(entry));
+
   // Graceful shutdown
   app.addHook("onClose", async () => {
+    stopLogCapture();
     scheduler.stop();
   });
 

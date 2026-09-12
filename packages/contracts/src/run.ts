@@ -407,6 +407,10 @@ export const auditLogEntrySchema = z.object({
   userAgent: z.string().nullable().optional(),
   /** Optional caller-supplied correlation key for grouping related mutations. */
   actorSession: z.string().nullable().optional(),
+  /** Server-issued request correlation id for an HTTP mutation. */
+  requestId: z.string().nullable().optional(),
+  /** API credential id used to authenticate an HTTP mutation, when applicable. */
+  credentialId: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 

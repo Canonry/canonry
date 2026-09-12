@@ -1,13 +1,14 @@
 import { addNotification, listEvents, listNotifications, removeNotification, testNotification } from '../commands/notify.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['notify', 'events'],
-    usage: 'canonry notify events [--format json]',
-    run: (input) => {
-      listEvents(input.format)
+    usage: 'canonry notify events [--target local|server] [--format json|jsonl]',
+    options: { target: stringOption() },
+    run: async (input) => {
+      await listEvents(input.format, getString(input.values, 'target'))
     },
   },
   {

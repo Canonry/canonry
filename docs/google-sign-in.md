@@ -141,7 +141,7 @@ Analysts. Other Viewers remain Viewers. Later changes to the legacy flag do not
 change migrated roles. Existing delegated grants retain their original scope
 ceiling; an upgrade does not add Research to a read-only grant.
 
-Back up the database and config before upgrading. Migrations 155–157 extend
+Back up the database and config before upgrading. Migrations 156–158 extend
 account and Google login transaction storage; an older binary is not a supported
 rollback against the migrated database. Restore the matching pre-upgrade
 database/config backup when rolling back. Restoring a backup also restores the

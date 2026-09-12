@@ -8,6 +8,14 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./runtime-logger": {
+      "types": "./src/runtime-logger.ts",
+      "default": "./src/runtime-logger.ts"
+    },
+    "./request-context": {
+      "types": "./src/request-context.ts",
+      "default": "./src/request-context.ts"
     }
   },
   "types": "./src/index.ts",

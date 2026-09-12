@@ -127,6 +127,14 @@ type CoverageEntry =
     }
 
 const COVERAGE: Record<string, CoverageEntry> = {
+  runtimeLogs: {
+    kind: 'internal-only',
+    reason: 'Storage rows are projected into OperationalLogEntryDto; sequence, raw storage columns, and byte accounting never leave the log store.',
+  },
+  runtimeLogMetadata: {
+    kind: 'internal-only',
+    reason: 'Private cursor namespace and sequence accounting; only explicit retention/loss metadata is returned by the log store.',
+  },
   // ─── Tables with a public DTO ──────────────────────────────────────────
   projects: {
     kind: 'dto',

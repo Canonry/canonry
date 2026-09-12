@@ -1,5 +1,11 @@
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
+import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
+import { PACKAGE_VERSION } from './package-version.js'
+import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
+import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
+import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
+import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
   QueryTrackingWorkspaceResponse, QueryTrackingPreviewRequest, QueryTrackingPreviewResponse,
@@ -81,6 +87,7 @@ import type {
   ScheduleDto,
   NotificationDto,
   SnapshotReportDto,
+  SnapshotRequestInput,
   BrandMetricsDto,
   CompetitorLandscapeQuery,
   CompetitorLandscapeResponse,
@@ -265,6 +272,9 @@ import type {
   AuthActionDto,
   UserAccessHistoryDto,
   ResultsExportFormat,
+  IntegrationSettingsSummaryDto,
+  ProviderSummaryEntryDto,
+  TelemetryStatusDto,
 } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -324,6 +334,7 @@ import {
   getApiV1ProjectsByNameAnalyticsSources,
   // Settings / snapshot / telemetry
   getApiV1Settings,
+  putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
   postApiV1Snapshot,
   getApiV1Telemetry,
@@ -638,12 +649,8 @@ import { describeError } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
-/** Settings response from GET /settings */
-export interface SettingsDto {
-  providers: Array<{ name: string; displayName: string; configured: boolean; healthy?: boolean; model?: string; quota?: object }>
-  google?: object
-  bing?: object
-}
+/** Settings response from GET /settings. */
+export type SettingsDto = import('@ainyc/canonry-contracts').SettingsDto
 
 /** Apply response */
 export type ApplyResultDto = ProjectDto
@@ -670,11 +677,8 @@ export interface QueriesReplacePreviewDto {
   snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
 }
 
-/** Telemetry status */
-export interface TelemetryDto {
-  enabled: boolean
-  anonymousId?: string
-}
+/** @deprecated Use `TelemetryStatusDto` from `@ainyc/canonry-contracts`. */
+export type TelemetryDto = TelemetryStatusDto
 
 /** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */
 export interface AgentTranscriptDto {
@@ -741,13 +745,32 @@ export interface DiscoveryRunStartResponse {
  * the client will auto-discover it from the server's /health endpoint on the
  * first API call.
  */
-export function createApiClient(): ApiClient {
+export interface ApiClientOptions {
+  skipProbe?: boolean
+  /** A short, token-safe client identity (for example, `canonry-mcp`). */
+  clientName?: string
+  /** A bounded opaque operator/session correlation value. */
+  actorSession?: string
+}
+
+const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
+const SAFE_ACTOR_SESSION = /^\w[\w.:-]{0,127}$/
+
+function safeClientName(value: string | undefined): string {
+  return value && SAFE_CLIENT_NAME.test(value) ? value : `canonry-cli/${PACKAGE_VERSION}`
+}
+
+function safeActorSession(value: string | undefined): string | undefined {
+  return value && SAFE_ACTOR_SESSION.test(value) ? value : undefined
+}
+
+export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
   const config = loadConfig()
   // basePath is already resolved if configured in config.yaml or env var.
   // Also treat an explicitly-set CANONRY_BASE_PATH (even empty) as resolved,
   // since the user is deliberately controlling the value.
   const basePathResolved = !!config.basePath || 'CANONRY_BASE_PATH' in process.env
-  return new ApiClient(config.apiUrl, config.apiKey, { skipProbe: basePathResolved })
+  return new ApiClient(config.apiUrl, config.apiKey, { ...opts, skipProbe: basePathResolved || opts.skipProbe })
 }
 
 /**
@@ -799,15 +822,22 @@ export class ApiClient {
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
   private heyClient: Client
+  private readonly requestHeaders: Record<string, string>
   /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
   private heyClientBaseUrl: string
 
-  constructor(baseUrl: string, apiKey: string, opts?: { skipProbe?: boolean }) {
+  constructor(baseUrl: string, apiKey: string, opts?: ApiClientOptions) {
     this.originUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
     this.heyClientBaseUrl = this.originUrl
-    this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey })
+    const actorSession = safeActorSession(opts?.actorSession)
+    this.requestHeaders = {
+      authorization: `Bearer ${this.apiKey}`,
+      'user-agent': safeClientName(opts?.clientName),
+      ...(actorSession ? { 'x-canonry-actor-session': actorSession } : {}),
+    }
+    this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
   }
 
   /**
@@ -847,7 +877,7 @@ export class ApiClient {
   /** Apply the probe's discovered base URL to `heyClient` if it changed since last call. */
   private refreshHeyClientBaseUrl(): void {
     if (this.originUrl !== this.heyClientBaseUrl) {
-      this.heyClient.setConfig({ baseUrl: this.originUrl, headers: { authorization: `Bearer ${this.apiKey}` } })
+      this.heyClient.setConfig({ baseUrl: this.originUrl, headers: this.requestHeaders })
       this.heyClientBaseUrl = this.originUrl
     }
   }
@@ -873,16 +903,10 @@ export class ApiClient {
       if (traceEnabled) {
         process.stderr.write(`[trace] (sdk-call) → ERROR (${Date.now() - traceStart}ms): ${msg}\n`)
       }
-      if (
-        msg.includes('fetch failed') ||
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('connect ECONNREFUSED')
-      ) {
+      if (isConnectionFailure(msg)) {
         throw new CliError({
           code: 'CONNECTION_ERROR',
-          message:
-            `Could not connect to canonry server at ${this.originUrl}. ` +
-            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+          message: connectionFailureMessage(this.originUrl),
           exitCode: EXIT_SYSTEM_ERROR,
         })
       }
@@ -892,7 +916,7 @@ export class ApiClient {
     if (traceEnabled) {
       const durMs = Date.now() - traceStart
       process.stderr.write(
-        `[trace] ${result.request.method} ${result.request.url} → ${result.response.status} (${durMs}ms)\n`,
+        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms)\n`,
       )
     }
 
@@ -905,12 +929,12 @@ export class ApiClient {
       throw new CliError({
         code: 'UNEXPECTED_RESPONSE_FORMAT',
         message:
-          `Expected a JSON response from the canonry API at ${result.request.url}, ` +
+          `Expected a JSON response from the canonry API at ${redactRequestTarget(result.request.url)}, ` +
           `but received ${contentType} (HTTP ${result.response.status}). ` +
           'Check the server URL and base path.',
         exitCode: EXIT_SYSTEM_ERROR,
         details: {
-          requestUrl: result.request.url,
+          requestUrl: redactRequestTarget(result.request.url),
           contentType,
           httpStatus: result.response.status,
         },
@@ -920,7 +944,6 @@ export class ApiClient {
     if (result.error !== undefined && result.error !== null) {
       const errorObj =
         typeof result.error === 'object' &&
-        result.error !== null &&
         'error' in result.error &&
         typeof (result.error as { error?: unknown }).error === 'object' &&
         (result.error as { error?: unknown }).error !== null
@@ -935,7 +958,7 @@ export class ApiClient {
         code,
         message: msg,
         exitCode,
-        details: { ...(errorObj?.details ?? {}), httpStatus: result.response.status },
+        details: httpErrorDetails(errorObj?.details, result.response),
       })
     }
 
@@ -1029,7 +1052,7 @@ export class ApiClient {
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
+      ...this.requestHeaders,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     }
@@ -1040,12 +1063,10 @@ export class ApiClient {
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)
-      if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
+      if (isConnectionFailure(msg)) {
         throw new CliError({
           code: 'CONNECTION_ERROR',
-          message:
-            `Could not connect to canonry server at ${this.originUrl}. ` +
-            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+          message: connectionFailureMessage(this.originUrl),
           exitCode: EXIT_SYSTEM_ERROR,
         })
       }
@@ -1061,12 +1082,12 @@ export class ApiClient {
       }
       const errorObj =
         errorBody && typeof errorBody === 'object' && 'error' in errorBody && errorBody.error
-          ? (errorBody.error as { code?: string; message?: string })
+          ? (errorBody.error as { code?: string; message?: string; details?: Record<string, unknown> })
           : null
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
+      throw new CliError({ code, message: msg, exitCode, details: httpErrorDetails(errorObj?.details, res) })
     }
 
     return res
@@ -2271,30 +2292,45 @@ export class ApiClient {
       model?: string
       quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
     },
-  ): Promise<object> {
-    return this.invoke<object>(() =>
+  ): Promise<ProviderSummaryEntryDto> {
+    return this.invoke<ProviderSummaryEntryDto>(() =>
       putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } as never, body }),
     )
   }
 
-  async createSnapshot(body: {
-    companyName: string
-    domain: string
-    queries?: string[]
-    competitors?: string[]
-  }): Promise<SnapshotReportDto> {
+  async updateGoogleSettings(body: { clientId: string; clientSecret: string }): Promise<IntegrationSettingsSummaryDto> {
+    return this.invoke<IntegrationSettingsSummaryDto>(() =>
+      putApiV1SettingsGoogle({ client: this.heyClient, body }),
+    )
+  }
+
+  async createSnapshot(body: SnapshotRequestInput): Promise<SnapshotReportDto> {
     return this.invoke<SnapshotReportDto>(() => postApiV1Snapshot({ client: this.heyClient, body }))
   }
 
   async getTelemetry(): Promise<TelemetryDto> {
-    return this.invoke<TelemetryDto>(() => getApiV1Telemetry({ client: this.heyClient }))
+    return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => getApiV1Telemetry({ client: this.heyClient })))
+  }
+
+  async listOperationalLogs(query: Partial<LogQuery> = {}): Promise<OperationalLogListDto> {
+    return this.invoke<OperationalLogListDto>(() => getApiV1OperationsLogs({ client: this.heyClient, query }))
   }
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
-    return this.invoke<TelemetryDto>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } }))
+    return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } })))
   }
 
   // ── Schedules / notifications / locations ───────────────────────────────
+
+  async listSchedules(project: string): Promise<ScheduleDto[]> {
+    return this.invoke<ScheduleDto[]>(() =>
+      getApiV1ProjectsByNameSchedules({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async listNotificationEvents(): Promise<NotificationEvent[]> {
+    return this.invoke<NotificationEvent[]>(() => getApiV1NotificationsEvents({ client: this.heyClient }))
+  }
 
   async putSchedule(project: string, body: object): Promise<ScheduleDto> {
     return this.invoke<ScheduleDto>(() =>

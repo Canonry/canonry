@@ -164,6 +164,13 @@ vi.mock('../src/telemetry.js', () => ({
   trackEvent: vi.fn(),
   setTelemetrySource: vi.fn(),
   isTelemetryEnabled: vi.fn().mockReturnValue(false),
+  getTelemetryStatus: () => ({
+    enabled: false,
+    configuredEnabled: true,
+    reason: 'CI',
+    target: 'local',
+  }),
+  maskAnonymousId: (value: string | undefined) => value ? `${value.slice(0, 8)}...` : undefined,
 }))
 vi.mock('../src/commands/backfill.js', () => ({
   backfillNormalizedPaths: () => ({ updated: 0 }),

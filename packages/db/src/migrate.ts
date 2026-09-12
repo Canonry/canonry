@@ -4099,11 +4099,50 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
+    version: 155,
+    name: 'durable-operational-logs',
+    statements: [
+      // Audit attribution is intentionally a plain nullable identity string:
+      // deleting/revoking a credential must not delete its historical trail.
+      `ALTER TABLE audit_log ADD COLUMN credential_id TEXT`,
+      `ALTER TABLE audit_log ADD COLUMN request_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_credential_created ON audit_log(credential_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_request_created ON audit_log(request_id, created_at)`,
+      `CREATE TABLE IF NOT EXISTS runtime_logs (
+        sequence    INTEGER PRIMARY KEY,
+        ts          TEXT NOT NULL,
+        level       TEXT NOT NULL,
+        module      TEXT NOT NULL,
+        action      TEXT NOT NULL,
+        msg         TEXT,
+        project_id  TEXT,
+        run_id      TEXT,
+        actor       TEXT,
+        request_id  TEXT,
+        context     TEXT NOT NULL DEFAULT '{}',
+        entry_bytes INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS runtime_log_metadata (
+        id                TEXT PRIMARY KEY,
+        cursor_namespace  TEXT NOT NULL,
+        next_sequence     INTEGER NOT NULL,
+        dropped           INTEGER NOT NULL DEFAULT 0,
+        capture_errors    INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_project_ts ON runtime_logs(project_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_run_ts ON runtime_logs(run_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_actor_ts ON runtime_logs(actor, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_request_ts ON runtime_logs(request_id, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_module_level_ts ON runtime_logs(module, level, ts, sequence)`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_logs_ts ON runtime_logs(ts, sequence)`,
+    ],
+  },
+  {
     // Migration 121 made both the password and the two-role set physical
     // SQLite constraints. A rebuild is the only forward-compatible way to
     // admit Google-only accounts and the Analyst role while retaining account
     // ids for all of the session/OAuth/delegated-key children.
-    version: 155,
+    version: 156,
     name: 'per-instance-user-access-foundation',
     statements: [
       `ALTER TABLE user_sessions ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0`,
@@ -4124,7 +4163,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
 
   {
-    version: 156,
+    version: 157,
     name: 'native-google-identities-and-invitations',
     statements: [
       `CREATE TABLE IF NOT EXISTS user_external_identities (
@@ -4155,7 +4194,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 157,
+    version: 158,
     name: 'google-login-transaction-return-target',
     statements: [
       `ALTER TABLE google_login_transactions ADD COLUMN return_to TEXT`,

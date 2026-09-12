@@ -4,9 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLog, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, createClient, migrate, projects } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { apiRoutes } from '../src/index.js'
+import { hashApiKey } from '../src/auth.js'
+import { auditFromRequest } from '../src/helpers.js'
 
 /**
  * Regression coverage for the audit-log attribution columns added with
@@ -150,5 +152,78 @@ describe('audit_log attribution capture', () => {
     // matters: actorSession is NULL when the header is absent, and the
     // call succeeded without throwing.
     expect(row!.actorSession).toBeNull()
+  })
+
+  it('derives generic HTTP actor=api from the authenticated API key identity', () => {
+    const entry = auditFromRequest({
+      headers: { 'user-agent': 'canonry-cli/4.52.0' },
+      principal: { kind: 'api-key', id: 'key-123', name: 'delegate', scopes: ['write'], viaCookie: false },
+    }, { projectId: ctx.projectId, actor: 'api', action: 'queries.replaced', entityType: 'query' })
+
+    expect(entry.actor).toBe('api-key:key-123')
+  })
+
+  it('persists the API key identity from the authenticated request, not caller headers', async () => {
+    const keyId = crypto.randomUUID()
+    const token = 'cnry_audit_attribution_key'
+    ctx.db.insert(apiKeys).values({
+      id: keyId,
+      name: 'audit attribution',
+      keyHash: hashApiKey(token),
+      keyPrefix: token.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const authenticatedApp = Fastify()
+    authenticatedApp.register(apiRoutes, { db: ctx.db })
+    await authenticatedApp.ready()
+    try {
+      const response = await authenticatedApp.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/audit-attr/queries',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'x-canonry-actor-session': 'untrusted-session',
+        },
+        payload: { queries: ['authenticated write'] },
+      })
+      expect(response.statusCode).toBe(200)
+      const row = ctx.db.select().from(auditLog).where(eq(auditLog.action, 'queries.replaced')).get()
+      expect(row!.actor).toBe(`api-key:${keyId}`)
+      expect(row!.credentialId).toBe(keyId)
+      expect(row!.requestId).toBeTruthy()
+      expect(row!.actorSession).toBe('untrusted-session')
+    } finally {
+      await authenticatedApp.close()
+    }
+  })
+
+  it('derives generic HTTP actor=api from a signed-in user and retains custom actors without a principal', () => {
+    const userEntry = auditFromRequest({
+      headers: {},
+      principal: { kind: 'user', id: 'user-123', name: 'Ada', scopes: ['*'], viaCookie: true },
+    }, { projectId: ctx.projectId, actor: 'api', action: 'queries.replaced', entityType: 'query' })
+    const customEntry = auditFromRequest({ headers: {} }, {
+      projectId: ctx.projectId, actor: 'scheduler', action: 'queries.replaced', entityType: 'query',
+    })
+
+    expect(userEntry.actor).toBe('user:user-123')
+    expect(customEntry.actor).toBe('scheduler')
+  })
+
+  it('treats caller attribution headers as bounded, untrusted context', () => {
+    const entry = auditFromRequest({
+      headers: {
+        'user-agent': `agent\r\nforged ${'x'.repeat(1_000)}`,
+        'x-canonry-actor-session': `trace\r\nforged ${'y'.repeat(1_000)}`,
+      },
+      principal: { kind: 'api-key', id: 'key-123', name: 'delegate', scopes: ['write'], viaCookie: false },
+    }, { projectId: ctx.projectId, actor: 'api', action: 'queries.replaced', entityType: 'query' })
+
+    expect(entry.actor).toBe('api-key:key-123')
+    expect(entry.userAgent).not.toMatch(/[\r\n]/)
+    expect(entry.actorSession).not.toMatch(/[\r\n]/)
+    expect(entry.userAgent!.length).toBeLessThanOrEqual(512)
+    expect(entry.actorSession!.length).toBeLessThanOrEqual(512)
   })
 })

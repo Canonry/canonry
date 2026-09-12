@@ -25,6 +25,15 @@ describe('scope constants', () => {
 })
 
 describe('isReadOnlyKey', () => {
+  it.each(['logs.read', 'users.read', 'custom.read'])('treats the named read scope %s as read-only by default', scope => {
+    expect(isReadOnlyKey([scope])).toBe(true)
+    expect(isReadOnlyKey([scope, 'read'])).toBe(true)
+    expect(isReadOnlyKey([scope, '*'])).toBe(false)
+    expect(isReadOnlyKey([scope, 'settings.write'])).toBe(false)
+    expect(isReadOnlyKey([scope, 'research.run'])).toBe(false)
+    expect(restrictedWriteScopes([scope, 'research.run'])).toEqual(['research.run'])
+  })
+
   it('distinguishes bounded research from both read-only and broad write authority', () => {
     expect(isReadOnlyKey(['read', 'research.run'])).toBe(false)
     expect(restrictedWriteScopes(['read', 'research.run'])).toEqual(['research.run'])

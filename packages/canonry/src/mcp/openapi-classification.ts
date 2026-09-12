@@ -1,6 +1,7 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  'GET /api/v1/operations/logs': 'included',
   'GET /api/v1/openapi.json': 'excluded-protocol',
   // The browser launchpad needs create-only collision semantics. Agents already
   // have the included project upsert tool and do not need a second create path.
@@ -136,21 +137,21 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/visibility-compare': 'included',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',
   'GET /api/v1/settings': 'included',
-  'PUT /api/v1/settings/providers/{name}': 'deferred',
+  // MCP exposes only non-secret model/quota edits; credential fields remain operator-only.
+  'PUT /api/v1/settings/providers/{name}': 'included',
   'PUT /api/v1/settings/google': 'deferred',
-  'POST /api/v1/snapshot': 'deferred',
+  'POST /api/v1/snapshot': 'included',
   'PUT /api/v1/settings/bing': 'deferred',
   'PUT /api/v1/settings/cdp': 'deferred',
   // API key management — deliberately not surfaced as MCP tools. Minting and
   // revoking bearer tokens is a privilege-granting / access-cutting operation
   // (gated by the keys.write scope), in the same sensitive class as the
   // settings credential mutations above. CLI + API only for now.
-  // `GET /keys/self` (key introspection) is consumed directly by the MCP
-  // adapter's own startup auto-detection (which restricts the catalog to read
-  // tools when the configured key is read-only) — it is not surfaced as an
-  // agent tool, consistent with the rest of the /keys surface.
+  // Key creation and revocation remain deliberately outside MCP. Safe
+  // introspection is exposed so agents can see the credential boundary that
+  // already governs this connection.
   'GET /api/v1/keys': 'deferred',
-  'GET /api/v1/keys/self': 'deferred',
+  'GET /api/v1/keys/self': 'included',
   'POST /api/v1/keys': 'deferred',
   'POST /api/v1/keys/{id}/revoke': 'deferred',
   // The sign-in surface is how a PERSON reaches the dashboard in a browser. An
@@ -188,18 +189,16 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/users/{id}/revoke-access': 'included',
   'GET /api/v1/users/{id}/access-history': 'included',
   'PUT /api/v1/projects/{name}/schedule': 'included',
-  // Dashboard discovery read. Agents already address a schedule by kind via
-  // the singular included operation, so a second list tool is unnecessary.
-  'GET /api/v1/projects/{name}/schedules': 'deferred',
+  'GET /api/v1/projects/{name}/schedules': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',
   'DELETE /api/v1/projects/{name}/schedule': 'included',
-  'GET /api/v1/notifications/events': 'deferred',
+  'GET /api/v1/notifications/events': 'included',
   'POST /api/v1/projects/{name}/notifications': 'included',
   'GET /api/v1/projects/{name}/notifications': 'included',
   'DELETE /api/v1/projects/{name}/notifications/{id}': 'included',
   'POST /api/v1/projects/{name}/notifications/{id}/test': 'deferred',
-  'GET /api/v1/telemetry': 'deferred',
-  'PUT /api/v1/telemetry': 'deferred',
+  'GET /api/v1/telemetry': 'included',
+  'PUT /api/v1/telemetry': 'included',
   // Dashboard-to-local-server observability protocol. It records no product
   // capability and is intentionally not an agent tool.
   'POST /api/v1/telemetry/onboarding': 'excluded-protocol',

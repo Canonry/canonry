@@ -6,7 +6,7 @@ Canonry is an **agent-first, self-hosted AEO operating platform.** Track AI visi
 
 **Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
 
-[Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+[Live demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">

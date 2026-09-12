@@ -8,6 +8,8 @@ import {
   textContainsBrandAlias,
   textContainsDomain,
   describeError,
+  SnapshotProviderModes,
+  validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   GroundingSource,
@@ -62,12 +64,29 @@ export class SnapshotService {
     const domain = hostOf(input.domain) ?? input.domain.trim()
     const manualQueries = normalizeStringList(resolveSnapshotRequestQueries(input))
     const manualCompetitors = normalizeStringList(input.competitors ?? [])
-    const providers = this.registry.getAll()
+    const requestedNames = input.providers === undefined ? undefined : [...new Set(input.providers)]
+    const mode = input.providerMode ?? SnapshotProviderModes.all
+    const providers = requestedNames === undefined
+      ? this.registry.getAll().filter(provider => mode === SnapshotProviderModes.all || provider.adapter.mode === mode)
+      : requestedNames.map(name => {
+        const provider = this.registry.get(name)
+        if (!provider) throw validationError(`Snapshot provider "${name}" is not configured`)
+        if (mode !== SnapshotProviderModes.all && provider.adapter.mode !== mode) {
+          throw validationError(`Snapshot provider "${name}" does not match providerMode "${mode}"`)
+        }
+        return provider
+      })
     if (providers.length === 0) {
+      if (input.providers !== undefined || input.providerMode !== undefined) {
+        throw validationError(`No configured snapshot providers match the selection (providerMode: ${mode})`)
+      }
       throw new Error('No providers configured. Add at least one provider API key before running canonry snapshot.')
     }
 
-    const analysisProvider = pickAnalysisProvider(this.registry.getApiProviders())
+    const analysisProvider = pickAnalysisProvider(providers.filter(provider => provider.adapter.mode === SnapshotProviderModes.api))
+    if (!analysisProvider && manualQueries.length === 0) {
+      throw validationError('Automatic category-query generation requires a selected API provider. Include an API provider or pass manual queries via --queries.')
+    }
     const homepageUrl = `https://${domain}`
 
     const [siteText, audit] = await Promise.all([

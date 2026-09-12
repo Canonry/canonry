@@ -1,6 +1,15 @@
 import type { ScheduleDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
+
+export async function listSchedules(project: string, format?: string): Promise<void> {
+  const schedules = await getClient().listSchedules(project)
+  if (format === 'jsonl') { emitJsonl(schedules); return }
+  if (format === 'json') { console.log(JSON.stringify(schedules, null, 2)); return }
+  if (!schedules.length) console.log(`No schedules configured for "${project}"`)
+  for (const schedule of schedules) printSchedule(schedule)
+}
 
 function getClient() {
   return createApiClient()

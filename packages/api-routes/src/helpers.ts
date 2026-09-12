@@ -13,6 +13,7 @@ import {
   type MentionState,
   type VisibilityState,
 } from '@ainyc/canonry-contracts'
+import { getRequestContext, requestAuditIdentity, sanitizeRequestContext } from './request-context.js'
 
 /**
  * Drizzle predicate that excludes probe runs (`trigger='probe'`).
@@ -61,25 +62,37 @@ export interface AuditEntry {
    * sequence of mutations can be grouped. Optional.
    */
   actorSession?: string | null
+  /** Stable authenticated user ID, when the caller is a user or delegated key. */
   actorUserId?: string | null
+  /** Display name captured with the authenticated user identity. */
   actorName?: string | null
+  /** Server-issued request correlation id for an HTTP mutation. */
+  requestId?: string | null
+  /** ID of the API credential that authenticated an HTTP mutation. */
+  credentialId?: string | null
 }
 
 /** Accepts both the main DatabaseClient and a Drizzle transaction context */
 export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
+  const context = getRequestContext()
+  // `api` has always meant an ordinary HTTP caller. Keep explicit business
+  // actors (scheduler, system, paid-workflow actors, etc.) exactly as named.
+  const actor = entry.actor === 'api' ? context?.actor ?? entry.actor : entry.actor
   const now = new Date().toISOString()
   db.insert(auditLog).values({
     id: crypto.randomUUID(),
     projectId: entry.projectId ?? null,
-    actor: entry.actor,
+    actor,
     action: entry.action,
     entityType: entry.entityType,
     entityId: entry.entityId ?? null,
     diff: entry.diff != null ? JSON.stringify(entry.diff) : null,
-    userAgent: entry.userAgent ?? null,
-    actorSession: entry.actorSession ?? null,
+    userAgent: sanitizeRequestContext(entry.userAgent ?? context?.userAgent),
+    actorSession: sanitizeRequestContext(entry.actorSession ?? context?.actorSession),
     actorUserId: entry.actorUserId ?? null,
     actorName: entry.actorName ?? null,
+    requestId: entry.requestId ?? context?.requestId ?? null,
+    credentialId: entry.credentialId ?? context?.credentialId ?? null,
     createdAt: now,
   }).run()
 }
@@ -95,25 +108,29 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
  *   }))
  */
 export function auditFromRequest(
-  request: Pick<import('fastify').FastifyRequest, 'headers'> & Partial<Pick<import('fastify').FastifyRequest, 'principal'>>,
+  request: Pick<import('fastify').FastifyRequest, 'headers' | 'principal' | 'apiKey'>,
   entry: AuditEntry,
 ): AuditEntry {
-  const ua = request.headers['user-agent']
-  // Header is `string | string[] | undefined` per Fastify types; collapse
-  // arrays (rare but possible for duplicated headers) to a comma-joined
-  // string so the DB column stays a single value.
-  const userAgent = Array.isArray(ua) ? ua.join(', ') : ua ?? null
-  // Honor an optional `X-Canonry-Actor-Session` header for callers that
-  // want to thread their own correlation key (Aero agent sessions, agent
-  // runtimes, batch scripts). Stays null when absent.
-  const sess = request.headers['x-canonry-actor-session']
-  const actorSession = Array.isArray(sess) ? sess.join(', ') : sess ?? null
+  const userAgent = sanitizeRequestContext(request.headers['user-agent'])
+  // This is untrusted caller context only: it is useful for correlation but
+  // must never determine identity or authorization.
+  const actorSession = sanitizeRequestContext(request.headers['x-canonry-actor-session'])
+  const identity = requestAuditIdentity(request)
+  const context = getRequestContext()
+  const actor = entry.actor === 'api' ? identity.actor ?? entry.actor : entry.actor
   return {
     ...entry,
-    actorUserId: request.principal?.kind === 'user' ? request.principal.id : request.principal?.delegatedUser?.id ?? null,
-    actorName: request.principal?.kind === 'user' ? request.principal.name : request.principal?.delegatedUser?.name ?? null,
-    userAgent: entry.userAgent ?? userAgent,
-    actorSession: entry.actorSession ?? actorSession,
+    actor,
+    actorUserId: entry.actorUserId ?? (request.principal?.kind === 'user'
+      ? request.principal.id
+      : request.principal?.delegatedUser?.id ?? null),
+    actorName: entry.actorName ?? (request.principal?.kind === 'user'
+      ? request.principal.name
+      : request.principal?.delegatedUser?.name ?? null),
+    credentialId: entry.credentialId ?? identity.credentialId ?? context?.credentialId ?? null,
+    userAgent: sanitizeRequestContext(entry.userAgent ?? userAgent),
+    actorSession: sanitizeRequestContext(entry.actorSession ?? actorSession),
+    requestId: entry.requestId ?? context?.requestId ?? null,
   }
 }
 

@@ -68,9 +68,21 @@ canonry mcp install --client cursor --read-only
 canonry mcp config  --client codex            # print snippet for clients without auto-install
 ```
 
-`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 142 read API tools, `--dry-run` (install only), and `--format json` for machine-readable output.
+`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 148 read API tools, `--dry-run` (install only), and `--format json` for machine-readable output.
 
 ## Auth
+
+Operational settings support uses the same API permissions: `canonry_telemetry_update`
+and `canonry_provider_settings_update` require `settings.write`. The provider tool
+accepts only model/quota changes for an existing configuration; credentials,
+base URLs, and token creation/rotation remain in the operator setup flow.
+`canonry_logs_list` requires instance-wide `logs.read` (or wildcard), and an admin
+role for user sessions. It returns redacted application and HTTP runtime events
+with identity/time filters, retention limits, and loss counters. File-backed
+hosts retain up to 10,000 events for seven days across restarts; in-memory hosts
+report process retention. This is separate from durable audit history.
+Project-scoped keys cannot access it, even with a project filter. See the
+[operations guide](agent-operations/v1.md#agent-operations).
 
 `canonry-mcp` inherits the normal local config at `~/.canonry/config.yaml` through `createApiClient()`.
 
@@ -192,7 +204,7 @@ This paid operation remains write-only and never changes tracking.
 The matching CLI is `canonry research batch <project> <json-file|-> [--wait] --format json|jsonl`.
 The browser offers the same [reviewed Research workflow](query-visibility.md#repeat-research-across-destinations).
 
-The catalog is curated for client usability: 213 API tools (143 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, project and instance-wide change history (`canonry_project_history`, `canonry_history_global`), citation/mention trend analytics (`canonry_analytics_metrics`), cited-source rankings (`canonry_analytics_sources`: the full ranked + per-provider + classified cited-domain surface), aggregated per-query mention/citation stats with sample size (`canonry_visibility_stats`: confidence-aware proportions, optional per-provider), statistically honest month-over-month AEO comparison (`canonry_visibility_compare`: share-of-voice-led, Wilson intervals, within-noise verdict, drift-aware), config apply, versioned Target measurement plans (`canonry_measurement_plan_get`, `_versions`, `_version_get`, `_compile_preview`, `_diff_preview`, `_publish`, `_segment_retire`), one Property's paged evidence (`canonry_measurement_property_evidence`: `shape=sources` for one row per cited URL, `shape=answers` for one row per measured answer with its cited URLs nested, which is the only shape that shows the answers a Property was not cited in), runs, snapshots, insights, health, query generation and replacement, legacy keyword aliases, competitor add/remove, schedules, settings, GSC reads plus the sitemap-submission write tool (`canonry_gsc_sitemaps_submit`, explicit URLs or `indexes` / `all-files` modes; all-files omits parent indexes), GA reads including per-day AI referral sessions (`canonry_ga_ai_referral_daily`) and native-channel/lead/search-demand measurement analysis, GBP local-AEO reads (incl. `canonry_gbp_attributes`: owner-set Business Profile attributes across categories, and `canonry_gbp_places`: the Places rendered-listing cross-reference), Google Ads and GTM conversion evidence plus stored contract integrity, server-side traffic ingestion (Cloud Run / WordPress / Vercel connect/sync + async backfill + crawler/AI-referral rollup reads), OpenAI ads live account/integrity state, geo target lookup, conversion pixels/event settings, stored ads snapshot-provenance/configuration diagnostics plus historical campaign activity (never a provider serving or eligibility verdict), the bounded live provider read with a stored-snapshot delta (`canonry_ads_live_delivery`), paid-surface snapshots/rollups, sync, durable operation receipts, unresolved-receipt listing, safe provider-state reconciliation, exact-executor activation recovery, image upload, paused campaign/ad-group/ad create/update/pause lifecycle, and exact-grant campaign-tree activation, the doctor health-check, Site Health scans and canonical graph semantics (`canonry_site_health_overview`, exact page audit evidence via `canonry_site_health_page_audit`, focused subgraphs, directed shortest paths, cursor-paged scan changes, page inventory, structure, links, neighbors, and opt-in dead links), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, the winnabilityClass gate (`canonry_content_map`: per-domain cited-surface classifications) and structured brief synthesis (`canonry_content_brief`, gated to ownable targets), source-aware backlinks (`canonry_backlinks_domains` reads either Common Crawl or Bing Webmaster via `source`; `canonry_backlinks_sources` reports per-source availability), durable Aero memory (list/set/forget), agent transcript clear, agent webhook attach/detach, the tracked-basket discovery pipeline, and saved free-form research batches (`canonry_research_run_start`, `canonry_research_runs_list`, `canonry_research_run_get`) that return model answers and sources without adding a query to tracking.
+The catalog is curated for client usability: 221 API tools (148 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, project and instance-wide change history (`canonry_project_history`, `canonry_history_global`), citation/mention trend analytics (`canonry_analytics_metrics`), cited-source rankings (`canonry_analytics_sources`: the full ranked + per-provider + classified cited-domain surface), aggregated per-query mention/citation stats with sample size (`canonry_visibility_stats`: confidence-aware proportions, optional per-provider), statistically honest month-over-month AEO comparison (`canonry_visibility_compare`: share-of-voice-led, Wilson intervals, within-noise verdict, drift-aware), config apply, versioned Target measurement plans (`canonry_measurement_plan_get`, `_versions`, `_version_get`, `_compile_preview`, `_diff_preview`, `_publish`, `_segment_retire`), one Property's paged evidence (`canonry_measurement_property_evidence`: `shape=sources` for one row per cited URL, `shape=answers` for one row per measured answer with its cited URLs nested, which is the only shape that shows the answers a Property was not cited in), runs, snapshots, insights, health, query generation and replacement, legacy keyword aliases, competitor add/remove, schedules, settings, safe key identity, telemetry status, and supported notification event names, GSC reads plus the sitemap-submission write tool (`canonry_gsc_sitemaps_submit`, explicit URLs or `indexes` / `all-files` modes; all-files omits parent indexes), GA reads including per-day AI referral sessions (`canonry_ga_ai_referral_daily`) and native-channel/lead/search-demand measurement analysis, GBP local-AEO reads (incl. `canonry_gbp_attributes`: owner-set Business Profile attributes across categories, and `canonry_gbp_places`: the Places rendered-listing cross-reference), Google Ads and GTM conversion evidence plus stored contract integrity, server-side traffic ingestion (Cloud Run / WordPress / Vercel connect/sync + async backfill + crawler/AI-referral rollup reads), OpenAI ads live account/integrity state, geo target lookup, conversion pixels/event settings, stored ads snapshot-provenance/configuration diagnostics plus historical campaign activity (never a provider serving or eligibility verdict), the bounded live provider read with a stored-snapshot delta (`canonry_ads_live_delivery`), paid-surface snapshots/rollups, sync, durable operation receipts, unresolved-receipt listing, safe provider-state reconciliation, exact-executor activation recovery, image upload, paused campaign/ad-group/ad create/update/pause lifecycle, and exact-grant campaign-tree activation, the doctor health-check, Site Health scans and canonical graph semantics (`canonry_site_health_overview`, exact page audit evidence via `canonry_site_health_page_audit`, focused subgraphs, directed shortest paths, cursor-paged scan changes, page inventory, structure, links, neighbors, and opt-in dead links), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, the winnabilityClass gate (`canonry_content_map`: per-domain cited-surface classifications) and structured brief synthesis (`canonry_content_brief`, gated to ownable targets), source-aware backlinks (`canonry_backlinks_domains` reads either Common Crawl or Bing Webmaster via `source`; `canonry_backlinks_sources` reports per-source availability), durable Aero memory (list/set/forget), agent transcript clear, agent webhook attach/detach, the tracked-basket discovery pipeline, and saved free-form research batches (`canonry_research_run_start`, `canonry_research_runs_list`, `canonry_research_run_get`) that return model answers and sources without adding a query to tracking.
 
 Advanced Measurement v2 spans monitoring and setup. Monitoring provides the stored portfolio summary, Property questions/results/competitors, and change and data-quality reads. Setup provides setup state, the scoped overview and Property evidence, the draft plus its paginated Targets, assignments and groups, and saved query sets/templates. Seven write tools expose one discriminated `canonry_measurement_draft_action` surface, plan deactivation, and query-set/template mutations. The draft-action input is `{ project, operation }`; `operation` is a nested discriminated union whose twenty-five branches correlate each `action` with its request and header fields. Reads return stored state and never start provider work. Draft previews also never start provider work or mutate state, but they remain branches of the write-classified draft-action tool and are therefore absent from a read-only MCP catalog.
 
@@ -222,7 +234,31 @@ For an existing-draft mutation, pass the ETag returned by `canonry_measurement_d
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_queries_generate` returns suggestions only; persist accepted suggestions with `canonry_queries_add` or replace the tracked set with `canonry_queries_replace`. The `canonry_keywords_*` tools remain as legacy aliases over the same query store for older clients.
 
-Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete, snapshot generation, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
+`canonry_snapshot` (discovery toolkit) generates a prospect report without creating
+a project. It calls `POST /api/v1/snapshot` and spends provider quota, so it is
+unavailable to read-only connections. `providers: ["gemini"]` selects configured
+providers; `providerMode: "all" | "api" | "browser"` filters by transport.
+Omitting both uses all configured providers. Both selectors also constrain
+analysis calls. Browser-only selection requires manual `queries` and uses
+deterministic analysis. Unknown providers, mode conflicts, and empty selections
+fail before site fetching or provider work.
+
+Start with `canonry_help({intent: "prospect snapshot"})`. Help offers stored
+provider settings in `next` and, on progressive stdio, the discovery toolkit to
+load. After loading, `actions` includes `canonry_snapshot` when this connection
+permits it. Fixed catalogs offer the action immediately when available. Help
+starts no provider work; execution requires approval for the selected work.
+
+```bash
+canonry snapshot "Acme" --domain acme.example --provider gemini --format json
+canonry snapshot "Acme" --domain acme.example --provider-mode api --format json
+canonry snapshot "Acme" --domain acme.example --provider-mode browser --queries "best widget suppliers"
+```
+
+Repeat `--provider` to select several providers. The CLI and MCP accept the same
+selection as the API; a named provider must match an explicitly selected mode.
+
+Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
 
 Some write tools compose existing API calls rather than using a native atomic endpoint. The agent webhook attach/detach tools are best-effort under concurrent calls until the public API grows narrower attach/detach operations for that domain.
 
@@ -267,7 +303,7 @@ before enabling spend.
 
 ## Progressive Tool Discovery
 
-The full 213-tool catalog (211 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
+The full 223-tool catalog (221 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
 
 For shared query assignments and measured results, see [Query control and AI visibility](query-visibility.md). The setup toolkit provides workspace, preview, and commit tools. Monitoring provides `canonry_visibility_report`. Its optional `marketKey` narrows a project, group, or property report to exact saved market assignments, including metrics, competitors and answer details. Omit it to read the full selected scope. Preview requires write access but starts no provider calls.
 
@@ -288,7 +324,7 @@ Toolkits (loaded on demand):
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
 | `monitoring` | runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, `canonry_report` (aggregated AEO report bundle), `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder) | Investigating regressions, comparing runs, reviewing insights/health, surfacing content opportunities, generating client-facing reports |
-| `setup` | project export/upsert, sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove, schedule get/set/delete, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing backlink coverage |
+| `setup` | project export/upsert, sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove, schedule get/list/set/delete, notification event names, telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing notification capability, and checking safe setup state |
 | `gsc` | google connections list, GSC performance, inspections, coverage, coverage history, sitemaps, sitemap submission, deindexed | Indexing, coverage, sitemap analysis and submission from Google Search Console |
 | `ga` | GA status, native-channel/lead/search-demand measurement analysis, traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
 | `gbp` | Google Business Profile location discovery, selection, and local AEO evidence | Reviewing connected Business Profile locations and local search visibility |
@@ -308,7 +344,7 @@ Loading a toolkit is idempotent and persists for the rest of the session; there 
 
 ### Eager mode
 
-Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 212-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 220-API-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
 
 ```json
 {
@@ -335,7 +371,7 @@ A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rej
 
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.
 
-Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Canonry API/client errors and Zod input-validation errors return MCP tool results with `isError: true` and a structured `{ "error": { "code", "message", "details" } }` envelope (`VALIDATION_ERROR` for bad input, with `details.issues` listing the per-field problems). Malformed JSON-RPC and unknown tools remain MCP protocol errors.
+Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Ordinary tool results retain their legacy JSON text and also provide MCP `structuredContent`: object responses stay objects, top-level arrays are wrapped as `{ "items": [...] }`, and scalars as `{ "value": ... }`. Canonry API/client errors and Zod input-validation errors return MCP tool results with `isError: true` and the same structured `{ "error": { "code", "message", "details" } }` envelope in both text and `structuredContent` (`VALIDATION_ERROR` for bad input, with `details.issues` listing the per-field problems). Malformed JSON-RPC and unknown tools remain MCP protocol errors.
 
 ## Instance account administration
 

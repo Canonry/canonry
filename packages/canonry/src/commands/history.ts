@@ -10,6 +10,7 @@ function getClient() {
 
 interface HistoryOptions {
   limit?: number
+  offset?: number
   since?: string
   action?: string
   actor?: string
@@ -62,6 +63,7 @@ export async function showHistory(project: string | undefined, format?: string, 
       if (entry.diff != null) console.log(`    diff: ${JSON.stringify(entry.diff)}`)
     }
   } catch (err: unknown) {
+    if (err instanceof CliError) throw err
     const message = describeError(err)
     throw new CliError({
       code: 'HISTORY_FETCH_FAILED',

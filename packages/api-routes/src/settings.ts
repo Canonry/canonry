@@ -6,6 +6,7 @@ import {
   internalError,
 } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
+import { auditFromRequest, type AuditEntry } from './helpers.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -60,7 +61,7 @@ export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   /** Adapter metadata for validation — keyed by provider name */
   providerAdapters?: ProviderAdapterInfo[]
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'actorUserId' | 'actorName' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
@@ -117,11 +118,26 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       })
     }
 
-    if (name === 'local') {
-      if (!baseUrl || typeof baseUrl !== 'string') {
+    if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) {
+      throw validationError('apiKey must be a non-empty string when provided')
+    }
+    if (baseUrl !== undefined && (typeof baseUrl !== 'string' || !baseUrl.trim())) {
+      throw validationError('baseUrl must be a non-empty string when provided')
+    }
+    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
+      throw validationError('model must be a non-empty string when provided')
+    }
+    if (apiKey === undefined && baseUrl === undefined && model === undefined && quota === undefined) {
+      throw validationError('at least one provider setting must be supplied')
+    }
+
+    const existing = (opts.providerSummary ?? []).find(provider => provider.name === name)
+    const configured = Boolean(existing?.configured)
+    if (!configured && name === 'local') {
+      if (!baseUrl) {
         throw validationError('baseUrl is required for local provider')
       }
-    } else if (name === 'gemini' && !apiKey) {
+    } else if (!configured && name === 'gemini' && !apiKey) {
       const geminiSummary = (opts.providerSummary ?? []).find(p => p.name === 'gemini')
       if (!geminiSummary?.vertexConfigured) {
         throw validationError(
@@ -129,7 +145,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
           '(set GEMINI_VERTEX_PROJECT env var or vertexProject in config file)',
         )
       }
-    } else {
+    } else if (!configured) {
       if (!apiKey || typeof apiKey !== 'string') {
         throw validationError('apiKey is required')
       }
@@ -151,6 +167,9 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       if (typeof quota !== 'object' || quota === null) {
         throw validationError('quota must be an object')
       }
+      if (Object.keys(quota).length === 0) {
+        throw validationError('quota must include at least one field')
+      }
       for (const [key, val] of Object.entries(quota)) {
         if (!['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'].includes(key)) {
           throw validationError(`Unknown quota field: ${key}`)
@@ -161,7 +180,14 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       }
     }
 
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota)
+    // Only trusted identity and bounded correlation reach the host's audit writer;
+    // never forward the authorization header or mutable request object.
+    const { actor, actorUserId, actorName, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
+      actor: 'api', action: 'provider.updated', entityType: 'provider',
+    })
+    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota, {
+      actor, actorUserId, actorName, userAgent, actorSession, requestId, credentialId,
+    })
     if (!result) {
       throw internalError('Failed to update provider configuration')
     }

@@ -6,6 +6,20 @@ Source of truth: `packages/db/src/schema.ts`
 
 ```mermaid
 erDiagram
+  runtime_logs {
+    integer sequence PK
+    text ts
+    text actor
+    text requestId
+    text context
+  }
+  runtime_log_metadata {
+    text id PK
+    text cursorNamespace
+    integer nextSequence
+    integer captureErrors
+    integer dropped
+  }
   projects ||--o{ queries : has
   projects ||--o{ competitors : has
   projects ||--o{ runs : has
@@ -101,7 +115,7 @@ erDiagram
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
-| **audit_log** | Change tracking | FK: projectId → projects (optional) |
+| **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
 
 `research_runs` and `research_run_queries` are the durable ad-hoc research
 history. They are deliberately not linked to `queries`, `runs`, or
@@ -334,6 +348,8 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 |-------|---------|
 | **api_keys** | API authentication. Unique: `keyHash`. Internal nullable `delegatedUserId` → users (cascade delete) preserves OAuth account authority and research attribution across the MCP-to-REST hop; ordinary/historical keys remain null. |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
+| **runtime_logs** | Sanitized runtime messages and allowlisted metadata, queried with indexed identity/time filters and opaque keyset cursors. Default retention: 10,000 events/seven days. Separate from business audit history; logs contain no raw HTTP bodies, headers, or provider payloads. |
+| **runtime_log_metadata** | Store identity, sequence, and eviction accounting for restart-safe pagination and honest retention/loss reporting. Runtime diagnostic data is bounded; audit history is not pruned by this policy. |
 | **oauth_clients** | OAuth 2.1 clients for the remote MCP surface. `registration` records how one came to exist: `operator` (created deliberately) or `dynamic` (registered itself over the open RFC 7591 endpoint and chose its own display name, so the consent screen marks that name unverified). `secretHash` is NULL for a public client authenticating by PKCE alone. `redirectUris` is an exact-match allowlist, except that RFC 8252 s7.3 lets the PORT float for loopback redirects so a native app can bind an ephemeral one. Revoking a client also revokes its outstanding tokens |
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |
 | **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate, so a stolen one is usable at most once. FK: clientId → oauth_clients, userId → users |

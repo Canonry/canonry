@@ -9,6 +9,9 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | File | Role |
 |------|------|
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
+| `src/request-context.ts` | Async request-local authenticated actor, credential id, request id, and bounded client/session correlation. Never use caller headers as identity. `writeAuditLog` enriches HTTP writes centrally; explicit background actors remain unchanged. |
+| `src/runtime-logger.ts` | Shared application logger and Fastify-compatible adapter. The contracts redactor runs before console output and capture. Exported through the `./runtime-logger` package subpath so both execution hosts use it without importing provider SDKs. |
+| `src/operational-logs.ts` | `GET /operations/logs`: host-provided bounded runtime log reader, guarded by instance-wide `logs.read` and user admin role. Project-scoped keys are refused. Strict shared DTO prevents accidental payload widening; unwired hosts return 501. |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` (Drizzle predicate every dashboard/analytics/report/timeline/intelligence read MUST AND-in to exclude probe runs — see root AGENTS.md "Probe runs" section) |
 | `src/db-derived-dtos.ts` | `drizzle-zod`-derived row schemas (`projectRowSchema`, `runRowSchema`, `scheduleRowSchema`, `notificationRowSchema`) for the migrated tables. Per-column refinements narrow JSON columns and enum text columns to the typed Zod shapes the DB writes. Use for runtime validation of rows read from these tables; the hand-rolled DTOs in `@ainyc/canonry-contracts` remain the SDK source (see the "Derived row schemas" section below). |
 | `src/projects.ts` | Project CRUD routes (largest route file) |

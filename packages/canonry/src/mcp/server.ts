@@ -58,7 +58,7 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 const SERVER_INSTRUCTIONS = OPERATIONS_GUIDE.initialize
 
 export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
-  const clientFactory = options.clientFactory ?? createApiClient
+  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp' }))
   const client = clientFactory()
   const scope = options.scope ?? 'all'
   const server = new McpServer({
@@ -80,6 +80,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
         annotations: tool.annotations,
       },
       async (input: unknown) => withToolErrors(async () => {
@@ -121,7 +122,7 @@ const loadToolkitInputSchema = z.object({
 })
 
 const helpInputSchema = z.object({
-  intent: z.string().max(200).optional().describe('Workflow (status, diagnose, measurement, integrations, reports) or a short task description.'),
+  intent: z.string().max(200).optional().describe('Workflow (status, diagnose, prospecting, measurement, integrations, reports) or a short task description.'),
   includeCatalog: z.boolean().optional().describe('Include full toolkit details. Omit for a compact, actionable route.'),
 })
 
@@ -134,7 +135,7 @@ function registerMetaTools(
     'canonry_help',
     {
       title: 'Guide a Canonry workflow',
-      description: 'Start here: route an intent to available stored-evidence tools, workflow guidance, and approval boundaries. No provider calls or installation required. Optionally include full toolkit details.',
+      description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, and workflow guidance. No provider calls or installation required. Optionally include full toolkit details.',
       inputSchema: helpInputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

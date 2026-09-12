@@ -29,34 +29,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       })
       const apiKey = getString(input.values, 'api-key')
       const baseUrl = getString(input.values, 'base-url')
-      if (name === 'local') {
-        if (!baseUrl) {
-          throw usageError(
-            'Error: --base-url is required for the local provider\nUsage: canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
-            {
-              message: '--base-url is required for the local provider',
-              details: {
-                command: 'settings.provider',
-                usage: 'canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
-                required: ['base-url'],
-              },
-            },
-          )
-        }
-      } else if (!apiKey) {
-        throw usageError(
-          `Error: --api-key is required\nUsage: canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
-          {
-            message: '--api-key is required',
-            details: {
-              command: 'settings.provider',
-              usage: `canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
-              required: ['api-key'],
-            },
-          },
-        )
-      }
-
+      const model = getString(input.values, 'model')
       const maxConcurrency = parseIntegerOption(input, 'max-concurrent', {
         command: 'settings.provider',
         usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
@@ -72,6 +45,34 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
         message: '--max-per-day must be an integer',
       })
+      const hasNonCredentialEdit = Boolean(model) || maxConcurrency != null || maxRequestsPerMinute != null || maxRequestsPerDay != null
+      if (name === 'local') {
+        if (!baseUrl && !hasNonCredentialEdit) {
+          throw usageError(
+            'Error: --base-url is required for the local provider\nUsage: canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+            {
+              message: '--base-url is required for the local provider',
+              details: {
+                command: 'settings.provider',
+                usage: 'canonry settings provider local --base-url <url> [--api-key <key>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
+                required: ['base-url'],
+              },
+            },
+          )
+        }
+      } else if (!apiKey && !baseUrl && !hasNonCredentialEdit) {
+        throw usageError(
+          `Error: --api-key is required\nUsage: canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
+          {
+            message: '--api-key is required',
+            details: {
+              command: 'settings.provider',
+              usage: `canonry settings provider ${name} --api-key <key> [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]`,
+              required: ['api-key'],
+            },
+          },
+        )
+      }
 
       const quota =
         maxConcurrency != null || maxRequestsPerMinute != null || maxRequestsPerDay != null
@@ -85,7 +86,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await setProvider(name, {
         apiKey,
         baseUrl,
-        model: getString(input.values, 'model'),
+        model,
         quota,
         format: input.format,
       })
@@ -93,10 +94,11 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['settings', 'google'],
-    usage: 'canonry settings google --client-id <id> --client-secret <secret> [--format json]',
+    usage: 'canonry settings google --client-id <id> --client-secret <secret> [--target local|server] [--format json]',
     options: {
       'client-id': stringOption(),
       'client-secret': stringOption(),
+      target: stringOption(),
     },
     run: async (input) => {
       const clientId = getString(input.values, 'client-id')
@@ -114,9 +116,25 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
           },
         )
       }
-      setGoogleAuth({
+      const target = getString(input.values, 'target') ?? 'local'
+      if (target !== 'local' && target !== 'server') {
+        throw usageError(
+          'Error: invalid --target; must be local or server\nUsage: canonry settings google --client-id <id> --client-secret <secret> [--target local|server] [--format json]',
+          {
+            message: 'invalid --target; must be local or server',
+            details: {
+              command: 'settings.google',
+              usage: 'canonry settings google --client-id <id> --client-secret <secret> [--target local|server] [--format json]',
+              option: 'target',
+              value: target,
+            },
+          },
+        )
+      }
+      await setGoogleAuth({
         clientId,
         clientSecret,
+        target,
         format: input.format,
       })
     },

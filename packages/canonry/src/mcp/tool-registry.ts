@@ -7,6 +7,7 @@ import {
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
   adsAdUpdateRequestSchema,
+  apiKeyDtoSchema,
   adsCampaignCreateRequestSchema,
   adsActivateTreeRequestSchema,
   adsCampaignUpdateRequestSchema,
@@ -42,6 +43,14 @@ import {
   reportPeriodSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
+  scheduleDtoSchema,
+  settingsDtoSchema,
+  telemetryStatusDtoSchema,
+  logQuerySchema,
+  operationalLogListDtoSchema,
+  providerSummaryEntryDtoSchema,
+  providerQuotaPolicySchema,
+  snapshotRequestInputSchema,
   trafficConnectCloudRunRequestSchema,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
@@ -112,6 +121,8 @@ export interface CanonryMcpTool<
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
+  /** Explicit only where the public contract supplies a complete bounded DTO. */
+  outputSchema?: z.ZodObject
   annotations: ToolAnnotations
   openApiOperations: string[]
   handler: (client: ApiClient, input: z.infer<TSchema>) => Promise<unknown>
@@ -759,6 +770,12 @@ const scheduleReadInputSchema = z.object({
   project: projectNameSchema,
   kind: schedulableRunKindSchema.optional().describe('Schedulable run kind. Defaults to "answer-visibility" if omitted.'),
 })
+
+// MCP structured content is always an object. These two API reads return
+// top-level arrays, so results.ts wraps them as { items } without changing the
+// legacy JSON text content.
+const scheduleListOutputSchema = z.object({ items: z.array(scheduleDtoSchema) })
+const notificationEventsOutputSchema = z.object({ items: z.array(notificationEventSchema) })
 
 const agentWebhookAttachInputSchema = z.object({
   project: projectNameSchema,
@@ -1645,6 +1662,30 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getSchedule(input.project, input.kind),
   }),
   defineTool({
+    name: 'canonry_schedules_list',
+    title: 'List project schedules',
+    description: 'List every stored schedule for a Canonry project, including each schedulable run kind. This reads configuration only and never starts work.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    outputSchema: scheduleListOutputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/schedules'],
+    handler: (client, input) => client.listSchedules(input.project),
+  }),
+  defineTool({
+    name: 'canonry_notification_events',
+    title: 'List notification event types',
+    description: 'List the supported stored notification event names. This is a static capability read; it does not send, test, or change notifications.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    outputSchema: notificationEventsOutputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/notifications/events'],
+    handler: (client) => client.listNotificationEvents(),
+  }),
+  defineTool({
     name: 'canonry_backlinks_latest_release',
     title: 'Discover latest Common Crawl release',
     description:
@@ -1689,6 +1730,7 @@ export const canonryMcpTools = [
     access: 'read',
     tier: 'core',
     inputSchema: emptyInputSchema,
+    outputSchema: settingsDtoSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/settings'],
     handler: (client) => client.getSettings(),
@@ -1804,6 +1846,69 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/settings/auth/google'],
     handler: (client) => client.getGoogleSignInSettings(),
+  }),
+  defineTool({
+    name: 'canonry_key_self',
+    title: 'Get current API key identity',
+    description: 'Read safe metadata for the credential backing this MCP connection, including its scopes, project reach, and derived read-only status. It never exposes the bearer token or stored hash and does not grant mutation access.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: apiKeyDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/keys/self'],
+    handler: (client) => client.getApiKeySelf(),
+  }),
+  defineTool({
+    name: 'canonry_logs_list',
+    title: 'Read runtime logs',
+    description: 'Read bounded, redacted runtime logs, including application and HTTP failures. Filter by actor, request, run, project, level, module, or time. Inspect retention, retentionPolicy, dropped, and captureErrors for coverage; file-backed hosts retain logs across restarts. Separate from audit history. Requires instance-wide logs.read (or wildcard), and an admin role for user sessions; project-scoped keys are refused even with a project filter. Cursors expire on retention eviction; reuse with the same filters. No provider calls.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: logQuerySchema,
+    outputSchema: operationalLogListDtoSchema,
+    annotations: readAnnotations(false),
+    openApiOperations: ['GET /api/v1/operations/logs'],
+    handler: async (client, input) => client.listOperationalLogs(input),
+  }),
+  defineTool({
+    name: 'canonry_telemetry_update',
+    title: 'Update server telemetry preference',
+    description: 'Set the connected server telemetry preference with explicit approval and settings.write. Returns effective state including environment overrides. Does not change the agent machine configuration.',
+    access: 'write',
+    requiredScope: 'settings.write',
+    tier: 'setup',
+    inputSchema: z.object({ enabled: z.boolean() }).strict(),
+    outputSchema: telemetryStatusDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/telemetry'],
+    handler: async (client, input) => client.updateTelemetry(input.enabled),
+  }),
+  defineTool({
+    name: 'canonry_provider_settings_update',
+    title: 'Update non-secret provider settings',
+    description: 'Change model or quota for an already-configured provider, with explicit approval and settings.write. Preserves existing credentials. Does not accept API keys, base URLs, or credential rotation; use the secure operator setup flow for those.',
+    access: 'write',
+    requiredScope: 'settings.write',
+    tier: 'setup',
+    inputSchema: z.object({ provider: z.string().min(1), model: z.string().trim().min(1).optional(), quota: providerQuotaPolicySchema.partial().strict().optional() }).strict()
+      .refine(input => input.model !== undefined || (input.quota !== undefined && Object.keys(input.quota).length > 0), 'Provide a model or at least one quota field'),
+    outputSchema: providerSummaryEntryDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/settings/providers/{name}'],
+    handler: async (client, { provider, ...request }) => client.updateProvider(provider, request),
+  }),
+  defineTool({
+    name: 'canonry_telemetry_get',
+    title: 'Get telemetry status',
+    description: 'Read the server telemetry status and effective reason. This safe settings read does not change telemetry collection.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    outputSchema: telemetryStatusDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/telemetry'],
+    handler: (client) => client.getTelemetry(),
   }),
   defineTool({
     name: 'canonry_google_connections_list',
@@ -2311,6 +2416,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/reset'],
     handler: (client, input) => client.trafficReset(input.project, input.sourceId),
+  }),
+  defineTool({
+    name: 'canonry_snapshot',
+    title: 'Generate a prospect snapshot',
+    description: 'Generate a one-shot AI perception report for a company and domain without creating a project. Spends provider quota and fetches the site. Optional providers and providerMode constrain both answers and analysis; omitted selection uses all configured providers. Browser-only selection requires manual queries.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: snapshotRequestInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/snapshot'],
+    handler: (client, input) => client.createSnapshot(input),
   }),
   defineTool({
     name: 'canonry_project_upsert',

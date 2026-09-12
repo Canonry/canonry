@@ -3,9 +3,9 @@
  *
  * Scopes are an additive `string[]` on every `api_keys` row. The default key
  * written by `canonry init` carries `['*']` (full access). Named write scopes
- * are enforced for privileged surfaces, and the special
- * `read` token below marks a key as **read-only**: the auth layer denies every
- * write HTTP method for such a key while leaving reads open.
+ * are enforced for privileged surfaces. `read` and named `*.read` scopes mark
+ * a key as read-only unless it also carries an explicit write grant: the auth
+ * layer denies write HTTP methods while leaving authorized reads open.
  *
  * These live in `contracts` (not `api-routes`) because four surfaces share the
  * same predicate: server enforcement (`auth.ts`), the `readOnly` DTO field
@@ -79,16 +79,15 @@ export function intersectScopes(authority: readonly string[], requested: readonl
 }
 
 /**
- * A key is read-only when it explicitly opts in via the `read` token AND
+ * A key is read-only when it carries `read` or a named `*.read` scope AND
  * carries no write-granting scope (no `*`, no `write`, no `*.write`, and no
  * explicit action authority such as `research.run`).
  *
- * This is deliberately ADDITIVE: read-only is opt-in. A key that never carries
- * `read` — including an empty or unrecognized scope list — is NOT read-only, so
- * every key that exists today keeps its current behavior. Mixing `read` with a
- * write-granting scope is contradictory and resolves to "not read-only" (the
- * write grant wins), so the `read` marker there is merely informational.
+ * Named observers (for example, `logs.read`) must not inherit legacy broad
+ * mutations merely because the caller omitted the bare `read` marker. Empty
+ * and unrecognized legacy scope lists retain their existing behavior. Explicit
+ * write grants still win, subject to each route's own capability gates.
  */
 export function isReadOnlyKey(scopes: readonly string[]): boolean {
-  return scopes.includes(READ_ONLY_SCOPE) && !scopes.some(grantsWrite)
+  return scopes.some(scope => scope === READ_ONLY_SCOPE || scope.endsWith('.read')) && !scopes.some(grantsWrite)
 }

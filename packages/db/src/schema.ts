@@ -413,10 +413,9 @@ export const auditLog = sqliteTable('audit_log', {
   // reader could see it (the deletion would erase the only evidence it
   // happened). Detached rows surface in audit queries with project_id=NULL.
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
-  // High-level identity of the caller: 'api' for HTTP requests, 'scheduler'
-  // for cron-triggered work, 'cli' / 'agent' / 'mcp' for direct DB writes
-  // (where applicable). Coarse on purpose — narrower attribution lives in
-  // `userAgent` and `actorSession`.
+  // Authenticated user:<id> / api-key:<id> for HTTP callers; explicit business
+  // actors (scheduler, system, etc.) remain unchanged. Client hints below
+  // are untrusted correlation metadata, never authorization identities.
   actor: text('actor').notNull(),
   action: text('action').notNull(),
   entityType: text('entity_type').notNull(),
@@ -435,12 +434,55 @@ export const auditLog = sqliteTable('audit_log', {
   actorSession: text('actor_session'),
   actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
   actorName: text('actor_name'),
+  // Stable credential id, intentionally not an FK: audit evidence must remain
+  // intelligible after a key is revoked or deleted.
+  credentialId: text('credential_id'),
+  // Server-issued request correlation id, separate from caller actorSession.
+  requestId: text('request_id'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_audit_log_project').on(table.projectId),
   index('idx_audit_log_created').on(table.createdAt),
   index('idx_audit_entity_time').on(table.entityType, table.entityId, table.createdAt),
+  index('idx_audit_log_credential_created').on(table.credentialId, table.createdAt),
+  index('idx_audit_log_request_created').on(table.requestId, table.createdAt),
 ])
+
+/**
+ * Durable, bounded operational diagnostics. This is deliberately separate
+ * from audit_log: it records process events, retains no credential material,
+ * and is evicted by the OperationalLogStore retention policy.
+ */
+export const runtimeLogs = sqliteTable('runtime_logs', {
+  sequence: integer('sequence').primaryKey(),
+  ts: text('ts').notNull(),
+  level: text('level').notNull(),
+  module: text('module').notNull(),
+  action: text('action').notNull(),
+  msg: text('msg'),
+  projectId: text('project_id'),
+  runId: text('run_id'),
+  actor: text('actor'),
+  requestId: text('request_id'),
+  context: text('context', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  entryBytes: integer('entry_bytes').notNull(),
+}, (table) => [
+  index('idx_runtime_logs_project_ts').on(table.projectId, table.ts, table.sequence),
+  index('idx_runtime_logs_run_ts').on(table.runId, table.ts, table.sequence),
+  index('idx_runtime_logs_actor_ts').on(table.actor, table.ts, table.sequence),
+  index('idx_runtime_logs_request_ts').on(table.requestId, table.ts, table.sequence),
+  index('idx_runtime_logs_module_level_ts').on(table.module, table.level, table.ts, table.sequence),
+  index('idx_runtime_logs_ts').on(table.ts, table.sequence),
+])
+
+/** One row per SQLite database; keeps cursors and loss accounting restart-safe. */
+export const runtimeLogMetadata = sqliteTable('runtime_log_metadata', {
+  id: text('id').primaryKey(),
+  cursorNamespace: text('cursor_namespace').notNull(),
+  nextSequence: integer('next_sequence').notNull(),
+  dropped: integer('dropped').notNull().default(0),
+  captureErrors: integer('capture_errors').notNull().default(0),
+})
 
 export const apiKeys = sqliteTable('api_keys', {
   id: text('id').primaryKey(),

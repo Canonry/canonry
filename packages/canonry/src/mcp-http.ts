@@ -9,6 +9,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { ApiClient } from './client.js'
+import { PACKAGE_VERSION } from './package-version.js'
 import { createCanonryMcpServer } from './mcp/server.js'
 import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './mcp/toolkits.js'
 
@@ -247,7 +248,12 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       // before a concurrent demotion.
       scopes = sessionKey.scopes
     }
-    const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, { skipProbe: true })
+    const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, {
+      skipProbe: true,
+      clientName: `canonry-mcp/${PACKAGE_VERSION}`,
+      // Correlation only: this is never accepted as caller identity or authority.
+      actorSession: crypto.randomUUID(),
+    })
     let server: ReturnType<typeof createCanonryMcpServer>
     try {
       server = createCanonryMcpServer({

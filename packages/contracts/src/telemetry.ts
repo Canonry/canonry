@@ -10,6 +10,58 @@
  */
 import { z } from 'zod'
 
+/** Why the telemetry setting is effectively enabled or disabled. */
+export const telemetryEffectiveReasonSchema = z.enum([
+  'enabled',
+  'configured_disabled',
+  'CANONRY_TELEMETRY_DISABLED',
+  'DO_NOT_TRACK',
+  'CI',
+  'NO_CONFIG',
+  'CONFIG_UNAVAILABLE',
+])
+export type TelemetryEffectiveReason = z.infer<typeof telemetryEffectiveReasonSchema>
+
+export const telemetryTargetSchema = z.enum(['server', 'local'])
+export type TelemetryTarget = z.infer<typeof telemetryTargetSchema>
+
+/**
+ * Safe state for telemetry settings. `anonymousId`, when present, is already
+ * masked (eight characters plus an ellipsis), never the install identifier.
+ */
+export const telemetryStatusDtoSchema = z.object({
+  enabled: z.boolean(),
+  configuredEnabled: z.boolean(),
+  reason: telemetryEffectiveReasonSchema,
+  anonymousId: z.string().regex(/^[0-9a-f]{8}\.\.\.$/i).optional(),
+  target: telemetryTargetSchema.optional(),
+}).strict()
+export type TelemetryStatusDto = z.infer<typeof telemetryStatusDtoSchema>
+
+export type TelemetryStatusInput = Pick<TelemetryStatusDto, 'enabled'> & Partial<Omit<TelemetryStatusDto, 'enabled'>>
+
+/** Normalize legacy host/API responses before CLI or MCP output validation. */
+export function normalizeTelemetryStatus(status: TelemetryStatusInput, target: TelemetryTarget = 'server'): TelemetryStatusDto {
+  const reason = telemetryEffectiveReasonSchema.safeParse(status.reason)
+  const anonymousId = maskTelemetryAnonymousId(status.anonymousId)
+  return telemetryStatusDtoSchema.parse({
+    enabled: status.enabled,
+    configuredEnabled: status.configuredEnabled ?? status.enabled,
+    reason: reason.success ? reason.data : status.enabled ? 'enabled' : 'configured_disabled',
+    target,
+    ...(anonymousId ? { anonymousId } : {}),
+  })
+}
+
+/** Accept only an install UUID or its already-masked public form. */
+export function maskTelemetryAnonymousId(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  if (/^[0-9a-f]{8}\.\.\.$/i.test(value)) return value
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    ? `${value.slice(0, 8)}...`
+    : undefined
+}
+
 export const ONBOARDING_FLOW_VERSION = 1 as const
 
 export const onboardingStepSchema = z.enum([
