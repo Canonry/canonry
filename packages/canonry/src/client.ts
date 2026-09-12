@@ -4,6 +4,7 @@ import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redact
 import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
+import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -2245,7 +2246,7 @@ export class ApiClient {
   }
 
   async getTelemetry(): Promise<TelemetryDto> {
-    return this.invoke<TelemetryDto>(() => getApiV1Telemetry({ client: this.heyClient }))
+    return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => getApiV1Telemetry({ client: this.heyClient })))
   }
 
   async listOperationalLogs(query: Partial<LogQuery> = {}): Promise<OperationalLogListDto> {
@@ -2253,7 +2254,7 @@ export class ApiClient {
   }
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
-    return this.invoke<TelemetryDto>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } }))
+    return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } })))
   }
 
   // ── Schedules / notifications / locations ───────────────────────────────

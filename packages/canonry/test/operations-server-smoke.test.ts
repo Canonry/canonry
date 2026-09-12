@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { afterEach, expect, it, vi } from 'vitest'
 import { auditLog, createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
@@ -8,6 +9,38 @@ import { getConfigPath, saveConfig } from '../src/config.js'
 import { createLogger } from '../src/logger.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
+
+it('keeps health responsive when runtime capture encounters a database writer lock', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-log-lock-smoke-'))
+  vi.stubEnv('CANONRY_CONFIG_DIR', dir)
+  vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
+  const config = { apiUrl: 'http://localhost:4100', apiKey: 'cnry_lock_fixture', database: path.join(dir, 'test.db'), telemetry: false }
+  saveConfig(config)
+  const db = createClient(config.database)
+  migrate(db)
+  const lock = createClient(config.database)
+  let app: Awaited<ReturnType<typeof createServer>> | undefined
+  try {
+    app = await createServer({ config, db, logger: false, assetsDir: path.join(dir, 'assets') })
+    await app.ready()
+    lock.$client.exec('BEGIN IMMEDIATE')
+    const started = performance.now()
+    const health = await app.inject('/health')
+    expect(performance.now() - started).toBeLessThan(1_000)
+    expect(health.statusCode).toBe(200)
+    expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(5_000)
+    lock.$client.exec('ROLLBACK')
+    const logs = await app.inject({ url: '/api/v1/operations/logs', headers: { authorization: `Bearer ${config.apiKey}` } })
+    expect(logs.statusCode).toBe(200)
+    expect(logs.json().captureErrors).toBeGreaterThan(0)
+  } finally {
+    if (lock.$client.inTransaction) lock.$client.exec('ROLLBACK')
+    await app?.close()
+    lock.$client.close()
+    db.$client.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}, 30_000)
 
 it('serves bounded diagnostics and effective telemetry from the real server wiring', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-operations-server-'))

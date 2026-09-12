@@ -1,41 +1,21 @@
 import type { FastifyInstance } from 'fastify'
 import {
   notImplemented,
-  maskTelemetryAnonymousId,
+  normalizeTelemetryStatus,
   normalizeOnboardingEventForCollection,
   onboardingTelemetryEventSchema,
-  telemetryEffectiveReasonSchema,
-  telemetryStatusDtoSchema,
   validationError,
   type OnboardingTelemetryEvent,
-  type TelemetryEffectiveReason,
-  type TelemetryStatusDto,
+  type TelemetryStatusInput,
 } from '@ainyc/canonry-contracts'
 import { requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
 
-type LegacyTelemetryStatus = Pick<TelemetryStatusDto, 'enabled'> & Partial<Omit<TelemetryStatusDto, 'enabled'>>
-
 export interface TelemetryRoutesOptions {
-  getTelemetryStatus?: () => LegacyTelemetryStatus
+  getTelemetryStatus?: () => TelemetryStatusInput
   setTelemetryEnabled?: (enabled: boolean) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
-}
-
-/** Map older host callbacks to the additive effective-state response safely. */
-function toTelemetryStatus(status: LegacyTelemetryStatus, target: 'server' | 'local' = 'server'): TelemetryStatusDto {
-  const configuredEnabled = status.configuredEnabled ?? status.enabled
-  const fallbackReason: TelemetryEffectiveReason = status.enabled ? 'enabled' : 'configured_disabled'
-  const parsedReason = telemetryEffectiveReasonSchema.safeParse(status.reason)
-  const anonymousId = maskTelemetryAnonymousId(status.anonymousId)
-  return telemetryStatusDtoSchema.parse({
-    enabled: status.enabled,
-    configuredEnabled,
-    reason: parsedReason.success ? parsedReason.data : fallbackReason,
-    target,
-    ...(anonymousId ? { anonymousId } : {}),
-  })
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
@@ -44,7 +24,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       throw notImplemented('Telemetry status is not available in this deployment')
     }
 
-    return toTelemetryStatus(opts.getTelemetryStatus())
+    return normalizeTelemetryStatus(opts.getTelemetryStatus())
   })
 
   app.put<{ Body?: { enabled?: boolean } }>('/telemetry', async (request) => {
@@ -60,7 +40,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
 
     opts.setTelemetryEnabled(enabled)
     const status = opts.getTelemetryStatus?.()
-    const effective = toTelemetryStatus(status ?? { enabled })
+    const effective = normalizeTelemetryStatus(status ?? { enabled })
 
     // The host persists config and this route persists audit history in
     // separate stores. Do not report a successful setting change as failed

@@ -38,6 +38,21 @@ export const telemetryStatusDtoSchema = z.object({
 }).strict()
 export type TelemetryStatusDto = z.infer<typeof telemetryStatusDtoSchema>
 
+export type TelemetryStatusInput = Pick<TelemetryStatusDto, 'enabled'> & Partial<Omit<TelemetryStatusDto, 'enabled'>>
+
+/** Normalize legacy host/API responses before CLI or MCP output validation. */
+export function normalizeTelemetryStatus(status: TelemetryStatusInput, target: TelemetryTarget = 'server'): TelemetryStatusDto {
+  const reason = telemetryEffectiveReasonSchema.safeParse(status.reason)
+  const anonymousId = maskTelemetryAnonymousId(status.anonymousId)
+  return telemetryStatusDtoSchema.parse({
+    enabled: status.enabled,
+    configuredEnabled: status.configuredEnabled ?? status.enabled,
+    reason: reason.success ? reason.data : status.enabled ? 'enabled' : 'configured_disabled',
+    target,
+    ...(anonymousId ? { anonymousId } : {}),
+  })
+}
+
 /** Accept only an install UUID or its already-masked public form. */
 export function maskTelemetryAnonymousId(value: string | undefined): string | undefined {
   if (!value) return undefined

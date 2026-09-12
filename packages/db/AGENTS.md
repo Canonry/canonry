@@ -13,7 +13,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 | `src/client.ts` | `createClient()` factory — WAL journal, foreign keys, 5s busy timeout |
 | `src/json.ts` | `parseJsonColumn<T>(value, fallback)` — safe JSON deserialization for DB columns |
 | `src/index.ts` | Re-exports all public API |
-| `src/operational-logs.ts` | Bounded durable runtime diagnostics; sanitized, cursor-bound reads only |
+| `src/operational-logs.ts` | Bounded durable runtime diagnostics; sanitized, cursor-bound reads. Diagnostic writes/pruning use zero lock-wait and synchronously restore the application's busy timeout; failed capture falls back to an in-memory error counter. |
 
 ## Table Groups
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { createClient, migrate, MIGRATION_VERSIONS, OperationalLogStore } from '../src/index.js'
@@ -29,6 +30,46 @@ function append(store: OperationalLogStore, n: number, extra: Record<string, unk
     projectId: 'project_1', runId: 'run_1', requestId: `request_${n}`, actor: 'scheduler', ...extra,
   })
 }
+
+test('drops capture promptly under a writer lock and preserves the application busy timeout', () => {
+  const { db, dbPath } = fixture()
+  const store = new OperationalLogStore(db)
+  const lock = createClient(dbPath)
+  try {
+    lock.$client.exec('BEGIN IMMEDIATE')
+    const started = performance.now()
+    expect(() => append(store, 1)).not.toThrow()
+    const elapsed = performance.now() - started
+    expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(5_000)
+    expect(elapsed).toBeLessThan(500)
+  } finally {
+    lock.$client.exec('ROLLBACK')
+    lock.$client.close()
+  }
+  expect(store.list({ limit: 10 })).toMatchObject({ entries: [], captureErrors: 1 })
+  append(store, 2)
+  expect(store.list({ limit: 10 })).toMatchObject({ entries: [{ action: 'run.2' }], captureErrors: 1 })
+  expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(5_000)
+})
+
+test('fails log pruning promptly under a writer lock and restores a custom busy timeout', () => {
+  const { db, dbPath } = fixture()
+  const store = new OperationalLogStore(db)
+  db.$client.pragma('busy_timeout = 1200')
+  const lock = createClient(dbPath)
+  try {
+    lock.$client.exec('BEGIN IMMEDIATE')
+    const started = performance.now()
+    expect(() => store.list({ limit: 1 })).toThrow()
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(1_200)
+  } finally {
+    lock.$client.exec('ROLLBACK')
+    lock.$client.close()
+  }
+  expect(store.list({ limit: 1 }).entries).toEqual([])
+  expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(1_200)
+})
 
 test('persists entries, cursor namespace, and eviction state across a SQLite restart', () => {
   const { db, dbPath } = fixture()

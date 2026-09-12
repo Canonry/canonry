@@ -79,7 +79,7 @@ export class OperationalLogStore {
       if (Buffer.byteLength(JSON.stringify(entry), 'utf8') > MAX_ENTRY_BYTES) {
         throw new RangeError(`Operational log entry exceeds ${MAX_ENTRY_BYTES} bytes.`)
       }
-      this.db.transaction((tx) => {
+      this.withoutLockWait(() => this.db.transaction((tx) => {
         this.prune(tx)
         const metadata = readMetadata(tx)
         tx.run(sql`
@@ -93,7 +93,7 @@ export class OperationalLogStore {
         `)
         tx.run(sql`UPDATE runtime_log_metadata SET next_sequence = ${metadata.nextSequence + 1} WHERE id = ${METADATA_ID}`)
         this.prune(tx)
-      })
+      }))
     } catch {
       this.recordCaptureError()
     }
@@ -103,7 +103,7 @@ export class OperationalLogStore {
     const parsed = logQuerySchema.safeParse(query)
     if (!parsed.success) throw validationError('Invalid operational logs query.', { issues: parsed.error.issues })
     const filters = normalizeLogQuery(parsed.data)
-    this.db.transaction((tx) => { this.prune(tx) })
+    this.withoutLockWait(() => this.db.transaction((tx) => { this.prune(tx) }))
     const metadata = readMetadata(this.db)
     const after = filters.cursor === undefined ? 0 : this.parseCursor(filters.cursor, metadata, filters)
     if (filters.cursor !== undefined) this.assertCursorCurrent(after)
@@ -159,9 +159,24 @@ export class OperationalLogStore {
     // A failed INSERT is deliberately not logged through this store: doing so
     // would recurse forever on a full, locked, or damaged database.
     try {
-      this.db.run(sql`UPDATE runtime_log_metadata SET capture_errors = capture_errors + 1 WHERE id = ${METADATA_ID}`)
+      this.withoutLockWait(() => this.db.run(sql`UPDATE runtime_log_metadata SET capture_errors = capture_errors + 1 WHERE id = ${METADATA_ID}`))
     } catch {
       this.localCaptureErrors++
+    }
+  }
+
+  /**
+   * Diagnostics must not spend the application's busy timeout waiting for a
+   * writer. All work here is synchronous, so restore the connection's exact
+   * policy before any other application work can run, including on failure.
+   */
+  private withoutLockWait<T>(work: () => T): T {
+    const timeout = this.db.$client.pragma('busy_timeout', { simple: true }) as number
+    try {
+      this.db.$client.pragma('busy_timeout = 0')
+      return work()
+    } finally {
+      this.db.$client.pragma(`busy_timeout = ${timeout}`)
     }
   }
 

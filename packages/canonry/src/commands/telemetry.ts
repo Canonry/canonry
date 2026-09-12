@@ -1,13 +1,9 @@
 import { configExists, getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
 import { CliError, type CliFormat, isMachineFormat, usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import {
-  getTelemetryStatus,
-  maskAnonymousId,
-} from '../telemetry.js'
-import { telemetryEffectiveReasonSchema, type TelemetryStatusDto, type TelemetryTarget } from '@ainyc/canonry-contracts'
+import { getTelemetryStatus } from '../telemetry.js'
+import { normalizeTelemetryStatus, type TelemetryStatusDto, type TelemetryTarget } from '@ainyc/canonry-contracts'
 
-type TelemetryStatusLike = Pick<TelemetryStatusDto, 'enabled'> & Partial<Omit<TelemetryStatusDto, 'enabled'>>
 type TelemetryPayload = TelemetryStatusDto & { configPath?: string; anonymousIdMasked?: string }
 
 function telemetryTarget(value: string | undefined): TelemetryTarget {
@@ -17,22 +13,6 @@ function telemetryTarget(value: string | undefined): TelemetryTarget {
     message: '--target must be "local" or "server"',
     details: { command: 'telemetry', target: value, allowed: ['local', 'server'] },
   })
-}
-
-function statusFromServer(status: TelemetryStatusLike): TelemetryStatusDto {
-  // New servers already mask this value; legacy servers may return a UUID.
-  const anonymousId = maskAnonymousId(status.anonymousId)
-  const reason = telemetryEffectiveReasonSchema.safeParse(status.reason)
-  const knownReason = reason.success
-    ? reason.data
-    : status.enabled ? 'enabled' : 'configured_disabled'
-  return {
-    enabled: status.enabled,
-    configuredEnabled: status.configuredEnabled ?? status.enabled,
-    reason: knownReason,
-    target: 'server',
-    ...(anonymousId ? { anonymousId } : {}),
-  }
 }
 
 function emitStatus(payload: TelemetryPayload, format: CliFormat, mutation = false): void {
@@ -85,7 +65,7 @@ async function serverTelemetryCommand(subcommand: 'status' | 'enable' | 'disable
   const response = subcommand === 'status'
     ? await client.getTelemetry()
     : await client.updateTelemetry(subcommand === 'enable')
-  emitStatus(statusFromServer(response), format, subcommand !== 'status')
+  emitStatus(normalizeTelemetryStatus(response), format, subcommand !== 'status')
 }
 
 export function telemetryCommand(
