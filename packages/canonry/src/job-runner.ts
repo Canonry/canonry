@@ -10,7 +10,7 @@ import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTrigge
 import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
-import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
+import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
@@ -212,7 +212,14 @@ export class JobRunner {
 
   recoverStaleRuns(): void {
     const stale = this.db
-      .select({ id: runs.id, projectId: runs.projectId, kind: runs.kind, status: runs.status })
+      .select({
+        id: runs.id,
+        projectId: runs.projectId,
+        kind: runs.kind,
+        status: runs.status,
+        trigger: runs.trigger,
+        startedAt: runs.startedAt,
+      })
       .from(runs)
       .where(inArray(runs.status, ['running', 'queued']))
       .all()
@@ -249,6 +256,40 @@ export class JobRunner {
       })
       if (!recovered) continue
       log.warn('run.recovered-stale', { runId: run.id, previousStatus: run.status })
+      if (run.kind === RunKinds['site-audit']) this.trackRecoveredSiteAudit(run)
+    }
+  }
+
+  /**
+   * A crawl the process died under never reaches `executeSiteAudit`'s terminal
+   * telemetry, so without this every interrupted audit vanishes from the data.
+   * Emitted after the recovery transaction commits. `durationMs` runs from the
+   * crawl's start to this recovery, so it includes the downtime and is an upper
+   * bound; a run that was still queued has no start and reports 0.
+   *
+   * The source is set explicitly: recovery runs during server construction,
+   * before `canonry serve` switches the process source to `cli-server`.
+   */
+  private trackRecoveredSiteAudit(run: { id: string; projectId: string; trigger: string | null; startedAt: string | null }): void {
+    try {
+      const startedAt = run.startedAt ? Date.parse(run.startedAt) : Number.NaN
+      const project = this.db
+        .select({ canonicalDomain: projects.canonicalDomain })
+        .from(projects)
+        .where(eq(projects.id, run.projectId))
+        .get()
+      trackEvent(
+        'site_audit.completed',
+        buildSiteAuditCompletedProps({
+          status: 'failed',
+          startTime: Number.isFinite(startedAt) ? startedAt : Date.now(),
+          trigger: run.trigger,
+          canonicalDomain: project?.canonicalDomain ?? null,
+        }),
+        { errorCode: 'SERVER_RESTARTED', source: 'cli-server' },
+      )
+    } catch (err: unknown) {
+      log.warn('telemetry.recovered-site-audit-failed', { runId: run.id, error: describeError(err) })
     }
   }
 

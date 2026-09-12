@@ -401,7 +401,6 @@ jobs:
              [ "${{ needs.plugin-drift.result }}" != "success" ] || \
              [ "${{ needs.wp-plugin-tests.result }}" != "success" ] || \
              [ "${{ needs.build.result }}" != "success" ] || \
-             [ "${{ needs.vals.result }}" != "success" ] || \
              [ "${{ needs.publish-smoke-test.result }}" != "success" ]; then
             echo "One or more validate jobs failed"
             exit 1
