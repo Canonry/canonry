@@ -257,11 +257,11 @@ null-is-not-`none` contract is visible in every hand test. `npx @modelcontextpro
 
 Run `pnpm --filter @canonry/val-kit build` from the repository root, then `deno task check`, `deno task lint`, and
 `deno task test` from this directory, plus `node scripts/sync-val-town-skills.mjs --check` from the root. Those three
-tasks validate the DEV graph, which is what CI's `vals` matrix job runs.
+tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
 
 `deno task check:prod` validates the PRODUCTION graph instead (plain `deno.json`, `--frozen`). It cannot pass until the
-pinned kit version is on public npm — before that it fails with `npm package '@canonry/val-kit' does not exist` — which
-is the same gate the deploy workflow applies, on purpose.
+pinned kit version is on public npm — before that it fails with `npm package '@canonry/val-kit' does not exist` — and
+with no deploy workflow it is the only thing that catches an unpublished pin before `vt push`.
 
 ## Production configuration
 
@@ -274,19 +274,12 @@ deployment serves reads and skills but refuses to spend.
 
 ## Release order
 
-Nothing here can deploy today, and both gates fail closed rather than shipping something that throws at the first
-request.
+Nothing here has been deployed yet. Deploys are manual: there is no deploy workflow, so every step below is run by hand.
 
-1. **Create the Val in Val Town** and record its identity. `.github/workflows/deploy-brand-perception-check.yml` ships
-   with `VAL_TOWN_EXPECTED_VAL_ID` and `VAL_TOWN_EXPECTED_BRANCH_ID` set to `00000000-0000-0000-0000-000000000000`, and
-   its first step refuses to run while either is that placeholder. Paste the real IDs into the workflow, and set the
-   repository variable `VAL_TOWN_BRAND_PERCEPTION_HEALTH_URL` to the deployed `/healthz` URL. Those two IDs are the
-   whole deployment target: `.vt/state.json` is gitignored (`apps/vals/*/.vt/`), so the workflow generates it from them
-   with `node scripts/write-val-town-state.mjs apps/vals/brand-perception-check` rather than expecting a file on the
-   runner. Nothing else needs provisioning.
-2. **Publish the pinned `@canonry/val-kit` version** with the `Publish @canonry/val-kit` workflow
-   (`.github/workflows/publish-val-kit.yml`). Until then the production graph cannot resolve, and both `check:prod` and
-   the deploy workflow fail closed.
+1. **Create the Val in Val Town** and link this directory to it with `vt`. `.vt/state.json` is gitignored
+   (`apps/vals/*/.vt/`), so the Val and branch identity live only on the machine that deploys.
+2. **Publish the pinned `@canonry/val-kit` version** with `pnpm --filter @canonry/val-kit publish`. Until then the
+   production graph cannot resolve and `check:prod` fails closed.
 3. **Create the production `deno.lock`** with `deno check --allow-import main.http.tsx` (plain config, no `--frozen`)
    and commit it. This is only possible after step 2. `deno.dev.lock` is separate and is not touched by this.
 
@@ -297,7 +290,7 @@ request.
 > defensible for a first-party package this repo just built and published from a
 > reviewed commit. The override is only needed to CREATE the lock: once the lock
 > pins the version with its integrity hash, `--frozen` resolves from the lock and
-> the policy does not apply, so the deploy workflow needs no flag and no config.
+> the policy does not apply, so later checks and deploys need no flag and no config.
 4. Regenerate the skill mirror with `node scripts/sync-val-town-skills.mjs`.
 5. Run the verification commands above, including `deno task check:prod`.
 6. Run `vt push --dry-run` and review the file plan.

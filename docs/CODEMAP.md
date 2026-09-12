@@ -55,7 +55,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 |------|------|-------|
 | `main.http.tsx` | Val HTTP entry | Thin composition root for the bounded public sample |
 | `deno.json` / `deno.lock` | Self-contained production Deno imports and locked graph | Exact external pins must match the Canonry engine contract; this is the graph deploy validates |
-| `deno.dev.json` | Dev graph: same tasks, `@canonry/val-kit` linked to the workspace copy | What CI runs; never pushed to Val Town |
+| `deno.dev.json` | Dev graph: same tasks, `@canonry/val-kit` linked to the workspace copy | What local verification runs; never pushed to Val Town |
 | `src/` | HTTP policy, bounded check runner, provider adapter, storage ports, evidence UI | Host owns quotas, provider access, secrets, and persistence |
 | `README.md` / `AGENTS.md` | Local limits, release order, and durable guardrails | Read before changing the Val host |
 
@@ -68,7 +68,7 @@ a variant: every question names the brand, so the two share no denominator, no t
 |------|------|-------|
 | `main.http.tsx` | Val HTTP entry | Names `CheckStore<PerceptionCheckResult>` once; everything downstream is typed from there |
 | `deno.json` | Self-contained production Deno graph | No production `deno.lock` yet — it cannot be generated until `@canonry/val-kit` is on public npm |
-| `deno.dev.json` / `deno.dev.lock` | Dev graph: `@canonry/val-kit` linked to the workspace copy | What CI runs; never pushed to Val Town |
+| `deno.dev.json` / `deno.dev.lock` | Dev graph: `@canonry/val-kit` linked to the workspace copy | What local verification runs; never pushed to Val Town |
 | `src/runtime/check-result.ts` | `PerceptionCheckResult` + `CHECK_FINGERPRINT_NAMESPACE` (`perception-v1`) | The kit stores it opaquely; the namespace is what keeps the two Vals' caches disjoint |
 | `src/jobs/perception-check.ts` | The ONE phase, its 45s budget, output sanitizers, and the visitor-facing failure copy | `failed` when nothing was measured; a planning failure reads as a fact about the brand |
 | `src/app/`, `src/mcp/` | HTTP routes and response policy; the 5-tool MCP surface | Near-identical to the sibling Val — the next hoist into the kit |
@@ -80,8 +80,8 @@ a variant: every question names the brand, so the two share no denominator, no t
 ### `packages/val-kit/` — Published host kit for the Vals (`@canonry/val-kit`)
 The pure modules the Val Town Vals share, built with tsup to `dist/` and imported in production as
 `npm:@canonry/val-kit@<version>/<subpath>` (Val Town applies no import map, so the version is pinned inline at every
-import site). Published manually via `.github/workflows/publish-val-kit.yml`; a Val cannot deploy until the version it
-pins exists on npm.
+import site). Published manually with `pnpm --filter @canonry/val-kit publish` (no workflow); a Val's production graph
+cannot resolve until the version it pins exists on npm.
 
 | Subpath | Role |
 |---------|------|

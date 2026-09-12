@@ -1260,19 +1260,18 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 ### Vals and the kit
 
-The Val Town Vals under `apps/vals/` import `@canonry/val-kit`, and the two
-graphs they run on are validated in two different places. CI's `vals` matrix job
-builds `packages/val-kit` and runs each Val's own `deno task check|lint|test`
-against the DEV graph, where the Val's committed `deno.dev.json` links the kit
-back to the workspace — so one PR can change the kit and its consumers together,
-before anything reaches npm. Each Val's deploy workflow validates the PRODUCTION
-graph instead (plain `deno.json`, `--frozen`) and refuses to push until the exact
-`npm:@canonry/val-kit@<version>` the Val pins is already on public npm.
-Publishing the kit is therefore its own manual, operator-triggered workflow
-(`.github/workflows/publish-val-kit.yml`), with a guard that refuses a version
-npm already has. Adding a Val is a matrix entry in `ci.yml` plus its own deploy
-workflow with its own fixed target IDs — never a second Val parameterised into
-an existing one.
+The Val Town Vals under `apps/vals/` import `@canonry/val-kit`. **They have no
+CI/CD**: no GitHub job checks them, nothing deploys them, and nothing publishes
+the kit. Validate a Val by hand before a deploy: build `packages/val-kit`, then
+run the Val's own `deno task check|lint|test` against the DEV graph (the Val's
+committed `deno.dev.json` links the kit back to the workspace, so one change can
+move the kit and its consumers together before anything reaches npm), and its
+production tasks against plain `deno.json`, which resolves the exact
+`npm:@canonry/val-kit@<version>` the Val pins from public npm. Publish the kit
+with `pnpm --filter @canonry/val-kit publish` before deploying a Val that pins a
+new version, then deploy with `vt push` from the Val's directory. The one
+remaining automated guard is the pre-push `val:skills:check`, which keeps the
+kit's generated skill mirror in step with `skills/`.
 
 Two Vals ship today: **AI Visibility Check** (non-brand questions; is the brand
 mentioned and the domain cited) and **Brand Perception Check** (branded

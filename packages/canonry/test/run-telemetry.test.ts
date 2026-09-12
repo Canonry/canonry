@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import crypto from 'node:crypto'
 import {
   buildRunCompletedProps,
+  buildSiteAuditCompletedProps,
   extractRegistrableHost,
   hashDomain,
 } from '../src/run-telemetry.js'
@@ -130,5 +131,82 @@ describe('buildRunCompletedProps', () => {
     const props = buildRunCompletedProps({ ...baseInput, phases })
     expect(props.phases).toEqual(phases)
     expect(props.durationMs).toBe(28100)
+  })
+})
+
+describe('buildSiteAuditCompletedProps', () => {
+  const crawl = {
+    complete: true,
+    termination: null,
+    pagesDiscovered: 40,
+    pagesFetched: 38,
+    pagesAudited: 35,
+    pagesErrored: 3,
+    aggregateScore: 72,
+    pageBudget: 1000,
+    checkDeadLinks: false,
+    deadLinksFound: 0,
+  }
+
+  it('reports status, duration, and identity only when no crawl summary exists', () => {
+    const props = buildSiteAuditCompletedProps({
+      status: 'failed',
+      startTime: Date.now() - 5_000,
+      trigger: 'scheduled',
+      canonicalDomain: 'https://www.example.com/',
+    })
+    expect(Object.keys(props).sort()).toEqual(['domainHash', 'durationMs', 'status', 'trigger'])
+    expect(props.domainHash).toBe('a379a6f6eeafb9a55e378c118034e2751e682fab9f2d30ab13d2125586ce1947')
+    expect(props.durationMs).toBeGreaterThanOrEqual(5_000)
+  })
+
+  it('carries the crawl counts and score of a published crawl', () => {
+    const props = buildSiteAuditCompletedProps({ status: 'completed', startTime: Date.now(), crawl })
+    expect(props).toMatchObject({
+      complete: true,
+      pagesDiscovered: 40,
+      pagesFetched: 38,
+      pagesAudited: 35,
+      pagesErrored: 3,
+      aggregateScore: 72,
+      pageBudget: 1000,
+      checkDeadLinks: false,
+    })
+  })
+
+  // The collector's property schema has no null: one null value rejects the
+  // whole event, so every unknown is an omitted key.
+  it('never emits a null, and omits values that were not measured', () => {
+    const props = buildSiteAuditCompletedProps({
+      status: 'partial',
+      startTime: Date.now(),
+      trigger: null,
+      canonicalDomain: null,
+      crawl: { ...crawl, complete: false, termination: null, aggregateScore: null },
+    })
+    expect(Object.values(props)).not.toContain(null)
+    expect(Object.values(props)).not.toContain(undefined)
+    for (const key of ['trigger', 'domainHash', 'termination', 'aggregateScore', 'deadLinksFound']) {
+      expect(props).not.toHaveProperty(key)
+    }
+  })
+
+  it('does not report a score for a crawl that audited no page', () => {
+    const props = buildSiteAuditCompletedProps({
+      status: 'partial',
+      startTime: Date.now(),
+      crawl: { ...crawl, pagesAudited: 0, aggregateScore: 0 },
+    })
+    expect(props.pagesAudited).toBe(0)
+    expect(props).not.toHaveProperty('aggregateScore')
+  })
+
+  it('reports dead links found only when the crawl checked them', () => {
+    const checked = buildSiteAuditCompletedProps({
+      status: 'completed',
+      startTime: Date.now(),
+      crawl: { ...crawl, termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 },
+    })
+    expect(checked).toMatchObject({ termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 })
   })
 })
