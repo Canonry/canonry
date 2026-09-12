@@ -1,58 +1,9 @@
 ---
-guideVersion: v1
-operationsGuideUrl: https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md
-resourceUri: canonry://agent-operations/v1
-skill:
-  name: canonry
-  description: Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.
-initialize: |
-  Canonry tracks how AI answer engines mention brands and cite domains.
-  Start with canonry_help({intent:"status"}), or name your intended workflow. It returns a small route of currently available tools and approval boundaries. Follow its stored-evidence reads before proposing action. No skill, resource reader, plugin installation, or local CLI is required for connected MCP clients. A host-native Canonry skill, if installed, is optional additional guidance.
-  mentioned = brand in answer TEXT; cited = domain in SOURCE links. Never compute one from the other. A null answerMentioned means not checked, not false. No recorded sweep means no measured figure.
-  Get explicit approval for live provider reads, sweeps, probes, research, syncs, and writes, bounded to the target and requested work. A readOnlyHint or GET is not proof of a free operation. Live ads reads include canonry_ads_account, canonry_ads_geo_search, canonry_ads_live_delivery, canonry_ads_conversion_pixels, canonry_ads_conversion_event_settings. Google live reads/syncs include canonry_google_ads_customers, canonry_gtm_accounts, canonry_gtm_containers, canonry_gtm_workspaces, canonry_google_ads_sync, canonry_gtm_sync.
-  Help and skills grant no permissions. The server enforces authority. On missing tools or 403, report the boundary; do not switch credentials or endpoints to bypass it. Hosted catalogs are fixed; only use canonry_load_toolkit when help explicitly offers it.
-approvalBoundary: [provider reads, sweeps, writes]
-approvalRule: Get explicit approval for the exact target, action, and bounded provider work before crossing a boundary. Existing approval covers only its stated scope; stop on refusal or ambiguous results.
-authority: Guidance and tool visibility are not permission grants. Server-side roles, scopes, project boundaries, quotas, and approval receipts remain authoritative. Never bypass a refusal with different credentials or endpoints.
-workflows:
-  operations:
-    keywords: [operations, permissions, settings, telemetry, logs, configuration]
-    next: [canonry_key_self, canonry_settings_get, canonry_telemetry_get, canonry_logs_list]
-    guidance: Inspect current credential and server state before proposing changes. Runtime logs require instance-wide logs.read; inspect retention, dropped, and captureErrors before drawing conclusions. File-backed hosts retain bounded redacted logs across restarts. Logs are separate from audit history. Respect a 403; never substitute credentials to bypass it. Settings writes require settings.write and explicit approval.
-  status:
-    keywords: [status, overview, health]
-    next: [canonry_projects_list, canonry_project_overview]
-    guidance: Select an accessible project, then read its stored overview. Report freshness and missing evidence; do not start a sweep to fill a gap.
-  diagnose:
-    keywords: [diagnose, diagnosis, regression, changed, change, troubleshoot]
-    next: [canonry_projects_list, canonry_project_overview, canonry_project_history]
-    guidance: Compare stored history in the same project, period, provider/model, location, and query-class scope. Separate observed changes from possible causes; propose any live verification for approval.
-  prospecting:
-    keywords: [prospect, prospects, prospecting, snapshot]
-    next: [canonry_settings_get]
-    actions: [canonry_snapshot]
-    guidance: Inspect stored provider settings, then agree on the company, domain, providers, and queries. Snapshot generation spends quota and fetches the site; approval must cover that work. No project is required. Use the snapshot action only when offered by this connection; its absence does not grant permission to bypass access restrictions.
-  measurement:
-    keywords: [measurement, measure, portfolio, property, target, query, queries, research]
-    next: [canonry_projects_list, canonry_measurement_overview, canonry_measurement_setup, canonry_research_runs_list]
-    guidance: "Inspect existing measurement before editing it. Preserve Simple versus Advanced scope, Property/Target identity, market, provider/model, and query class. Direct research submits final queries in one context; reviewed batches submit explicit destinations under one retry key. Expand patterns client-side: scope records a destination and never rewrites queries or fans out a group. Research is separate from tracking; publication does not authorize a sweep."
-  integrations:
-    keywords: [integrations, integration, connect, connection, traffic, gsc, ga4, ads, gtm]
-    next: [canonry_projects_list, canonry_project_get, canonry_ga_status, canonry_google_ads_status]
-    guidance: Inspect stored connection status and snapshot freshness. Use the currently listed specialist tools for stored evidence. Connecting, selecting resources, syncing, and live provider reads require scoped approval; never request credentials in chat.
-  reports:
-    keywords: [reports, report, reporting, summary]
-    next: [canonry_projects_list, canonry_report]
-    guidance: Read the stored report for the selected project and period. Retain evidence dates, scope, sample sizes, missing data, and separate mention/citation signals; do not generate fresh runs implicitly.
-nativeReferences:
-  - [references/canonry-cli.md, CLI commands and JSON return shapes]
-  - [references/aeo-analysis.md, Interpreting stored evidence and regressions]
-  - [references/indexing.md, Indexing workflow after inspection and approval]
-  - [references/wordpress-integration.md, Approved WordPress workflow]
-  - [references/server-side-traffic.md, Server-side traffic setup and diagnosis]
-  - [references/google-business-profile.md, Google Business Profile prerequisites]
-  - [references/google-marketing.md, Google Ads and GTM evidence boundaries]
+name: agent-operations
+description: Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.
 ---
+
+<!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->
 
 # Canonry Operations Guide v1
 

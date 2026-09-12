@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   createClient,
   migrate,
@@ -24,6 +24,7 @@ import { Type } from '@sinclair/typebox'
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
+import { loadAeroSystemPrompt } from '../src/agent/session.js'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
 import {
@@ -107,6 +108,7 @@ describe('SessionRegistry', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     faux.unregister()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -269,7 +271,7 @@ describe('SessionRegistry', () => {
     })
   })
 
-  it('hydrates an evicted session from the DB and surfaces persisted queue as pending', () => {
+  it('hydrates an evicted session with current skills while preserving its transcript and queue', () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     registry.getOrCreate('demo')
@@ -284,6 +286,7 @@ describe('SessionRegistry', () => {
     ] as unknown as AgentMessage[]
     db.update(agentSessions)
       .set({
+        systemPrompt: 'obsolete skill prompt',
         messages: JSON.stringify(seededMessages),
         followUpQueue: JSON.stringify(queued),
         updatedAt: now,
@@ -297,12 +300,14 @@ describe('SessionRegistry', () => {
     const rehydrated = registry.getOrCreate('demo')
     expect(registry.isLive('demo')).toBe(true)
     expect(rehydrated.state.messages).toHaveLength(seededMessages.length)
+    expect(rehydrated.state.systemPrompt).toBe(loadAeroSystemPrompt())
 
     // Persisted queue is pulled into the registry's pending buffer, not pi's follow-up queue
     expect(registry.peekPending('demo')).toHaveLength(1)
 
     // DB queue cleared once pulled into pending
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row!.systemPrompt).toBe(loadAeroSystemPrompt())
     expect(parseJsonColumn<AgentMessage[]>(row!.followUpQueue, [])).toEqual([])
   })
 
@@ -674,8 +679,8 @@ describe('SessionRegistry', () => {
     expect(registry.isLive('demo')).toBe(false)
   })
 
-  it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', async () => {
-    insertProject(db, 'demo')
+  it('acquireForTurn throws AGENT_BUSY without mutating tools or refreshing the prompt when streaming', async () => {
+    const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
     // Drive it into the streaming state so the busy guard fires.
@@ -683,6 +688,8 @@ describe('SessionRegistry', () => {
 
     const toolsBefore = agent.state.tools
     const toolsBeforeLen = toolsBefore.length
+    const promptBefore = agent.state.systemPrompt
+    vi.stubEnv('AERO_SYSTEM_PROMPT_APPEND', 'New instructions for the next idle turn')
 
     let caught: unknown
     try {
@@ -695,6 +702,36 @@ describe('SessionRegistry', () => {
     // Critical: tools must NOT have been swapped despite the scope mismatch.
     expect(agent.state.tools).toBe(toolsBefore)
     expect(agent.state.tools.length).toBe(toolsBeforeLen)
+    expect(agent.state.systemPrompt).toBe(promptBefore)
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row!.systemPrompt).toBe(promptBefore)
+  })
+
+  it('refreshes an idle prompt and configured appends without clearing the transcript or durable notes', async () => {
+    vi.stubEnv('AERO_SYSTEM_PROMPT_APPEND', 'Previous deployment instructions')
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    agent.state.messages = [{ role: 'user', content: 'Compare the two markets', timestamp: Date.now() }]
+    registry.save('demo')
+    const messagesBefore = agent.state.messages
+    const { upsertMemoryEntry } = await import('../src/agent/memory-store.js')
+    upsertMemoryEntry(db, {
+      projectId, key: 'reporting-tone', value: 'Concise', source: MemorySources.user,
+    })
+
+    vi.stubEnv('AERO_SYSTEM_PROMPT_APPEND', 'Current deployment instructions')
+    const acquired = await registry.acquireForTurn('demo')
+
+    expect(acquired).toBe(agent)
+    expect(agent.state.messages).toBe(messagesBefore)
+    expect(agent.state.systemPrompt).toContain('Current deployment instructions')
+    expect(agent.state.systemPrompt).not.toContain('Previous deployment instructions')
+    expect(agent.state.systemPrompt).toContain('reporting-tone: Concise')
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row!.systemPrompt).toBe(loadAeroSystemPrompt())
+    expect(row!.systemPrompt).not.toContain('<memory>')
+    expect(parseJsonColumn<AgentMessage[]>(row!.messages, [])).toEqual(messagesBefore)
   })
 
   it('acquireForTurn aligns tool scope on cached agents when idle', async () => {
