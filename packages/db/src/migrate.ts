@@ -4137,7 +4137,108 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_runtime_logs_ts ON runtime_logs(ts, sequence)`,
     ],
   },
+  {
+    // Migration 121 made both the password and the two-role set physical
+    // SQLite constraints. A rebuild is the only forward-compatible way to
+    // admit Google-only accounts and the Analyst role while retaining account
+    // ids for all of the session/OAuth/delegated-key children.
+    version: 156,
+    name: 'per-instance-user-access-foundation',
+    statements: [
+      `ALTER TABLE user_sessions ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE oauth_authorization_codes ADD COLUMN user_auth_version INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE oauth_tokens ADD COLUMN user_auth_version INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE api_keys ADD COLUMN delegated_user_auth_version INTEGER`,
+      `CREATE TABLE IF NOT EXISTS user_auth_state (
+        id                            TEXT PRIMARY KEY,
+        named_authentication_required INTEGER NOT NULL DEFAULT 0,
+        permissions_migration_complete INTEGER NOT NULL DEFAULT 0,
+        created_at                    TEXT NOT NULL,
+        updated_at                    TEXT NOT NULL,
+        CHECK (id = 'instance')
+      )`,
+    ],
+    run: rebuildUsersForPerInstanceAccess,
+    disableForeignKeys: true,
+  },
+
+  {
+    version: 157,
+    name: 'native-google-identities-and-invitations',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_external_identities (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        issuer TEXT NOT NULL, subject TEXT NOT NULL, email TEXT,
+        created_at TEXT NOT NULL, last_login_at TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_external_identity_subject ON user_external_identities(issuer, subject)`,
+      `CREATE INDEX IF NOT EXISTS idx_user_external_identity_user ON user_external_identities(user_id)`,
+      `CREATE TABLE IF NOT EXISTS user_invitations (
+        id TEXT PRIMARY KEY, email TEXT NOT NULL, email_key TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'analyst', 'viewer')),
+        token_hash TEXT NOT NULL, created_by_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL, expires_at TEXT NOT NULL, accepted_at TEXT,
+        accepted_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, revoked_at TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_invitation_token ON user_invitations(token_hash)`,
+      `CREATE INDEX IF NOT EXISTS idx_user_invitation_email ON user_invitations(email_key)`,
+      `CREATE TABLE IF NOT EXISTS google_login_transactions (
+        state_hash TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_google_login_transaction_expires ON google_login_transactions(expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_google_login_transaction_user ON google_login_transactions(user_id)`,
+      `ALTER TABLE audit_log ADD COLUMN actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+      `ALTER TABLE audit_log ADD COLUMN actor_name TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_entity_time ON audit_log(entity_type, entity_id, created_at)`,
+    ],
+  },
+  {
+    version: 158,
+    name: 'google-login-transaction-return-target',
+    statements: [
+      `ALTER TABLE google_login_transactions ADD COLUMN return_to TEXT`,
+    ],
+  },
 ]
+
+/** Rebuild the v121 users table without changing any user id or child row. */
+function rebuildUsersForPerInstanceAccess(tx: MigrationDb): void {
+  const originalUserIds = tx.all(sql.raw('SELECT id FROM users ORDER BY id')) as Array<{ id: string }>
+  tx.run(sql.raw(`CREATE TABLE users_per_instance_access_new (
+    id                   TEXT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    name_key             TEXT NOT NULL UNIQUE,
+    password_hash        TEXT,
+    display_name         TEXT,
+    email                TEXT,
+    role                 TEXT NOT NULL CHECK (role IN ('admin', 'analyst', 'viewer')),
+    status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+    auth_version         INTEGER NOT NULL DEFAULT 0,
+    permissions_migrated INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL,
+    last_login_at        TEXT,
+    last_seen_at         TEXT
+  )`))
+  tx.run(sql.raw(`INSERT INTO users_per_instance_access_new (
+    id, name, name_key, password_hash, role, created_at, last_login_at
+  ) SELECT id, name, name_key, password_hash, role, created_at, last_login_at FROM users`))
+  tx.run(sql.raw('DROP TABLE users'))
+  tx.run(sql.raw('ALTER TABLE users_per_instance_access_new RENAME TO users'))
+
+  // Validate the boundary this migration actually changes. A global
+  // `foreign_key_check` would also report unrelated legacy orphans elsewhere
+  // in the database and prevent an otherwise safe account-table upgrade from
+  // booting. Preserving every user id is sufficient for all inbound session,
+  // OAuth and delegated-key references because this rebuild changes no child.
+  const rebuiltUserIds = tx.all(sql.raw('SELECT id FROM users ORDER BY id')) as Array<{ id: string }>
+  if (
+    rebuiltUserIds.length !== originalUserIds.length
+    || rebuiltUserIds.some((row, index) => row.id !== originalUserIds[index]?.id)
+  ) {
+    throw new Error('User access migration did not preserve every account id')
+  }
+}
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {
   const tableSqlRow = tx.all(sql.raw("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'")) as Array<{ sql: string }>

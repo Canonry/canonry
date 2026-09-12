@@ -371,3 +371,9 @@ Keep fixture dates and behavior checks independent of display wording.
 - Root `CLAUDE.md` — full UI design system (colors, layout, accessibility, sidebar)
 - `packages/contracts/` — DTOs returned by the API
 - `packages/api-routes/` — backend endpoints the UI calls
+
+## People and account access
+
+Settings owns `PeopleAccessSection`, whose account/invitation reads are independent of provider loading. All named roles can open `AccountPanel` from the sidebar identity; use the shared Drawer for methods and sessions. Render display names, not Google internal usernames. Admin/Analyst/Viewer labels and Research controls follow explicit capabilities. Principal cache identity includes user ID, auth version and role. Foreground activity is throttled and does not count background polling. Google invitation tokens are consumed from the URL fragment and removed before other requests. Use generated SDK wrappers; self-service link/unlink requires the current browser session.
+
+Global Settings has mutually exclusive URL-backed sections: legacy `/settings` defaults to Connections, while `?section=connections|people|sign-in` is linkable. Keep Google project OAuth under Connections, People limited to users and invitations, and the dashboard Google OAuth credential editor in Sign-in. The Sign-in save-and-enable action persists credentials and activation together, invalidates its settings and auth-provider reads only after the write resolves, and never renders a returned secret. Environment-managed credentials are status-only/read-only. The server remains responsible for the active password-admin recovery rule when disabling Google sign-in.

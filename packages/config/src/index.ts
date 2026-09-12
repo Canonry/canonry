@@ -1,4 +1,11 @@
-import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import {
+  DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
+  googleSignInConfigSchema,
+  providerQuotaPolicySchema,
+  schedulableRunKindSchema,
+  type GoogleSignInConfig,
+  type ProviderQuotaPolicy,
+} from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
@@ -48,6 +55,10 @@ const envSchema = z.object({
   // cloud deployments that mount googleRoutes; the plugin refuses to register
   // without it (see packages/api-routes/src/google.ts).
   GOOGLE_STATE_SECRET: z.string().optional(),
+  CANONRY_PUBLIC_URL: z.string().url().optional(),
+  CANONRY_GOOGLE_SIGN_IN_ENABLED: z.string().optional(),
+  CANONRY_GOOGLE_SIGN_IN_CLIENT_ID: z.string().optional(),
+  CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET: z.string().optional(),
   CANONRY_RESEARCH_ALLOW_VIEWERS: z.string().optional(),
   CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT: z.coerce.number().int().positive().default(DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT),
 })
@@ -103,6 +114,9 @@ export interface PlatformEnv {
    * default.
    */
   googleStateSecret?: string
+  /** Public URL used for browser authentication callbacks on this host. */
+  publicUrl?: string
+  googleSignIn: ResolvedGoogleSignInConfig
   research: {
     allowViewers: boolean
     viewerDailyRunLimit: number
@@ -113,6 +127,53 @@ export interface PlatformEnv {
     claude?: ProviderEnvConfig
     perplexity?: ProviderEnvConfig
   }
+}
+
+/** The stored shape is deliberately minimal so local config can own it without a DB secret. */
+export interface GoogleSignInConfigFile {
+  auth?: { google?: GoogleSignInConfig }
+}
+
+export interface ResolvedGoogleSignInConfig {
+  config: GoogleSignInConfig
+  /** True when any auth setting is injected by the environment and is therefore read-only at runtime. */
+  environmentOverride: boolean
+}
+
+function parseGoogleSignInEnabledEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined
+  const normalized = value.trim().toLowerCase()
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes') return true
+  if (normalized === '0' || normalized === 'false' || normalized === 'no') return false
+  throw new Error('CANONRY_GOOGLE_SIGN_IN_ENABLED must be true or false.')
+}
+
+/**
+ * Resolve native Google login settings consistently on local and cloud hosts.
+ * Environment values win, including an explicit false enablement value.
+ */
+export function resolveGoogleSignInConfig(
+  env: Partial<Pick<NodeJS.ProcessEnv,
+    'CANONRY_GOOGLE_SIGN_IN_ENABLED' | 'CANONRY_GOOGLE_SIGN_IN_CLIENT_ID' | 'CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET'>>,
+  stored?: GoogleSignInConfigFile,
+): ResolvedGoogleSignInConfig {
+  const enabled = parseGoogleSignInEnabledEnv(env.CANONRY_GOOGLE_SIGN_IN_ENABLED)
+  const environmentOverride = (
+    env.CANONRY_GOOGLE_SIGN_IN_ENABLED !== undefined
+    || env.CANONRY_GOOGLE_SIGN_IN_CLIENT_ID !== undefined
+    || env.CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET !== undefined
+  )
+  const source = {
+    ...(stored?.auth?.google ?? {}),
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(env.CANONRY_GOOGLE_SIGN_IN_CLIENT_ID === undefined
+      ? {}
+      : { clientId: env.CANONRY_GOOGLE_SIGN_IN_CLIENT_ID.trim() || undefined }),
+    ...(env.CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET === undefined
+      ? {}
+      : { clientSecret: env.CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET || undefined }),
+  }
+  return { config: googleSignInConfigSchema.parse(source), environmentOverride }
 }
 
 const bootstrapEnvSchema = z.object({
@@ -205,6 +266,8 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
     googleStateSecret: parsed.GOOGLE_STATE_SECRET,
+    publicUrl: parsed.CANONRY_PUBLIC_URL,
+    googleSignIn: resolveGoogleSignInConfig(source),
     research: {
       allowViewers: parseBooleanEnv(parsed.CANONRY_RESEARCH_ALLOW_VIEWERS) ?? false,
       viewerDailyRunLimit: parsed.CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT,

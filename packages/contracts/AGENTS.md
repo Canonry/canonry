@@ -104,3 +104,7 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 
 - `packages/api-routes/` — consumes DTOs for request/response validation
 - `packages/canonry/src/client.ts` — uses DTOs for typed API client methods
+
+## Instance access contracts
+
+`users.ts` defines Admin/Analyst/Viewer roles, active/suspended status, safe account DTOs and shared role scopes. `google-sign-in.ts` defines native Google configuration, invitation, auth-method/activity and access-history DTOs. Recoverable browser state and credential secrets are never exposed in response DTOs. Keep identity independent of contact-email changes.

@@ -7,6 +7,7 @@ import { createClient, migrate, oauthClients, oauthTokens, users } from '@ainyc/
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import { beforeEach, afterEach, expect, test } from 'vitest'
+import { UserStatuses } from '@ainyc/canonry-contracts'
 
 import { registerOAuthRoutes, resolveOAuthAccessToken } from '../src/oauth.js'
 import { createCredentialChecker } from '../src/user-session.js'
@@ -64,8 +65,8 @@ async function build() {
     db,
     issuer: ISSUER,
     resourcePaths: [RESOURCE_PATH],
-    resolveUser: () => (signedInUserId ? { id: signedInUserId, name: 'Sam' } : null),
-    startSession: (id) => { signedInUserId = id; return 'session=set' },
+    resolveUser: () => (signedInUserId ? { id: signedInUserId, name: 'Sam', authVersion: db.select().from(users).where(eq(users.id, signedInUserId)).get()!.authVersion } : null),
+    startSession: (id, _expectedAuthVersion) => { signedInUserId = id; return 'session=set' },
     credentials: createCredentialChecker({ db }),
   })
   return userId
@@ -581,6 +582,47 @@ test('refresh rotates: the presented token dies with the request that used it', 
   expect(replay.statusCode).toBe(400)
 })
 
+test('a suspended account cannot exchange an authorization code minted before suspension', async () => {
+  const userId = signedInUserId!
+  const code = await getCode()
+  db.update(users).set({ status: UserStatuses.suspended }).where(eq(users.id, userId)).run()
+
+  const exchange = await app.inject({
+    method: 'POST',
+    url: '/oauth/token',
+    payload: { grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-1', redirect_uri: REDIRECT },
+  })
+  expect(exchange.statusCode).toBe(400)
+  expect(exchange.json().error).toBe('invalid_grant')
+})
+
+test('an authorization-version change invalidates OAuth access and refresh credentials', async () => {
+  const userId = signedInUserId!
+  const code = await getCode()
+  const exchange = await app.inject({
+    method: 'POST',
+    url: '/oauth/token',
+    payload: { grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-1', redirect_uri: REDIRECT },
+  })
+  expect(exchange.statusCode).toBe(200)
+  const { access_token: accessToken, refresh_token: refreshToken } = exchange.json() as {
+    access_token: string
+    refresh_token: string
+  }
+
+  const account = db.select().from(users).where(eq(users.id, userId)).get()!
+  db.update(users).set({ authVersion: account.authVersion + 1 }).where(eq(users.id, userId)).run()
+
+  expect(resolveOAuthAccessToken(db, accessToken, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+  const refresh = await app.inject({
+    method: 'POST',
+    url: '/oauth/token',
+    payload: { grant_type: 'refresh_token', refresh_token: refreshToken },
+  })
+  expect(refresh.statusCode).toBe(400)
+  expect(refresh.json().error).toBe('invalid_grant')
+})
+
 test('an access token is not valid for a different resource', async () => {
   // Audience binding. Without it a token minted for one endpoint works on any.
   const code = await getCode()
@@ -624,4 +666,19 @@ test('tokens are stored as digests, never in plaintext', async () => {
   expect(rows.length).toBeGreaterThan(0)
   for (const row of rows) expect(row.tokenHash).not.toBe(token)
   expect(db.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, token)).get()).toBeUndefined()
+})
+
+
+test('a new login cannot reuse consent from an older authorization version', async () => {
+  const url = authorizeUrl()
+  const page = await app.inject({ method: 'GET', url })
+  const csrf = /name="csrf" value="([^"]+)"/.exec(page.body)![1]!
+  const account = db.select().from(users).where(eq(users.id, signedInUserId!)).get()!
+  db.update(users).set({ authVersion: account.authVersion + 1 }).where(eq(users.id, account.id)).run()
+  const response = await app.inject({
+    method: 'POST', url: '/oauth/authorize/consent?' + url.split('?')[1],
+    headers: FORM_HEADERS, payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
+  })
+  expect(response.statusCode).toBe(400)
+  expect(response.headers.location).toBeUndefined()
 })

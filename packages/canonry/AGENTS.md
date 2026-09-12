@@ -567,3 +567,9 @@ top-level envelope:
 `--confirm` deletes those visibility/research results after the operator backs them up.
 The MCP equivalent is `canonry_results_clear`; exclude it from the in-product Aero agent.
 Site Health, backlinks, configuration, audit records, and usage accounting remain intact.
+
+## Native Google login and people administration
+
+`server.ts` wires config-backed native Google sign-in independently of data-integration Google OAuth. Persist config before replacing in-memory values. OAuth consent supports Google-only users and configured subpaths while retaining legacy root protocol routes.
+
+`cli-commands/users.ts` and `commands/users.ts` expose account list/create/update/suspend/reactivate/revoke-access/history and invitation list/create/replace/revoke. Google setup uses `user auth google status|configure` and secret stdin; `user auth providers` is safe metadata. Browser login and own Google linking/unlinking are protocol exceptions, not bearer-key CLI operations. MCP account administration uses the same public API authority. See [standalone setup](../../docs/google-sign-in.md).

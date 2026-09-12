@@ -56,6 +56,8 @@ import {
   trafficConnectVercelRequestSchema,
   trafficEventKindSchema,
   trafficSeriesGranularitySchema,
+  createUserInvitationRequestSchema,
+  updateUserRequestSchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
   measurementDiscoveryRequestSchema,
@@ -303,6 +305,22 @@ const historyFilterShape = {
 
 const projectHistoryInputSchema = z.object({ project: projectNameSchema, ...historyFilterShape })
 const globalHistoryInputSchema = z.object(historyFilterShape)
+
+// Account administration is instance-wide. These identifiers are opaque UUIDs
+// returned by the safe list endpoints; none of the tools accept credentials or
+// raw Google configuration values as arguments.
+const userIdInputSchema = z.object({
+  userId: z.string().uuid().describe('Account UUID returned by canonry_user_list.'),
+}).strict()
+const userUpdateInputSchema = userIdInputSchema.extend({
+  request: updateUserRequestSchema.describe('Role, status, display name, and/or email changes. Omit fields that should remain unchanged.'),
+}).strict()
+const userInvitationCreateInputSchema = z.object({
+  request: createUserInvitationRequestSchema.describe('The invitee email and instance-wide role. The resulting invitation URL is returned once by the server.'),
+}).strict()
+const userInvitationIdInputSchema = z.object({
+  invitationId: z.string().uuid().describe('Invitation UUID returned by canonry_user_invitation_list or canonry_user_invitation_create.'),
+}).strict()
 
 const snapshotsListInputSchema = z.object({
   project: projectNameSchema,
@@ -1716,6 +1734,118 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/settings'],
     handler: (client) => client.getSettings(),
+  }),
+  // Bounded instance-account administration. The HTTP handlers remain the
+  // authority boundary: active final admin, users.read/users.write, and a
+  // broad (non-project-scoped) credential. MCP never accepts a password,
+  // bearer token, or Google client secret as a tool argument.
+  defineTool({
+    name: 'canonry_user_list',
+    title: 'List instance accounts',
+    description: 'List safe account metadata for this Canonry install. Requires an active administrator and a full-instance users.read grant; project-scoped keys are refused by the server.',
+    access: 'read',
+    requiredScope: 'users.read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/users'],
+    handler: (client) => client.listUsers(),
+  }),
+  defineTool({
+    name: 'canonry_user_update',
+    title: 'Update account role, status, or profile',
+    description: 'Update an account’s role, active/suspended status, display name, or email. Requires an active administrator and a full-instance users.write grant; the server preserves the last active password administrator.',
+    access: 'write',
+    requiredScope: 'users.write',
+    tier: 'setup',
+    inputSchema: userUpdateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['PATCH /api/v1/users/{id}'],
+    handler: (client, input) => client.updateUser(input.userId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_user_revoke_access',
+    title: 'Revoke an account’s active access',
+    description: 'Invalidate every current session, OAuth grant, and delegated MCP credential for one account. This does not delete the account or change its role. Requires an active administrator and a full-instance users.write grant.',
+    access: 'write',
+    requiredScope: 'users.write',
+    tier: 'setup',
+    inputSchema: userIdInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/users/{id}/revoke-access'],
+    handler: (client, input) => client.revokeUserAccess(input.userId),
+  }),
+  defineTool({
+    name: 'canonry_user_access_history',
+    title: 'Read account access history',
+    description: 'Read up to 100 newest audited access events for one account. Requires an active administrator and a full-instance users.read grant; returned events contain no credentials.',
+    access: 'read',
+    requiredScope: 'users.read',
+    tier: 'setup',
+    inputSchema: userIdInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/users/{id}/access-history'],
+    handler: (client, input) => client.getUserAccessHistory(input.userId),
+  }),
+  defineTool({
+    name: 'canonry_user_invitation_list',
+    title: 'List user invitations',
+    description: 'List invitation metadata and status for this install. Requires an active administrator and a full-instance users.read grant; invitation tokens are never listed.',
+    access: 'read',
+    requiredScope: 'users.read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/users/invitations'],
+    handler: (client) => client.listUserInvitations(),
+  }),
+  defineTool({
+    name: 'canonry_user_invitation_create',
+    title: 'Create a user invitation',
+    description: 'Create one time-limited invitation for an email address and role. Requires an active administrator and a full-instance users.write grant. Provide no password or token; the server returns the invitation URL once.',
+    access: 'write',
+    requiredScope: 'users.write',
+    tier: 'setup',
+    inputSchema: userInvitationCreateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false }),
+    openApiOperations: ['POST /api/v1/users/invitations'],
+    handler: (client, input) => client.createUserInvitation(input.request),
+  }),
+  defineTool({
+    name: 'canonry_user_invitation_replace',
+    title: 'Replace a user invitation',
+    description: 'Rotate an existing invitation’s token and expiry, invalidating its former link. Requires an active administrator and a full-instance users.write grant. The replacement URL is returned once.',
+    access: 'write',
+    requiredScope: 'users.write',
+    tier: 'setup',
+    inputSchema: userInvitationIdInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/users/invitations/{id}/replace'],
+    handler: (client, input) => client.replaceUserInvitation(input.invitationId),
+  }),
+  defineTool({
+    name: 'canonry_user_invitation_revoke',
+    title: 'Revoke a user invitation',
+    description: 'Revoke one pending invitation so it can no longer be accepted. Requires an active administrator and a full-instance users.write grant.',
+    access: 'write',
+    requiredScope: 'users.write',
+    tier: 'setup',
+    inputSchema: userInvitationIdInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/users/invitations/{id}/revoke'],
+    handler: (client, input) => client.revokeUserInvitation(input.invitationId),
+  }),
+  defineTool({
+    name: 'canonry_user_google_sign_in_settings_get',
+    title: 'Read safe Google sign-in configuration',
+    description: 'Read the safe Google sign-in configuration summary: enabled/configured state, client ID, callback URL, and whether a secret exists. It never returns a client secret. Requires an active administrator and a broad instance credential with users.read or users.write.',
+    access: 'read',
+    requiredScope: 'users.read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/settings/auth/google'],
+    handler: (client) => client.getGoogleSignInSettings(),
   }),
   defineTool({
     name: 'canonry_key_self',

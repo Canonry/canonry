@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { UserRole, CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -432,6 +432,8 @@ export const auditLog = sqliteTable('audit_log', {
   // with its session id so post-mortems can group a related sequence of
   // mutations. NULL when the caller didn't provide one.
   actorSession: text('actor_session'),
+  actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  actorName: text('actor_name'),
   // Stable credential id, intentionally not an FK: audit evidence must remain
   // intelligible after a key is revoked or deleted.
   credentialId: text('credential_id'),
@@ -441,6 +443,7 @@ export const auditLog = sqliteTable('audit_log', {
 }, (table) => [
   index('idx_audit_log_project').on(table.projectId),
   index('idx_audit_log_created').on(table.createdAt),
+  index('idx_audit_entity_time').on(table.entityType, table.entityId, table.createdAt),
   index('idx_audit_log_credential_created').on(table.credentialId, table.createdAt),
   index('idx_audit_log_request_created').on(table.requestId, table.createdAt),
 ])
@@ -497,6 +500,8 @@ export const apiKeys = sqliteTable('api_keys', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   /** Internal delegated session identity, never accepted by the key-create API. */
   delegatedUserId: text('delegated_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  /** Auth version of the named account when this delegated credential was issued. */
+  delegatedUserAuthVersion: integer('delegated_user_auth_version'),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
@@ -522,10 +527,28 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   /** Lower-cased `name`. Unique, so "Sam" and "sam" cannot both exist. */
   nameKey: text('name_key').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  role: text('role').$type<'admin' | 'viewer'>().notNull(),
+  passwordHash: text('password_hash'),
+  displayName: text('display_name'),
+  email: text('email'),
+  role: text('role').$type<'admin' | 'analyst' | 'viewer'>().notNull(),
+  status: text('status').$type<'active' | 'suspended'>().notNull().default('active'),
+  authVersion: integer('auth_version').notNull().default(0),
+  permissionsMigrated: integer('permissions_migrated', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   lastLoginAt: text('last_login_at'),
+  lastSeenAt: text('last_seen_at'),
+})
+
+/**
+ * Singleton, durable account-authentication state. Deleting or suspending the
+ * final account must never re-open a previously protected install.
+ */
+export const userAuthState = sqliteTable('user_auth_state', {
+  id: text('id').primaryKey(),
+  namedAuthenticationRequired: integer('named_authentication_required', { mode: 'boolean' }).notNull().default(false),
+  permissionsMigrationComplete: integer('permissions_migration_complete', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 })
 
 /**
@@ -544,6 +567,7 @@ export const users = sqliteTable('users', {
 export const userSessions = sqliteTable('user_sessions', {
   tokenHash: text('token_hash').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  authVersion: integer('auth_version').notNull().default(0),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
 }, (table) => [
@@ -594,6 +618,7 @@ export const oauthAuthorizationCodes = sqliteTable('oauth_authorization_codes', 
   codeHash: text('code_hash').primaryKey(),
   clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userAuthVersion: integer('user_auth_version').notNull().default(0),
   redirectUri: text('redirect_uri').notNull(),
   /** S256 only. `plain` is refused at the authorize endpoint, not stored. */
   codeChallenge: text('code_challenge').notNull(),
@@ -620,6 +645,7 @@ export const oauthTokens = sqliteTable('oauth_tokens', {
   kind: text('kind').$type<'access' | 'refresh'>().notNull(),
   clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userAuthVersion: integer('user_auth_version').notNull().default(0),
   /** Audience. Enforced on every resource request. */
   resource: text('resource'),
   scope: text('scope'),
@@ -3054,4 +3080,47 @@ export const gtmRawSnapshots = sqliteTable('gtm_raw_snapshots', {
     columns: [table.projectId, table.connectionId],
     foreignColumns: [gtmConnections.projectId, gtmConnections.id],
   }).onDelete('cascade'),
+])
+
+/** Stable external identity; an email match never grants local account access. */
+export const userExternalIdentities = sqliteTable('user_external_identities', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  issuer: text('issuer').notNull(),
+  subject: text('subject').notNull(),
+  email: text('email'),
+  createdAt: text('created_at').notNull(),
+  lastLoginAt: text('last_login_at'),
+}, table => [
+  uniqueIndex('idx_user_external_identity_subject').on(table.issuer, table.subject),
+  index('idx_user_external_identity_user').on(table.userId),
+])
+
+/** Expiring invitation authority. Only a hash of its single-use token is stored. */
+export const userInvitations = sqliteTable('user_invitations', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  emailKey: text('email_key').notNull(),
+  role: text('role').$type<UserRole>().notNull(),
+  tokenHash: text('token_hash').notNull(),
+  createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  acceptedAt: text('accepted_at'),
+  acceptedUserId: text('accepted_user_id').references(() => users.id, { onDelete: 'set null' }),
+  revokedAt: text('revoked_at'),
+}, table => [
+  uniqueIndex('idx_user_invitation_token').on(table.tokenHash),
+  index('idx_user_invitation_email').on(table.emailKey),
+])
+
+/** Single-use browser transactions. PKCE state stays in an encrypted cookie. */
+export const googleLoginTransactions = sqliteTable('google_login_transactions', {
+  stateHash: text('state_hash').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  returnTo: text('return_to'),
+  expiresAt: text('expires_at').notNull(),
+}, table => [
+  index('idx_google_login_transaction_expires').on(table.expiresAt),
+  index('idx_google_login_transaction_user').on(table.userId),
 ])

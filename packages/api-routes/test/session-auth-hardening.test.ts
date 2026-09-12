@@ -21,6 +21,7 @@ import {
   userSessions,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
+import { UserStatuses } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { USER_SESSION_COOKIE_NAME } from '../src/user-session.js'
@@ -179,6 +180,59 @@ test('the value stored for a session is the digest of the cookie, nothing else',
     headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${stored.tokenHash}` },
   })
   expect(replay.statusCode).toBe(401)
+})
+
+test('suspending an account invalidates its existing browser session immediately', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const session = await signIn('owner', ADMIN_PASSWORD)
+  const account = db.select().from(users).where(eq(users.nameKey, 'owner')).get()!
+
+  db.update(users).set({ status: UserStatuses.suspended }).where(eq(users.id, account.id)).run()
+
+  const denied = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${session}` },
+  })
+  expect(denied.statusCode).toBe(401)
+  expect(db.select().from(userSessions).where(eq(userSessions.userId, account.id)).all()).toEqual([])
+})
+
+test('an authorization-version change invalidates a browser session without relying on deletion', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const session = await signIn('owner', ADMIN_PASSWORD)
+  const account = db.select().from(users).where(eq(users.nameKey, 'owner')).get()!
+
+  db.update(users).set({ authVersion: account.authVersion + 1 }).where(eq(users.id, account.id)).run()
+
+  const denied = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+    headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${session}` },
+  })
+  expect(denied.statusCode).toBe(401)
+  expect(db.select().from(userSessions).where(eq(userSessions.userId, account.id)).all()).toEqual([])
+})
+
+test('delegated credentials require an active account at their issued authorization version', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const account = db.select().from(users).where(eq(users.nameKey, 'owner')).get()!
+  const delegatedToken = 'cnry_delegated_fixture'
+  db.insert(apiKeys).values({
+    id: crypto.randomUUID(),
+    name: 'delegated fixture',
+    keyHash: hashApiKey(delegatedToken),
+    keyPrefix: delegatedToken.slice(0, 9),
+    scopes: ['*'],
+    delegatedUserId: account.id,
+    delegatedUserAuthVersion: account.authVersion,
+    createdAt: new Date().toISOString(),
+  }).run()
+
+  expect((await app.inject({ method: 'GET', url: '/api/v1/projects', headers: withKey(delegatedToken) })).statusCode).toBe(200)
+
+  db.update(users).set({ authVersion: account.authVersion + 1 }).where(eq(users.id, account.id)).run()
+  expect((await app.inject({ method: 'GET', url: '/api/v1/projects', headers: withKey(delegatedToken) })).statusCode).toBe(401)
 })
 
 // ─── P2.4 cross-origin writes ──────────────────────────────────────────────

@@ -162,12 +162,32 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/auth/logout': 'excluded-protocol',
   'GET /api/v1/auth/sessions': 'excluded-protocol',
   'DELETE /api/v1/auth/sessions': 'excluded-protocol',
-  // Creating and deleting accounts hands out (or cuts off) a way into this
-  // install, which is the same privilege-granting class as minting a key.
-  // Deliberately CLI + API only.
-  'GET /api/v1/users': 'deferred',
+  // Password bootstrap/create and deletion remain CLI/API-only, but bounded
+  // invitation, role/status, revocation, history, and safe account reads are
+  // exposed through administrator-only MCP tools.
+  'GET /api/v1/users': 'included',
   'POST /api/v1/users': 'deferred',
   'DELETE /api/v1/users/{name}': 'deferred',
+  // Browser identity linking needs its original session cookie. Secret
+  // configuration stays CLI/API-only; bounded account lifecycle tools below
+  // retain the same administrator checks as their backing routes.
+  'GET /api/v1/auth/providers': 'excluded-protocol',
+  'GET /api/v1/auth/google/start': 'excluded-protocol',
+  'GET /api/v1/auth/google/callback': 'excluded-protocol',
+  'POST /api/v1/auth/google/start': 'excluded-protocol',
+  'POST /api/v1/auth/google/link': 'excluded-protocol',
+  'GET /api/v1/auth/methods': 'excluded-protocol',
+  'DELETE /api/v1/auth/methods/{id}': 'excluded-protocol',
+  'POST /api/v1/auth/activity': 'excluded-protocol',
+  'GET /api/v1/settings/auth/google': 'included',
+  'PUT /api/v1/settings/auth/google': 'deferred',
+  'GET /api/v1/users/invitations': 'included',
+  'POST /api/v1/users/invitations': 'included',
+  'POST /api/v1/users/invitations/{id}/revoke': 'included',
+  'POST /api/v1/users/invitations/{id}/replace': 'included',
+  'PATCH /api/v1/users/{id}': 'included',
+  'POST /api/v1/users/{id}/revoke-access': 'included',
+  'GET /api/v1/users/{id}/access-history': 'included',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedules': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',

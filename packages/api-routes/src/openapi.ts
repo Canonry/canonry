@@ -31,7 +31,7 @@ export interface OpenApiInfo {
   includeCanonryLocal?: boolean
 }
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 interface OpenApiParameter {
   name: string
@@ -2605,6 +2605,257 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Cannot revoke the currently-authenticating key.'),
       403: errorResponse('Missing the keys.write scope.'),
       404: errorResponse('Key not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/providers',
+    summary: "Available sign-in methods",
+    tags: ['auth'],
+    auth: false,
+
+
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthProvidersDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/google/start',
+    summary: 'Open Google sign-in for browser authorization',
+    tags: ['auth'],
+    auth: false,
+    parameters: [{ name: 'returnTo', in: 'query', description: 'Optional same-instance return path.', schema: stringSchema }],
+    responses: {
+      302: { description: 'Redirects to Google; sets a short-lived browser-bound transaction cookie.' },
+      400: errorResponse('Invalid sign-in configuration or return path.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/google/callback',
+    summary: 'Complete Google browser sign-in',
+    tags: ['auth'],
+    auth: false,
+    description: 'Browser-only protocol callback. Requires the original transaction cookie and a single-use OAuth response.',
+    parameters: [
+      { name: 'code', in: 'query', description: 'Single-use Google authorization code.', schema: stringSchema },
+      { name: 'state', in: 'query', description: 'Browser-bound transaction state.', schema: stringSchema },
+      { name: 'error', in: 'query', description: 'Google authorization failure.', schema: stringSchema },
+    ],
+    responses: { 303: { description: 'Redirects to the instance. Success creates a local session; failures use a generic sign-in error.' } },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/auth/google/start',
+    summary: "Start Google sign-in",
+    tags: ['auth'],
+    auth: false,
+
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/GoogleStartRequest' } } } },
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthRedirectDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/auth/google/link',
+    summary: "Link Google after password reauthentication",
+    tags: ['auth'],
+    auth: false,
+
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/GoogleLinkRequest' } } } },
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthRedirectDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/methods',
+    summary: "List your sign-in methods",
+    tags: ['auth'],
+    auth: false,
+
+
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthMethodsDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/auth/methods/{id}',
+    summary: "Unlink your Google sign-in method",
+    tags: ['auth'],
+    auth: false,
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthActionDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/auth/activity',
+    summary: "Record foreground dashboard activity",
+    tags: ['auth'],
+    auth: false,
+
+
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthActionDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/settings/auth/google',
+    summary: "Read Google sign-in configuration",
+    tags: ['auth'],
+
+
+
+    responses: {
+      200: jsonResponse('Successful response.', 'GoogleSignInSettingsDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/settings/auth/google',
+    summary: "Configure Google sign-in",
+    tags: ['auth'],
+
+
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateGoogleSignInRequest' } } } },
+    responses: {
+      200: jsonResponse('Successful response.', 'GoogleSignInSettingsDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/users/invitations',
+    summary: "List invitations",
+    tags: ['users'],
+
+
+
+    responses: {
+      200: jsonResponse('Successful response.', 'UserInvitationListDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/invitations',
+    summary: "Invite a person",
+    tags: ['users'],
+
+
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateUserInvitationRequest' } } } },
+    responses: {
+      201: jsonResponse('Successful response.', 'CreatedUserInvitationDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/invitations/{id}/revoke',
+    summary: "Revoke an invitation",
+    tags: ['users'],
+
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+
+    responses: {
+      200: jsonResponse('Successful response.', 'AuthActionDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/invitations/{id}/replace',
+    summary: "Replace an invitation link",
+    tags: ['users'],
+
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+
+    responses: {
+      200: jsonResponse('Successful response.', 'CreatedUserInvitationDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/users/{id}',
+    summary: "Update an account",
+    tags: ['users'],
+
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateUserRequest' } } } },
+    responses: {
+      200: jsonResponse('Successful response.', 'UserDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/{id}/revoke-access',
+    summary: "Revoke a person’s sessions and delegated access",
+    tags: ['users'],
+
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+
+    responses: {
+      200: jsonResponse('Successful response.', 'RevokeUserAccessDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/users/{id}/access-history',
+    summary: "Read a person’s access history",
+    tags: ['users'],
+
+    parameters: [{ name: 'id', in: 'path', description: 'Record identifier.', required: true, schema: stringSchema }],
+
+    responses: {
+      200: jsonResponse('Successful response.', 'UserAccessHistoryDto'),
+      400: errorResponse('Invalid request.'),
+      401: errorResponse('Sign-in required.'),
+      403: errorResponse('Not permitted.'),
     },
   },
   {

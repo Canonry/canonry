@@ -12,13 +12,14 @@ import {
   isReadOnlyKey,
   intersectScopes,
   normalizeIdTokens,
-  READ_ONLY_SCOPE,
   RESEARCH_RUN_SCOPE,
   restrictedWriteScopes,
   RunKinds,
   splitList,
   UserRoles,
+  UserStatuses,
   WILDCARD_SCOPE,
+  userRoleScopes,
   type UserRole,
 } from '@ainyc/canonry-contracts'
 import { assertSameOriginWrite } from './same-origin.js'
@@ -31,6 +32,7 @@ import {
   USER_SESSION_COOKIE_NAME,
   type UserSessionCookieOptions,
 } from './user-session.js'
+import { initializeUserAccess } from './user-access.js'
 
 /**
  * HTTP methods that mutate state. A read-only key is rejected on these; the
@@ -284,15 +286,15 @@ export function requirePaidReadScope(request: FastifyRequest): void {
  * Authorize an isolated research run, which reads from an answer provider,
  * spends the operator's quota, and persists the evidence.
  *
- * Signed-in administrators retain their existing access. Signed-in viewers
- * need an explicit deployment opt-in. API keys need `research.run` or the
- * wildcard root grant, so `read`, unrelated named scopes, and an
- * empty scope list all fail closed.
+ * Signed-in administrators and Analysts retain their explicit role grants;
+ * Viewers never run Research. API keys need `research.run` or the wildcard
+ * root grant, so `read`, unrelated named scopes, and an empty scope list all
+ * fail closed.
  */
-export function canRunResearch(request: FastifyRequest, allowViewers: boolean): boolean {
+export function canRunResearch(request: FastifyRequest, _allowViewers: boolean): boolean {
   const principal = request.principal
   if (!principal) return true
-  if (principal.kind === 'user' && principal.role === UserRoles.viewer && !allowViewers) return false
+  if (principal.kind === 'user' && principal.role === UserRoles.viewer) return false
   return principal.scopes.includes(WILDCARD_SCOPE) || principal.scopes.includes(RESEARCH_RUN_SCOPE)
 }
 
@@ -304,8 +306,8 @@ export function requireResearchGrant(
   if (!principal) return
 
   if (canRunResearch(request, allowViewers)) return
-  if (principal.kind === 'user' && principal.role === UserRoles.viewer && !allowViewers) {
-    throw forbidden('Research queries are not enabled for viewer accounts on this deployment.')
+  if (principal.kind === 'user' && principal.role === UserRoles.viewer) {
+    throw forbidden('Viewer accounts cannot run Research queries.')
   }
   throw forbidden('This credential was not granted the "research.run" capability.')
 }
@@ -409,6 +411,8 @@ export function shouldSkipAuth(url: string): boolean {
   // Both routes resolve the cookie themselves, and the DELETE runs its own
   // same-origin check below.
   if (url.endsWith('/auth/sessions')) return true
+  if (['/auth/providers', '/auth/google/start', '/auth/google/link', '/auth/methods', '/auth/activity'].some(path => url.endsWith(path))) return true
+  if (/\/auth\/methods\/[^/]+$/.test(url)) return true
   // Cloudflare Worker ingest carries its own per-source bearer + HMAC
   // (verified inside the route handler). A canonry `cnry_*` key isn't
   // available to the Worker — that would defeat the per-source isolation.
@@ -423,9 +427,8 @@ export const USERS_READ_SCOPE = 'users.read'
 export const USERS_WRITE_SCOPE = 'users.write'
 
 /** Scopes a role carries. Admin is exactly today's authority, behind a sign-in. */
-function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
-  return role === UserRoles.admin ? [WILDCARD_SCOPE]
-    : researchAllowViewers ? [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE] : [READ_ONLY_SCOPE]
+function scopesForRole(role: UserRole): string[] {
+  return userRoleScopes(role)
 }
 
 /** What an OAuth access token resolved to. */
@@ -433,10 +436,11 @@ export interface ResolvedOAuthToken {
   userId: string
   clientId: string
   scope: string | null
+  userAuthVersion: number
 }
 
 export interface AuthPluginOptions {
-  /** Same deployment opt-in used by research admission and the dashboard. */
+  /** One-time legacy migration input; explicit stored roles govern thereafter. */
   researchAllowViewers?: boolean
   /**
    * Resolve a bearer that is NOT an api key as an OAuth 2.1 access token.
@@ -627,7 +631,7 @@ function resolveSignedInPerson(
   request: FastifyRequest,
   reply: FastifyReply,
   cookie: UserSessionCookieOptions | undefined,
-  researchAllowViewers: boolean,
+  _researchAllowViewers: boolean,
 ): boolean {
   const sessionId = parseCookieHeader(request.headers.cookie)[USER_SESSION_COOKIE_NAME]
   if (!sessionId) return false
@@ -639,7 +643,7 @@ function resolveSignedInPerson(
     kind: 'user',
     id: resolved.user.id,
     name: resolved.user.name,
-    scopes: scopesForRole(resolved.user.role, researchAllowViewers),
+    scopes: scopesForRole(resolved.user.role),
     projectId: null,
     role: resolved.user.role,
     viaCookie: true,
@@ -705,6 +709,8 @@ function applyScopedWriteGates(request: FastifyRequest): void {
 }
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
+  initializeUserAccess(app.db, opts.researchAllowViewers ?? false)
+
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url.split('?')[0]!
     if (shouldSkipAuth(url)) return
@@ -746,12 +752,16 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
           : null
         if (granted) {
           const account = app.db.select().from(users).where(eq(users.id, granted.userId)).get()
-          if (!account) throw authInvalid()
+          if (
+            !account
+            || account.status !== UserStatuses.active
+            || account.authVersion !== granted.userAuthVersion
+          ) throw authInvalid()
           // Authority is the INTERSECTION of what the person can do and what
           // they granted the client. Taking the role alone was a privilege
           // escalation: an admin approving a `scope=read` connector handed it
           // full admin, including minting root api keys.
-          const roleScopes = scopesForRole(account.role, opts.researchAllowViewers)
+          const roleScopes = scopesForRole(account.role)
           // `offline_access` governs refresh tokens, not API authority.
           const requested = (granted.scope ?? '')
             .split(/\s+/)
@@ -834,8 +844,17 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     const delegatedUser = key.delegatedUserId
       ? app.db.select().from(users).where(eq(users.id, key.delegatedUserId)).get()
       : undefined
-    if (key.delegatedUserId && !delegatedUser) throw authInvalid()
-    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
+    if (
+      key.delegatedUserId
+      && (
+        !delegatedUser
+        || delegatedUser.status !== UserStatuses.active
+        || (key.delegatedUserAuthVersion === null
+          ? delegatedUser.authVersion !== 0
+          : delegatedUser.authVersion !== key.delegatedUserAuthVersion)
+      )
+    ) throw authInvalid()
+    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role), scopes)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',

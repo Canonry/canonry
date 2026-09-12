@@ -1656,8 +1656,17 @@ export type AuditLogEntry = {
 export type AuthSessionDto = {
     authRequired: boolean;
     user: {
+        id: string;
         name: string;
-        role: 'admin' | 'viewer';
+        displayName: string | null;
+        email: string | null;
+        role: 'admin' | 'analyst' | 'viewer';
+        status: 'active' | 'suspended';
+        createdAt: string;
+        lastLoginAt: string | null;
+        lastSeenAt: string | null;
+        authVersion: number;
+        hasPassword: boolean;
     } | null;
 };
 
@@ -2867,7 +2876,7 @@ export type ResearchBatchDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'analyst' | 'viewer';
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -2968,7 +2977,7 @@ export type ResearchRunDetailDto = {
         kind: 'api-key' | 'user';
         id: string;
         name: string;
-        role: 'admin' | 'viewer';
+        role: 'admin' | 'analyst' | 'viewer';
         limited?: boolean;
     } | null;
     startedAt: string | null;
@@ -3039,7 +3048,7 @@ export type ResearchRunListDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'analyst' | 'viewer';
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -11706,28 +11715,143 @@ export type TrafficSyncResponse = {
     windowEnd: string;
 };
 
+export type AuthProvidersDto = {
+    google: {
+        enabled: boolean;
+        startUrl: string | null;
+    };
+};
+
+export type AuthMethodsDto = {
+    methods: Array<{
+        id: string;
+        provider: 'password' | 'google';
+        email: string | null;
+        createdAt: string;
+    }>;
+};
+
+export type AuthRedirectDto = {
+    redirectUrl: string;
+};
+
+export type AuthActionDto = {
+    ok: true;
+};
+
+export type GoogleSignInSettingsDto = {
+    enabled: boolean;
+    configured: boolean;
+    clientId: string | null;
+    hasClientSecret: boolean;
+    callbackUrl: string | null;
+    environmentOverride: boolean;
+    editable: boolean;
+};
+
+export type UpdateGoogleSignInRequest = {
+    enabled?: boolean;
+    clientId?: string;
+    clientSecret?: string;
+};
+
+export type GoogleStartRequest = {
+    invitationToken?: string;
+    returnTo?: string;
+};
+
+export type GoogleLinkRequest = {
+    password: string;
+};
+
+export type CreateUserInvitationRequest = {
+    email: string;
+    role: 'admin' | 'analyst' | 'viewer';
+};
+
+export type CreatedUserInvitationDto = {
+    invitation: {
+        id: string;
+        email: string;
+        role: 'admin' | 'analyst' | 'viewer';
+        status: 'pending' | 'accepted' | 'revoked' | 'expired';
+        createdAt: string;
+        expiresAt: string;
+        acceptedAt: string | null;
+    };
+    invitationUrl: string;
+};
+
+export type UserInvitationListDto = {
+    invitations: Array<{
+        id: string;
+        email: string;
+        role: 'admin' | 'analyst' | 'viewer';
+        status: 'pending' | 'accepted' | 'revoked' | 'expired';
+        createdAt: string;
+        expiresAt: string;
+        acceptedAt: string | null;
+    }>;
+};
+
+export type UpdateUserRequest = {
+    role?: 'admin' | 'analyst' | 'viewer';
+    status?: 'active' | 'suspended';
+    displayName?: string | null;
+    email?: string | null;
+};
+
+export type RevokeUserAccessDto = {
+    revoked: true;
+};
+
+export type UserAccessHistoryDto = {
+    events: Array<{
+        id: string;
+        action: string;
+        actorUserId: string | null;
+        actorName: string | null;
+        createdAt: string;
+    }>;
+};
+
 export type UserDto = {
     id: string;
     name: string;
-    role: 'admin' | 'viewer';
+    displayName: string | null;
+    email: string | null;
+    role: 'admin' | 'analyst' | 'viewer';
+    status: 'active' | 'suspended';
     createdAt: string;
     lastLoginAt: string | null;
+    lastSeenAt: string | null;
+    authVersion: number;
+    hasPassword: boolean;
 };
 
 export type UserListDto = {
     users: Array<{
         id: string;
         name: string;
-        role: 'admin' | 'viewer';
+        displayName: string | null;
+        email: string | null;
+        role: 'admin' | 'analyst' | 'viewer';
+        status: 'active' | 'suspended';
         createdAt: string;
         lastLoginAt: string | null;
+        lastSeenAt: string | null;
+        authVersion: number;
+        hasPassword: boolean;
     }>;
 };
 
 export type CreateUserRequest = {
     name: string;
     password: string;
-    role: 'admin' | 'viewer';
+    role: 'admin' | 'analyst' | 'viewer';
+    onlyIfFirstAdmin?: boolean;
+    displayName?: string;
+    email?: string;
 };
 
 export type LoginRequest = {
@@ -17367,6 +17491,572 @@ export type PostApiV1KeysByIdRevokeResponses = {
 };
 
 export type PostApiV1KeysByIdRevokeResponse = PostApiV1KeysByIdRevokeResponses[keyof PostApiV1KeysByIdRevokeResponses];
+
+export type GetApiV1AuthProvidersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/providers';
+};
+
+export type GetApiV1AuthProvidersErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1AuthProvidersError = GetApiV1AuthProvidersErrors[keyof GetApiV1AuthProvidersErrors];
+
+export type GetApiV1AuthProvidersResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthProvidersDto;
+};
+
+export type GetApiV1AuthProvidersResponse = GetApiV1AuthProvidersResponses[keyof GetApiV1AuthProvidersResponses];
+
+export type GetApiV1AuthGoogleStartData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Optional same-instance return path.
+         */
+        returnTo?: string;
+    };
+    url: '/api/v1/auth/google/start';
+};
+
+export type GetApiV1AuthGoogleStartErrors = {
+    /**
+     * Invalid sign-in configuration or return path.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1AuthGoogleStartError = GetApiV1AuthGoogleStartErrors[keyof GetApiV1AuthGoogleStartErrors];
+
+export type PostApiV1AuthGoogleStartData = {
+    body: GoogleStartRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/google/start';
+};
+
+export type PostApiV1AuthGoogleStartErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthGoogleStartError = PostApiV1AuthGoogleStartErrors[keyof PostApiV1AuthGoogleStartErrors];
+
+export type PostApiV1AuthGoogleStartResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthRedirectDto;
+};
+
+export type PostApiV1AuthGoogleStartResponse = PostApiV1AuthGoogleStartResponses[keyof PostApiV1AuthGoogleStartResponses];
+
+export type GetApiV1AuthGoogleCallbackData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Single-use Google authorization code.
+         */
+        code?: string;
+        /**
+         * Browser-bound transaction state.
+         */
+        state?: string;
+        /**
+         * Google authorization failure.
+         */
+        error?: string;
+    };
+    url: '/api/v1/auth/google/callback';
+};
+
+export type PostApiV1AuthGoogleLinkData = {
+    body: GoogleLinkRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/google/link';
+};
+
+export type PostApiV1AuthGoogleLinkErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthGoogleLinkError = PostApiV1AuthGoogleLinkErrors[keyof PostApiV1AuthGoogleLinkErrors];
+
+export type PostApiV1AuthGoogleLinkResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthRedirectDto;
+};
+
+export type PostApiV1AuthGoogleLinkResponse = PostApiV1AuthGoogleLinkResponses[keyof PostApiV1AuthGoogleLinkResponses];
+
+export type GetApiV1AuthMethodsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/methods';
+};
+
+export type GetApiV1AuthMethodsErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1AuthMethodsError = GetApiV1AuthMethodsErrors[keyof GetApiV1AuthMethodsErrors];
+
+export type GetApiV1AuthMethodsResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthMethodsDto;
+};
+
+export type GetApiV1AuthMethodsResponse = GetApiV1AuthMethodsResponses[keyof GetApiV1AuthMethodsResponses];
+
+export type DeleteApiV1AuthMethodsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/auth/methods/{id}';
+};
+
+export type DeleteApiV1AuthMethodsByIdErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type DeleteApiV1AuthMethodsByIdError = DeleteApiV1AuthMethodsByIdErrors[keyof DeleteApiV1AuthMethodsByIdErrors];
+
+export type DeleteApiV1AuthMethodsByIdResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthActionDto;
+};
+
+export type DeleteApiV1AuthMethodsByIdResponse = DeleteApiV1AuthMethodsByIdResponses[keyof DeleteApiV1AuthMethodsByIdResponses];
+
+export type PostApiV1AuthActivityData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/activity';
+};
+
+export type PostApiV1AuthActivityErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthActivityError = PostApiV1AuthActivityErrors[keyof PostApiV1AuthActivityErrors];
+
+export type PostApiV1AuthActivityResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthActionDto;
+};
+
+export type PostApiV1AuthActivityResponse = PostApiV1AuthActivityResponses[keyof PostApiV1AuthActivityResponses];
+
+export type GetApiV1SettingsAuthGoogleData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/auth/google';
+};
+
+export type GetApiV1SettingsAuthGoogleErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsAuthGoogleError = GetApiV1SettingsAuthGoogleErrors[keyof GetApiV1SettingsAuthGoogleErrors];
+
+export type GetApiV1SettingsAuthGoogleResponses = {
+    /**
+     * Successful response.
+     */
+    200: GoogleSignInSettingsDto;
+};
+
+export type GetApiV1SettingsAuthGoogleResponse = GetApiV1SettingsAuthGoogleResponses[keyof GetApiV1SettingsAuthGoogleResponses];
+
+export type PutApiV1SettingsAuthGoogleData = {
+    body: UpdateGoogleSignInRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/auth/google';
+};
+
+export type PutApiV1SettingsAuthGoogleErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PutApiV1SettingsAuthGoogleError = PutApiV1SettingsAuthGoogleErrors[keyof PutApiV1SettingsAuthGoogleErrors];
+
+export type PutApiV1SettingsAuthGoogleResponses = {
+    /**
+     * Successful response.
+     */
+    200: GoogleSignInSettingsDto;
+};
+
+export type PutApiV1SettingsAuthGoogleResponse = PutApiV1SettingsAuthGoogleResponses[keyof PutApiV1SettingsAuthGoogleResponses];
+
+export type GetApiV1UsersInvitationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type GetApiV1UsersInvitationsErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1UsersInvitationsError = GetApiV1UsersInvitationsErrors[keyof GetApiV1UsersInvitationsErrors];
+
+export type GetApiV1UsersInvitationsResponses = {
+    /**
+     * Successful response.
+     */
+    200: UserInvitationListDto;
+};
+
+export type GetApiV1UsersInvitationsResponse = GetApiV1UsersInvitationsResponses[keyof GetApiV1UsersInvitationsResponses];
+
+export type PostApiV1UsersInvitationsData = {
+    body: CreateUserInvitationRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type PostApiV1UsersInvitationsErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsError = PostApiV1UsersInvitationsErrors[keyof PostApiV1UsersInvitationsErrors];
+
+export type PostApiV1UsersInvitationsResponses = {
+    /**
+     * Successful response.
+     */
+    201: CreatedUserInvitationDto;
+};
+
+export type PostApiV1UsersInvitationsResponse = PostApiV1UsersInvitationsResponses[keyof PostApiV1UsersInvitationsResponses];
+
+export type PostApiV1UsersInvitationsByIdRevokeData = {
+    body?: never;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/invitations/{id}/revoke';
+};
+
+export type PostApiV1UsersInvitationsByIdRevokeErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsByIdRevokeError = PostApiV1UsersInvitationsByIdRevokeErrors[keyof PostApiV1UsersInvitationsByIdRevokeErrors];
+
+export type PostApiV1UsersInvitationsByIdRevokeResponses = {
+    /**
+     * Successful response.
+     */
+    200: AuthActionDto;
+};
+
+export type PostApiV1UsersInvitationsByIdRevokeResponse = PostApiV1UsersInvitationsByIdRevokeResponses[keyof PostApiV1UsersInvitationsByIdRevokeResponses];
+
+export type PostApiV1UsersInvitationsByIdReplaceData = {
+    body?: never;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/invitations/{id}/replace';
+};
+
+export type PostApiV1UsersInvitationsByIdReplaceErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsByIdReplaceError = PostApiV1UsersInvitationsByIdReplaceErrors[keyof PostApiV1UsersInvitationsByIdReplaceErrors];
+
+export type PostApiV1UsersInvitationsByIdReplaceResponses = {
+    /**
+     * Successful response.
+     */
+    200: CreatedUserInvitationDto;
+};
+
+export type PostApiV1UsersInvitationsByIdReplaceResponse = PostApiV1UsersInvitationsByIdReplaceResponses[keyof PostApiV1UsersInvitationsByIdReplaceResponses];
+
+export type PatchApiV1UsersByIdData = {
+    body: UpdateUserRequest;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/{id}';
+};
+
+export type PatchApiV1UsersByIdErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PatchApiV1UsersByIdError = PatchApiV1UsersByIdErrors[keyof PatchApiV1UsersByIdErrors];
+
+export type PatchApiV1UsersByIdResponses = {
+    /**
+     * Successful response.
+     */
+    200: UserDto;
+};
+
+export type PatchApiV1UsersByIdResponse = PatchApiV1UsersByIdResponses[keyof PatchApiV1UsersByIdResponses];
+
+export type PostApiV1UsersByIdRevokeAccessData = {
+    body?: never;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/{id}/revoke-access';
+};
+
+export type PostApiV1UsersByIdRevokeAccessErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersByIdRevokeAccessError = PostApiV1UsersByIdRevokeAccessErrors[keyof PostApiV1UsersByIdRevokeAccessErrors];
+
+export type PostApiV1UsersByIdRevokeAccessResponses = {
+    /**
+     * Successful response.
+     */
+    200: RevokeUserAccessDto;
+};
+
+export type PostApiV1UsersByIdRevokeAccessResponse = PostApiV1UsersByIdRevokeAccessResponses[keyof PostApiV1UsersByIdRevokeAccessResponses];
+
+export type GetApiV1UsersByIdAccessHistoryData = {
+    body?: never;
+    path: {
+        /**
+         * Record identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/{id}/access-history';
+};
+
+export type GetApiV1UsersByIdAccessHistoryErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Sign-in required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not permitted.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1UsersByIdAccessHistoryError = GetApiV1UsersByIdAccessHistoryErrors[keyof GetApiV1UsersByIdAccessHistoryErrors];
+
+export type GetApiV1UsersByIdAccessHistoryResponses = {
+    /**
+     * Successful response.
+     */
+    200: UserAccessHistoryDto;
+};
+
+export type GetApiV1UsersByIdAccessHistoryResponse = GetApiV1UsersByIdAccessHistoryResponses[keyof GetApiV1UsersByIdAccessHistoryResponses];
 
 export type GetApiV1AuthSessionData = {
     body?: never;

@@ -68,7 +68,7 @@ const PKCE_VERIFIER = 'v'.repeat(64)
 /** Drive the real authorize + token flow end to end, as a client would. */
 async function mintAccessToken(
   built: Built,
-  opts: { role?: 'admin' | 'viewer'; scope?: string } = {},
+  opts: { role?: 'admin' | 'analyst' | 'viewer'; scope?: string } = {},
 ): Promise<string> {
   const challenge = crypto.createHash('sha256').update(PKCE_VERIFIER).digest('base64url')
   const redirectUri = 'https://client.example.com/cb'
@@ -124,7 +124,7 @@ interface Built {
   /** Register a pre-registered OAuth client; there is no DCR by design. */
   registerClient: (redirectUri: string) => void
   /** Create a real signed-in session and return its cookie header. */
-  signIn: (role?: 'admin' | 'viewer') => string
+  signIn: (role?: 'admin' | 'analyst' | 'viewer') => string
   /** Ephemeral per-session api keys, for asserting they are cleaned up. */
   sessionKeys: () => { scopes: string[]; revokedAt: string | null }[]
   cleanup: () => Promise<void>
@@ -190,7 +190,7 @@ async function buildServer(researchAllowViewers = false): Promise<Built> {
         createdAt: new Date().toISOString(),
       }).run()
     },
-    signIn: (role: 'admin' | 'viewer' = 'viewer') => {
+    signIn: (role: 'admin' | 'analyst' | 'viewer' = 'viewer') => {
       const userId = crypto.randomUUID()
       db.insert(users).values({
         id: userId, name: `u-${userId.slice(0, 8)}`, nameKey: `u-${userId.slice(0, 8)}`,
@@ -258,7 +258,7 @@ describe('MCP over OAuth', () => {
   it('accepts explicit research consent without granting unrelated mutations', async () => {
     await built.cleanup()
     built = await buildServer(true)
-    const token = await mintAccessToken(built, { scope: 'read research.run offline_access' })
+    const token = await mintAccessToken(built, { role: 'analyst', scope: 'read research.run offline_access' })
     const first = await initRequest(built, token)
     expect(first.statusCode).toBe(200)
     expect(built.sessionKeys()).toEqual([{ scopes: ['read', 'research.run'], revokedAt: null }])

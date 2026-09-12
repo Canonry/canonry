@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
-import { isReadOnlyKey, type McpHealth } from '@ainyc/canonry-contracts'
-import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
+import { authInvalid, intersectScopes, isReadOnlyKey, UserStatuses, userRoleScopes, type McpHealth } from '@ainyc/canonry-contracts'
+import { apiKeys, users, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
 import { eq } from 'drizzle-orm'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -68,19 +68,31 @@ interface McpSession {
  * Not a general-purpose key: it is named for the session, scoped to exactly the
  * authority already resolved for the caller, and revoked on close.
  */
-function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: string): { id: string; raw: string } {
+function mintSessionKey(
+  db: DatabaseClient,
+  requestedScopes: readonly string[],
+  userId: string,
+): { id: string; raw: string; scopes: string[] } | null {
   const raw = `cnry_${crypto.randomBytes(24).toString('hex')}`
   const id = crypto.randomUUID()
-  db.insert(apiKeys).values({
-    id,
-    name: `mcp-session:${userId}`,
-    keyHash: hashApiKey(raw),
-    keyPrefix: raw.slice(0, 9),
-    scopes: [...scopes],
-    delegatedUserId: userId,
-    createdAt: new Date().toISOString(),
-  }).run()
-  return { id, raw }
+  return db.transaction((tx) => {
+    // Authorize against the row at issuance time. This closes the interval
+    // between OAuth/session authentication and minting the inner REST key.
+    const user = tx.select().from(users).where(eq(users.id, userId)).get()
+    if (!user || user.status !== UserStatuses.active) return null
+    const scopes = intersectScopes(userRoleScopes(user.role), requestedScopes)
+    tx.insert(apiKeys).values({
+      id,
+      name: `mcp-session:${userId}`,
+      keyHash: hashApiKey(raw),
+      keyPrefix: raw.slice(0, 9),
+      scopes,
+      delegatedUserId: userId,
+      delegatedUserAuthVersion: user.authVersion,
+      createdAt: new Date().toISOString(),
+    }).run()
+    return { id, raw, scopes }
+  })
 }
 
 function revokeSessionKey(db: DatabaseClient, id: string): void {
@@ -209,7 +221,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     // so a runtime-loaded tool is never callable, Claude delivers the
     // notification and ignores it, and Gemini Enterprise requires an admin to
     // re-import actions by hand.
-    const scopes = request.principal?.scopes ?? request.apiKey?.scopes ?? []
+    let scopes = request.principal?.scopes ?? request.apiKey?.scopes ?? []
 
     // THE INNER HOP NEEDS A CREDENTIAL THAT WORKS ON REST ROUTES.
     //
@@ -225,9 +237,16 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     // person's role and what they granted) and nothing more. It is revoked when
     // the session closes, so it cannot outlive the connection that justified it.
     // An api-key caller keeps using its own key, unchanged.
-    let sessionKey: { id: string; raw: string } | null = null
+    let sessionKey: { id: string; raw: string; scopes: string[] } | null = null
     if (!request.apiKey && request.principal?.kind === 'user') {
       sessionKey = mintSessionKey(opts.db, scopes, request.principal.id)
+      if (!sessionKey) {
+        throw authInvalid()
+      }
+      // The nested REST client must use the capabilities calculated from the
+      // user row inside the mint transaction, not a role snapshot captured
+      // before a concurrent demotion.
+      scopes = sessionKey.scopes
     }
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, {
       skipProbe: true,

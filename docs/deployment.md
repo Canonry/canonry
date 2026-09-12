@@ -1,6 +1,7 @@
 # Deployment Guide
 
 Canonry runs as a self-hosted server. This guide covers common deployment patterns.
+For invited Google sign-in, roles and recovery, see [Instance access](google-sign-in.md).
 
 ## Tenancy model (read this first)
 
@@ -10,12 +11,12 @@ one operator's projects, or one team's projects. There is no per-tenant
 isolation inside an instance.
 
 What this means:
-- Every valid `cnry_…` API key can read and write every project on the
-  instance. Treat each key like a root credential.
+- Root keys have full instance access. Scoped service keys and named users
+  retain their explicit permissions; project-scoped keys cannot manage people.
 - Two projects on the same instance that track the same `canonicalDomain`
   share their Google Search Console / Bing OAuth connections by design.
 - `PUT /api/v1/settings/*` rewrites global provider keys and OAuth client
-  secrets — anyone with any key can flip them.
+  secrets and requires the appropriate settings authority.
 
 If you need to host multiple unrelated teams, deploy one Cloud Run service
 per team, with separate databases and OAuth clients. Multi-tenancy as a

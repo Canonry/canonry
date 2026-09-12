@@ -24,6 +24,20 @@ test('getPlatformEnv resolves viewer research opt-in and daily limit', () => {
     .toEqual({ allowViewers: false, viewerDailyRunLimit: 20 })
 })
 
+test('getPlatformEnv resolves cloud Google sign-in and public callback configuration', () => {
+  const env = getPlatformEnv({
+    CANONRY_PUBLIC_URL: 'https://canonry.example.test/team-a',
+    CANONRY_GOOGLE_SIGN_IN_ENABLED: '0',
+    CANONRY_GOOGLE_SIGN_IN_CLIENT_ID: 'google-client',
+    CANONRY_GOOGLE_SIGN_IN_CLIENT_SECRET: 'google-secret',
+  })
+  expect(env.publicUrl).toBe('https://canonry.example.test/team-a')
+  expect(env.googleSignIn).toEqual({
+    config: { enabled: false, clientId: 'google-client', clientSecret: 'google-secret' },
+    environmentOverride: true,
+  })
+})
+
 test('getPlatformEnv configures Gemini provider from env vars', () => {
   const env = getPlatformEnv({
     DATABASE_URL: 'postgresql://custom',

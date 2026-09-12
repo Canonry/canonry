@@ -260,8 +260,17 @@ import type {
   CreateApiKeyRequest,
   CreatedApiKeyDto,
   CreateUserRequest,
+  UpdateUserRequest,
   UserDto,
   UserListDto,
+  GoogleSignInSettingsDto,
+  UpdateGoogleSignInRequest,
+  AuthProvidersDto,
+  UserInvitationListDto,
+  CreateUserInvitationRequest,
+  CreatedUserInvitationDto,
+  AuthActionDto,
+  UserAccessHistoryDto,
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
@@ -954,6 +963,19 @@ export class ApiClient {
     }
 
     return result.data as TData
+  }
+
+  /**
+   * Typed bridge for newly-added API operations while the generated SDK catches
+   * up. It uses the same configured Hey client and error mapping as generated
+   * operations; callers never fall back to an untyped raw fetch.
+   */
+  async request<TData>(input: { url: string; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown }): Promise<TData> {
+    return this.invoke<TData>(() => this.heyClient.request<TData>({
+      url: input.url,
+      method: input.method,
+      ...(input.body === undefined ? {} : { body: input.body }),
+    }) as Promise<SdkResult>)
   }
 
   private measurementDraftMutationHeaders(idempotencyKey: string, etag?: string): {
@@ -2212,13 +2234,54 @@ export class ApiClient {
   }
 
   async createUser(body: CreateUserRequest): Promise<UserDto> {
-    return this.invoke<UserDto>(() => postApiV1Users({ client: this.heyClient, body }))
+    // The SDK can lag the contracts briefly during a coordinated schema update.
+    return this.invoke<UserDto>(() => postApiV1Users({ client: this.heyClient, body: body as never }))
   }
 
   async deleteUser(name: string): Promise<{ deleted: boolean; name: string }> {
     return this.invoke<{ deleted: boolean; name: string }>(() =>
       deleteApiV1UsersByName({ client: this.heyClient, path: { name } }),
     )
+  }
+
+  async updateUser(id: string, body: UpdateUserRequest): Promise<UserDto> {
+    return this.request<UserDto>({ url: `/api/v1/users/${encodeURIComponent(id)}`, method: 'PATCH', body })
+  }
+
+  async listUserInvitations(): Promise<UserInvitationListDto> {
+    return this.request<UserInvitationListDto>({ url: '/api/v1/users/invitations', method: 'GET' })
+  }
+
+  async createUserInvitation(body: CreateUserInvitationRequest): Promise<CreatedUserInvitationDto> {
+    return this.request<CreatedUserInvitationDto>({ url: '/api/v1/users/invitations', method: 'POST', body })
+  }
+
+  async revokeUserInvitation(id: string): Promise<AuthActionDto> {
+    return this.request<AuthActionDto>({ url: `/api/v1/users/invitations/${encodeURIComponent(id)}/revoke`, method: 'POST' })
+  }
+
+  async replaceUserInvitation(id: string): Promise<CreatedUserInvitationDto> {
+    return this.request<CreatedUserInvitationDto>({ url: `/api/v1/users/invitations/${encodeURIComponent(id)}/replace`, method: 'POST' })
+  }
+
+  async revokeUserAccess(id: string): Promise<{ revoked: true }> {
+    return this.request<{ revoked: true }>({ url: `/api/v1/users/${encodeURIComponent(id)}/revoke-access`, method: 'POST' })
+  }
+
+  async getUserAccessHistory(id: string): Promise<UserAccessHistoryDto> {
+    return this.request<UserAccessHistoryDto>({ url: `/api/v1/users/${encodeURIComponent(id)}/access-history`, method: 'GET' })
+  }
+
+  async getGoogleSignInSettings(): Promise<GoogleSignInSettingsDto> {
+    return this.request<GoogleSignInSettingsDto>({ url: '/api/v1/settings/auth/google', method: 'GET' })
+  }
+
+  async updateGoogleSignInSettings(body: UpdateGoogleSignInRequest): Promise<GoogleSignInSettingsDto> {
+    return this.request<GoogleSignInSettingsDto>({ url: '/api/v1/settings/auth/google', method: 'PUT', body })
+  }
+
+  async getAuthProviders(): Promise<AuthProvidersDto> {
+    return this.request<AuthProvidersDto>({ url: '/api/v1/auth/providers', method: 'GET' })
   }
 
   async updateProvider(

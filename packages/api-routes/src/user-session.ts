@@ -24,8 +24,10 @@ import {
   normalizeUserName,
   validationError,
   type AuthSessionDto,
-  type UserRole,
+  UserStatuses,
 } from '@ainyc/canonry-contracts'
+import { namedAuthenticationRequired, toUserDto } from './user-access.js'
+import { writeAuditLog } from './helpers.js'
 import { verifyUserPassword } from './user-password.js'
 import { resolveCallerKey } from './trust-proxy.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
@@ -130,23 +132,19 @@ export function cookieIsSecure(request: FastifyRequest, configured: boolean | un
   return request.protocol === 'https'
 }
 
-export interface ResolvedUser {
-  id: string
-  name: string
-  role: UserRole
-}
+export type ResolvedUser = ReturnType<typeof toUserDto>
 
 /**
- * Whether this install has any accounts.
+ * Whether this install requires named authentication.
  *
- * Deliberately read per request rather than cached: the answer is a security
- * boundary, and a cached copy would keep a second process (the split HTTP and
- * worker roles, for instance) serving the pre-account behavior after the first
- * account was created. The read is a single indexed row lookup against a table
- * that holds a handful of rows.
+ * The historical export name is retained for callers, but the durable marker
+ * must win once named authentication has ever been enabled: deleting every
+ * account cannot silently restore anonymous/shared access. It is deliberately
+ * read per request rather than cached because that marker is a security
+ * boundary across split processes.
  */
 export function anyUsersExist(db: DatabaseClient): boolean {
-  return db.select({ id: users.id }).from(users).limit(1).get() !== undefined
+  return namedAuthenticationRequired(db)
 }
 
 export function parseCookieHeader(header: string | undefined): Record<string, string> {
@@ -195,11 +193,6 @@ export function serializeUserSessionCookie(opts: {
   return parts.join('; ')
 }
 
-/** Drop sessions that can no longer authenticate anything. */
-function pruneExpiredSessions(db: DatabaseClient, nowIso: string): void {
-  db.delete(userSessions).where(lte(userSessions.expiresAt, nowIso)).run()
-}
-
 /**
  * The value actually stored for a session token.
  *
@@ -216,17 +209,54 @@ export function hashSessionToken(token: string): string {
  * Mint a session and return the token for the COOKIE. The token itself is never
  * written down — only its digest — so this is the one and only moment it exists.
  */
-export function createUserSession(db: DatabaseClient, userId: string, now = new Date()): string {
+export interface CreatedNamedUserSession {
+  token: string
+  user: ReturnType<typeof toUserDto>
+}
+
+/**
+ * Establish a named-account session only when the account remains active at
+ * the exact authorization version that completed authentication. The check,
+ * session snapshot, and sign-in timestamp share one transaction so a
+ * suspension or role change racing a password/OIDC callback cannot mint a
+ * newly-live cookie with the old authority.
+ */
+export function createNamedUserSession(
+  db: DatabaseClient,
+  userId: string,
+  expectedAuthVersion: number,
+  now = new Date(),
+): CreatedNamedUserSession | null {
   const nowIso = now.toISOString()
-  pruneExpiredSessions(db, nowIso)
-  const token = crypto.randomBytes(32).toString('hex')
-  db.insert(userSessions).values({
-    tokenHash: hashSessionToken(token),
-    userId,
-    createdAt: nowIso,
-    expiresAt: new Date(now.getTime() + USER_SESSION_TTL_MS).toISOString(),
-  }).run()
-  return token
+  return db.transaction((tx) => {
+    tx.delete(userSessions).where(lte(userSessions.expiresAt, nowIso)).run()
+    const user = tx.select().from(users).where(eq(users.id, userId)).get()
+    if (!user || user.status !== UserStatuses.active || user.authVersion !== expectedAuthVersion) return null
+
+    const token = crypto.randomBytes(32).toString('hex')
+    tx.insert(userSessions).values({
+      tokenHash: hashSessionToken(token),
+      userId,
+      authVersion: user.authVersion,
+      createdAt: nowIso,
+      expiresAt: new Date(now.getTime() + USER_SESSION_TTL_MS).toISOString(),
+    }).run()
+    tx.update(users).set({ lastLoginAt: nowIso }).where(eq(users.id, userId)).run()
+    writeAuditLog(tx, { actor: 'api', actorUserId: user.id, actorName: user.displayName ?? user.name, action: 'user.signed-in', entityType: 'user', entityId: user.id })
+    return { token, user: toUserDto({ ...user, lastLoginAt: nowIso }) }
+  })
+}
+
+/**
+ * Compatibility helper for trusted in-process callers. New authentication
+ * paths must use createNamedUserSession with the version captured before an
+ * asynchronous credential verification.
+ */
+export function createUserSession(db: DatabaseClient, userId: string, now = new Date()): string {
+  const user = db.select().from(users).where(eq(users.id, userId)).get()
+  const created = user ? createNamedUserSession(db, userId, user.authVersion, now) : null
+  if (!created) throw new Error('Cannot create a session for an inactive or missing account.')
+  return created.token
 }
 
 export function deleteUserSession(db: DatabaseClient, token: string): void {
@@ -268,13 +298,13 @@ export function resolveUserSession(
   }
 
   const user = db.select().from(users).where(eq(users.id, session.userId)).get()
-  if (!user) {
+  if (!user || user.status !== UserStatuses.active || session.authVersion !== user.authVersion) {
     deleteUserSession(db, token)
     return null
   }
 
   const resolved: ResolvedSession = {
-    user: { id: user.id, name: user.name, role: user.role },
+    user: toUserDto(user),
   }
 
   if (expiresAtMs - now.getTime() < RENEW_AFTER_MS) {
@@ -427,14 +457,28 @@ export function createCredentialChecker(opts: {
         }
       }
 
-      if (!account || !matches) {
+      // Password verification is deliberately asynchronous. Re-read after it
+      // completes: an administrator may have suspended, demoted, or reset this
+      // account while scrypt was running. The caller then passes this version
+      // into createNamedUserSession, which closes the remaining issue race.
+      const current = account
+        ? opts.db.select().from(users).where(eq(users.id, account.id)).get()
+        : undefined
+      if (
+        !account
+        || !matches
+        || !current
+        || current.status !== UserStatuses.active
+        || current.authVersion !== account.authVersion
+        || current.passwordHash !== account.passwordHash
+      ) {
         perNameLimiter.recordFailure(nameFromCaller, nowMs)
         if (caller !== null) perCallerLimiter.recordFailure(caller, nowMs)
         return { ok: false, reason: 'invalid', message: LOGIN_FAILED_MESSAGE }
       }
       perNameLimiter.clear(nameFromCaller)
       if (caller !== null) perCallerLimiter.clear(caller)
-      return { ok: true, user: account }
+      return { ok: true, user: current }
     },
   }
 }
@@ -481,7 +525,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
     if (token && resolved?.renewedExpiresAt) setSessionCookie(request, reply, token)
     return {
       authRequired: true,
-      user: resolved ? { name: resolved.user.name, role: resolved.user.role } : null,
+      user: resolved ? resolved.user : null,
     }
   })
 
@@ -507,13 +551,16 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
     // The checker already cleared the limiters on success.
     const account = result.user
     const now = new Date()
-    const sessionId = createUserSession(app.db, account.id, now)
-    app.db.update(users).set({ lastLoginAt: now.toISOString() }).where(eq(users.id, account.id)).run()
-    setSessionCookie(request, reply, sessionId)
+    const session = createNamedUserSession(app.db, account.id, account.authVersion, now)
+    if (!session) {
+      const err = authRequired(LOGIN_FAILED_MESSAGE)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+    setSessionCookie(request, reply, session.token)
 
     return reply.send({
       authRequired: true,
-      user: { name: account.name, role: account.role },
+      user: session.user,
     } satisfies AuthSessionDto)
   })
 

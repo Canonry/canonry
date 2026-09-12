@@ -3,8 +3,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
-import type { EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema, resolveGoogleSignInConfig } from '@ainyc/canonry-config'
+import type { EmbedConfigEntry, GoogleSignInConfig, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
@@ -460,6 +460,8 @@ export interface CanonryConfig {
   // framing contract. Off/absent keeps the default serve byte-for-byte
   // unchanged. Resolved (with env overrides) by resolveEmbedConfig in embed.ts.
   embed?: EmbedConfigEntry
+  /** Native dashboard sign-in settings; distinct from Google product integrations. */
+  auth?: { google?: GoogleSignInConfig }
 }
 
 function normalizeGoogleConfig(config: CanonryConfig): void {
@@ -576,6 +578,10 @@ export function loadConfig(): CanonryConfig {
       message: `Invalid config at ${configPath}: research.viewerDailyRunLimit must be a positive integer or left blank.`,
     })
   }
+  // Validate the stored Google sign-in shape and apply environment precedence
+  // once while loading. The resolver deliberately rejects malformed enablement
+  // values rather than silently enabling/disabling a login path.
+  resolveGoogleSignInConfig(process.env, parsed)
 
   // Migrate legacy geminiApiKey to providers map
   if (parsed.geminiApiKey && !parsed.providers?.gemini) {

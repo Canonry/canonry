@@ -65,8 +65,8 @@ function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 're
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   onTestFinished(() => queryClient.clear())
   const ui = (props: SectionProps) => <QueryClientProvider client={queryClient}>
-    <AccountProvider account={access === 'viewer' ? { name: 'Viewer', role: 'viewer' } : null} apiKey={access === 'read-only' ? { id: 'read', scopes: ['read'], projectId: null, readOnly: true } : access === 'research-key' ? { id: 'research', scopes: ['read', 'research.run'], projectId: project.id, readOnly: false } : null}>
-      <ResearchQueriesSection projectName="demo" {...(access === 'viewer' ? { viewerResearchConfig: { viewerDailyRunLimit: 10 } } : {})} {...props} />
+    <AccountProvider account={access === 'viewer' ? { name: 'Viewer', role: 'analyst' } : null} apiKey={access === 'read-only' ? { id: 'read', scopes: ['read'], projectId: null, readOnly: true } : access === 'research-key' ? { id: 'research', scopes: ['read', 'research.run'], projectId: project.id, readOnly: false } : null}>
+      <ResearchQueriesSection projectName="demo" {...props} />
     </AccountProvider>
   </QueryClientProvider>
   const view = render(ui(sectionProps))
