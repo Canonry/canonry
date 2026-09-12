@@ -39,6 +39,15 @@ Do not install a plugin, local runtime, or skill merely to use connected MCP.
 An installed Codex or Claude Canonry skill contains a generated copy of this
 guide plus links to host-native references. It does not replace runtime help.
 
+Built-in Aero already receives its available `canonry_*` tools and can read
+this guide through `read_skill_doc` with slug `agent-operations`. Its catalog
+does not include `canonry_help` or `canonry_load_toolkit`; those navigation
+steps are for external MCP hosts. Aero's project-scoped tools use the current
+session's project. Dashboard selections are not automatically passed to chat:
+resolve the requested Property, market, filters, or page before making a
+scoped claim. The `portfolio-analysis` and `site-health` skill docs cover the
+corresponding investigations for both Simple and Advanced portfolios.
+
 ## Vocabulary and evidence
 
 - **Mentioned** means the brand appears in answer text. **Cited** means its

@@ -391,7 +391,10 @@ Tool surface has two layers:
   These stay Aero-only because they read on-disk skill files, not API state.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
-  on-demand via slug.
+  on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
+  Advanced interpretation. `agent-operations` is generated from
+  `docs/agent-operations/v1.md` by `pnpm guide:sync` and ships through the same
+  skill-doc reader; built-in Aero does not expose external MCP help/load tools.
 - **Aero tool profiles** (`src/agent/tools.ts`) — the default profile exposes
   the full local MCP-derived tool surface for the requested scope. The
   `ads-operator` profile narrows local state tools to an explicit typed
@@ -472,7 +475,11 @@ System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 the task instructions. Both files ship in `assets/agent-workspace/skills/aero/`.
 The `<memory>` hydrate block is appended at session-build time by
 `SessionRegistry.buildHydratedSystemPrompt` — the DB row keeps the raw
-(unhydrated) prompt so every new session sees the latest notes.
+(unhydrated) installed prompt snapshot. Cold hydration and idle
+`acquireForTurn` adopt the current bundled skill plus configured prompt
+appends without clearing the transcript, queued follow-ups, or durable notes.
+Busy turns keep their existing prompt. Skill updates therefore do not require
+operators to delete their conversations.
 
 ### Disabling Aero
 

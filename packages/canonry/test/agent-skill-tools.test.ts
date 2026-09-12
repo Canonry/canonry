@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { AgentTool } from '@mariozechner/pi-agent-core'
-import { buildSkillDocTools, scanSkillDocs } from '../src/agent/skill-tools.js'
+import { buildSkillDocTools, scanSkillDocs, type SkillDocEntry } from '../src/agent/skill-tools.js'
 
 async function exec<T>(tool: AgentTool, params: unknown): Promise<T> {
   const raw = await tool.execute('test-call', params as never)
@@ -20,6 +20,9 @@ describe('scanSkillDocs (bundled)', () => {
         'memory-patterns',
         'regression-playbook',
         'reporting',
+        'portfolio-analysis',
+        'site-health',
+        'agent-operations',
         'wordpress-elementor-mcp',
       ]),
     )
@@ -116,5 +119,14 @@ describe('skill-doc tools', () => {
     })
     expect(result.error).toMatch(/does-not-exist/)
     expect(result.availableSlugs).toContain('regression-playbook')
+  })
+
+  it('can discover and read every bundled playbook without losing its ending', async () => {
+    const { docs } = await exec<{ docs: SkillDocEntry[] }>(listTool, {})
+    for (const doc of docs) {
+      const result = await exec<{ content: string; truncated: boolean }>(readTool, { slug: doc.slug })
+      expect(result.truncated, doc.slug).toBe(false)
+      expect(Buffer.byteLength(result.content, 'utf8'), doc.slug).toBe(doc.bytes)
+    }
   })
 })
