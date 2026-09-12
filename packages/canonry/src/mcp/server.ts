@@ -17,6 +17,8 @@ export interface CanonryMcpServerOptions {
   scope?: CanonryMcpScope
   /** Actual credential grants, separate from an explicit read-only endpoint/flag. */
   credentialScopes?: readonly string[]
+  /** Host-derived authority from auth or /keys/self. Missing means denied. */
+  operator?: boolean
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -65,7 +67,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -164,12 +166,14 @@ export function getCanonryMcpTools(
   scope: CanonryMcpScope = 'all',
   tiers?: readonly CanonryMcpTier[],
   credentialScopes?: readonly string[],
+  operator = false,
 ) {
   const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
   const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
+  const authorized = canonryMcpTools.filter(tool => !tool.requiresOperator || operator)
   const byScope = readOnly
-    ? canonryMcpTools.filter(tool => tool.access === 'read')
-    : canonryMcpTools.filter(tool => {
+    ? authorized.filter(tool => tool.access === 'read')
+    : authorized.filter(tool => {
       if (!restricted || tool.access === 'read') return true
       if (tool.requiredScope && restricted.includes(tool.requiredScope)) return true
       // Preserve existing Ads catalogs; their API handlers enforce individual grants.

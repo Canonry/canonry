@@ -118,6 +118,8 @@ export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
+  operatorApiKeyIds?: readonly string[]
   /**
    * Absolute URL of the MCP resource, e.g. https://host/api/v1/mcp. Enables
    * OAuth bearer acceptance and is the audience every token is checked against,
@@ -479,6 +481,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
     if (!opts.skipAuth) {
       await authPlugin(api, {
+        operatorApiKeyIds: opts.operatorApiKeyIds,
         researchAllowViewers: opts.researchAllowViewers,
         // A bearer that is not an api key is tried as an OAuth access token.
         // Wired unconditionally: the table is empty until an operator registers

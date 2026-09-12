@@ -3189,7 +3189,7 @@ export const getApiV1OperationsLogsQueryKey = (options?: Options<GetApiV1Operati
 /**
  * Read bounded, redacted runtime logs
  *
- * Requires logs.read (or wildcard), an admin role for user sessions, and an instance-wide credential. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
+ * Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist, plus logs.read (or wildcard). Customer admin roles, scopes alone, browser sessions, OAuth/delegated keys, and project-scoped keys cannot grant access. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
  */
 export const getApiV1OperationsLogsOptions = (options?: Options<GetApiV1OperationsLogsData>) => {
     return queryOptions({
@@ -3211,7 +3211,7 @@ export const getApiV1OperationsLogsInfiniteQueryKey = (options?: Options<GetApiV
 /**
  * Read bounded, redacted runtime logs
  *
- * Requires logs.read (or wildcard), an admin role for user sessions, and an instance-wide credential. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
+ * Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist, plus logs.read (or wildcard). Customer admin roles, scopes alone, browser sessions, OAuth/delegated keys, and project-scoped keys cannot grant access. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.
  */
 export const getApiV1OperationsLogsInfiniteOptions = (options?: Options<GetApiV1OperationsLogsData>) => {
     return infiniteQueryOptions<GetApiV1OperationsLogsResponse, GetApiV1OperationsLogsError, InfiniteData<GetApiV1OperationsLogsResponse>, QueryKey<Options<GetApiV1OperationsLogsData>>, string | Pick<QueryKey<Options<GetApiV1OperationsLogsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3241,6 +3241,8 @@ export const getApiV1TelemetryQueryKey = (options?: Options<GetApiV1TelemetryDat
 
 /**
  * Get telemetry status
+ *
+ * Internal surface. Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist; customer admin roles and wildcard scopes alone are insufficient.
  */
 export const getApiV1TelemetryOptions = (options?: Options<GetApiV1TelemetryData>) => {
     return queryOptions({
@@ -3260,7 +3262,7 @@ export const getApiV1TelemetryOptions = (options?: Options<GetApiV1TelemetryData
 /**
  * Update telemetry status
  *
- * Requires settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.
+ * Requires host-approved direct-bearer operator authority and settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.
  */
 export const putApiV1TelemetryMutation = (options?: Partial<Options<PutApiV1TelemetryData>>): UseMutationOptions<PutApiV1TelemetryResponse, PutApiV1TelemetryError, Options<PutApiV1TelemetryData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1TelemetryResponse, PutApiV1TelemetryError, Options<PutApiV1TelemetryData>> = {

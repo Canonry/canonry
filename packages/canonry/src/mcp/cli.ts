@@ -74,8 +74,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
  *
  * A read-only key can only ever NARROW the catalog, never widen it: when the
  * configured key is read-only we force `read-only` so the adapter never
- * advertises write tools that the API would 403 at call time. The explicit
- * `--read-only` flag already means read-only, so we skip the probe there.
+ * advertises write tools that the API would 403 at call time. Even with
+ * `--read-only`, probe host-approved operator authority; never infer it from scopes.
  *
  * Best-effort: the probe is a live `GET /keys/self`. On any failure — the API
  * is down, an older server lacks the endpoint, the key is unreadable — we keep
@@ -91,8 +91,7 @@ export async function resolveEffectiveScope(
 export async function resolveEffectiveAuthorization(
   client: Pick<ApiClient, 'getApiKeySelf'>,
   flagScope: CanonryMcpScope,
-): Promise<{ scope: CanonryMcpScope; credentialScopes?: readonly string[] }> {
-  if (flagScope === 'read-only') return { scope: 'read-only' }
+): Promise<{ scope: CanonryMcpScope; credentialScopes?: readonly string[]; operator: boolean }> {
   try {
     const self = await client.getApiKeySelf()
     // Compute from `scopes` (the source of truth the server itself derives
@@ -101,13 +100,13 @@ export async function resolveEffectiveAuthorization(
       process.stderr.write(
         'canonry-mcp: configured API key is read-only — restricting to read tools.\n',
       )
-      return { scope: 'read-only', credentialScopes: self.scopes }
+      return { scope: 'read-only', credentialScopes: self.scopes, operator: self.operator === true }
     }
-    return { scope: flagScope, credentialScopes: self.scopes }
+    return { scope: flagScope, credentialScopes: self.scopes, operator: self.operator === true }
   } catch {
     // Best-effort detection — fall back to the requested scope.
   }
-  return { scope: flagScope }
+  return { scope: flagScope, operator: false }
 }
 
 export function parseCliOptions(

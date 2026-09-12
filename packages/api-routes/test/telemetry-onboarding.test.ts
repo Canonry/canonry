@@ -117,6 +117,7 @@ describe('telemetry settings authorization', () => {
     const app = Fastify()
     await app.register(apiRoutes, {
       db,
+      operatorApiKeyIds: ['root', 'settings'],
       getTelemetryStatus: () => ({
         enabled: configuredEnabled,
         configuredEnabled,
@@ -130,7 +131,7 @@ describe('telemetry settings authorization', () => {
     const seed = (name: string, scopes: string[]) => {
       const token = `cnry_${name}_${crypto.randomUUID().replaceAll('-', '')}`
       db.insert(apiKeys).values({
-        id: crypto.randomUUID(),
+        id: name,
         name,
         keyHash: hashApiKey(token),
         keyPrefix: token.slice(0, 9),
@@ -143,7 +144,7 @@ describe('telemetry settings authorization', () => {
     return { app, db, seed, configured: () => configuredEnabled }
   }
 
-  it('allows root and settings.write keys, and rejects unrelated scopes', async () => {
+  it('allows host-approved root and settings.write keys, and rejects unrelated scopes', async () => {
     const { app, db, seed, configured } = await buildAuthenticatedApp()
     try {
       const root = seed('root', ['*'])

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, like, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, like, ne, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
@@ -61,6 +61,7 @@ export async function historyRoutes(app: FastifyInstance) {
   }>('/projects/:name/history', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const filters = [eq(auditLog.projectId, project.id)]
+    if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
     addAuditHistoryFilters(filters, request.query)
 
     const rows = app.db
@@ -83,6 +84,8 @@ export async function historyRoutes(app: FastifyInstance) {
   app.get<{ Querystring: AuditHistoryQuery }>('/history', async (request, reply) => {
     const scopedProjectId = request.apiKey?.projectId
     const filters = scopedProjectId ? [eq(auditLog.projectId, scopedProjectId)] : []
+    // Internal telemetry state must not escape through its audit diff.
+    if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
     addAuditHistoryFilters(filters, request.query)
     const rows = app.db
       .select()

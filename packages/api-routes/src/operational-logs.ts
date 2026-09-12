@@ -8,7 +8,7 @@ import {
   type LogQuery,
   type OperationalLogListDto,
 } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+import { requireOperator, requireScope } from './auth.js'
 
 export interface OperationalLogsRoutesOptions {
   /**
@@ -22,7 +22,7 @@ export interface OperationalLogsRoutesOptions {
 /** Permission-gated instance runtime diagnostics, separate from audit history. */
 export async function operationalLogsRoutes(app: FastifyInstance, opts: OperationalLogsRoutesOptions = {}): Promise<void> {
   app.get('/operations/logs', async (request) => {
-    requireAdminSession(request)
+    requireOperator(request)
     requireScope(request, 'logs.read')
     if (request.apiKey?.projectId) {
       throw forbidden('This API key is scoped to one project and cannot read instance operational diagnostics.')

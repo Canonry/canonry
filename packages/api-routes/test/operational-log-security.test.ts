@@ -24,7 +24,7 @@ async function fixture() {
   const app = Fastify({ loggerInstance: createFastifyLogger({ module: 'SecurityFixture' }), genReqId: randomUUID })
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-  await app.register(apiRoutes, { db, listOperationalLogs: query => store.list(query) })
+  await app.register(apiRoutes, { db, operatorApiKeyIds: ['observer', 'explicit-reader'], listOperationalLogs: query => store.list(query) })
   await app.ready()
   const stop = addLogListener(entry => store.append(entry))
   onTestFinished(async () => { stop(); await app.close(); db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })

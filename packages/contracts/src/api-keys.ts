@@ -32,6 +32,8 @@ export const apiKeyDtoSchema = z.object({
    * — surfaces don't recompute it (see the UI/CLI parity rule). Additive field.
    */
   readOnly: z.boolean(),
+  /** Present on /keys/self: host-derived direct-bearer authority, never a mintable scope. */
+  operator: z.boolean().optional(),
   createdAt: z.string(),
   lastUsedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),

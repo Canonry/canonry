@@ -105,20 +105,39 @@ authorize new measurement.
 
 ### Agent operations
 
-Use `canonry_key_self` to inspect the current credential's scopes and project
-boundary without exposing its token. `canonry_settings_get` and
+Use `canonry_key_self` (CLI `canonry key whoami --format json`) to inspect the
+current credential's scopes, project boundary, and host-derived `operator`
+authority without exposing its token. Missing `operator` means unapproved.
+`canonry_settings_get` and
 `canonry_telemetry_get` describe the connected server, not the agent's local
 machine. Telemetry reports configured preference, effective state, and any
 environment override; inspecting status never creates an anonymous identifier.
 After approval, `canonry_telemetry_update` changes that preference and
 `canonry_provider_settings_update` changes an already-configured provider's
 model/quota. Both require `settings.write`; neither accepts credentials.
+Server telemetry reads and updates additionally require operator authority.
+Ordinary audit-history reads omit internal telemetry events and their state.
+
+Operator authority is deny-by-default and separate from customer admin roles.
+The deployment owner must approve a dedicated, instance-wide API key's ID in
+the server environment variable `CANONRY_OPERATOR_KEY_IDS` (comma-separated IDs),
+then restart the server. Empty/unset approves nobody; wildcards are invalid.
+Keep the bearer private to internal operators; never approve a customer-held or
+shared proxy/bootstrap key. Use `logs.read` for read-only diagnostics, adding
+`settings.write` only when telemetry control is required. Ordinary key creation,
+account roles, OAuth consent, and caller headers cannot grant operator status.
+Revoking an approved key invalidates it immediately. Host enrollment is a trust
+bootstrap step, intentionally unavailable through customer-facing APIs.
+API, CLI, and MCP enforce the same boundary; MCP hides internal tools unless
+the server confirms operator authority, including in explicit read-only mode.
+Project analytics, research, and normal project permissions are unchanged.
 
 `canonry_logs_list` reads bounded, redacted runtime events from both the
 application logger and Fastify request/error logging. It requires an
-instance-wide `logs.read` grant (or wildcard), and
-admin role for signed-in users. Project-scoped keys cannot use it, even with a
-project filter. A `logs.read`-only key is read-only automatically, without a
+instance-wide `logs.read` grant (or wildcard) and a host-approved direct bearer.
+Browser sessions, OAuth/delegated credentials, customer admins, and project-scoped
+keys cannot use it, even with a project filter or a matching allowlist ID.
+A `logs.read`-only key is read-only automatically, without a
 second `read` marker. Named `*.read` scopes cannot grant mutations; an explicit
 write grant is needed and remains subject to its route gates. Returned messages
 are sanitized and bounded; raw request or response bodies, headers, cookies,

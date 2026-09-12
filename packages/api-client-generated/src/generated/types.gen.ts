@@ -1618,6 +1618,7 @@ export type ApiKeyDto = {
     projectId: string | null;
     projectName: string | null;
     readOnly: boolean;
+    operator?: boolean;
     createdAt: string;
     lastUsedAt: string | null;
     revokedAt: string | null;
@@ -1632,6 +1633,7 @@ export type ApiKeyListDto = {
         projectId: string | null;
         projectName: string | null;
         readOnly: boolean;
+        operator?: boolean;
         createdAt: string;
         lastUsedAt: string | null;
         revokedAt: string | null;
@@ -2599,6 +2601,7 @@ export type CreatedApiKeyDto = {
     projectId: string | null;
     projectName: string | null;
     readOnly: boolean;
+    operator?: boolean;
     createdAt: string;
     lastUsedAt: string | null;
     revokedAt: string | null;
@@ -18036,7 +18039,7 @@ export type GetApiV1OperationsLogsErrors = {
      */
     401: ErrorEnvelope;
     /**
-     * Instance logs.read permission required.
+     * Host-approved operator authority and instance logs.read permission required.
      */
     403: ErrorEnvelope;
     /**
@@ -18064,6 +18067,10 @@ export type GetApiV1TelemetryData = {
 };
 
 export type GetApiV1TelemetryErrors = {
+    /**
+     * Host-approved operator authority required.
+     */
+    403: ErrorEnvelope;
     /**
      * Telemetry status is not available.
      */
@@ -18096,7 +18103,7 @@ export type PutApiV1TelemetryErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * The credential lacks settings.write.
+     * The credential lacks host-approved operator authority or settings.write.
      */
     403: ErrorEnvelope;
     /**
