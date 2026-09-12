@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
 
-Canonry is an **agent-first, self-hosted AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
+Canonry is an **agent-first, open-source and self-hosted AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
 
 **Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
 
