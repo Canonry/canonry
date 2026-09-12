@@ -2,7 +2,6 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "incremental": false,
     // The lint guards live in plain-JS rule modules (eslint-rules/*.js) so
     // eslint.config.js can import them directly; allowJs types them here.
     "allowJs": true,

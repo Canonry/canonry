@@ -88,12 +88,25 @@ jobs:
       - name: Restore TypeScript incremental cache
         uses: actions/cache@v4
         with:
-          path: '**/*.tsbuildinfo'
-          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
+          # Cache one archive: a recursive glob walks node_modules during save
+          # and has cost over a minute for less than 1 MB of compiler state.
+          path: .tmp/ci/tsbuildinfo.tar
+          key: tsbuildinfo-v2-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
           restore-keys: |
-            tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            tsbuildinfo-${{ runner.os }}-
+            tsbuildinfo-v2-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-
+      - name: Unpack TypeScript incremental state
+        run: |
+          if [ -f .tmp/ci/tsbuildinfo.tar ]; then
+            tar -xf .tmp/ci/tsbuildinfo.tar
+          fi
       - run: pnpm run typecheck
+      - name: Collect TypeScript incremental state
+        shell: bash
+        run: |
+          mkdir -p .tmp/ci
+          shopt -s nullglob
+          files=(packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo scripts/*.tsbuildinfo test/*.tsbuildinfo)
+          tar -cf .tmp/ci/tsbuildinfo.tar --files-from /dev/null "${files[@]}"
 
   test_shards:
     name: test ${{ matrix.shard }} (node ${{ matrix.node }})
@@ -102,18 +115,10 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      # Deliberately asymmetric to balance CI feedback time and runner cost.
-      #
-      # Node 22 is what Docker and the published build pin, so it stays sharded
-      # 4x for fast feedback on the version that actually ships.
-      #
-      # Node 26 is the highest major in `SUPPORTED_MAJORS`
-      # (scripts/check-node.mjs) and the current Homebrew default. It runs the
-      # WHOLE suite across two shards: 100% coverage without leaving the PR
-      # tail behind a ten-minute serial run. Sampling one shard would be
-      # cheaper, but would cover only half the suite — and the Node 26 break
-      # this matrix was added to catch (tsx's `module.register()` tripping
-      # DEP0205) lives in packages/canonry, which one shard may not hold.
+      # Both majors run the whole suite across four shards. Two Node 26 shards
+      # left an 8+ minute tail even while the four Node 22 shards finished.
+      # Node 22 is the deployment major; Node 26 is the highest supported major
+      # in scripts/check-node.mjs. Keep full coverage on both.
       #
       # The pairing is the point: better-sqlite3 is a NATIVE module, so a major
       # is only "supported" if its prebuilt binary resolves and loads.
@@ -126,14 +131,39 @@ jobs:
           - { node: '22', shard: '2/4' }
           - { node: '22', shard: '3/4' }
           - { node: '22', shard: '4/4' }
-          - { node: '26', shard: '1/2' }
-          - { node: '26', shard: '2/2' }
+          - { node: '26', shard: '1/4' }
+          - { node: '26', shard: '2/4' }
+          - { node: '26', shard: '3/4' }
+          - { node: '26', shard: '4/4' }
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
-      - run: pnpm run test --shard=${{ matrix.shard }}
+      - name: Fingerprint test compilation context
+        id: test-cache-key
+        shell: bash
+        run: |
+          # File additions/removals can change import resolution. Config and
+          # manifest contents also affect transforms of unchanged source files.
+          # Git reads the checkout index, without traversing node_modules.
+          fingerprint=$({
+            git ls-files -z
+            git ls-files --stage -z -- '*config*' '*lock*' 'package.json' '**/package.json' 'pnpm-workspace.yaml' '.github'
+          } | sha256sum)
+          echo "value=${fingerprint%% *}" >> "$GITHUB_OUTPUT"
+      - name: Restore test compilation caches
+        uses: actions/cache@v4
+        with:
+          path: .tmp/ci/test-compilation
+          key: test-compilation-v1-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ matrix.shard }}-${{ steps.test-cache-key.outputs.value }}-${{ github.run_id }}
+          restore-keys: |
+            test-compilation-v1-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ matrix.shard }}-${{ steps.test-cache-key.outputs.value }}-
+      # Reuse compiled modules only. Vitest still executes every test, and
+      # invalidates transforms when their source content changes.
+      - run: pnpm run test --shard=${{ matrix.shard }} --experimental.fsModuleCache --experimental.fsModuleCachePath=.tmp/ci/test-compilation/vitest
+        env:
+          NODE_COMPILE_CACHE: ${{ github.workspace }}/.tmp/ci/test-compilation/node
 
   test:
     name: test
@@ -309,6 +339,17 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm -r run build
         name: Build all packages (catches missing deps, bundler errors)
+      - name: Pack built Canonry for the install smoke test
+        working-directory: packages/canonry
+        run: pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canonry-package
+          path: ${{ runner.temp }}/canonry-package/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
 
   vals:
     # Each Val is validated on its DEV graph here, and on its PRODUCTION graph
@@ -359,36 +400,35 @@ jobs:
     # `dependencies` (pnpm publish rewrites `workspace:*` → `0.0.0`,
     # which 404s on `npm install` because private workspace packages
     # aren't published). Packs canonry the same way the publish workflow
-    # does and runs `npm install` against the tarball from a scratch
+    # does and runs `npm install` against the build job's tarball from a scratch
     # directory — exactly what external users do when they `npm i -g`.
+    # No checkout or workspace dependencies: reuse the completed build while
+    # keeping the install independent of workspace resolution.
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm --filter @canonry/canonry build
-        name: Build canonry (required for pnpm pack)
-      - name: Pack canonry tarball
-        id: pack
-        shell: bash
-        run: |
-          cd packages/canonry
-          OUTPUT=$(pnpm pack --pack-destination /tmp)
-          TARBALL=$(echo "$OUTPUT" | grep -E '\.tgz$' | tail -1)
-          if [ -z "$TARBALL" ] || [ ! -f "$TARBALL" ]; then
-            echo "pnpm pack did not produce a tarball" >&2
-            echo "$OUTPUT" >&2
-            exit 1
-          fi
-          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonry-package
+          path: ${{ runner.temp }}/canonry-package
       - name: Install canonry from tarball into scratch project
         shell: bash
         run: |
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/canonry-package/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "Expected exactly one Canonry package tarball" >&2
+            exit 1
+          fi
           SCRATCH=$(mktemp -d)
           cd "$SCRATCH"
           npm init -y > /dev/null
-          npm install "${{ steps.pack.outputs.tarball }}"
+          npm install "${tarballs[0]}"
           ./node_modules/.bin/canonry --version
 
   validate:
