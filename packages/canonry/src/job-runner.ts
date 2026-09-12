@@ -947,6 +947,7 @@ export class JobRunner {
       ) {
         trackEvent('activation.completed', {
           flowVersion: ONBOARDING_FLOW_VERSION,
+          kind: 'answer_visibility',
           status: finalStatus,
           providerCountBucket: bucketOnboardingCount(executionContext.providerCount),
           queryCountBucket: bucketOnboardingCount(executionContext.queryCount),
