@@ -26,8 +26,17 @@ import { bucketCliCommandDuration, trackEvent, type TelemetryProperties, type Tr
  * reported on the next event as `droppedBefore`, never silently lost.
  */
 
-export const API_REQUEST_BUCKET_CAPACITY = 60
-export const API_REQUEST_REFILL_PER_MS = 1 / 1000
+/**
+ * The cap is sized to the canonry.ai collector, not to the agent. The collector
+ * allows 100 events per minute and 1,000 per hour PER IP, and once an IP is over
+ * either limit it drops EVERY event from that IP, including `cli.command`,
+ * `run.completed`, and `telemetry.disabled`. A burst of 20 refilling one token
+ * per 10s bounds this stream at 360/hour, which leaves the rest of the install's
+ * events room even under a sustained agent loop. Several servers behind one NAT
+ * share that budget, so do not raise this without raising the collector's.
+ */
+export const API_REQUEST_BUCKET_CAPACITY = 20
+export const API_REQUEST_REFILL_PER_MS = 1 / 10_000
 const MAX_TRACKED_MCP_SESSIONS = 2000
 const MAX_ROUTE_LENGTH = 200
 const SKIPPED_ROUTE_PATTERN = /(?:^|\/)(?:health|openapi\.json|telemetry)(?:\/|$)/

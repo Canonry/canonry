@@ -119,6 +119,19 @@ describe('createApiUsageTelemetry', () => {
     ])
   })
 
+  it('stays inside the collector hourly per-IP budget under a sustained agent loop', () => {
+    // The collector drops every event from an IP past 1,000/hour, so this stream
+    // must leave room for the install's other events.
+    let clock = 0
+    const { events, hook } = recorder(() => clock)
+    for (let second = 0; second < 3_600; second++) {
+      clock = second * 1_000
+      for (let i = 0; i < 10; i++) hook(request({ usageLabels: { surface: 'api' }, actorSession: undefined }))
+    }
+    expect(events.length).toBeLessThanOrEqual(API_REQUEST_BUCKET_CAPACITY + 360)
+    expect(events.length).toBeLessThan(500)
+  })
+
   it('caps api.request per process and reports what it suppressed on the next event', () => {
     let clock = 0
     const { events, hook } = recorder(() => clock)
@@ -128,12 +141,12 @@ describe('createApiUsageTelemetry', () => {
     expect(events).toHaveLength(API_REQUEST_BUCKET_CAPACITY)
     expect(events.some(e => 'droppedBefore' in e.properties)).toBe(false)
 
-    clock += 1_000
+    clock += 10_000
     raw(1)
     expect(events).toHaveLength(API_REQUEST_BUCKET_CAPACITY + 1)
     expect(events.at(-1)!.properties.droppedBefore).toBe(5)
 
-    clock += 1_000
+    clock += 10_000
     raw(1)
     expect(events.at(-1)!.properties).not.toHaveProperty('droppedBefore')
   })
