@@ -189,10 +189,16 @@ export class SessionRegistry {
 
     const projectId = this.resolveProjectId(projectName)
     const row = this.loadRow(projectId)
+    const systemPrompt = loadAeroSystemPrompt()
 
     if (row) {
       const persistedMessages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       const queued = parseJsonColumn<AgentMessage[]>(row.followUpQueue, [])
+      // The stored prompt is a snapshot, not a permanent version pin. Keep
+      // transcripts and notes while adopting the installed skill and appends.
+      if (row.systemPrompt !== systemPrompt) {
+        this.updateRow(projectId, { systemPrompt })
+      }
 
       // Explicit caller preferences override the persisted values (and are
       // persisted back). This keeps `--provider` / `--model` flags meaningful
@@ -217,7 +223,7 @@ export class SessionRegistry {
         config: this.opts.config,
         provider: effectiveProvider,
         modelId: effectiveModelId,
-        systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
+        systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
         toolProfile: preferences?.toolProfile,
@@ -240,7 +246,6 @@ export class SessionRegistry {
     }
 
     const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config, preferences)
-    const systemPrompt = loadAeroSystemPrompt()
     const sessionId = crypto.randomUUID()
 
     const agent = createAeroSession({
@@ -265,7 +270,7 @@ export class SessionRegistry {
     this.insertRow({
       id: sessionId,
       projectId,
-      // Persist the raw (unhydrated) prompt so the DB remains canonical —
+      // Persist the raw (unhydrated) installed prompt snapshot —
       // the `<memory>` block is rebuilt from the notes table on every load.
       systemPrompt,
       modelProvider: provider,
@@ -357,6 +362,13 @@ export class SessionRegistry {
     const agent = this.getOrCreate(projectName)
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
+    }
+    const projectId = this.resolveProjectId(projectName)
+    const row = this.loadRow(projectId)
+    const systemPrompt = loadAeroSystemPrompt()
+    if (row && row.systemPrompt !== systemPrompt) {
+      this.updateRow(projectId, { systemPrompt })
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
     }
     this.alignToolSurface(projectName, agent, {
       scope: preferences?.toolScope ?? AeroToolScopes.all,
@@ -709,7 +721,7 @@ export class SessionRegistry {
       .run()
   }
 
-  private updateRow(projectId: string, patch: Partial<Pick<AgentSessionRow, 'messages' | 'followUpQueue'>>): void {
+  private updateRow(projectId: string, patch: Partial<Pick<AgentSessionRow, 'messages' | 'followUpQueue' | 'systemPrompt'>>): void {
     const now = new Date().toISOString()
     this.opts.db
       .update(agentSessions)

@@ -22,15 +22,20 @@ export function renderAgentOperations(source) {
     + '<!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->\n\n'
     + markdown + '\n## Optional host-native references\n\nRead only references relevant to the requested task. They are not required for MCP operation.\n\n'
     + native + '\n'
-  return { generated, skillMarkdown }
+  const aeroReferenceMarkdown = '---\nname: agent-operations\n'
+    + 'description: Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.\n---\n\n'
+    + '<!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->\n\n'
+    + markdown
+  return { generated, skillMarkdown, aeroReferenceMarkdown }
 }
 
 export function syncAgentOperations(root = repoRoot, checkOnly = false) {
   const source = fs.readFileSync(path.join(root, 'docs/agent-operations/v1.md'), 'utf8')
-  const { generated, skillMarkdown } = renderAgentOperations(source)
+  const { generated, skillMarkdown, aeroReferenceMarkdown } = renderAgentOperations(source)
   const outputs = [
     ['packages/canonry/src/mcp/operations-guide.generated.ts', generated],
     ['skills/canonry/SKILL.md', skillMarkdown],
+    ['skills/aero/references/agent-operations.md', aeroReferenceMarkdown],
   ]
   const failures = []
   for (const [relative, expected] of outputs) {

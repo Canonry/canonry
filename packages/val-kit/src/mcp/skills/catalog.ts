@@ -5,10 +5,13 @@ import type { SkillDocument } from '../skill-types.js'
 
 import { part as aeroSkillPart0 } from './aero-skill.0.js'
 import { part as aeroReferencesAeoDiscoveryPart0 } from './aero-references-aeo-discovery.0.js'
+import { part as aeroReferencesAgentOperationsPart0 } from './aero-references-agent-operations.0.js'
 import { part as aeroReferencesMemoryPatternsPart0 } from './aero-references-memory-patterns.0.js'
 import { part as aeroReferencesOrchestrationPart0 } from './aero-references-orchestration.0.js'
+import { part as aeroReferencesPortfolioAnalysisPart0 } from './aero-references-portfolio-analysis.0.js'
 import { part as aeroReferencesRegressionPlaybookPart0 } from './aero-references-regression-playbook.0.js'
 import { part as aeroReferencesReportingPart0 } from './aero-references-reporting.0.js'
+import { part as aeroReferencesSiteHealthPart0 } from './aero-references-site-health.0.js'
 import { part as aeroReferencesWordpressElementorMcpPart0 } from './aero-references-wordpress-elementor-mcp.0.js'
 import { part as aeroSoulPart0 } from './aero-soul.0.js'
 import { part as canonrySkillPart0 } from './canonry-skill.0.js'
@@ -27,9 +30,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "aero",
     path: "SKILL.md",
     title: "aero skill",
-    description: "Diagnose AEO regressions and report on them: why mention or citation coverage moved, which queries and answer engines changed, and what to do about it. Use when a coverage number moved and needs explaining, when preparing a client report or month-over-month comparison, or when a `cnry` sweep completed and needs analysis. Coordinates canonry sweeps with aeo-audit site analysis and keeps durable project memory. Use the canonry skill for setup and operations instead.",
+    description: "Interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when comparing Properties or markets, explaining mention or citation changes, diagnosing crawl or page findings, preparing client reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 8122,
+    characters: 9951,
     content: aeroSkillPart0,
   },
   {
@@ -41,6 +44,16 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     entryPoint: false,
     characters: 12617,
     content: aeroReferencesAeoDiscoveryPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/agent-operations.md",
+    skill: "aero",
+    path: "references/agent-operations.md",
+    title: "Canonry Operations Guide v1",
+    description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
+    entryPoint: false,
+    characters: 14111,
+    content: aeroReferencesAgentOperationsPart0,
   },
   {
     uri: "canonry-skill://aero/references/memory-patterns.md",
@@ -59,8 +72,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Orchestration Workflows",
     description: "Workflow recipes — baseline, regression response, weekly review, content gap analysis. Read when planning a multi-step task or recurring review.",
     entryPoint: false,
-    characters: 6913,
+    characters: 7493,
     content: aeroReferencesOrchestrationPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/portfolio-analysis.md",
+    skill: "aero",
+    path: "references/portfolio-analysis.md",
+    title: "Portfolio analysis",
+    description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
+    entryPoint: false,
+    characters: 5626,
+    content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
     uri: "canonry-skill://aero/references/regression-playbook.md",
@@ -79,8 +102,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 10349,
+    characters: 10742,
     content: aeroReferencesReportingPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/site-health.md",
+    skill: "aero",
+    path: "references/site-health.md",
+    title: "Site Health diagnosis",
+    description: "Diagnose Site Health scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.",
+    entryPoint: false,
+    characters: 6191,
+    content: aeroReferencesSiteHealthPart0,
   },
   {
     uri: "canonry-skill://aero/references/wordpress-elementor-mcp.md",
@@ -99,7 +132,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Who You Are",
     description: "Aero's persona, values, and voice — context-agnostic identity that applies whether Aero runs as the built-in agent or wraps around an external agent shell.",
     entryPoint: false,
-    characters: 2540,
+    characters: 2836,
     content: aeroSoulPart0,
   },
   {
@@ -109,7 +142,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 14338,
+    characters: 14946,
     content: canonrySkillPart0,
   },
   {
