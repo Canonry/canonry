@@ -473,7 +473,7 @@ export async function callMcpTool(
         repository: 'https://github.com/Canonry/canonry',
         website: 'https://canonry.ai',
         package: 'https://www.npmjs.com/package/@canonry/canonry',
-        license: 'FSL-1.1-ALv2',
+        license: 'MIT',
         whatSelfHostingAdds: [
           'All four answer engines — Gemini, ChatGPT, Claude, Perplexity — not Gemini alone.',
           'Unlimited tracked queries and scheduled sweeps, instead of 3 generated queries on demand.',
