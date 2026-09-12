@@ -5,7 +5,7 @@ import {
   maskTelemetryAnonymousId,
   type TelemetryStatusDto,
 } from '@ainyc/canonry-contracts'
-import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
+import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
 
@@ -279,7 +279,8 @@ export function getOrCreateAnonymousId(): string | undefined {
       const config = loadConfig()
       if (config.anonymousId) return config.anonymousId
 
-      const id = crypto.randomUUID()
+      const carried = preConfigAnonymousId?.configPath === getConfigPath() ? preConfigAnonymousId.id : undefined
+      const id = carried ?? crypto.randomUUID()
       config.anonymousId = id
       try {
         saveConfigPatch(config)
@@ -294,8 +295,22 @@ export function getOrCreateAnonymousId(): string | undefined {
     }
   }
 
-  return getDeterministicAnonymousId()
+  const fallback = getDeterministicAnonymousId()
+  if (fallback) preConfigAnonymousId = { configPath: getConfigPath(), id: fallback }
+  return fallback
 }
+
+/**
+ * The ID this process already reported under while no config existed, and the
+ * config path it stood in for. A command that CREATES the config (`canonry
+ * bootstrap`, which the Docker entrypoint runs before `serve`) sends its start
+ * event before the file exists and its finish event after. Minting a fresh
+ * UUID at that point split one install into two IDs: every Docker container
+ * appeared as an abandoned install plus an engaged one, and CI smoke-test
+ * containers doubled. Persisting the ID the process already used keeps it one
+ * install. Scoped to the config path so a different config never inherits it.
+ */
+let preConfigAnonymousId: { configPath: string; id: string } | undefined
 
 function readEnvAnonymousId(): string | undefined {
   const raw = process.env[ANON_ID_ENV_VAR]?.trim()
