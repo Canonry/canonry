@@ -450,6 +450,10 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * event that can never be retried.
  */
 export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+  // Validate the whole config before touching it. A bare patch succeeds on a
+  // config that fails validation, which turned `telemetry enable` into a silent
+  // write to an invalid file instead of a path-qualified CONFIG_INVALID error.
+  loadConfig()
   const announce = !enabled && isTelemetryEnabled()
   saveConfigPatch({ telemetry: enabled })
   return announce
