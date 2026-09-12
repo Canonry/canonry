@@ -24,6 +24,13 @@ async function expectCliError(call: () => Promise<unknown>): Promise<CliError> {
 }
 
 describe('ApiClient reliability metadata', () => {
+  it.each(['key', 'api key', 'refresh_token', 'cookie', 'credential', 'auth'])('redacts URL parameter %s without masking unrelated names', key => {
+    const target = `https://example.test/?${encodeURIComponent(key)}=fixture-secret&monkey=visible`
+    expect(redactRequestTarget(target)).not.toContain('fixture-secret')
+    expect(connectionFailureMessage(target)).not.toContain('fixture-secret')
+    expect(redactRequestTarget(target)).toContain('monkey=visible')
+  })
+
   it('redacts URL credentials from diagnostic targets while retaining remote guidance', () => {
     const target = 'https://operator:password@example.test/canonry?apiKey=secret&safe=yes'
 

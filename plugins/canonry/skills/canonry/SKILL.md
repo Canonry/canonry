@@ -118,13 +118,16 @@ model/quota. Both require `settings.write`; neither accepts credentials.
 application logger and Fastify request/error logging. It requires an
 instance-wide `logs.read` grant (or wildcard), and
 admin role for signed-in users. Project-scoped keys cannot use it, even with a
-project filter. For a read-only log-observer key, include both `read` and
-`logs.read`; the legacy scope model does not treat `logs.read` alone as a
-read-only credential. Returned messages are sanitized and bounded; raw request
-or response bodies, headers, cookies, provider payloads, and stacks are not
+project filter. A `logs.read`-only key is read-only automatically, without a
+second `read` marker. Named `*.read` scopes cannot grant mutations; an explicit
+write grant is needed and remains subject to its route gates. Returned messages
+are sanitized and bounded; raw request or response bodies, headers, cookies,
+provider payloads, and stacks are not
 part of the queryable surface. The same secret-redaction policy runs before
 console output and storage. Do not deliberately log secrets: redaction is a
 defense in depth, not permission to put credentials into diagnostic strings.
+Opaque escaped payloads containing secret assignments are omitted when safe
+partial masking cannot be guaranteed; correlate their retained error codes and IDs.
 
 File-backed hosts retain runtime logs in SQLite across restarts, bounded to
 10,000 events and seven days. In-memory hosts report `retention: "process"`.

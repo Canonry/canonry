@@ -8,8 +8,14 @@ const MAX_ARRAY_ITEMS = 50
 const MAX_OBJECT_KEYS = 100
 const MAX_STRING_LENGTH = 4_096
 
-const secretKey = /api[-_]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential/i
+const secretKey = /api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential/i
+const escapedSecretAssignment = /\\+["'][\w -]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential)[\w -]*\\+["']\s*:/i
 const unsafeGraphKey = /^(?:req|res|request|reply|raw|socket|headers?|body|responsebody|apiresponse|rawresponse|provider(?:body|response)?)$/i
+
+/** Shared URL credential policy for runtime logs and CLI/API diagnostics. */
+export function isSensitiveDiagnosticQueryKey(key: string): boolean {
+  return secretKey.test(key) || /^key$/i.test(key)
+}
 
 /**
  * Redacts and bounds untrusted diagnostic values before they reach a runtime
@@ -29,14 +35,21 @@ export function redactLogString(value: string): string {
     const clipped = value.length > MAX_STRING_LENGTH
       ? `${value.slice(0, MAX_STRING_LENGTH)}${TRUNCATED}`
       : value
+    // Escaped nested payloads cannot be safely tokenized as plain text. Drop
+    // the opaque diagnostic rather than partially decoding a quoted secret
+    // and exposing its suffix. Structured error codes/IDs remain available.
+    if (escapedSecretAssignment.test(clipped)) return REDACTED
     return redactEmbeddedUrls(clipped)
+      // A Cookie header is a whole credential-bearing value, not just its
+      // first name=value pair. Include folded header continuation lines.
+      .replace(/\b((?:set-cookie|cookie)\s*[:=]\s*)[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*/gi, `$1${REDACTED}`)
       .replace(
-        /(["']?[\w-]*(?:api[-_]?key|auth|cookie|password|secret|token|credential)[\w-]*["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$))/gi,
+        /(["']?[\w-]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential)[\w-]*["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$))/gi,
         `$1${REDACTED}`,
       )
       .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, (_match, scheme: string) => `${scheme} ${REDACTED}`)
       .replace(
-        /(api[-_]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential)\s*([=:])\s*[^\s&,'")\]}]+/gi,
+        /(api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential)\s*([=:])\s*(?!\[REDACTED\])[^\s&,'")\]}]+/gi,
         `$1$2${REDACTED}`,
       ).slice(0, MAX_STRING_LENGTH)
   } catch {
@@ -145,7 +158,7 @@ function redactEmbeddedUrls(value: string): string {
         url.password = REDACTED
       }
       for (const key of [...url.searchParams.keys()]) {
-        if (secretKey.test(key)) url.searchParams.set(key, REDACTED)
+        if (isSensitiveDiagnosticQueryKey(key)) url.searchParams.set(key, REDACTED)
       }
       return `${url.toString()}${suffix}`
     } catch {

@@ -1,3 +1,5 @@
+import { isSensitiveDiagnosticQueryKey } from '@ainyc/canonry-contracts'
+
 /** Parse a Retry-After header into a non-negative millisecond delay. */
 export function parseRetryAfterMs(header: string | null, now = Date.now()): number | undefined {
   if (!header) return undefined
@@ -50,7 +52,7 @@ export function redactRequestTarget(target: string): string {
     url.username = ''
     url.password = ''
     for (const key of [...url.searchParams.keys()]) {
-      if (/^(?:access_)?token|api[_-]?key|authorization|password|secret$/i.test(key)) {
+      if (isSensitiveDiagnosticQueryKey(key)) {
         url.searchParams.set(key, '<redacted>')
       }
     }

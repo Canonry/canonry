@@ -9,7 +9,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | File | Role |
 |------|------|
 | `src/errors.ts` | `AppError` class, `ErrorCode` union (27 codes), factory functions, and `describeError` — the shared way to render a caught `unknown` as text. Prefer it over `err instanceof Error ? err.message : String(err)` everywhere: that `String()` branch renders a thrown plain object as `[object Object]`, and `@typescript-eslint/no-base-to-string` only catches it where the value is typed `unknown`. `describeError` keeps the Error and string paths identical, reports null/undefined as `'unknown error'`, JSON-serializes anything else, and never throws. Note the one place it must NOT be used: `integration-cloudflare-worker`'s generated Worker source is a template literal, so a call there would compile to a reference the edge bundle cannot resolve. |
-| `src/log-redaction.ts` | Pure bounded redaction for structured runtime values and diagnostic strings. Shared by console/Fastify logging and durable storage; strips common secret fields and URL/auth credentials, avoids unsafe object getters and request/body graphs. |
+| `src/log-redaction.ts` | Pure bounded redaction for structured runtime values and diagnostic strings. Shared by console/Fastify logging and durable storage; masks full cookie headers, URL keys and spaced secret labels, drops opaque escaped secret assignments, and avoids unsafe object getters and request/body graphs. |
 | `src/operational-logs.ts` | Strict runtime-event, query, and page DTOs. Identity and time filters, sanitized messages, retention policy, and loss counters are the same across REST, CLI, and MCP. Runtime logs are not business audit history. |
 | `src/telemetry.ts` | Telemetry DTOs and `normalizeTelemetryStatus`: shared legacy-response normalization and anonymous-ID masking for API hosts, ApiClient/MCP, and CLI output. |
 | `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
@@ -18,7 +18,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/research.ts` | Research DTOs and shared helpers for exact-text deduplication and declared template bindings/expansion. |
-| `src/scopes.ts` | Shared read-only classification, restricted write grants (`research.run` and Ads), and delegated-consent intersection. Adding an action grant must keep API gates and MCP catalogs aligned. |
+| `src/scopes.ts` | Shared read-only classification (`read` or named `*.read`, unless explicitly write-granted), restricted write grants (`research.run` and Ads), and delegated-consent intersection. Adding an action grant must keep API gates and MCP catalogs aligned. |
 | `src/query-tracking.ts` | Shared workspace, assignment preview, and commit DTOs. Tokens bind the exact mutation and workspace. Workload counts belong to the API. |
 | `src/visibility-report.ts` | Frozen result selection, independent query-class populations, rates, trends, paginated answers, and competitor provenance. Plain request schema supports MCP JSON Schema. |
 | `src/config-schema.ts` | Config file Zod validation |
