@@ -30,9 +30,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "aero",
     path: "SKILL.md",
     title: "aero skill",
-    description: "Interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when comparing Properties or markets, explaining mention or citation changes, diagnosing crawl or page findings, preparing client reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
+    description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 9951,
+    characters: 10043,
     content: aeroSkillPart0,
   },
   {
