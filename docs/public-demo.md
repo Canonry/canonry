@@ -11,7 +11,7 @@ The default address is `http://127.0.0.1:4188`. Use a dedicated process and reve
 
 ## Rate limit and reverse proxies
 
-The rate limit is the demo's abuse control, and it counts per client IP address: 600 requests a minute for each visitor. Every API request counts, including HEAD requests, refused changes, and requests for unknown paths. Built browser assets, the icons, and the dashboard page itself do not.
+The rate limit is the demo's abuse control, and it counts per client IP address: 600 requests a minute for each visitor. Every API request counts, including HEAD requests, refused changes, and requests for unknown or malformed paths. Built browser assets, the icons, and the dashboard page itself do not.
 
 The demo takes the visitor address from `X-Forwarded-For` only when the connection comes from a trusted proxy. By default it trusts `127.0.0.1` and `::1`, which is a reverse proxy on the same machine. For a proxy on another address, name it with `--trust-proxy`, once for each address or CIDR range. The values replace the default, and every proxy hop between the visitor and the demo must be listed. A catch-all range such as `0.0.0.0/0` is refused because it would let any visitor choose the address they are counted under.
 

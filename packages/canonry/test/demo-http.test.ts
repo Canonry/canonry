@@ -264,6 +264,41 @@ describe('public demo API budget', () => {
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects', payload: {}, headers })).statusCode).toBe(429)
   })
 
+  it.each([
+    '/%C0%A1pi/v1/projects',
+    '/%u0061pi/v1/projects',
+    '/api/v1/projects/%E0%A4%A',
+    '/projects/%C0',
+    '/%C0?view=all',
+  ])('charges the undecodable path %s to the visitor before refusing it', async url => {
+    const { app } = await fixture(2)
+    const headers = visitor(37)
+    const first = await app.inject({ url, headers })
+    expect(first.statusCode, url).toBe(400)
+    expect(first.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message: 'The request path is not a valid URL.' } })
+    expect(first.headers['x-ratelimit-remaining']).toBe('1')
+    expect(first.headers['x-robots-tag']).toContain('noindex')
+    expect(first.headers['content-security-policy']).toContain("default-src 'self'")
+    expect((await app.inject({ url, headers })).statusCode).toBe(400)
+    const limited = await app.inject({ url, headers })
+    expect(limited.statusCode).toBe(429)
+    expect(limited.headers['retry-after']).toBeDefined()
+    // Counted under the visitor the trusted proxy named, not under the proxy.
+    expect((await app.inject({ url: '/api/v1/projects', headers })).statusCode).toBe(429)
+    expect((await app.inject({ url: '/api/v1/projects', headers: visitor(38) })).statusCode).toBe(200)
+  })
+
+  it('refuses an undecodable path with 429 once API reads spent the budget', async () => {
+    const { app } = await fixture(1)
+    const headers = visitor(39)
+    expect((await app.inject({ url: '/api/v1/projects', headers })).statusCode).toBe(200)
+    for (const request of [{ method: 'GET', url: '/%C0' }, { method: 'POST', url: '/%61pi/%C0' }] as const) {
+      const response = await app.inject({ ...request, headers })
+      expect(response.statusCode, request.url).toBe(429)
+      expect(response.headers['x-robots-tag']).toContain('noindex')
+    }
+  })
+
   it('keeps the dashboard document, deep links, icons and built assets outside the API budget', async () => {
     const { app } = await fixture(2)
     const headers = visitor(36)

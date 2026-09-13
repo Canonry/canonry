@@ -22,6 +22,9 @@ const INLINE_SCRIPT = /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/g
 // never receive the document. The workspace backlink admin page is not part of
 // the demo, so it is not served.
 const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
+// Where a request whose path the router cannot decode is routed a second time.
+// No route or dashboard location matches it, so it lands in the not-found handler.
+const UNDECODABLE_PATH = '/.undecodable-path'
 const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo: this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
 
 /**
@@ -58,7 +61,8 @@ function isDemoDocumentRequest(request: FastifyRequest): boolean {
  * matched, never the raw URL. The router decodes percent-escapes, so
  * /%61pi/v1/projects reaches the /api/v1/projects handler. A request that
  * matched no route is charged too, so malformed or encoded paths cannot flood
- * the not-found handler.
+ * the not-found handler. A path the router cannot decode at all is charged
+ * under UNDECODABLE_PATH (see frameworkErrors below).
  */
 function isOutsideDemoApiBudget(request: FastifyRequest): boolean {
   const route = request.routeOptions.url
@@ -88,6 +92,8 @@ export async function createDemoHttpServer(options: {
     keyPrefix: 'demo',
     createdAt: now.toISOString(),
   }).run()
+  // Raw requests whose path had an invalid percent-escape, such as /%C0.
+  const undecodable = new WeakSet<object>()
   const app = Fastify({
     logger: false,
     bodyLimit: 1024 * 1024,
@@ -95,6 +101,21 @@ export async function createDemoHttpServer(options: {
     // from the named proxies (a same-machine proxy by default), so a directly
     // connected client cannot pick the address it is counted under.
     trustProxy: [...(options.trustProxy ?? DEFAULT_DEMO_TRUSTED_PROXIES)],
+    // The router answers an undecodable path itself, before any hook, so the
+    // request would skip the visitor's budget. Route it again under a fixed
+    // path instead: the normal hooks then charge it to the forwarded visitor
+    // address and add the usual headers before the not-found handler refuses it.
+    frameworkErrors: (error, request, reply) => {
+      if (error.code !== 'FST_ERR_BAD_URL') {
+        const body = JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } })
+        reply.raw.writeHead(500, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) })
+        reply.raw.end(body)
+        return
+      }
+      undecodable.add(request.raw)
+      request.raw.url = UNDECODABLE_PATH
+      app.routing(request.raw, reply.raw)
+    },
   })
   await app.register(rateLimit, {
     // Not attached per route: route hooks never run for the not-found handler
@@ -192,6 +213,9 @@ export async function createDemoHttpServer(options: {
   app.get('/', sendDocument)
   app.get('/robots.txt', async (_request, reply) => reply.type('text/plain').send('User-agent: *\nDisallow: /\n'))
   app.setNotFoundHandler(async (request, reply) => {
+    if (undecodable.has(request.raw)) {
+      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'The request path is not a valid URL.' } })
+    }
     // Known SPA routes get the document; everything else must never receive a
     // misleading HTML success.
     if (isDemoDocumentRequest(request)) return sendDocument(request, reply)
