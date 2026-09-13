@@ -12,7 +12,7 @@ const HEALTH_QUERY_KEY = ['health'] as const
 export async function fetchHealth(): Promise<HealthSnapshot> {
   const apiStatus = await fetchServiceStatus('/health', 'API')
   const workerStatus: ServiceStatus = isPublicDemo() && apiStatus.state === 'ok'
-    ? { label: 'Worker', state: 'ok', detail: 'Background execution is disabled in this public demo.' }
+    ? { label: 'Worker', state: 'disabled', detail: 'Background execution is disabled in this public demo.' }
     : apiStatus.state === 'ok'
     ? { label: 'Worker', state: 'ok', detail: 'In-process job runner' }
     : {

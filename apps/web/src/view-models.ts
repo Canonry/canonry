@@ -1,7 +1,8 @@
 import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
-export type HealthState = 'checking' | 'ok' | 'error'
+/** `disabled` is a service switched off on purpose, such as the public demo's worker. */
+export type HealthState = 'checking' | 'ok' | 'disabled' | 'error'
 export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
 export type VisibilityState = 'visible' | 'not-visible' | 'pending'
 /** Canonical-vocabulary equivalent of `VisibilityState`. New consumers prefer this. */

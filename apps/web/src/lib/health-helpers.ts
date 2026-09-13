@@ -30,7 +30,7 @@ export function buildSystemHealthCards(
       return {
         ...card,
         tone: toneFromService(healthSnapshot.workerStatus),
-        detail: healthSnapshot.workerStatus.state === 'ok' ? 'Healthy' : 'Needs attention',
+        detail: healthSnapshot.workerStatus.state === 'ok' ? 'Healthy' : healthSnapshot.workerStatus.state === 'disabled' ? 'Disabled' : 'Needs attention',
         meta: healthSnapshot.workerStatus.detail,
       }
     }

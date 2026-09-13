@@ -6,7 +6,7 @@ export function toneFromService(status: ServiceStatus): MetricTone {
     return 'positive'
   }
 
-  if (status.state === 'checking') {
+  if (status.state === 'checking' || status.state === 'disabled') {
     return 'neutral'
   }
 

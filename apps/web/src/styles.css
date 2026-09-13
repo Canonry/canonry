@@ -938,6 +938,10 @@
     @apply border-strong bg-bg-elevated text-secondary;
   }
 
+  .health-pill-disabled {
+    @apply border-strong bg-bg-elevated text-secondary;
+  }
+
   .health-pill-error {
     @apply border-negative-500/20 bg-negative-500/8 text-negative-400;
   }

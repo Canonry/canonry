@@ -544,11 +544,11 @@ export function RootLayout() {
 
   return (
     <>
+    <a className="skip-link" href="#content">
+      Skip to content
+    </a>
     <DemoNotice />
     <div className={`app-shell ${shellModifier}${isPublicDemo() ? ' app-shell-demo' : ''}`}>
-      <a className="skip-link" href="#content">
-        Skip to content
-      </a>
 
       {/* ── Sidebar (desktop) ── */}
       {!isFocusedSetup && !sidebarHidden && (
@@ -766,7 +766,7 @@ export function RootLayout() {
                 className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
                 title={serviceStatusTooltip(healthSnapshot.workerStatus)}
               >
-                {isPublicDemo() ? 'Worker disabled' : `Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
+                {`Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
               </span>
             </div>
             {!isFocusedSetup ? (

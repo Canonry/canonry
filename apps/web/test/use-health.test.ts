@@ -19,7 +19,7 @@ describe('fetchHealth', () => {
       apiStatus: { state: 'ok' },
       workerStatus: {
         label: 'Worker',
-        state: 'ok',
+        state: 'disabled',
         detail: 'Background execution is disabled in this public demo.',
       },
     })
