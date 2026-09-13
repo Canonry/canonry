@@ -1,11 +1,13 @@
 import { updateCheckEnvOptOut } from '@ainyc/canonry-contracts'
 import type { ApiClient, ServerUpdateAvailable } from '../client.js'
 
+// Function-typed properties, not methods: both are closures with no `this`,
+// and `get` is handed around unbound as the MCP server's `updateAvailable`.
 export interface UpdateNoticeSource {
   /** Fetch now (deduplicated with any refresh already running). Never rejects. */
-  refresh(): Promise<void>
+  refresh: () => Promise<void>
   /** Last known notice. Starts a background refresh when the value is older than the TTL. */
-  get(): ServerUpdateAvailable | null
+  get: () => ServerUpdateAvailable | null
 }
 
 /**
