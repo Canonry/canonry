@@ -1159,7 +1159,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - `commit`: the git sha the bundle was built from. `packages/canonry/tsup.config.ts` stamps it at build time from `git rev-parse HEAD` (`packages/canonry/scripts/build-commit.ts`). A build without git omits the stamp and the server falls back to the `CANONRY_COMMIT` env var at runtime; unset as well means the field is omitted.
 - `instance`: read at boot from `CANONRY_INSTANCE` (`name`) and `CANONRY_INSTANCE_ROLE` (`role`). Omitted entirely when `CANONRY_INSTANCE` is unset; `role` is dropped when its var is unset. Role is free text, but use the convention so fleet tooling can group on it: `internal` (our own engines), `client-demo` (a prospect's demo tenant), `client-trial` (a client on trial), `preview` (a branch or PR preview).
 - `basePath`: omitted when not configured.
-- `updateAvailable`: `{ current, latest, url, upgradeCommand, installMethod }` (`installMethod` is `npm`, `homebrew`, or `docker`, and `upgradeCommand` is tailored to it) when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
+- `updateAvailable`: `{ current, latest, url, upgradeCommand, installMethod }` (`installMethod` is `npm`, `homebrew`, or `docker`, detected from `CANONRY_INSTALL_METHOD`, a Homebrew `Cellar/canonry/` path, or a container marker; `upgradeCommand` and `url` come from fixed contracts helpers, never free text) when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
 
 ### Web UI — use `window.__CANONRY_CONFIG__.basePath`
 

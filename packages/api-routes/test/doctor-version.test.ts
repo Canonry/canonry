@@ -80,6 +80,7 @@ describe('canonry.version.current', () => {
   it('uses the Homebrew command for a Homebrew install', async () => {
     const out = await check.run(ctxWith({ latest: '5.2.0', installMethod: 'homebrew', upgradeCommand: 'brew upgrade canonry' }))
     expect(out.remediation).toContain('`brew upgrade canonry`')
+    expect(out.remediation).toContain('Homebrew can trail npm briefly')
   })
 
   it('tells a container to move its image instead of restarting the server', async () => {
@@ -100,6 +101,13 @@ describe('canonry.version.current', () => {
     const out = await check.run(ctxWith({ current: '5.1.2', latest: '5.1.2' }))
     expect(out.status).toBe(CheckStatuses.ok)
     expect(out.code).toBe('version.current')
+  })
+
+  it('does not claim "latest" when only an older version was seen (stale cache, registry unreachable)', async () => {
+    const out = await check.run(ctxWith({ current: '5.1.3', latest: '5.1.2' }))
+    expect(out.status).toBe(CheckStatuses.ok)
+    expect(out.summary).toBe('No newer canonry known (running 5.1.3; latest seen 5.1.2).')
+    expect(out.summary).not.toMatch(/running the latest/i)
   })
 
   it('is ok when running ahead of npm (a local or pre-release build)', async () => {

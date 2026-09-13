@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
+import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, upgradeCaveatFor } from '@ainyc/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
@@ -70,10 +70,16 @@ export function updateNoticeInstructions(update: ServerUpdateAvailable): string 
   const upgrade = update.installMethod === 'docker'
     ? update.upgradeCommand
     : `${update.upgradeCommand}, then restart the Canonry server`
+  const caveat = upgradeCaveatFor(update.installMethod)
   return (
     `Update available (UPDATE_AVAILABLE): canonry ${update.latest} is published; the connected Canonry server runs ${update.current}. ` +
-    `Tell the operator. Upgrade: ${upgrade}. Only upgrade with the operator's approval.`
+    `Tell the operator. Upgrade: ${upgrade}. ${caveat ? `${caveat} ` : ''}Only upgrade with the operator's approval.`
   )
+}
+
+function updateNoticePayload(update: ServerUpdateAvailable) {
+  const caveat = upgradeCaveatFor(update.installMethod)
+  return { code: 'UPDATE_AVAILABLE', ...update, ...(caveat ? { note: caveat } : {}) }
 }
 
 function readUpdateAvailable(getter: CanonryMcpServerOptions['updateAvailable']): ServerUpdateAvailable | null {
@@ -179,7 +185,7 @@ function registerMetaTools(
         const update = readUpdateAvailable(opts.updateAvailable)
         const result = {
           ...operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog),
-          ...(update ? { updateAvailable: { code: 'UPDATE_AVAILABLE', ...update } } : {}),
+          ...(update ? { updateAvailable: updateNoticePayload(update) } : {}),
         }
         return { ...jsonToolResult(result), structuredContent: result }
       } catch (error) {

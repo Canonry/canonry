@@ -1,4 +1,4 @@
-import { CheckCategories, CheckScopes, CheckStatuses, compareSemver, isStrictSemver } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses, compareSemver, isStrictSemver, upgradeCaveatFor } from '@ainyc/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
 const versionCurrentCheck: CheckDefinition = {
@@ -38,13 +38,14 @@ const versionCurrentCheck: CheckDefinition = {
     }
 
     if (compareSemver(status.latest, status.current) > 0) {
+      const caveat = upgradeCaveatFor(status.installMethod)
       return {
         status: CheckStatuses.warn,
         code: 'version.outdated',
         summary: `canonry ${status.latest} is available; this server runs ${status.current}.`,
         remediation: status.installMethod === 'docker'
           ? `Upgrade the container: ${status.upgradeCommand}.`
-          : `Run \`${status.upgradeCommand}\`, then restart the server (\`canonry stop && canonry start\`, or restart \`canonry serve\`).`,
+          : `Run \`${status.upgradeCommand}\`, then restart the server (\`canonry stop && canonry start\`, or restart \`canonry serve\`).${caveat ? ` ${caveat}` : ''}`,
         details: {
           current: status.current,
           latest: status.latest,
@@ -58,7 +59,9 @@ const versionCurrentCheck: CheckDefinition = {
     return {
       status: CheckStatuses.ok,
       code: 'version.current',
-      summary: `Running the latest canonry (${status.current}).`,
+      // "latest" would overstate it: when the registry is unreachable this can
+      // come from an older on-disk cache, which proves only that nothing newer is known.
+      summary: `No newer canonry known (running ${status.current}; latest seen ${status.latest}).`,
       details: { current: status.current, latest: status.latest },
     }
   },

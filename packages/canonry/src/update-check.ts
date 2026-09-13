@@ -1,17 +1,27 @@
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { compareSemver, isStrictSemver } from '@ainyc/canonry-contracts'
+import {
+  CANONRY_NPM_PACKAGE_URL,
+  compareSemver,
+  isInstallMethod,
+  isStrictSemver,
+  updateCheckEnvOptOut,
+  upgradeCaveatFor,
+  upgradeCommandFor,
+  type InstallMethod,
+  type UpdateCheckEnvOptOut,
+} from '@ainyc/canonry-contracts'
 import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
 
-export { compareSemver }
+export { compareSemver, type InstallMethod }
 
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 
 const PKG_NAME = '@canonry/canonry'
 const NPM_DIST_TAGS_URL = `https://registry.npmjs.org/-/package/${PKG_NAME}/dist-tags`
-const NPM_PACKAGE_URL = `https://www.npmjs.com/package/${PKG_NAME}`
+const NPM_PACKAGE_URL = CANONRY_NPM_PACKAGE_URL
 const FETCH_TIMEOUT_MS = 1_500
 
 export interface UpdateAvailable {
@@ -23,13 +33,14 @@ export interface UpdateAvailable {
   installMethod: InstallMethod
 }
 
-export type InstallMethod = 'npm' | 'homebrew' | 'docker'
-
 const CONTAINER_MARKERS = ['/.dockerenv', '/run/.containerenv']
 
 /**
  * How this canonry was installed, so the upgrade instruction is one that
- * works. Homebrew installs live under `Cellar/canonry/` (the formula runs
+ * works. `CANONRY_INSTALL_METHOD` wins when set: the published image declares
+ * `docker` explicitly, because Kubernetes (containerd), Cloud Run, and Fly do
+ * not create the marker files Docker and Podman leave behind. Homebrew
+ * installs live under `Cellar/canonry/` (the formula runs
  * `npm install` into its own libexec, so `npm install -g` would leave a second,
  * shadowed copy). Inside a container an in-place `npm install -g` is lost when
  * the container is recreated, so the image has to move instead.
@@ -37,7 +48,10 @@ const CONTAINER_MARKERS = ['/.dockerenv', '/run/.containerenv']
 export function detectInstallMethod(opts?: {
   modulePath?: string
   exists?: (path: string) => boolean
+  env?: NodeJS.ProcessEnv
 }): InstallMethod {
+  const declared = (opts?.env ?? process.env).CANONRY_INSTALL_METHOD
+  if (isInstallMethod(declared)) return declared
   let modulePath = opts?.modulePath ?? fileURLToPath(import.meta.url)
   try {
     modulePath = fs.realpathSync(modulePath)
@@ -50,14 +64,6 @@ export function detectInstallMethod(opts?: {
   return 'npm'
 }
 
-export function upgradeCommandFor(method: InstallMethod): string {
-  switch (method) {
-    case 'npm': return `npm install -g ${PKG_NAME}`
-    case 'homebrew': return 'brew upgrade canonry'
-    case 'docker': return 'pull or rebuild your canonry image, then recreate the container'
-  }
-}
-
 let detectedInstallMethod: InstallMethod | undefined
 
 function currentInstallMethod(): InstallMethod {
@@ -65,7 +71,7 @@ function currentInstallMethod(): InstallMethod {
   return detectedInstallMethod
 }
 
-export type UpdateCheckDisabledReason = 'CANONRY_DISABLE_UPDATE_CHECK' | 'DO_NOT_TRACK' | 'CI' | 'config'
+export type UpdateCheckDisabledReason = UpdateCheckEnvOptOut | 'config'
 
 /**
  * Opt-out gate. Mirrors telemetry's opt-out pattern so users get one mental
@@ -79,9 +85,8 @@ export function isUpdateCheckEnabled(): boolean {
 
 /** The opt-out that disabled the update check, or null when it is enabled. */
 export function updateCheckDisabledReason(): UpdateCheckDisabledReason | null {
-  if (process.env.CANONRY_DISABLE_UPDATE_CHECK === '1') return 'CANONRY_DISABLE_UPDATE_CHECK'
-  if (process.env.DO_NOT_TRACK === '1') return 'DO_NOT_TRACK'
-  if (process.env.CI) return 'CI'
+  const envOptOut = updateCheckEnvOptOut(process.env)
+  if (envOptOut) return envOptOut
 
   if (!configExists()) return null
 
@@ -235,6 +240,7 @@ export function formatUpdateNotice(
   update: UpdateAvailable,
   opts: { format: 'text' | 'json' | 'jsonl'; interactive: boolean },
 ): string {
+  const caveat = upgradeCaveatFor(update.installMethod)
   if (opts.format === 'json' || opts.format === 'jsonl') {
     return `${JSON.stringify({
       notice: {
@@ -244,13 +250,16 @@ export function formatUpdateNotice(
         installMethod: update.installMethod,
         upgradeCommand: update.upgradeCommand,
         url: update.url,
+        ...(caveat ? { note: caveat } : {}),
       },
     })}\n`
   }
   if (opts.interactive) {
     return (
       `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
-      `  Upgrade: ${update.upgradeCommand}\n\n`
+      `  Upgrade: ${update.upgradeCommand}\n` +
+      (caveat ? `  ${caveat}\n` : '') +
+      '\n'
     )
   }
   const upgrade = update.installMethod === 'docker'
@@ -258,7 +267,7 @@ export function formatUpdateNotice(
     : `Upgrade with \`${update.upgradeCommand}\`, then restart any running \`canonry serve\`.`
   return (
     `[canonry] ${UPDATE_AVAILABLE_NOTICE_CODE}: canonry ${update.latest} is available (installed ${update.current}). ` +
-    `${upgrade} Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n`
+    `${upgrade} ${caveat ? `${caveat} ` : ''}Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n`
   )
 }
 

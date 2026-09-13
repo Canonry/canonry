@@ -491,6 +491,14 @@ describe('update-check', () => {
       expect(detectInstallMethod({ modulePath, exists: (p) => p === '/run/.containerenv' })).toBe('docker')
     })
 
+    it('lets CANONRY_INSTALL_METHOD override detection (the published image declares docker)', async () => {
+      const { detectInstallMethod } = await import('../src/update-check.js')
+      const homebrewPath = '/opt/homebrew/Cellar/canonry/5.1.2/libexec/lib/node_modules/@canonry/canonry/dist/cli.js'
+      expect(detectInstallMethod({ modulePath: homebrewPath, exists: noMarkers, env: { CANONRY_INSTALL_METHOD: 'docker' } })).toBe('docker')
+      // An unknown value is ignored rather than trusted.
+      expect(detectInstallMethod({ modulePath: homebrewPath, exists: noMarkers, env: { CANONRY_INSTALL_METHOD: 'curl' } })).toBe('homebrew')
+    })
+
     it('defaults to npm', async () => {
       const { detectInstallMethod } = await import('../src/update-check.js')
       expect(detectInstallMethod({
@@ -574,6 +582,20 @@ describe('update-check', () => {
         '[canonry] UPDATE_AVAILABLE: canonry 5.2.0 is available (installed 5.1.2). ' +
         'Upgrade: pull or rebuild your canonry image, then recreate the container. Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n',
       )
+    })
+
+    it('adds the Homebrew lag caveat in every shape', async () => {
+      const { formatUpdateNotice } = await import('../src/update-check.js')
+      const brew = { ...update, installMethod: 'homebrew' as const, upgradeCommand: 'brew upgrade canonry' }
+      const caveat = 'Homebrew can trail npm briefly; if brew says canonry is up to date, retry later.'
+      expect(formatUpdateNotice(brew, { format: 'text', interactive: false })).toBe(
+        '[canonry] UPDATE_AVAILABLE: canonry 5.2.0 is available (installed 5.1.2). ' +
+        `Upgrade with \`brew upgrade canonry\`, then restart any running \`canonry serve\`. ${caveat} Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n`,
+      )
+      expect(formatUpdateNotice(brew, { format: 'text', interactive: true })).toBe(
+        `\n→ canonry 5.2.0 is available (you have 5.1.2).\n  Upgrade: brew upgrade canonry\n  ${caveat}\n\n`,
+      )
+      expect(JSON.parse(formatUpdateNotice(brew, { format: 'json', interactive: false })).notice.note).toBe(caveat)
     })
 
     it('keeps the human banner on a terminal', async () => {

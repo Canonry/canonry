@@ -1,5 +1,5 @@
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { AgentPluginState, AgentProviderOption, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, AgentProviderOption, InstallMethod, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
@@ -120,7 +120,7 @@ export interface DoctorUpdateStatus {
   /** Newest published version known to the host, or null when never fetched. */
   latest: string | null
   /** How this install is upgraded; `upgradeCommand` is already tailored to it. */
-  installMethod: 'npm' | 'homebrew' | 'docker'
+  installMethod: InstallMethod
   upgradeCommand: string
   url: string
 }

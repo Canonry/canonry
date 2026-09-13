@@ -35,16 +35,16 @@ describe('MCP server instructions', () => {
   it('stays under 2KB with the largest update notice the parser accepts', () => {
     // The notice is appended LAST, so truncation would cut exactly the part
     // that tells the agent to upgrade. Bounds come from parseServerUpdateAvailable.
-    const update = parseServerUpdateAvailable({
-      current: `1.0.0-${'a'.repeat(26)}`,
-      latest: `2.0.0-${'b'.repeat(26)}`,
-      installMethod: 'npm',
-      upgradeCommand: 'c'.repeat(200),
-      url: `https://${'d'.repeat(192)}`,
-    })
-    expect(update).not.toBe(null)
-    const text = `${instructions().trimEnd()}\n\n${updateNoticeInstructions(update!)}`
-    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(2048)
+    for (const installMethod of ['npm', 'homebrew', 'docker']) {
+      const update = parseServerUpdateAvailable({
+        current: `1.0.0-${'a'.repeat(26)}`,
+        latest: `2.0.0-${'b'.repeat(26)}`,
+        installMethod,
+      })
+      expect(update).not.toBe(null)
+      const text = `${instructions().trimEnd()}\n\n${updateNoticeInstructions(update!)}`
+      expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(2048)
+    }
   })
 
   it('points to help as the universal entry point and makes the skill optional', () => {

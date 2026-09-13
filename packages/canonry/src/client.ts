@@ -638,42 +638,45 @@ import {
   type PostApiV1ProjectsByNameMeasurementPlanDraftActionsDiscardResponse,
   type PostApiV1ProjectsByNameMeasurementPlanActionsDeactivateResponse,
 } from '@ainyc/canonry-api-client'
-import { compareSemver, describeError, isStrictSemver } from '@ainyc/canonry-contracts'
+import {
+  CANONRY_NPM_PACKAGE_URL,
+  compareSemver,
+  describeError,
+  isInstallMethod,
+  isStrictSemver,
+  upgradeCommandFor,
+  type InstallMethod,
+} from '@ainyc/canonry-contracts'
 
 /** A newer published canonry, as the connected server reports it on `/health`. */
 export interface ServerUpdateAvailable {
   current: string
   latest: string
-  /** Absent on servers older than the field. */
-  installMethod?: 'npm' | 'homebrew' | 'docker'
+  installMethod: InstallMethod
+  /** Built locally from `installMethod`; never the server's text. */
   upgradeCommand: string
   url: string
 }
 
-const SERVER_INSTALL_METHODS = new Set(['npm', 'homebrew', 'docker'])
-
-function isSafeLine(value: unknown, maxLength: number): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/\p{Cc}/u.test(value)
-}
-
 /**
- * Validate `/health`'s `updateAvailable`. Its strings are shown to agents, so
- * anything other than strict versions, a short single-line command, and an
- * https URL drops the whole notice instead of passing through.
+ * Validate `/health`'s `updateAvailable`. Only the two versions (strict semver)
+ * and the install method (closed enum) are taken from the server; the upgrade
+ * command and URL are rebuilt locally. `canonry-mcp` places this notice in its
+ * initialize instructions, which clients load into the system prompt, so a
+ * server must not be able to put free text, such as a shell command, there.
+ * A missing `installMethod` (older servers) means npm.
  */
 export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailable | null {
   if (!value || typeof value !== 'object') return null
-  const { current, latest, installMethod, upgradeCommand, url } = value as Record<string, unknown>
+  const { current, latest, installMethod } = value as Record<string, unknown>
   // 32 chars covers any real release; the cap keeps the MCP instructions,
   // which append this notice last, under the 2KB clients truncate at.
   if (typeof current !== 'string' || current.length > 32 || !isStrictSemver(current)) return null
   if (typeof latest !== 'string' || latest.length > 32 || !isStrictSemver(latest)) return null
   if (compareSemver(latest, current) <= 0) return null
-  if (!isSafeLine(upgradeCommand, 200)) return null
-  if (!isSafeLine(url, 200) || !url.startsWith('https://')) return null
-  if (installMethod === undefined) return { current, latest, upgradeCommand, url }
-  if (typeof installMethod !== 'string' || !SERVER_INSTALL_METHODS.has(installMethod)) return null
-  return { current, latest, installMethod: installMethod as NonNullable<ServerUpdateAvailable['installMethod']>, upgradeCommand, url }
+  const method = installMethod === undefined ? 'npm' : installMethod
+  if (!isInstallMethod(method)) return null
+  return { current, latest, installMethod: method, upgradeCommand: upgradeCommandFor(method), url: CANONRY_NPM_PACKAGE_URL }
 }
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
