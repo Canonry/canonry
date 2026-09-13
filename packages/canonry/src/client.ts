@@ -664,8 +664,10 @@ function isSafeLine(value: unknown, maxLength: number): value is string {
 export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailable | null {
   if (!value || typeof value !== 'object') return null
   const { current, latest, installMethod, upgradeCommand, url } = value as Record<string, unknown>
-  if (typeof current !== 'string' || !isStrictSemver(current)) return null
-  if (typeof latest !== 'string' || !isStrictSemver(latest)) return null
+  // 32 chars covers any real release; the cap keeps the MCP instructions,
+  // which append this notice last, under the 2KB clients truncate at.
+  if (typeof current !== 'string' || current.length > 32 || !isStrictSemver(current)) return null
+  if (typeof latest !== 'string' || latest.length > 32 || !isStrictSemver(latest)) return null
   if (compareSemver(latest, current) <= 0) return null
   if (!isSafeLine(upgradeCommand, 200)) return null
   if (!isSafeLine(url, 200) || !url.startsWith('https://')) return null

