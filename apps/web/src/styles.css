@@ -3121,66 +3121,48 @@
 /* The public demo introduction sits above the complete application. */
 .app-shell-demo .sidebar { position: sticky; top: 0; bottom: auto; height: 100dvh; flex-shrink: 0; align-self: flex-start; }
 .app-shell-demo .main-area { padding-left: 0; }
-.demo-banner { position: relative; z-index: 35; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 14px 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 20px; }
-.demo-banner-title { margin: 0; color: var(--color-text-primary); font-size: 15px; font-weight: 600; line-height: 22px; }
-.demo-banner-explore { min-width: 0; padding-right: 28px; }
-.demo-banner-facts { display: flex; flex-wrap: wrap; margin: 2px 0 0; padding: 0; list-style: none; }
-.demo-banner-facts li + li::before { content: "·" / ""; margin: 0 8px; color: var(--color-text-muted); }
-.demo-banner-explore-links { position: relative; display: flex; flex-wrap: wrap; align-items: center; column-gap: 20px; margin-top: 4px; }
-.demo-banner-explore-links > nav { display: flex; gap: 20px; }
-.demo-banner a, .demo-banner summary, .demo-banner-agent-toggle { display: flex; align-items: center; min-height: 32px; border-radius: 4px; color: var(--color-text-strong); }
-.demo-banner-explore-links > nav a { text-decoration: underline; text-decoration-color: var(--color-border-strong); text-underline-offset: 4px; }
-.demo-banner-explore-links > nav a:hover { color: var(--color-text-primary); text-decoration-color: currentColor; }
-.demo-banner summary { cursor: pointer; gap: 6px; list-style: none; }
+.demo-banner { position: relative; z-index: 35; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "name facts agent actions"; align-items: center; column-gap: 20px; min-height: 56px; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 20px; }
+.demo-banner p { margin: 0; }
+.demo-banner-name { grid-area: name; color: var(--color-text-primary); font-weight: 600; white-space: nowrap; }
+.demo-banner-facts { grid-area: facts; border-left: 1px solid var(--color-border-base); padding-left: 20px; white-space: nowrap; }
+.demo-banner-agent { grid-area: agent; min-width: 0; color: var(--color-text-strong); }
+.demo-banner-actions { grid-area: actions; display: flex; align-items: center; gap: 20px; }
+.demo-banner a, .demo-banner summary { display: flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 4px; color: var(--color-text-strong); white-space: nowrap; }
+.demo-banner .demo-banner-primary { border-radius: 6px; background: var(--color-accent); padding: 0 12px; color: var(--color-on-inverse); font-weight: 500; }
+.demo-banner .demo-banner-primary:hover { background: var(--color-mono-200); }
+.demo-banner-secondary:hover { color: var(--color-text-primary); text-decoration: underline; text-underline-offset: 4px; }
+.demo-banner summary { cursor: pointer; list-style: none; }
 .demo-banner summary:hover { color: var(--color-text-primary); }
 .demo-banner summary::-webkit-details-marker { display: none; }
-.demo-banner details[open] summary svg, .demo-banner-agent-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
-.demo-banner-features { position: absolute; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-elevated); padding: 20px; box-shadow: 0 8px 24px var(--color-shadow-panel); }
-.demo-banner-features h3 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; }
-.demo-banner-features ul { list-style: none; padding: 0; margin: 0; }
+.demo-banner details[open] summary svg { transform: rotate(180deg); }
+.demo-banner-panel { position: absolute; top: calc(100% + 4px); right: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-elevated); padding: 16px 20px 20px; box-shadow: 0 8px 24px var(--color-shadow-panel); }
+.demo-banner-panel-agent { display: none; }
+.demo-banner-examples { display: flex; flex-wrap: wrap; gap: 0 20px; margin-bottom: 12px; border-bottom: 1px solid var(--color-border-base); padding-bottom: 12px; }
+.demo-banner-examples a { text-decoration: underline; text-decoration-color: var(--color-border-strong); text-underline-offset: 4px; }
+.demo-banner-examples a:hover { color: var(--color-text-primary); text-decoration-color: currentColor; }
+.demo-banner-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.demo-banner-features h2 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; line-height: 20px; }
+.demo-banner-features ul { margin: 0; padding: 0; list-style: none; }
 .demo-banner-features a { color: var(--color-text-secondary); }
 .demo-banner-features a:hover { color: var(--color-text-primary); }
-.demo-banner-agent { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "heading actions" "tools tools"; align-items: center; gap: 8px 24px; min-width: 0; border-left: 1px solid var(--color-border-base); padding-left: 28px; }
-.demo-banner-agent-heading { grid-area: heading; }
-.demo-banner-agent-toggle-heading { display: none; }
-.demo-banner-actions { grid-area: actions; display: flex; align-items: center; gap: 16px; }
-.demo-banner .demo-banner-primary { gap: 8px; border-radius: 6px; background: var(--color-accent); padding: 0 12px; color: var(--color-on-inverse); font-weight: 500; }
-.demo-banner .demo-banner-primary:hover { background: var(--color-mono-200); }
-.demo-banner-secondary { gap: 4px; }
-.demo-banner-secondary:hover { color: var(--color-text-primary); text-decoration: underline; text-underline-offset: 4px; }
-.demo-banner-tools { grid-area: tools; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 20px; margin: 0; padding: 0; list-style: none; }
-.demo-banner .demo-banner-tool { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 0 8px; margin: 0 -4px; padding: 2px 4px; }
-.demo-banner-tool svg { color: var(--color-text-secondary); }
-.demo-banner-tool-label { color: var(--color-text-primary); font-weight: 500; }
-.demo-banner-tool-detail { grid-column: 1 / -1; color: var(--color-text-secondary); font-size: 13px; line-height: 18px; }
-.demo-banner-nowrap { white-space: nowrap; }
-.demo-banner-tool:hover .demo-banner-tool-label { text-decoration: underline; text-underline-offset: 4px; }
-.demo-banner-tool:hover svg { color: var(--color-text-primary); }
-.demo-banner a:focus-visible, .demo-banner summary:focus-visible, .demo-banner-agent-toggle:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.demo-banner a:focus-visible, .demo-banner summary:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 @media (min-width: 1024px) and (max-width: 1279px) {
-  .demo-banner { grid-template-columns: fit-content(320px) minmax(0, 1fr); padding-block: 12px; }
-  .demo-banner-explore-links a, .demo-banner-explore-links summary { min-height: 28px; }
-  .demo-banner-explore { padding-right: 24px; }
-  .demo-banner-agent { padding-left: 24px; column-gap: 16px; }
-  .demo-banner-tools { column-gap: 16px; }
+  .demo-banner { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "name agent actions" "facts agent actions"; }
+  .demo-banner-facts { border-left: 0; padding-left: 0; }
 }
 @media (max-width: 1023px) {
-  .demo-banner { grid-template-columns: minmax(0, 1fr); row-gap: 10px; padding: 12px 24px 14px; }
-  .demo-banner-explore { padding-right: 0; }
-  .demo-banner-agent { border-left: 0; border-top: 1px solid var(--color-border-base); padding: 10px 0 0; }
+  .demo-banner { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "name facts actions" "agent agent agent"; row-gap: 2px; padding: 8px 24px 10px; }
+  .demo-banner-facts { white-space: normal; }
+  .demo-banner-panel { left: 24px; right: 24px; width: auto; }
 }
 @media (max-width: 639px) {
-  .demo-banner { row-gap: 0; padding: 10px 16px 0; }
-  .demo-banner a, .demo-banner summary, .demo-banner-agent-toggle { min-height: 44px; }
-  .demo-banner-explore-links { display: block; margin-top: 0; }
-  .demo-banner-features { position: static; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; width: auto; max-height: none; margin: 0 0 8px; padding: 12px 16px; box-shadow: none; }
-  .demo-banner-agent { grid-template-columns: minmax(0, 1fr); grid-template-areas: "actions" "toggle" "tools"; gap: 0; border-top: 0; padding: 0; }
-  .demo-banner-agent-heading { display: none; }
-  .demo-banner-actions { margin-top: 4px; }
-  .demo-banner-agent-toggle-heading { display: block; grid-area: toggle; margin: 4px -16px 0; border-top: 1px solid var(--color-border-base); }
-  .demo-banner-agent-toggle { justify-content: space-between; width: 100%; min-height: 48px; border: 0; border-radius: 0; background: transparent; padding: 0 16px; color: var(--color-text-primary); font: inherit; font-weight: 600; cursor: pointer; }
-  .demo-banner-agent-toggle:focus-visible { outline-offset: -2px; }
-  .demo-banner-tools { grid-template-columns: minmax(0, 1fr); padding-bottom: 8px; }
-  .demo-banner-tools[data-open='false'] { display: none; }
-  .demo-banner .demo-banner-tool { padding: 6px 4px; }
+  .demo-banner { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "name facts" "actions actions"; column-gap: 10px; row-gap: 0; padding: 10px 16px 0; }
+  .demo-banner-facts { border-left: 0; padding-left: 0; font-size: 13px; }
+  .demo-banner-agent { display: none; }
+  .demo-banner a, .demo-banner summary { min-height: 44px; }
+  .demo-banner .demo-banner-primary { border: solid transparent; border-width: 4px 0; background-clip: padding-box; }
+  .demo-banner .demo-banner-primary:focus-visible { outline-offset: 0; }
+  .demo-banner-panel { top: 100%; left: 0; right: 0; border-width: 1px 0; border-radius: 0; padding: 12px 16px 16px; }
+  .demo-banner-panel-agent { display: block; margin-bottom: 12px; color: var(--color-text-strong); }
+  .demo-banner-features { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 }
