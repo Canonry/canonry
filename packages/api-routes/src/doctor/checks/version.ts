@@ -1,4 +1,4 @@
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses, compareSemver, isStrictSemver } from '@ainyc/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
 const versionCurrentCheck: CheckDefinition = {
@@ -17,16 +17,17 @@ const versionCurrentCheck: CheckDefinition = {
 
     const status = ctx.getUpdateStatus()
     if (!status.enabled) {
+      // No remediation on purpose: an opt-out such as DO_NOT_TRACK is a
+      // deliberate operator choice, and agents act on remediation text.
       return {
         status: CheckStatuses.skipped,
         code: 'version.check-disabled',
-        summary: `Update check is disabled (running ${status.current}).`,
-        remediation: 'Unset CANONRY_DISABLE_UPDATE_CHECK / DO_NOT_TRACK / CI, or set updateCheck: true in config.yaml, to re-enable it.',
-        details: { current: status.current },
+        summary: `Update check is off (${status.disabledBy ?? 'opted out'}); running ${status.current}.`,
+        details: { current: status.current, ...(status.disabledBy ? { disabledBy: status.disabledBy } : {}) },
       }
     }
 
-    if (!status.latest) {
+    if (!status.latest || !isStrictSemver(status.latest)) {
       return {
         status: CheckStatuses.skipped,
         code: 'version.latest-unknown',
@@ -36,15 +37,18 @@ const versionCurrentCheck: CheckDefinition = {
       }
     }
 
-    if (compareVersions(status.latest, status.current) > 0) {
+    if (compareSemver(status.latest, status.current) > 0) {
       return {
         status: CheckStatuses.warn,
         code: 'version.outdated',
         summary: `canonry ${status.latest} is available; this server runs ${status.current}.`,
-        remediation: `Run \`${status.upgradeCommand}\`, then restart the server (\`canonry stop && canonry start\`, or restart \`canonry serve\`).`,
+        remediation: status.installMethod === 'docker'
+          ? `Upgrade the container: ${status.upgradeCommand}.`
+          : `Run \`${status.upgradeCommand}\`, then restart the server (\`canonry stop && canonry start\`, or restart \`canonry serve\`).`,
         details: {
           current: status.current,
           latest: status.latest,
+          installMethod: status.installMethod,
           upgradeCommand: status.upgradeCommand,
           url: status.url,
         },
@@ -58,27 +62,6 @@ const versionCurrentCheck: CheckDefinition = {
       details: { current: status.current, latest: status.latest },
     }
   },
-}
-
-/**
- * Compare `major.minor.patch` cores, ignoring pre-release and build metadata.
- * Unparseable input compares equal, so a malformed registry value can never
- * produce a false "outdated" warning.
- */
-function compareVersions(a: string, b: string): number {
-  const parse = (v: string): number[] | null => {
-    const parts = (v.split(/[-+]/)[0] ?? '').split('.')
-    if (parts.length < 3) return null
-    const nums = parts.slice(0, 3).map(Number)
-    return nums.every((n) => Number.isInteger(n) && n >= 0) ? nums : null
-  }
-  const pa = parse(a)
-  const pb = parse(b)
-  if (!pa || !pb) return 0
-  for (let i = 0; i < 3; i++) {
-    if (pa[i]! !== pb[i]!) return pa[i]! > pb[i]! ? 1 : -1
-  }
-  return 0
 }
 
 export const VERSION_CHECKS: readonly CheckDefinition[] = [versionCurrentCheck]

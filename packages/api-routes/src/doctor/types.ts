@@ -114,9 +114,13 @@ export interface DoctorContext {
 export interface DoctorUpdateStatus {
   /** False when an opt-out disabled the update check. */
   enabled: boolean
+  /** Which opt-out disabled it (e.g. `DO_NOT_TRACK`, `config`), when `enabled` is false. */
+  disabledBy?: string
   current: string
   /** Newest published version known to the host, or null when never fetched. */
   latest: string | null
+  /** How this install is upgraded; `upgradeCommand` is already tailored to it. */
+  installMethod: 'npm' | 'homebrew' | 'docker'
   upgradeCommand: string
   url: string
 }

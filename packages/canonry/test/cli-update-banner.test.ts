@@ -27,6 +27,7 @@ const UPDATE = {
   latest: '5.2.0',
   url: 'https://www.npmjs.com/package/@canonry/canonry',
   upgradeCommand: 'npm install -g @canonry/canonry',
+  installMethod: 'npm' as const,
 }
 
 describe('update notice', () => {
