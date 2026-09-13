@@ -59,3 +59,43 @@ test('public demo reads stored Google evidence without configuration or live sit
   expect(screen.queryByRole('button', { name: 'Inspect URL' })).toBeNull()
   expect(screen.queryByText('Setup & Configuration')).toBeNull()
 })
+
+test.each([
+  ['a read-only API key', { account: null, apiKey: { id: 'reader', scopes: ['read'], projectId: null, readOnly: true } }],
+  ['a viewer account', { account: { name: 'Viewer', role: 'viewer' as const }, apiKey: null }],
+])('outside the public demo, %s keeps the Google Search Console controls unchanged', async (_label, access) => {
+  const restoreFetch = mockFetch((url) => {
+    const path = pathOf(url)
+    if (path.endsWith('/google/connections')) return jsonResponse([{
+      id: 'gsc-1', domain: 'example.com', connectionType: 'gsc', propertyId: 'sc-domain:example.com', sitemapUrl: 'https://example.com/sitemap.xml',
+      scopes: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
+    }])
+    if (path.includes('/google/properties')) return jsonResponse({ sites: [{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteOwner' }] })
+    if (path.includes('/google/gsc/sitemaps')) return jsonResponse({ sitemaps: [], summary: null, preferredSubmissionUrls: [] })
+    if (path.includes('/google/gsc/performance/daily')) return jsonResponse({
+      totals: { clicks: 10, impressions: 100, ctr: 0.1, position: 4, positionDays: 1, days: 1 }, daily: [], trends: { clicks: null, impressions: null, ctr: null, position: null },
+      window: { startDate: '2026-07-24', endDate: '2026-07-24', latestDataDate: '2026-07-24', daysSinceLatestData: 1 },
+    })
+    if (path.includes('/google/gsc/performance')) return jsonResponse({ rows: [], totalMatching: 0, truncated: false, latestAvailableDate: '2026-07-24' })
+    if (path.includes('/google/gsc/inspections')) return jsonResponse([])
+    if (path.includes('/google/gsc/deindexed')) return jsonResponse([])
+    if (path.includes('/google/gsc/coverage/history')) return jsonResponse([])
+    if (path.includes('/google/gsc/coverage')) return jsonResponse(null)
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AccountProvider account={access.account} apiKey={access.apiKey}>
+        <GscSection projectName="test-project" refreshNonce={0} />
+      </AccountProvider>
+    </QueryClientProvider>,
+  )
+
+  const disconnect = await screen.findByRole('button', { name: 'Disconnect' }) as HTMLButtonElement
+  const reload = await screen.findByRole('button', { name: 'Reload from Google' }) as HTMLButtonElement
+  await waitFor(() => expect(reload.disabled).toBe(false))
+  expect(disconnect.disabled).toBe(false)
+})

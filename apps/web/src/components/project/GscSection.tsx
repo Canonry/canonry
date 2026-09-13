@@ -246,7 +246,7 @@ export function GscSection({
   refreshNonce: number
 }) {
   const queryClient = useQueryClient()
-  const { isAdmin, canWrite } = useAccount()
+  const { isAdmin } = useAccount()
   const publicDemo = isPublicDemo()
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
@@ -1119,7 +1119,6 @@ export function GscSection({
               {!publicDemo && <button
                 type="button"
                 className="ml-auto text-muted transition-colors hover:text-negative-400"
-                disabled={!canWrite}
                 onClick={asyncHandler(handleDisconnect)}
               >
                 Disconnect
@@ -1849,7 +1848,7 @@ export function GscSection({
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!canWrite || listingSitemaps || !gscConn?.propertyId}
+                    disabled={listingSitemaps || !gscConn?.propertyId}
                     onClick={() => void handleListSitemaps()}
                   >
                     {listingSitemaps ? 'Reloading\u2026' : 'Reload from Google'}
