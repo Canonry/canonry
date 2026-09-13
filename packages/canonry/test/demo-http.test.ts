@@ -133,3 +133,93 @@ describe('dedicated public demo server', () => {
     expect((await app.inject('/api/v1/demo')).json()).toMatchObject({ mode: 'view-only', sampleData: true })
   })
 })
+
+describe('public demo API budget', () => {
+  const visitor = (octet: number) => ({ 'x-forwarded-for': `198.51.100.${octet}` })
+
+  it.each([
+    '/api/v1/projects',
+    '/%61pi/v1/projects',
+    '/api/v1/%70rojects',
+    '/api/v1/projects?view=all',
+    '/%61pi/v1/projects?view=%61',
+  ])('throttles %s on the API route the router reaches', async url => {
+    const { app } = await fixture(2)
+    const responses = []
+    for (let index = 0; index < 3; index += 1) responses.push(await app.inject({ url, headers: visitor(30) }))
+    expect(responses.map(response => response.statusCode)).toEqual([200, 200, 429])
+    expect(responses[0]!.json()).toEqual([expect.objectContaining({ name: 'summit-roofing' })])
+  })
+
+  it('charges plain, encoded and HEAD spellings of one API read to a single visitor budget', async () => {
+    const { app } = await fixture(4)
+    const sequence = [
+      { method: 'GET', url: '/api/v1/projects' },
+      { method: 'GET', url: '/%61pi/v1/projects' },
+      { method: 'HEAD', url: '/api/v1/projects' },
+      { method: 'GET', url: '/%61pi/v1/%70rojects?view=all' },
+      { method: 'GET', url: '/%61pi/v1/projects' },
+      { method: 'HEAD', url: '/api/v1/projects' },
+    ] as const
+    const responses = []
+    for (const request of sequence) responses.push(await app.inject({ ...request, headers: visitor(31) }))
+    expect(responses.map(response => response.statusCode)).toEqual([200, 200, 200, 200, 429, 429])
+    expect(responses.slice(0, 4).map(response => response.headers['x-ratelimit-remaining'])).toEqual(['3', '2', '1', '0'])
+    // The budget is per visitor, not per spelling or global.
+    expect((await app.inject({ url: '/%61pi/v1/projects', headers: visitor(32) })).statusCode).toBe(200)
+  })
+
+  it('throttles HEAD requests to API routes', async () => {
+    const { app } = await fixture(2)
+    const statuses = []
+    for (let index = 0; index < 3; index += 1) {
+      statuses.push((await app.inject({ method: 'HEAD', url: '/api/v1/projects', headers: visitor(33) })).statusCode)
+    }
+    expect(statuses).toEqual([200, 200, 429])
+  })
+
+  it.each([
+    '/%2561pi/v1/projects',
+    '//api/v1/projects',
+    '/API/v1/projects',
+    '/api/v1/projects/',
+    '/%61pi/v1/unknown',
+    '/%61pi/v1/keys',
+    '/%70rojects/summit-roofing',
+    '/private.txt',
+  ])('charges %s to the same budget without opening an API read', async url => {
+    const { app } = await fixture(2)
+    const headers = visitor(34)
+    for (let index = 0; index < 2; index += 1) {
+      const response = await app.inject({ url, headers })
+      expect(response.statusCode, url).toBeGreaterThanOrEqual(400)
+      expect(response.statusCode, url).not.toBe(429)
+      expect(response.body, url).not.toContain('summit-roofing.example')
+    }
+    expect((await app.inject({ url, headers })).statusCode, url).toBe(429)
+    expect((await app.inject({ url: '/api/v1/projects', headers })).statusCode).toBe(429)
+  })
+
+  it('charges refused writes before refusing them', async () => {
+    const { app } = await fixture(2)
+    const headers = visitor(35)
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects', payload: {}, headers })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'DELETE', url: '/%61pi/v1/projects/summit-roofing', headers })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects', payload: {}, headers })).statusCode).toBe(429)
+  })
+
+  it('keeps the dashboard document, deep links, icons and built assets outside the API budget', async () => {
+    const { app } = await fixture(2)
+    const headers = visitor(36)
+    for (let index = 0; index < 5; index += 1) {
+      for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo', '/runs', '/assets/app.js', '/favicon.svg', '/health', '/robots.txt']) {
+        for (const method of ['GET', 'HEAD'] as const) {
+          expect((await app.inject({ method, url, headers })).statusCode, `${method} ${url}`).toBe(200)
+        }
+      }
+    }
+    expect((await app.inject({ url: '/api/v1/projects', headers })).statusCode).toBe(200)
+    expect((await app.inject({ url: '/%61pi/v1/projects', headers })).statusCode).toBe(200)
+    expect((await app.inject({ url: '/api/v1/projects', headers })).statusCode).toBe(429)
+  })
+})

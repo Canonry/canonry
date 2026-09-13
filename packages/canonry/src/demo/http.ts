@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { desc, eq } from 'drizzle-orm'
-import Fastify from 'fastify'
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import rateLimit from '@fastify/rate-limit'
 import { apiRoutes, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
@@ -16,7 +16,29 @@ const DEMO_CLIENT_CONFIG = {
   dashboard: { showAgentBar: false, showUpdateNotification: false },
 }
 const DEMO_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+// Known dashboard locations. Arbitrary files, API paths and machine endpoints
+// never receive the document. The workspace backlink admin page is not part of
+// the demo, so it is not served.
+const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
 const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo: this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
+
+function isDemoDocumentRequest(request: FastifyRequest): boolean {
+  return (request.method === 'GET' || request.method === 'HEAD')
+    && DEMO_DOCUMENT_PATH.test(request.url.split('?')[0] ?? '')
+}
+
+/**
+ * Only the fixed public files skip the per-visitor budget: built assets, icons,
+ * health, robots and the dashboard document. Decide on the route the router
+ * matched, never the raw URL. The router decodes percent-escapes, so
+ * /%61pi/v1/projects reaches the /api/v1/projects handler. A request that
+ * matched no route is charged too, so malformed or encoded paths cannot flood
+ * the not-found handler.
+ */
+function isOutsideDemoApiBudget(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url
+  return route === undefined ? isDemoDocumentRequest(request) : !route.startsWith('/api/')
+}
 
 /** Internal HTTP shell. The public command always supplies a fresh synthetic database. */
 export async function createDemoHttpServer(options: {
@@ -46,17 +68,23 @@ export async function createDemoHttpServer(options: {
     trustProxy: ['127.0.0.1', '::1'],
   })
   await app.register(rateLimit, {
+    // Not attached per route: route hooks never run for the not-found handler
+    // and run after the refusals below. The single hook charges first instead.
+    global: false,
     max: options.apiRateLimitMax ?? 600,
     timeWindow: '1 minute',
     // A dashboard load fans out across many immutable chunks. Those reads do
     // not touch the API budget, which stays available for stored-data calls.
-    allowList: request => !request.url.startsWith('/api/'),
+    allowList: isOutsideDemoApiBudget,
   })
+  const chargeApiBudget = app.rateLimit()
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Robots-Tag', 'noindex, nofollow')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'no-referrer')
     reply.header('Content-Security-Policy', DEMO_CSP)
+    // Throws the 429 once the visitor's budget is spent.
+    await chargeApiBudget.call(app, request, reply)
     const method = request.method
     if (method !== 'GET' && method !== 'HEAD') {
       return reply.code(403).send({ error: { code: 'DEMO_READ_ONLY', message: 'This public demo is view only. Changes and live runs are disabled.' } })
@@ -122,7 +150,7 @@ export async function createDemoHttpServer(options: {
     index: false,
     dotfiles: 'deny',
   })
-  const sendDocument = (_request: unknown, reply: import('fastify').FastifyReply) => {
+  const sendDocument = (_request: unknown, reply: FastifyReply) => {
     return reply.header('Cache-Control', 'no-cache').type('text/html').send(html)
   }
   for (const [filename, contentType] of [['favicon.svg', 'image/svg+xml'], ['favicon-32.png', 'image/png'], ['apple-touch-icon.png', 'image/png']] as const) {
@@ -135,14 +163,9 @@ export async function createDemoHttpServer(options: {
   app.get('/', sendDocument)
   app.get('/robots.txt', async (_request, reply) => reply.type('text/plain').send('User-agent: *\nDisallow: /\n'))
   app.setNotFoundHandler(async (request, reply) => {
-    const pathname = request.url.split('?')[0] ?? ''
-    // Known SPA routes get the document; arbitrary files, API paths, and
-    // machine endpoints must never receive a misleading HTML success. The
-    // workspace backlink admin page is not part of the demo, so it is not served.
-    if ((request.method === 'GET' || request.method === 'HEAD')
-      && /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/.test(pathname)) {
-      return sendDocument(request, reply)
-    }
+    // Known SPA routes get the document; everything else must never receive a
+    // misleading HTML success.
+    if (isDemoDocumentRequest(request)) return sendDocument(request, reply)
     return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Page not found.' } })
   })
   return app
