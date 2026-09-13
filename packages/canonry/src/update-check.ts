@@ -171,6 +171,63 @@ export async function checkLatestVersionForCli(opts?: {
   return buildUpdateAvailable(PKG_VERSION, latest)
 }
 
+/**
+ * Synchronous, network-free read of the on-disk cache written by
+ * `checkLatestVersionForCli`. Lets the CLI print its update notice before the
+ * command runs, so the notice can never interleave with command output.
+ */
+export function readCachedUpdateAvailable(): UpdateAvailable | null {
+  if (!isUpdateCheckEnabled()) return null
+  if (!configExists()) return null
+  try {
+    const cachedLatest = loadConfigRaw()?.lastKnownLatestVersion
+    if (typeof cachedLatest !== 'string') return null
+    return buildUpdateAvailable(PKG_VERSION, cachedLatest)
+  } catch {
+    return null
+  }
+}
+
+/** Stable code agents can branch on, shared by the CLI notice and doctor. */
+export const UPDATE_AVAILABLE_NOTICE_CODE = 'UPDATE_AVAILABLE'
+
+/**
+ * Render the update notice for stderr.
+ *
+ * - Interactive text output keeps the human banner.
+ * - `--format json|jsonl` gets one compact JSON line, so a caller that merges
+ *   stderr into stdout still reads a stream of valid JSON documents.
+ * - Non-interactive text output (an agent shelling out) gets one plain line
+ *   that names the versions, the upgrade command, and how to silence it.
+ */
+export function formatUpdateNotice(
+  update: UpdateAvailable,
+  opts: { format: 'text' | 'json' | 'jsonl'; interactive: boolean },
+): string {
+  if (opts.format === 'json' || opts.format === 'jsonl') {
+    return `${JSON.stringify({
+      notice: {
+        code: UPDATE_AVAILABLE_NOTICE_CODE,
+        current: update.current,
+        latest: update.latest,
+        upgradeCommand: update.upgradeCommand,
+        url: update.url,
+      },
+    })}\n`
+  }
+  if (opts.interactive) {
+    return (
+      `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
+      `  Upgrade: ${update.upgradeCommand}\n\n`
+    )
+  }
+  return (
+    `[canonry] ${UPDATE_AVAILABLE_NOTICE_CODE}: canonry ${update.latest} is available (installed ${update.current}). ` +
+    `Upgrade with \`${update.upgradeCommand}\`, then restart any running \`canonry serve\`. ` +
+    `Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n`
+  )
+}
+
 interface MemoryCacheEntry {
   fetchedAt: number
   latest: string | null
@@ -247,4 +304,38 @@ export function checkLatestVersionForServer(opts?: {
 
   if (!memoryCache || !memoryCache.latest) return null
   return buildUpdateAvailable(PKG_VERSION, memoryCache.latest)
+}
+
+export interface UpdateStatus {
+  /** False when an opt-out (env, CI, or config) disabled the check. */
+  enabled: boolean
+  current: string
+  /** Newest published version known to this process, or null when never fetched. */
+  latest: string | null
+  upgradeCommand: string
+  url: string
+}
+
+/**
+ * Server-side status for the `canonry.version.current` doctor check.
+ * Non-blocking like `checkLatestVersionForServer` (and kicks the same
+ * background refresh). Falls back to the CLI's on-disk cache so a doctor call
+ * right after boot, before the first registry round-trip lands, still knows
+ * the latest version.
+ */
+export function getServerUpdateStatus(opts?: { ttlMs?: number; now?: () => number }): UpdateStatus {
+  const base = { current: PKG_VERSION, upgradeCommand: `npm install -g ${PKG_NAME}`, url: NPM_PACKAGE_URL }
+  if (!isUpdateCheckEnabled()) return { ...base, enabled: false, latest: null }
+
+  checkLatestVersionForServer(opts)
+  let latest = memoryCache?.latest ?? null
+  if (!latest && configExists()) {
+    try {
+      const cached = loadConfigRaw()?.lastKnownLatestVersion
+      if (typeof cached === 'string') latest = cached
+    } catch {
+      // best-effort
+    }
+  }
+  return { ...base, enabled: true, latest }
 }

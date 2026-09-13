@@ -463,4 +463,98 @@ describe('update-check', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1) // no extra calls
     })
   })
+
+  // ── readCachedUpdateAvailable / formatUpdateNotice ──────────────────
+
+  describe('readCachedUpdateAvailable', () => {
+    it('reads the cached latest version without touching the network', async () => {
+      const fetchSpy = vi.fn() as unknown as typeof fetch
+      globalThis.fetch = fetchSpy
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ lastKnownLatestVersion: '999.0.0' }))
+
+      const { readCachedUpdateAvailable } = await import('../src/update-check.js')
+      expect(readCachedUpdateAvailable()?.latest).toBe('999.0.0')
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('returns null when the cached version is not newer', async () => {
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ lastKnownLatestVersion: '0.0.1' }))
+      const { readCachedUpdateAvailable } = await import('../src/update-check.js')
+      expect(readCachedUpdateAvailable()).toBe(null)
+    })
+
+    it('returns null when nothing is cached, no config exists, or the check is disabled', async () => {
+      const { readCachedUpdateAvailable } = await import('../src/update-check.js')
+      expect(readCachedUpdateAvailable()).toBe(null)
+
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig())
+      expect(readCachedUpdateAvailable()).toBe(null)
+
+      saveConfig(makeConfig({ lastKnownLatestVersion: '999.0.0' }))
+      process.env.CI = 'true'
+      expect(readCachedUpdateAvailable()).toBe(null)
+    })
+  })
+
+  describe('formatUpdateNotice', () => {
+    const update = { current: '5.1.2', latest: '5.2.0', url: 'https://x', upgradeCommand: 'npm install -g @canonry/canonry' }
+
+    it('emits a single parseable JSON line for machine formats', async () => {
+      const { formatUpdateNotice } = await import('../src/update-check.js')
+      for (const format of ['json', 'jsonl'] as const) {
+        for (const interactive of [true, false]) {
+          const out = formatUpdateNotice(update, { format, interactive })
+          expect(out.split('\n')).toHaveLength(2)
+          expect(JSON.parse(out)).toEqual({ notice: { code: 'UPDATE_AVAILABLE', ...update } })
+        }
+      }
+    })
+
+    it('emits one plain line with the code and upgrade command when not interactive', async () => {
+      const { formatUpdateNotice } = await import('../src/update-check.js')
+      const out = formatUpdateNotice(update, { format: 'text', interactive: false })
+      expect(out.split('\n')).toHaveLength(2)
+      expect(out.startsWith('[canonry] UPDATE_AVAILABLE: canonry 5.2.0 is available (installed 5.1.2).')).toBe(true)
+      expect(out).toContain('`npm install -g @canonry/canonry`')
+    })
+
+    it('keeps the human banner on a terminal', async () => {
+      const { formatUpdateNotice } = await import('../src/update-check.js')
+      expect(formatUpdateNotice(update, { format: 'text', interactive: true })).toBe(
+        '\n→ canonry 5.2.0 is available (you have 5.1.2).\n  Upgrade: npm install -g @canonry/canonry\n\n',
+      )
+    })
+  })
+
+  describe('getServerUpdateStatus', () => {
+    it('reports disabled without fetching when opted out', async () => {
+      process.env.CANONRY_DISABLE_UPDATE_CHECK = '1'
+      const fetchSpy = vi.fn() as unknown as typeof fetch
+      globalThis.fetch = fetchSpy
+      const { getServerUpdateStatus, resetServerUpdateCheckCache } = await import('../src/update-check.js')
+      await resetServerUpdateCheckCache()
+      const status = getServerUpdateStatus()
+      expect(status.enabled).toBe(false)
+      expect(status.latest).toBe(null)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the on-disk cache while the first registry fetch is in flight', async () => {
+      globalThis.fetch = vi.fn(async () => new Response(
+        JSON.stringify({ latest: '999.0.1' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ lastKnownLatestVersion: '999.0.0' }))
+
+      const { getServerUpdateStatus, resetServerUpdateCheckCache, awaitPendingServerRefresh } = await import('../src/update-check.js')
+      await resetServerUpdateCheckCache()
+      expect(getServerUpdateStatus({ now: () => 1_000 }).latest).toBe('999.0.0')
+      await awaitPendingServerRefresh()
+      expect(getServerUpdateStatus({ now: () => 2_000 })).toMatchObject({ enabled: true, latest: '999.0.1' })
+    })
+  })
 })

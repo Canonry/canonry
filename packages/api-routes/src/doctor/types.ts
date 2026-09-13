@@ -99,10 +99,26 @@ export interface DoctorContext {
   bundledSkills?: BundledSkillSnapshot[]
   /** Live user-global native Canonry plugin state, when available on a local host. */
   getAgentPluginState?: () => AgentPluginState
+  /**
+   * Running version vs the newest published one, for `canonry.version.current`.
+   * Must not block on the network. Wired by `canonry serve`; deployments that
+   * don't self-update (cloud `apps/api`) leave it undefined and the check `skipped`.
+   */
+  getUpdateStatus?: () => DoctorUpdateStatus
   /** Offline, secret-free Google Ads/GTM metadata used by project Doctor checks. */
   getGoogleMarketingDoctorInput?: (
     ctx: DoctorContext,
   ) => import('./checks/google-marketing.js').GoogleMarketingDoctorInput | null | undefined
+}
+
+export interface DoctorUpdateStatus {
+  /** False when an opt-out disabled the update check. */
+  enabled: boolean
+  current: string
+  /** Newest published version known to the host, or null when never fetched. */
+  latest: string | null
+  upgradeCommand: string
+  url: string
 }
 
 export interface ProjectInfo {

@@ -143,7 +143,7 @@ import {
   trackEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
-import { checkLatestVersionForServer } from "./update-check.js";
+import { checkLatestVersionForServer, getServerUpdateStatus } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
 import { maybeShowActivationNotice } from './activation-notice.js'
@@ -2568,6 +2568,8 @@ export async function createServer(opts: {
       }
     })(),
     getAgentPluginState: opts.getAgentPluginState,
+    // Powers the `canonry.version.current` doctor check. Non-blocking.
+    getUpdateStatus: () => getServerUpdateStatus(),
     // Local canonry serve runs on the operator's machine, where pointing a
     // webhook at localhost (Discord test container, Pipedream-mock dev server,
     // etc.) is a legitimate workflow. Default to allowing it for the local

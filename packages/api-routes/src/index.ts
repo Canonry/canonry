@@ -96,7 +96,7 @@ import { researchRoutes } from './research.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
-import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
+import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -391,6 +391,8 @@ export interface ApiRoutesOptions {
   bundledSkills?: BundledSkillSnapshot[]
   /** Live user-global native Canonry plugin state, when available on a local host. */
   getAgentPluginState?: () => AgentPluginState
+  /** Running vs latest published version for the `canonry.version.current` doctor check. */
+  getUpdateStatus?: () => DoctorUpdateStatus
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -745,6 +747,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
+      getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here

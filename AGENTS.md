@@ -385,6 +385,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 |----------|----|-------|---------|
 | database | `db.file.present` | global | Configured SQLite database file still exists on disk (catches `rm ~/.canonry/data.db` against a running daemon — SQLite holds the inode open across `unlink`) |
 | config | `config.file.present` | global | Configured `~/.canonry/config.yaml` still exists on disk (same gotcha as above) |
+| config | `canonry.version.current` | global | The running server is the newest published `@canonry/canonry`: warns `version.outdated` with the upgrade command (and a reminder to restart `canonry serve`); skipped when the update check is opted out (`CANONRY_DISABLE_UPDATE_CHECK`, `DO_NOT_TRACK`, `CI`, `updateCheck: false`), before the registry has been reached, or on deployments that don't report update status |
 | auth | `google.auth.connection` | project | OAuth credentials present, refresh token works |
 | auth | `google.auth.property-access` | project | Authorized principal can list the selected GSC site |
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |

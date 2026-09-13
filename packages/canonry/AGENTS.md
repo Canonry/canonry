@@ -195,7 +195,7 @@ Conventions when adding `jsonl` to a command:
 
 The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
 
-The CLI also keeps interactive chrome (the "new version available" banner) off a non-interactive stderr — it's gated on `process.stderr.isTTY`, so piped/captured output stays clean without `2>/dev/null`. Errors still go to stderr.
+The update notice is the one piece of chrome that reaches agents as well as people, because an agent is usually the one running an outdated install. `cli.ts` prints it synchronously from the on-disk cache (`readCachedUpdateAvailable`) BEFORE dispatch, so it is always the first stderr line and never interleaves with output; stdout is untouched, and the registry refresh only rewrites the cache in the background. `formatUpdateNotice` picks the shape: the human banner on a terminal, one plain `[canonry] UPDATE_AVAILABLE: ...` line when stderr is captured, and one compact `{"notice":{"code":"UPDATE_AVAILABLE",...}}` line for `--format json|jsonl` (so `2>&1` still yields a valid JSON stream). Skipped for help and `telemetry`; silenced by the update-check opt-outs. The server-side counterpart is the `canonry.version.current` doctor check (`getServerUpdateStatus`). Other interactive chrome (skills auto-sync notice, setup nudge) stays gated on `process.stderr.isTTY`. Errors still go to stderr.
 
 ### Run completion pipeline
 

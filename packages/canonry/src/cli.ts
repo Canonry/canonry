@@ -17,7 +17,7 @@ import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-er
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
-import { checkLatestVersionForCli } from './update-check.js'
+import { checkLatestVersionForCli, formatUpdateNotice, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
@@ -208,22 +208,20 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     })
   }
 
-  // Surface a new-version banner before the command runs. Opt-outs and the
-  // 24h cache live in `update-check.ts`; this stays a no-op when the
-  // registry is unreachable, the user is offline, or no upgrade is
-  // available. Banner goes to stderr so it never pollutes `--format json`.
-  //
-  // Gated on an interactive stderr: when output is piped or captured (the
-  // agent case), this fire-and-forget banner is skipped entirely so it can
-  // never interleave with command output or force callers to add `2>/dev/null`.
-  if (!isHelpRequest && command !== 'telemetry' && process.stderr.isTTY) {
-    void checkLatestVersionForCli().then((update) => {
-      if (!update) return
-      process.stderr.write(
-        `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
-        `  Upgrade: ${update.upgradeCommand}\n\n`,
-      )
-    })
+  // Update notice for people AND agents. It is printed synchronously from the
+  // on-disk cache before the command runs, so it is always the first stderr
+  // line and can never interleave with command output; stdout is untouched.
+  // The registry refresh runs in the background and only updates the cache,
+  // so a new release is announced from the next invocation on. Opt-outs and
+  // the 24h TTL live in `update-check.ts`. The shape follows the caller:
+  // banner on a terminal, one plain line when captured, one JSON line for
+  // `--format json|jsonl`.
+  if (!isHelpRequest && command !== 'telemetry') {
+    const update = readCachedUpdateAvailable()
+    if (update) {
+      process.stderr.write(formatUpdateNotice(update, { format, interactive: Boolean(process.stderr.isTTY) }))
+    }
+    void checkLatestVersionForCli()
   }
 
   const commandStartedAt = Date.now()

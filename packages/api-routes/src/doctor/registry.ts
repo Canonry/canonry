@@ -12,12 +12,14 @@ import { RUNTIME_STATE_CHECKS } from './checks/runtime-state.js'
 import { TRAFFIC_SOURCE_CHECKS } from './checks/traffic-source.js'
 import { WORDPRESS_PUBLISH_CHECKS } from './checks/wordpress-publish.js'
 import { GOOGLE_MARKETING_DOCTOR_CHECKS } from './checks/google-marketing.js'
+import { VERSION_CHECKS } from './checks/version.js'
 import type { CheckDefinition } from './types.js'
 
 export const ALL_CHECKS: readonly CheckDefinition[] = [
   // Runtime-state checks run first so file-system gone errors surface
   // before any auth/integration checks try to touch the (orphaned) DB.
   ...RUNTIME_STATE_CHECKS,
+  ...VERSION_CHECKS,
   ...GOOGLE_AUTH_CHECKS,
   ...GBP_AUTH_CHECKS,
   ...PLACES_CHECKS,
