@@ -9,6 +9,7 @@ import { apiRoutes, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
 import { apiKeys, bingKeywordStats, bingUrlInspections, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { isDemoApiReadAllowed } from './access.js'
+import { DEFAULT_DEMO_TRUSTED_PROXIES } from './trust-proxy.js'
 
 const DEMO_VIEWER = { id: 'public-demo-viewer', name: 'Public demo', scopes: ['read'], projectId: null }
 const DEMO_CLIENT_CONFIG = {
@@ -47,6 +48,8 @@ export async function createDemoHttpServer(options: {
   now: Date
   /** Focused test seam; public demo servers use the default API budget. */
   apiRateLimitMax?: number
+  /** Proxies whose X-Forwarded-For names the visitor. Defaults to loopback. */
+  trustProxy?: readonly string[]
   /** Read-only synthetic stores, never callbacks that invoke providers. */
   readOptions?: Pick<ApiRoutesOptions, 'googleConnectionStore' | 'googleStateSecret' | 'googleMarketingCredentialStore' | 'bingConnectionStore' | 'ga4CredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'>
 }) {
@@ -63,9 +66,10 @@ export async function createDemoHttpServer(options: {
   const app = Fastify({
     logger: false,
     bodyLimit: 1024 * 1024,
-    // The published service listens on loopback behind a local reverse proxy. Trust its
-    // caller chain without letting a directly connected remote client spoof it.
-    trustProxy: ['127.0.0.1', '::1'],
+    // The API budget is keyed by visitor address. Believe X-Forwarded-For only
+    // from the named proxies (a same-machine proxy by default), so a directly
+    // connected client cannot pick the address it is counted under.
+    trustProxy: [...(options.trustProxy ?? DEFAULT_DEMO_TRUSTED_PROXIES)],
   })
   await app.register(rateLimit, {
     // Not attached per route: route hooks never run for the not-found handler

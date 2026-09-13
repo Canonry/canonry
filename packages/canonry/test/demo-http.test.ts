@@ -9,7 +9,7 @@ import { PACKAGE_VERSION } from '../src/package-version.js'
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.restoreAllMocks() })
 
-async function fixture(apiRateLimitMax?: number) {
+async function fixture(apiRateLimitMax?: number, network: { trustProxy?: readonly string[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-http-'))
   mkdirSync(join(dir, 'assets'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head></head><body><div id="root"></div></body></html>')
@@ -20,7 +20,7 @@ async function fixture(apiRateLimitMax?: number) {
   migrate(db)
   const now = new Date('2026-09-09T12:00:00.000Z')
   db.insert(projects).values({ id: 'demo-simple', name: 'summit-roofing', displayName: 'Summit Roofing', canonicalDomain: 'summit-roofing.example', country: 'US', language: 'en', createdAt: now.toISOString(), updatedAt: now.toISOString() }).run()
-  const app = await createDemoHttpServer({ db, assetsDir: dir, now, apiRateLimitMax })
+  const app = await createDemoHttpServer({ db, assetsDir: dir, now, apiRateLimitMax, ...network })
   cleanups.push(async () => { await app.close(); db.$client.close(); rmSync(dir, { recursive: true, force: true }) })
   return { app, db }
 }
@@ -94,6 +94,18 @@ describe('dedicated public demo server', () => {
       remoteAddress: '203.0.113.20',
       headers: { 'x-forwarded-for': '198.51.100.21' },
     })).statusCode).toBe(429)
+  })
+
+  it('trusts forwarded visitor addresses only from the configured proxies', async () => {
+    const { app } = await fixture(1, { trustProxy: ['10.0.0.0/24'] })
+    const viaProxy = (visitor: string) => ({ url: '/api/v1/projects', remoteAddress: '10.0.0.5', headers: { 'x-forwarded-for': visitor } })
+    expect((await app.inject(viaProxy('198.51.100.30'))).statusCode).toBe(200)
+    expect((await app.inject(viaProxy('198.51.100.31'))).statusCode).toBe(200)
+    expect((await app.inject(viaProxy('198.51.100.30'))).statusCode).toBe(429)
+    // Naming a proxy replaces the loopback default, so a local caller cannot claim a visitor address.
+    const viaLoopback = (visitor: string) => ({ url: '/api/v1/projects', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': visitor } })
+    expect((await app.inject(viaLoopback('198.51.100.32'))).statusCode).toBe(200)
+    expect((await app.inject(viaLoopback('198.51.100.33'))).statusCode).toBe(429)
   })
 
   it('labels synthetic data, supports deep links and serves only built public assets', async () => {

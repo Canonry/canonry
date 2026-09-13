@@ -1,4 +1,5 @@
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
+import { DEFAULT_DEMO_TRUSTED_PROXIES, trustedProxyProblem } from '../demo/trust-proxy.js'
 
 export function parseDemoListenOptions(options: { port?: string; host?: string }) {
   const rawPort = options.port ?? '4188'
@@ -13,10 +14,23 @@ export function parseDemoListenOptions(options: { port?: string; host?: string }
   return { host, port }
 }
 
-export async function demoCommand(options: { port?: string; host?: string; format?: CliFormat }) {
+/** Proxies allowed to report the visitor address. Named values replace the loopback default. */
+export function parseDemoTrustedProxies(values: readonly string[] | undefined): string[] {
+  if (!values?.length) return [...DEFAULT_DEMO_TRUSTED_PROXIES]
+  for (const value of values) {
+    const problem = trustedProxyProblem(value)
+    if (problem) {
+      throw new CliError({ code: 'INVALID_TRUST_PROXY', message: `--trust-proxy ${JSON.stringify(value)} ${problem}.`, details: { value }, exitCode: 1 })
+    }
+  }
+  return [...values]
+}
+
+export async function demoCommand(options: { port?: string; host?: string; trustProxy?: readonly string[]; format?: CliFormat }) {
   const { host, port } = parseDemoListenOptions(options)
+  const trustProxy = parseDemoTrustedProxies(options.trustProxy)
   const { createDemoServer } = await import('../demo-server.js')
-  const app = await createDemoServer()
+  const app = await createDemoServer({ trustProxy })
   let stopping = false
   const stop = () => {
     if (stopping) return

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import Fastify from 'fastify'
-import { demoCommand, parseDemoListenOptions } from '../src/commands/demo.js'
+import { DEMO_CLI_COMMANDS } from '../src/cli-commands/demo.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { demoCommand, parseDemoListenOptions, parseDemoTrustedProxies } from '../src/commands/demo.js'
 
 const demoServer = vi.hoisted(() => ({ create: vi.fn() }))
 vi.mock('../src/demo-server.js', () => ({ createDemoServer: demoServer.create }))
@@ -33,10 +35,75 @@ describe('demo command lifecycle', () => {
     try {
       await expect(demoCommand({ format: 'json' })).resolves.toBeUndefined()
       expect(JSON.parse(output.mock.calls[0]![0])).toMatchObject({ status: 'ready', mode: 'view-only' })
+      expect(demoServer.create).toHaveBeenCalledWith({ trustProxy: ['127.0.0.1', '::1'] })
     } finally {
       await app.close()
     }
     expect(process.listenerCount('SIGINT')).toBe(interrupts)
     expect(process.listenerCount('SIGTERM')).toBe(terminations)
+  })
+})
+
+describe('demo trusted proxies', () => {
+  it('trusts only a reverse proxy on the same machine by default', () => {
+    expect(parseDemoTrustedProxies(undefined)).toEqual(['127.0.0.1', '::1'])
+    expect(parseDemoTrustedProxies([])).toEqual(['127.0.0.1', '::1'])
+  })
+
+  it('replaces the default with the named addresses and CIDR ranges', () => {
+    const values = ['10.0.0.5', '10.0.1.0/24', '2001:db8::/32', '::ffff:10.0.0.9', '192.0.2.1/32']
+    expect(parseDemoTrustedProxies(values)).toEqual(values)
+  })
+
+  it.each([
+    'proxy.example', 'loopback', '10.0.0.256', '10.0.0', '', ' 10.0.0.5', '10.0.0.5 ',
+    '10.0.0.0/', '/8', '10.0.0.0/33', '10.0.0.0/08', '10.0.0.0/-1', '10.0.0.0/8/8', '10.0.0.0/8.0',
+    '2001:db8::/129', 'fe80::1%eth0', '10.0.0.5,10.0.0.6',
+  ])('refuses %j with a usage error before starting', value => {
+    expect(() => parseDemoTrustedProxies([value])).toThrow(expect.objectContaining({
+      code: 'INVALID_TRUST_PROXY',
+      message: expect.stringContaining('--trust-proxy'),
+    }))
+  })
+
+  it.each(['0.0.0.0/0', '::/0'])('refuses the catch-all range %s, which would let visitors pick their own address', value => {
+    expect(() => parseDemoTrustedProxies(['10.0.0.5', value])).toThrow(expect.objectContaining({
+      code: 'INVALID_TRUST_PROXY',
+      message: expect.stringContaining('every address'),
+    }))
+  })
+})
+
+describe('demo command spec', () => {
+  it('documents the repeatable proxy flag', () => {
+    const [spec] = DEMO_CLI_COMMANDS
+    expect(spec!.usage).toContain('[--trust-proxy <ip-or-cidr>]...')
+    expect(spec!.help).toContain('--trust-proxy')
+    expect(spec!.options?.['trust-proxy']).toEqual({ type: 'string', multiple: true })
+  })
+
+  it('passes every --trust-proxy value to the demo server', async () => {
+    demoServer.create.mockReset()
+    const app = Fastify()
+    const listen = app.listen.bind(app)
+    vi.spyOn(app, 'listen').mockImplementation(async () => listen({ host: '127.0.0.1', port: 0 }))
+    demoServer.create.mockResolvedValue(app)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      await expect(dispatchRegisteredCommand(
+        ['demo', '--trust-proxy', '10.0.0.5', '--trust-proxy', '2001:db8::/32'], 'json', DEMO_CLI_COMMANDS,
+      )).resolves.toBe(true)
+      expect(demoServer.create).toHaveBeenCalledWith({ trustProxy: ['10.0.0.5', '2001:db8::/32'] })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('refuses an invalid --trust-proxy before creating a server', async () => {
+    demoServer.create.mockReset()
+    await expect(dispatchRegisteredCommand(
+      ['demo', '--trust-proxy', '10.0.0.5', '--trust-proxy', 'proxy.example'], 'json', DEMO_CLI_COMMANDS,
+    )).rejects.toMatchObject({ code: 'INVALID_TRUST_PROXY' })
+    expect(demoServer.create).not.toHaveBeenCalled()
   })
 })
