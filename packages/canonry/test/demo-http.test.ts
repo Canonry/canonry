@@ -114,6 +114,16 @@ describe('dedicated public demo server', () => {
     }
   })
 
+  it('does not serve the backlink admin page the demo hides from navigation', async () => {
+    const { app } = await fixture()
+    const admin = await app.inject('/backlinks')
+    expect(admin.statusCode).toBe(404)
+    expect(admin.body).not.toContain('"demo":{"enabled":true')
+    expect((await app.inject('/backlinks/')).statusCode).toBe(404)
+    // The project's stored backlink evidence stays a demo page.
+    expect((await app.inject('/projects/summit-roofing/backlinks')).statusCode).toBe(200)
+  })
+
   it('reports a demo with background execution disabled', async () => {
     const { app } = await fixture()
     const health = (await app.inject('/health')).json()

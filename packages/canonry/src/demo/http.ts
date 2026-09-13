@@ -137,9 +137,10 @@ export async function createDemoHttpServer(options: {
   app.setNotFoundHandler(async (request, reply) => {
     const pathname = request.url.split('?')[0] ?? ''
     // Known SPA routes get the document; arbitrary files, API paths, and
-    // machine endpoints must never receive a misleading HTML success.
+    // machine endpoints must never receive a misleading HTML success. The
+    // workspace backlink admin page is not part of the demo, so it is not served.
     if ((request.method === 'GET' || request.method === 'HEAD')
-      && /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|backlinks|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/.test(pathname)) {
+      && /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/.test(pathname)) {
       return sendDocument(request, reply)
     }
     return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Page not found.' } })
