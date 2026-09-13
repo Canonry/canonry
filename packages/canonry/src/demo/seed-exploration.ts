@@ -40,10 +40,9 @@ export function seedDemoExploration(db: DatabaseClient, context: DemoSeedContext
 /** Keep the scorecard, page list, and crawl map on the same stored evidence. */
 function seedPageAudits(db: DatabaseClient, projectId: string, runId: string, root: string, createdAt: string): void {
   const crawlPages = db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.projectId, projectId), eq(siteCrawlPages.runId, runId))).all()
-  const audited = crawlPages.filter(page => page.auditState === 'completed' && page.auditScore !== null)
+  const audited = crawlPages.filter(page => page.auditState === 'success' && page.auditScore !== null)
   const pages = audited.map((page, index) => {
-    const parsed = siteAuditPageFactorSchema.array().safeParse(page.auditFields.factors)
-    const factors = parsed.success ? parsed.data : [{ id: 'structured-data', name: 'Structured Data', weight: 1, score: page.auditScore! }]
+    const factors = siteAuditPageFactorSchema.array().parse(page.auditFields.factors)
     return { id: `${projectId}-audit-page-${index}`, projectId, runId, url: page.url, overallScore: page.auditScore!, status: 'success', factors, createdAt }
   })
   const factors = pages.flatMap(page => page.factors)
@@ -69,7 +68,7 @@ function seedPageAudits(db: DatabaseClient, projectId: string, runId: string, ro
     aggregateScore: Math.round(pages.reduce((sum, page) => sum + page.overallScore, 0) / pages.length),
     pagesDiscovered: crawlPages.length, pagesAudited: pages.length,
     pagesErrored: crawlPages.filter(page => page.fetchState === 'fetch-error').length,
-    pagesSkipped: crawlPages.filter(page => page.auditState !== 'completed' && page.fetchState !== 'fetch-error').length,
+    pagesSkipped: crawlPages.filter(page => page.auditState === 'not-applicable').length,
     factorAverages, crossCuttingIssues, prioritizedFixes: crossCuttingIssues.flatMap(issue => issue.topRecommendations), createdAt,
   }).run()
   for (let i = 0; i < pages.length; i += 100) db.insert(siteAuditPages).values(pages.slice(i, i + 100)).run()

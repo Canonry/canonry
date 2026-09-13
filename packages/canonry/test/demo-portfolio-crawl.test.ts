@@ -72,7 +72,7 @@ describe('public portfolio site map', () => {
     expect(detail.json().factors.length).toBeGreaterThan(0)
     const audit = await app.inject(`${base}/pages?limit=1`)
     expect(audit.statusCode).toBe(200)
-    expect(audit.json().total).toBe(all.nodes.filter(node => node.auditState === 'completed').length)
+    expect(audit.json().total).toBe(all.nodes.filter(node => node.auditState === 'success').length)
     expect(network).not.toHaveBeenCalled()
   })
 })

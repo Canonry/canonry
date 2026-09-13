@@ -40,18 +40,12 @@ import {
   healthSnapshots,
   insights,
   runs,
-  siteCrawlAttempts,
-  siteCrawlEdges,
-  siteCrawlFindings,
-  siteCrawlGraphEdges,
-  siteCrawlGraphLayouts,
-  siteCrawlGraphNodes,
-  siteCrawlPages,
-  siteCrawlSnapshots,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext, DemoSeedProject } from './types.js'
-import { seedPortfolioCrawl } from './seed-portfolio-crawl.js'
+import { seedSiteCrawl } from './seed-site-crawl.js'
+import { harborResortsInventory } from './site-inventories/harbor-resorts.js'
+import { summitRoofingInventory } from './site-inventories/summit-roofing.js'
 
 const day = (at: Date, offset: number): string => {
   const value = new Date(at)
@@ -120,40 +114,20 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   db.insert(gaTrafficSummaries).values({ id: `${prefix}-ga-summary`, projectId: project.id, periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
   db.insert(gaTrafficWindowSummaries).values({ id: `${prefix}-ga-window`, projectId: project.id, windowKey: '30d', periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalDirectSessions: 284, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
 
-  if (variant === 1) await seedPortfolioCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso })
-  else seedCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso })
+  const inventory = variant === 0 ? summitRoofingInventory() : harborResortsInventory()
+  const crawl = await seedSiteCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso, inventory })
+  // The link insight names a page that really carries a broken link, preferring a guide.
+  const brokenLinkSource = (crawl.findings.find(finding => finding.sourceNodeKey?.startsWith('/guides/')) ?? crawl.findings.at(0))?.sourceUrl ?? root
   seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates })
 
   db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, runId: syncRunId, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()
   db.insert(insights).values([
     { id: `${prefix}-insight-1`, projectId: project.id, runId: syncRunId, type: 'opportunity', severity: 'medium', title: 'Expand service comparison guidance', query: searchTerms[0]!, provider: 'openai', recommendation: { action: 'Draft a comparison section', target: `${root}services/`, reason: 'Sample insight for the public dashboard.' }, cause: { cause: 'Sample answer-history gap', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
-    { id: `${prefix}-insight-2`, projectId: project.id, runId: syncRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: `${root}guides/`, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
+    { id: `${prefix}-insight-2`, projectId: project.id, runId: syncRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: brokenLinkSource, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
   ]).run()
   db.insert(auditLog).values([
     { id: `${prefix}-audit-1`, projectId: project.id, actor: 'sample-data', action: 'demo.seeded', entityType: 'project', entityId: project.id, diff: 'Synthetic public demo signals seeded; no provider was contacted.', createdAt: nowIso },
     { id: `${prefix}-audit-2`, projectId: project.id, actor: 'sample-data', action: 'demo.site-health.snapshot', entityType: 'site-crawl', entityId: crawlRunId, diff: 'Synthetic completed crawl graph and findings stored.', createdAt: nowIso },
-  ]).run()
-}
-
-function seedCrawl(db: DatabaseClient, input: { project: DemoSeedProject; prefix: string; root: string; crawlRunId: string; attemptId: string; nowIso: string }): void {
-  const { project, prefix, root, crawlRunId, attemptId, nowIso } = input
-  const pages = [
-    ['home', root, '/', '/', 0, 91],
-    ['services', `${root}services/`, '/services/', '/', 1, 84],
-    ['guides', `${root}guides/`, '/guides/', '/', 1, 76],
-    ['contact', `${root}contact/`, '/contact/', '/', 1, 69],
-  ] as const
-  db.insert(siteCrawlAttempts).values({ id: attemptId, projectId: project.id, runId: crawlRunId, attemptNumber: 1, state: 'completed', lastEventSequence: 12, pagesDiscovered: pages.length, pagesFetched: pages.length, pagesEligible: pages.length, pagesErrored: 0, edgesDiscovered: 4, startedAt: nowIso, finishedAt: nowIso, createdAt: nowIso, updatedAt: nowIso }).run()
-  db.insert(siteCrawlSnapshots).values({ id: `${prefix}-crawl-snapshot`, projectId: project.id, runId: crawlRunId, attemptId, rootUrl: root, requestedRootUrl: root, crawlSchemaVersion: 'demo-1', engineVersion: 'sample-seed', normalizationVersion: 'demo-1', indexabilityVersion: 'demo-1', linkScoreVersion: 'demo-1', effectiveOptions: { sampleData: true }, pageBudget: 50, edgeBudget: 100, maxDepth: 3, checkDeadLinks: true, complete: true, termination: 'complete', detailsAvailable: true, pagesDiscovered: pages.length, pagesFetched: pages.length, pagesEligible: pages.length, pagesErrored: 0, edgesDiscovered: 4, findingsCount: 2, deadLinkState: 'complete', deadLinksChecked: 4, deadLinksFound: 1, deadLinksUnverified: 0, templateDetection: 'applied-placement', linkPlacementRulesetVersion: 'demo-1', createdAt: nowIso, updatedAt: nowIso }).run()
-  db.insert(siteCrawlPages).values(pages.map(([nodeKey, url, path, parentPath, depth, auditScore], i) => ({ id: `${prefix}-page-${nodeKey}`, projectId: project.id, runId: crawlRunId, attemptId, nodeKey, url, path, parentPath, discoverySource: i === 0 ? 'root' : 'crawl', fetchState: 'fetched', fetchedAt: nowIso, httpStatus: 200, contentType: 'text/html', finalUrl: url, canonicalUrl: url, canonicalNodeKey: nodeKey, indexabilityState: 'indexable', healthState: auditScore < 75 ? 'warning' : 'healthy', auditState: 'completed', auditScore, auditFields: { sampleData: true }, inventoryEligible: true, depth, inboundUniqueEdges: i === 0 ? 0 : 1, outboundUniqueEdges: i === 0 ? 3 : 1, inboundOccurrences: i === 0 ? 0 : 1, outboundOccurrences: i === 0 ? 3 : 1, linkScoreRaw: 1 - i * 0.1, linkScoreNormalized: 1 - i * 0.1, createdAt: nowIso, updatedAt: nowIso }))).run()
-  const edges = [['home-services', 'home', 'services'], ['home-guides', 'home', 'guides'], ['home-contact', 'home', 'contact'], ['guides-contact', 'guides', 'contact']] as const
-  db.insert(siteCrawlEdges).values(edges.map(([edgeKey, sourceNodeKey, targetNodeKey], i) => ({ id: `${prefix}-edge-${edgeKey}`, projectId: project.id, runId: crawlRunId, attemptId, edgeKey, sourceNodeKey, sourceUrl: pages.find(p => p[0] === sourceNodeKey)![1], targetNodeKey, targetUrl: pages.find(p => p[0] === targetNodeKey)![1], relation: 'link', internal: true, followable: true, occurrences: i + 1, followableOccurrences: i + 1, nofollowOccurrences: 0, anchors: ['Sample internal link'], isTemplate: i === 2, placementNavigationOccurrences: i === 2 ? 1 : 0, placementContentOccurrences: i === 2 ? 0 : 1, placementUnknownOccurrences: 0, createdAt: nowIso, updatedAt: nowIso }))).run()
-  db.insert(siteCrawlGraphLayouts).values({ id: `${prefix}-layout`, projectId: project.id, runId: crawlRunId, attemptId, state: 'ready', layoutVersion: 'demo-forceatlas2', totalNodes: pages.length, totalEdges: edges.length, totalTemplateEdges: 1, nodeCount: pages.length, edgeCount: edges.length, templateLinksExcluded: true, createdAt: nowIso, updatedAt: nowIso }).run()
-  db.insert(siteCrawlGraphNodes).values(pages.map(([nodeKey], sampleRank) => ({ id: `${prefix}-graph-node-${nodeKey}`, projectId: project.id, runId: crawlRunId, attemptId, nodeKey, sampleRank, x: sampleRank * 20, y: sampleRank % 2 ? 18 : -12, createdAt: nowIso }))).run()
-  db.insert(siteCrawlGraphEdges).values(edges.map(([edgeKey, sourceNodeKey, targetNodeKey], sampleRank) => ({ id: `${prefix}-graph-edge-${edgeKey}`, projectId: project.id, runId: crawlRunId, attemptId, edgeKey, sampleRank, sourceNodeKey, targetNodeKey, followable: true, occurrences: sampleRank + 1, isTemplate: sampleRank === 2, createdAt: nowIso }))).run()
-  db.insert(siteCrawlFindings).values([
-    { id: `${prefix}-finding-link`, projectId: project.id, runId: crawlRunId, attemptId, findingKey: 'demo-broken-link', findingType: 'dead-link', severity: 'medium', sourceNodeKey: 'guides', sourceUrl: `${root}guides/`, targetUrl: `${root}retired-demo-page/`, evidence: { statusCode: 404, note: 'Sample data: illustrative broken link.' }, createdAt: nowIso, updatedAt: nowIso },
-    { id: `${prefix}-finding-meta`, projectId: project.id, runId: crawlRunId, attemptId, findingKey: 'demo-title-review', findingType: 'page-audit', severity: 'low', sourceNodeKey: 'contact', sourceUrl: `${root}contact/`, evidence: { note: 'Sample data: missing page title.' }, createdAt: nowIso, updatedAt: nowIso },
   ]).run()
 }
 

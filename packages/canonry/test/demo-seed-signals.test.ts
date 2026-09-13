@@ -92,8 +92,8 @@ describe('seedDemoSignals', () => {
       expect(JSON.parse(crawl.payload)).toMatchObject({ hasCrawlData: true, complete: true, detailsAvailable: true })
       const graph = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/technical-aeo/graph` })
       expect(graph.statusCode).toBe(200)
-      expect(JSON.parse(graph.payload).nodes).toHaveLength(4)
-      expect(JSON.parse(graph.payload).edges).toHaveLength(4)
+      expect(JSON.parse(graph.payload)).toMatchObject({ totalNodes: 205, totalEdges: 4269, sampled: false, layout: { state: 'ready' } })
+      expect(JSON.parse(graph.payload).nodes).toHaveLength(205)
 
       const ads = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/ads/summary` })
       expect(ads.statusCode).toBe(200)
