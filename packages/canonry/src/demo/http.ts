@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { desc, eq } from 'drizzle-orm'
@@ -16,12 +16,36 @@ const DEMO_CLIENT_CONFIG = {
   demo: { enabled: true, readOnly: true, sampleData: true },
   dashboard: { showAgentBar: false, showUpdateNotification: false },
 }
-const DEMO_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+// A script element written into the document itself rather than loaded by src.
+const INLINE_SCRIPT = /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/gi
 // Known dashboard locations. Arbitrary files, API paths and machine endpoints
 // never receive the document. The workspace backlink admin page is not part of
 // the demo, so it is not served.
 const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
 const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo: this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
+
+/**
+ * Scripts may come from this origin, or be one of the inline scripts in the
+ * prepared document, matched by hash. Style attributes stay allowed inline.
+ */
+function demoContentSecurityPolicy(document: string): string {
+  const inlineHashes = [...document.matchAll(INLINE_SCRIPT)]
+    .filter(match => !/\ssrc\s*=/i.test(match.groups?.attributes ?? ''))
+    .map(match => `'sha256-${createHash('sha256').update(match.groups?.body ?? '', 'utf8').digest('base64')}'`)
+  return [
+    "default-src 'self'",
+    ["script-src 'self'", ...inlineHashes].join(' '),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join('; ')
+}
 
 function isDemoDocumentRequest(request: FastifyRequest): boolean {
   return (request.method === 'GET' || request.method === 'HEAD')
@@ -57,6 +81,7 @@ export async function createDemoHttpServer(options: {
   const html = readFileSync(join(assetsDir, 'index.html'), 'utf8')
     .replace('<head>', '<head><base href="/">')
     .replace('</head>', `<script>window.__CANONRY_CONFIG__=${JSON.stringify(DEMO_CLIENT_CONFIG)}</script></head>`)
+  const contentSecurityPolicy = demoContentSecurityPolicy(html)
   db.insert(apiKeys).values({
     ...DEMO_VIEWER,
     keyHash: randomUUID(),
@@ -86,7 +111,7 @@ export async function createDemoHttpServer(options: {
     reply.header('X-Robots-Tag', 'noindex, nofollow')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'no-referrer')
-    reply.header('Content-Security-Policy', DEMO_CSP)
+    reply.header('Content-Security-Policy', contentSecurityPolicy)
     // Throws the 429 once the visitor's budget is spent.
     await chargeApiBudget.call(app, request, reply)
     const method = request.method

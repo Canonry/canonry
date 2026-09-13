@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,10 +10,13 @@ import { PACKAGE_VERSION } from '../src/package-version.js'
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.restoreAllMocks() })
 
-async function fixture(apiRateLimitMax?: number, network: { trustProxy?: readonly string[] } = {}) {
+const BUILT_DOCUMENT = '<!doctype html><html><head></head><body><div id="root"></div></body></html>'
+
+async function fixture(apiRateLimitMax?: number, extra: { trustProxy?: readonly string[]; document?: string } = {}) {
+  const { document = BUILT_DOCUMENT, ...network } = extra
   const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-http-'))
   mkdirSync(join(dir, 'assets'))
-  writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head></head><body><div id="root"></div></body></html>')
+  writeFileSync(join(dir, 'index.html'), document)
   writeFileSync(join(dir, 'assets', 'app.js'), 'window.demoLoaded=true')
   writeFileSync(join(dir, 'private.txt'), 'must-not-be-served')
   writeFileSync(join(dir, 'favicon.svg'), '<svg></svg>')
@@ -23,6 +27,20 @@ async function fixture(apiRateLimitMax?: number, network: { trustProxy?: readonl
   const app = await createDemoHttpServer({ db, assetsDir: dir, now, apiRateLimitMax, ...network })
   cleanups.push(async () => { await app.close(); db.$client.close(); rmSync(dir, { recursive: true, force: true }) })
   return { app, db }
+}
+
+function inlineScripts(html: string): string[] {
+  return [...html.matchAll(/<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/gi)]
+    .filter(match => !/\ssrc\s*=/i.test(match.groups!.attributes!))
+    .map(match => match.groups!.body!)
+}
+
+function sha256Source(script: string): string {
+  return `'sha256-${createHash('sha256').update(script, 'utf8').digest('base64')}'`
+}
+
+function directives(header: string | string[] | number | undefined): Map<string, string[]> {
+  return new Map(String(header).split(';').map(part => part.trim().split(/\s+/)).map(([name, ...values]) => [name!, values]))
 }
 
 describe('dedicated public demo server', () => {
@@ -124,6 +142,32 @@ describe('dedicated public demo server', () => {
       expect(response.statusCode).toBeGreaterThanOrEqual(400)
       expect(response.body).not.toContain('must-not-be-served')
     }
+  })
+
+  it('allows only the served inline configuration script, by hash', async () => {
+    const { app } = await fixture()
+    const document = await app.inject('/projects/summit-roofing')
+    const inline = inlineScripts(document.body)
+    expect(inline).toEqual([expect.stringContaining('window.__CANONRY_CONFIG__=')])
+    const policy = directives(document.headers['content-security-policy'])
+    expect(policy.get('script-src')).toEqual(["'self'", sha256Source(inline[0]!)])
+    // Only script-src changes; inline style attributes remain allowed.
+    expect(policy.get('style-src')).toEqual(["'self'", "'unsafe-inline'"])
+    for (const url of ['/', '/api/v1/projects', '/assets/app.js', '/missing']) {
+      expect((await app.inject(url)).headers['content-security-policy'], url).toBe(document.headers['content-security-policy'])
+    }
+  })
+
+  it('hashes every inline script the built document carries', async () => {
+    const theme = "document.documentElement.dataset.theme='dark'"
+    const { app } = await fixture(undefined, {
+      document: `<!doctype html><html><head><script>${theme}</script><script type="module" crossorigin src="./assets/app.js"></script></head><body><div id="root"></div></body></html>`,
+    })
+    const document = await app.inject('/')
+    const inline = inlineScripts(document.body)
+    expect(inline).toHaveLength(2)
+    expect(inline).toContain(theme)
+    expect(directives(document.headers['content-security-policy']).get('script-src')).toEqual(["'self'", ...inline.map(sha256Source)])
   })
 
   it('does not serve the backlink admin page the demo hides from navigation', async () => {
