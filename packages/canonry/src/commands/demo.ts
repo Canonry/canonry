@@ -1,5 +1,5 @@
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
-import { DEFAULT_DEMO_TRUSTED_PROXIES, trustedProxyProblem } from '../demo/trust-proxy.js'
+import { DEFAULT_DEMO_TRUSTED_PROXIES, trustedProxiesProblem, trustedProxyProblem } from '../demo/trust-proxy.js'
 
 export function parseDemoListenOptions(options: { port?: string; host?: string }) {
   const rawPort = options.port ?? '4188'
@@ -22,6 +22,11 @@ export function parseDemoTrustedProxies(values: readonly string[] | undefined): 
     if (problem) {
       throw new CliError({ code: 'INVALID_TRUST_PROXY', message: `--trust-proxy ${JSON.stringify(value)} ${problem}.`, details: { value }, exitCode: 1 })
     }
+  }
+  const combined = trustedProxiesProblem(values)
+  if (combined) {
+    const named = values.map(value => JSON.stringify(value)).join(', ')
+    throw new CliError({ code: 'INVALID_TRUST_PROXY', message: `--trust-proxy values ${named} together ${combined}.`, details: { values: [...values] }, exitCode: 1 })
   }
   return [...values]
 }

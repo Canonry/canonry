@@ -8,6 +8,29 @@ const demoServer = vi.hoisted(() => ({ create: vi.fn() }))
 vi.mock('../src/demo-server.js', () => ({ createDemoServer: demoServer.create }))
 
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
+
+const FORWARDED = '192.0.2.77'
+
+/** The client address Fastify reports for a request from peer that claims FORWARDED. */
+async function believedAddress(trustProxy: readonly string[], peer: string): Promise<string> {
+  const app = Fastify({ trustProxy: [...trustProxy] })
+  app.get('/', async request => request.ip)
+  try {
+    return (await app.inject({ url: '/', remoteAddress: peer, headers: { 'x-forwarded-for': FORWARDED } })).body
+  } finally {
+    await app.close()
+  }
+}
+
+function ipv6Text(value: bigint): string {
+  return Array.from({ length: 8 }, (_, group) => ((value >> BigInt((7 - group) * 16)) & 0xffffn).toString(16)).join(':')
+}
+
+// CIDR ranges covering every IPv6 address except the IPv4-mapped block ::ffff:0:0/96.
+const everyIPv6RangeOutsideIPv4 = [
+  ...Array.from({ length: 80 }, (_, bit) => `${ipv6Text(1n << BigInt(127 - bit))}/${bit + 1}`),
+  ...Array.from({ length: 16 }, (_, index) => `${ipv6Text(((1n << BigInt(index)) - 1n) << BigInt(48 - index))}/${81 + index}`),
+]
 describe('demo listener options', () => {
   it('uses dedicated defaults rather than inherited production runtime settings', () => {
     vi.stubEnv('CANONRY_PORT', '4100')
@@ -51,8 +74,15 @@ describe('demo trusted proxies', () => {
   })
 
   it('replaces the default with the named addresses and CIDR ranges', () => {
-    const values = ['10.0.0.5', '10.0.1.0/24', '2001:db8::/32', '::ffff:10.0.0.9', '192.0.2.1/32']
+    const values = ['10.0.0.5', '10.0.1.0/24', '2001:db8::/32', '::ffff:10.0.0.9', '192.0.2.1/32', '::ffff:10.0.0.0/104', '64:ff9b::/96']
     expect(parseDemoTrustedProxies(values)).toEqual(values)
+  })
+
+  it('accepts only ranges under which Fastify still ignores a forwarded address from the open internet', async () => {
+    const values = parseDemoTrustedProxies(['10.0.0.5', '10.0.1.0/24', '2001:db8::/32', '::ffff:10.0.0.9', '::ffff:10.0.0.0/104', '64:ff9b::/96'])
+    for (const peer of ['203.0.113.9', '::ffff:203.0.113.9', '2600::9']) {
+      expect(await believedAddress(values, peer), peer).toBe(peer)
+    }
   })
 
   it.each([
@@ -66,11 +96,40 @@ describe('demo trusted proxies', () => {
     }))
   })
 
-  it.each(['0.0.0.0/0', '::/0'])('refuses the catch-all range %s, which would let visitors pick their own address', value => {
+  it.each([
+    { value: '0.0.0.0/0', scope: 'every IPv4 address' },
+    { value: '::/0', scope: 'every address' },
+    { value: '::ffff:0:0/96', scope: 'every IPv4 address' },
+    { value: '::ffff:0.0.0.0/96', scope: 'every IPv4 address' },
+    { value: '::/1', scope: 'every IPv4 address' },
+    { value: '::/80', scope: 'every IPv4 address' },
+    { value: '10.0.0.0/0', scope: 'every IPv4 address' },
+  ])('refuses $value, which would let visitors pick their own address', async ({ value, scope }) => {
     expect(() => parseDemoTrustedProxies(['10.0.0.5', value])).toThrow(expect.objectContaining({
       code: 'INVALID_TRUST_PROXY',
-      message: expect.stringContaining('every address'),
+      message: expect.stringContaining(`would trust ${scope}`),
     }))
+    if (value.endsWith('/0')) return
+    // Fastify matches an IPv4 visitor against an IPv6 range through its mapped form.
+    for (const peer of ['100.64.0.9', '203.0.113.9']) expect(await believedAddress([value], peer), `${value} ${peer}`).toBe(FORWARDED)
+  })
+
+  it.each([
+    { values: ['0.0.0.0/1', '128.0.0.0/1'], scope: 'every IPv4 address', peers: ['100.64.0.9', '203.0.113.9'] },
+    { values: ['::ffff:0:0/97', '128.0.0.0/1'], scope: 'every IPv4 address', peers: ['100.64.0.9', '203.0.113.9'] },
+    { values: [...everyIPv6RangeOutsideIPv4, '0.0.0.0/1', '128.0.0.0/1'], scope: 'every address', peers: ['203.0.113.9', '2600::9'] },
+    { values: everyIPv6RangeOutsideIPv4, scope: 'every IPv6 address', peers: ['2600::9', '::9', 'fc00::9'] },
+  ])('refuses ranges that together trust $scope', async ({ values, scope, peers }) => {
+    for (const value of values) expect(parseDemoTrustedProxies([value])).toEqual([value])
+    expect(() => parseDemoTrustedProxies(values)).toThrow(expect.objectContaining({
+      code: 'INVALID_TRUST_PROXY',
+      message: expect.stringContaining(`together would trust ${scope}`),
+    }))
+    for (const peer of peers) expect(await believedAddress(values, peer), `${peer}`).toBe(FORWARDED)
+  })
+
+  it('still ignores IPv4 visitors under a set that trusts every IPv6 address outside the IPv4 block', async () => {
+    expect(await believedAddress(everyIPv6RangeOutsideIPv4, '203.0.113.9')).toBe('203.0.113.9')
   })
 })
 
