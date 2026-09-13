@@ -66,8 +66,19 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // `actorSession` is a per-process correlation value: the server counts one
   // MCP session per value. It is never accepted as identity or authority.
   const client = createApiClient({ clientName: 'canonry-mcp', surface: 'mcp-stdio', actorSession: randomUUID() })
-  const authorization = await resolveEffectiveAuthorization(client, options.scope)
-  const server = createCanonryMcpServer({ ...authorization, eager: options.eager, clientFactory: () => client })
+  // The update notice rides the same startup round-trip as the key probe. An
+  // MCP-only agent never runs the CLI, so this is the only place it can learn
+  // that the install is behind. Best-effort: null when the server is down.
+  const [authorization, updateAvailable] = await Promise.all([
+    resolveEffectiveAuthorization(client, options.scope),
+    client.getServerUpdateAvailable(),
+  ])
+  const server = createCanonryMcpServer({
+    ...authorization,
+    eager: options.eager,
+    clientFactory: () => client,
+    updateAvailable: () => updateAvailable,
+  })
   await server.connect(new StdioServerTransport())
 }
 

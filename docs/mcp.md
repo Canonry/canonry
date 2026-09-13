@@ -13,6 +13,8 @@ skill installation. Call `canonry_help({intent: "status"})`, or use `diagnose`,
 `measurement`, `integrations`, `reports`, or a short task description. The
 default response is a compact route, not the full catalog:
 
+When a newer canonry is published, both stdio and hosted MCP tell the agent without a CLI run: the notice is appended to the initialize instructions (`Update available (UPDATE_AVAILABLE): ...`) and every `canonry_help` result carries `updateAvailable: { code, current, latest, installMethod, upgradeCommand, url }`. The source is the connected server's `/health`, validated before it reaches the agent. Agents should tell the operator and upgrade only with approval; `canonry_doctor` reports the same as `canonry.version.current`.
+
 ```json
 {
   "guideVersion": "v1",

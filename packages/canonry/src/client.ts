@@ -638,7 +638,41 @@ import {
   type PostApiV1ProjectsByNameMeasurementPlanDraftActionsDiscardResponse,
   type PostApiV1ProjectsByNameMeasurementPlanActionsDeactivateResponse,
 } from '@ainyc/canonry-api-client'
-import { describeError } from '@ainyc/canonry-contracts'
+import { compareSemver, describeError, isStrictSemver } from '@ainyc/canonry-contracts'
+
+/** A newer published canonry, as the connected server reports it on `/health`. */
+export interface ServerUpdateAvailable {
+  current: string
+  latest: string
+  /** Absent on servers older than the field. */
+  installMethod?: 'npm' | 'homebrew' | 'docker'
+  upgradeCommand: string
+  url: string
+}
+
+const SERVER_INSTALL_METHODS = new Set(['npm', 'homebrew', 'docker'])
+
+function isSafeLine(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/\p{Cc}/u.test(value)
+}
+
+/**
+ * Validate `/health`'s `updateAvailable`. Its strings are shown to agents, so
+ * anything other than strict versions, a short single-line command, and an
+ * https URL drops the whole notice instead of passing through.
+ */
+export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailable | null {
+  if (!value || typeof value !== 'object') return null
+  const { current, latest, installMethod, upgradeCommand, url } = value as Record<string, unknown>
+  if (typeof current !== 'string' || !isStrictSemver(current)) return null
+  if (typeof latest !== 'string' || !isStrictSemver(latest)) return null
+  if (compareSemver(latest, current) <= 0) return null
+  if (!isSafeLine(upgradeCommand, 200)) return null
+  if (!isSafeLine(url, 200) || !url.startsWith('https://')) return null
+  if (installMethod === undefined) return { current, latest, upgradeCommand, url }
+  if (typeof installMethod !== 'string' || !SERVER_INSTALL_METHODS.has(installMethod)) return null
+  return { current, latest, installMethod: installMethod as NonNullable<ServerUpdateAvailable['installMethod']>, upgradeCommand, url }
+}
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
@@ -2236,6 +2270,23 @@ export class ApiClient {
   /** Introspect the CURRENT key (the one this client authenticates with). */
   async getApiKeySelf(): Promise<ApiKeyDto> {
     return this.invoke<ApiKeyDto>(() => getApiV1KeysSelf({ client: this.heyClient }))
+  }
+
+  /**
+   * The connected server's update notice from `/health`, or null. Best-effort
+   * and bounded (2s), never throws: `canonry-mcp` uses it to tell agents that
+   * never run the CLI about a newer release.
+   */
+  async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
+    try {
+      await this.probeBasePath()
+      const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
+      if (!res.ok) return null
+      const body = (await res.json()) as { updateAvailable?: unknown }
+      return parseServerUpdateAvailable(body?.updateAvailable)
+    } catch {
+      return null
+    }
   }
 
   async createApiKey(body: CreateApiKeyRequest): Promise<CreatedApiKeyDto> {

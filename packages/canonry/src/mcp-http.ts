@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
-import { ApiClient } from './client.js'
+import { ApiClient, type ServerUpdateAvailable } from './client.js'
 import { PACKAGE_VERSION } from './package-version.js'
 import { createCanonryMcpServer } from './mcp/server.js'
 import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './mcp/toolkits.js'
@@ -104,6 +104,8 @@ export interface McpHttpOptions {
   issuer?: string
   /** Overridable for tests. */
   now?: () => number
+  /** Newer-release notice for hosted sessions (initialize + `canonry_help`). Must not block. */
+  getUpdateAvailable?: () => ServerUpdateAvailable | null
 }
 
 /**
@@ -244,6 +246,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
         operator: request.operatorAccess === true,
         tiers: segment.tiers,
         clientFactory: () => client,
+        updateAvailable: opts.getUpdateAvailable,
       })
     } catch (error) {
       if (sessionKey) revokeSessionKey(opts.db, sessionKey.id)
