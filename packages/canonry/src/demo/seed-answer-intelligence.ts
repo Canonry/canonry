@@ -1,11 +1,8 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { healthSnapshots, insights, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { RunKinds } from '@ainyc/canonry-contracts'
-import { IntelligenceService } from '../intelligence-service.js'
+import { HISTORY_WINDOW_RUNS, IntelligenceService } from '../intelligence-service.js'
 import type { DemoSeedProject } from './types.js'
-
-/** The production analyzer keeps this many sweeps, current included. */
-const HISTORY_WINDOW_RUNS = 5
 
 /**
  * Stores the health snapshot and insights each sweep would have produced,
@@ -20,6 +17,7 @@ export function seedDemoAnswerIntelligence(db: DatabaseClient, project: DemoSeed
     .all()
   for (const [index, sweep] of sweeps.entries()) {
     const previous = index > 0 ? sweeps[index - 1]! : null
+    // The same window of sweeps, current included, that production analysis loads.
     const history = sweeps.slice(Math.max(0, index - (HISTORY_WINDOW_RUNS - 1)), index + 1)
     const result = service.analyzeRunWithPrevious(sweep, previous, history, { dryRun: true })
     if (!result) continue

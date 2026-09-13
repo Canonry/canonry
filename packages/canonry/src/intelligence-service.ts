@@ -17,7 +17,7 @@ import { pickProjectCitedDomain } from './citation-utils.js'
 
 const RECURRENCE_LOOKBACK_RUNS = 5
 /** Number of recent runs to load for persistent-gap detection. Must be >= PERSISTENT_GAP_THRESHOLD. */
-const HISTORY_WINDOW_RUNS = Math.max(PERSISTENT_GAP_THRESHOLD, 5)
+export const HISTORY_WINDOW_RUNS = Math.max(PERSISTENT_GAP_THRESHOLD, 5)
 
 const log = createLogger('IntelligenceService')
 

@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { compileQueryClassifier, determineAnswerMentioned, effectiveBrandNames, effectiveDomains } from '@ainyc/canonry-contracts'
 import { createClient, healthSnapshots, insights, migrate, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
+import { HISTORY_WINDOW_RUNS } from '../src/intelligence-service.js'
 import { seedDemoCore } from '../src/demo/seed-core.js'
 import { summitRoofingInventory } from '../src/demo/site-inventories/summit-roofing.js'
 import { createDemoSeedContext } from '../src/demo/types.js'
@@ -177,6 +179,33 @@ describe('Summit Roofing sweep history', () => {
       expect(previous.some(row => row.queryText === first.query && isCited(row)), first.title).toBe(false)
     }
     expect(db.select().from(insights).where(eq(insights.runId, sweeps[0]!.id)).all()).toHaveLength(0)
+  })
+
+  it('stores every insight type the production history window produces', () => {
+    expect(HISTORY_WINDOW_RUNS).toBeGreaterThanOrEqual(PERSISTENT_GAP_THRESHOLD)
+    const stored = db.select().from(insights).where(eq(insights.projectId, context.simple.id)).all()
+    const counts: Record<string, number> = {}
+    for (const insight of stored) counts[insight.type] = (counts[insight.type] ?? 0) + 1
+    expect(counts).toEqual({ regression: 7, gain: 12, 'provider-pickup': 10, 'competitor-gained': 4, 'persistent-gap': 17, 'competitor-lost': 5, 'first-citation': 2 })
+
+    // A query is a persistent gap when no engine cited it for PERSISTENT_GAP_THRESHOLD
+    // sweeps in a row, counted inside the analyzer's history window.
+    const queries = [...new Set(rowsBySweep.flat().map(row => row.queryText!))]
+    const gapsPerSweep: number[] = []
+    for (const [index, sweep] of sweeps.entries()) {
+      const expected = index === 0 ? [] : queries.flatMap(query => {
+        let streak = 0
+        for (let back = index; back >= 0 && back > index - HISTORY_WINDOW_RUNS; back--) {
+          if (rowsBySweep[back]!.some(row => row.queryText === query && isCited(row))) break
+          streak++
+        }
+        return streak >= PERSISTENT_GAP_THRESHOLD ? [`"${query}" uncited for ${streak} runs`] : []
+      })
+      const gaps = stored.filter(insight => insight.runId === sweep.id && insight.type === 'persistent-gap').map(insight => insight.title)
+      expect(gaps.sort(), sweep.id).toEqual(expected.sort())
+      gapsPerSweep.push(gaps.length)
+    }
+    expect(gapsPerSweep).toEqual([0, 0, 5, 5, 4, 3])
   })
 
   it('reports real movement on the overview instead of a steady read', async () => {
