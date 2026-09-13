@@ -33,7 +33,7 @@ const SITES = [
   {
     name: 'harbor-resorts', input: () => crawlInput(context.portfolio, harborResortsInventory()),
     pages: 604, health: { eligible: 556, hidden: 12, redirect: 12, resource: 12, failed: 12 },
-    edges: 3714, templateEdges: 1608, contentEdges: 2106, findings: 12,
+    edges: 3618, templateEdges: 1512, contentEdges: 2106, findings: 12,
     orphans: [],
   },
 ] as const
@@ -94,6 +94,16 @@ describe('demo site crawl inventories', () => {
       if (page.fetchState === 'redirect') expect(eligible.has(page.finalUrl!), page.nodeKey).toBe(true)
       if (page.canonicalUrl && page.canonicalUrl !== page.url) expect(eligible.has(page.canonicalUrl), page.nodeKey).toBe(true)
     }
+  })
+
+  it.each(SITES)('$name records anchor links only from pages the crawler parses as HTML', site => {
+    const input = site.input()
+    const kinds = new Map(input.inventory.pages.map(page => [page.path, page.kind]))
+    const crawl = buildDemoSiteCrawl(input)
+    const fromUnparsedPages = crawl.edges.filter(edge => !['html', 'noindex', 'canonicalized'].includes(kinds.get(edge.sourceNodeKey)!))
+    expect(fromUnparsedPages.map(edge => edge.edgeKey)).toEqual([])
+    const fetchStates = new Map(crawl.pages.map(page => [page.nodeKey, page.fetchState]))
+    expect(new Set(crawl.edges.map(edge => fetchStates.get(edge.sourceNodeKey)))).toEqual(new Set(['html']))
   })
 
   it('sizes each Harbor property home above the pages it links to', () => {
@@ -165,6 +175,9 @@ describe('demo site crawl inventory validation', () => {
     ['a redirect to a missing page', (inventory: ReturnType<typeof valid>) => { inventory.pages.push({ path: '/gone/', kind: 'redirect', redirectTo: '/missing/' }); inventory.links.push(['/', '/gone/']) }, /\/gone\/ redirects to \/missing\/, which is not an indexable HTML page/],
     ['a redirect to a noindex page', (inventory: ReturnType<typeof valid>) => { inventory.pages.push({ path: '/gone/', kind: 'redirect', redirectTo: '/thank-you/' }); inventory.links.push(['/', '/gone/']) }, /\/gone\/ redirects to \/thank-you\/, which is not an indexable HTML page/],
     ['a canonical to a redirect', (inventory: ReturnType<typeof valid>) => { inventory.pages.push({ path: '/guides/page/3/', kind: 'canonicalized', canonicalTo: '/old-services/', score: 60 }); inventory.links.push(['/guides/', '/guides/page/3/']) }, /\/guides\/page\/3\/ declares its canonical as \/old-services\/, which is not an indexable HTML page/],
+    ['a link from a broken page', (inventory: ReturnType<typeof valid>) => { inventory.links.push(['/removed/', '/']) }, /link source \/removed\/ is not an HTML page/],
+    ['a link from a PDF', (inventory: ReturnType<typeof valid>) => { inventory.links.push(['/terms.pdf', '/']) }, /link source \/terms\.pdf is not an HTML page/],
+    ['a link from a redirect', (inventory: ReturnType<typeof valid>) => { inventory.links.push(['/old-services/', '/guides/']) }, /link source \/old-services\/ is not an HTML page/],
     ['a page no crawl could find', (inventory: ReturnType<typeof valid>) => { inventory.pages.push({ path: '/unlinked/', kind: 'noindex', score: 60 }) }, /\/unlinked\/ has no inbound link and is not in the sitemap/],
   ])('rejects %s', (_label, mutate, message) => {
     const inventory = valid()

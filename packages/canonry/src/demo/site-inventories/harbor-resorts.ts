@@ -19,7 +19,7 @@ function parentOf(path: string): string {
 
 /**
  * A resort portfolio under one domain: destination hubs and guides, then 48
- * pages for each of 12 properties. Every page carries a home, section, and
+ * pages for each of 12 properties. Every HTML page carries a home, section, and
  * property link in its template, and each property keeps one expired offer,
  * one retired room URL, one PDF, and one hidden confirmation page.
  */
@@ -67,6 +67,8 @@ export function harborResortsInventory(): DemoSiteInventory {
   for (const page of pages) {
     const parent = parentOf(page.path)
     if (page.path !== '/') content(parent, page.path)
+    // The crawler reads no links from a broken page, a PDF, or a redirect.
+    if (page.kind === 'broken' || page.kind === 'resource' || page.kind === 'redirect') continue
     links.push([page.path, '/', 'navigation'], [page.path, parent, 'navigation'])
     const property = properties.find(candidate => page.path.startsWith(`${candidate.path}/`))
     if (property) links.push([page.path, `${property.path}/`, 'navigation'])

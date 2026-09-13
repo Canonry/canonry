@@ -185,6 +185,11 @@ export function buildDemoSiteCrawl(input: DemoSiteCrawlInput): DemoSiteCrawl {
   const observe = (source: string, target: string, placement: DemoSiteLinkPlacement) => {
     requirePage(source, 'link source')
     requirePage(target, 'link target')
+    // The crawler reads links only from a fetched HTML page. An error page, a
+    // file, or a redirect records none.
+    if (!HTML_KINDS.has(pagesByPath.get(source)!.kind)) {
+      throw new Error(`Demo site link source ${source} is not an HTML page, so no crawl could record links from it`)
+    }
     // The executor drops self links, so page metrics never count them.
     if (source === target) return
     const key = `${source}->${target}`
