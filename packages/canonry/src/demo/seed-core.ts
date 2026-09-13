@@ -27,18 +27,13 @@ import {
 } from '@ainyc/canonry-db'
 import type { DemoSeedContext } from './types.js'
 import { HARBOR_MARKETS as MARKETS, harborProperties } from './portfolio.js'
+import { seedDemoAnswerIntelligence } from './seed-answer-intelligence.js'
+import { SUMMIT_COMPETITORS, SUMMIT_ENGINES, SUMMIT_QUERIES, SUMMIT_SWEEP_COUNT, summitAnswer } from './summit-sweeps.js'
 
 const PROVIDERS = [
   { provider: 'openai', requestedModel: 'gpt-5-demo', servedModel: 'gpt-5-demo-2026-08-15' },
   { provider: 'gemini', requestedModel: 'gemini-2.5-pro-demo', servedModel: 'gemini-2.5-pro' },
   { provider: 'claude', requestedModel: 'claude-sonnet-demo', servedModel: 'claude-sonnet-4-demo' },
-] as const
-
-const SIMPLE_QUERIES = [
-  'Summit Roofing reviews',
-  'roof repair contractor near me',
-  'emergency roof leak repair',
-  'best metal roof installer',
 ] as const
 
 function isoAtWeek(now: Date, weeksAgo: number): string {
@@ -174,7 +169,7 @@ function harborDraft(plan: MeasurementPlanV2): MeasurementDraftAuthoring {
 /** Seeds only fictional, stored observations. It never instantiates a provider or schedules work. */
 export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void {
   const now = context.now.toISOString()
-  const simpleQueries = SIMPLE_QUERIES.map((query, index) => ({ id: `demo-summit-query-${index + 1}`, query }))
+  const simpleQueries = SUMMIT_QUERIES.map((plan, index) => ({ id: `demo-summit-query-${index + 1}`, query: plan.text }))
   const portfolioPlan = harborPlan(context, now)
   const planVersionId = 'demo-harbor-plan-v2'
   const execution = { providers: PROVIDERS.map(identity => identity.provider), models: Object.fromEntries(PROVIDERS.map(identity => [identity.provider, identity.requestedModel])) }
@@ -231,17 +226,18 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
       updatedBy: JSON.stringify({ kind: 'system', id: 'demo', label: 'Demo authoring' }), createdAt: now, updatedAt: now,
     }).run()
 
-    for (let week = 5; week >= 0; week--) {
+    for (let week = SUMMIT_SWEEP_COUNT - 1; week >= 0; week--) {
       const createdAt = isoAtWeek(context.now, week)
-      const simpleRunId = `demo-summit-week-${6 - week}`
+      const sweep = SUMMIT_SWEEP_COUNT - 1 - week
+      const simpleRunId = `demo-summit-week-${sweep + 1}`
       const simpleDefinition = buildSimpleMeasurementDefinition({
         capturedAt: createdAt,
         identity: { displayName: context.simple.displayName, aliases: ['Summit', 'Summit Roofing'], canonicalDomain: context.simple.domain, ownedDomains: [context.simple.domain] },
         country: 'US', language: 'en', location: null,
         engines: PROVIDERS.map(identity => ({ provider: identity.provider, requestedModel: identity.requestedModel })),
         competitors: [
-          { domain: 'roofcraft.example', label: 'RoofCraft', aliases: ['RoofCraft'] },
-          { domain: 'everlast-roofing.example', label: 'Everlast Roofing', aliases: ['Everlast'] },
+          { domain: SUMMIT_COMPETITORS[0]!.domain, label: SUMMIT_COMPETITORS[0]!.label, aliases: ['RoofCraft'] },
+          { domain: SUMMIT_COMPETITORS[1]!.domain, label: SUMMIT_COMPETITORS[1]!.label, aliases: ['Everlast'] },
         ],
         queries: simpleQueries.map(item => ({ queryId: item.id, queryText: item.query, provenance: 'demo-core' })),
       })
@@ -250,16 +246,15 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
         runId: simpleRunId, projectId: context.simple.id, definition: simpleDefinition,
         checksum: sha256(canonicalSimpleMeasurementDefinitionJson(simpleDefinition)), capturedAt: createdAt,
       }).run()
-      tx.insert(querySnapshots).values(simpleQueries.flatMap((query, queryIndex) => PROVIDERS.map((identity, providerIndex) => {
-        const cited = (week + queryIndex + providerIndex) % 3 !== 0
+      tx.insert(querySnapshots).values(simpleQueries.flatMap((query, queryIndex) => PROVIDERS.map(identity => {
+        const engine = SUMMIT_ENGINES.find(candidate => candidate === identity.provider)!
+        const answer = summitAnswer({ sweep, engine, queryIndex, displayName: context.simple.displayName, domain: context.simple.domain })
         return {
           id: `${simpleRunId}-${identity.provider}-${queryIndex}`, runId: simpleRunId, queryId: query.id, queryText: query.query,
           provider: identity.provider, model: identity.requestedModel, servedModel: identity.servedModel,
-          citationState: cited ? 'cited' : 'not-cited', answerMentioned: cited,
-          answerText: cited ? `Fictional answer: Summit Roofing is a local option for ${query.query}.` : `Fictional answer: RoofCraft is discussed for ${query.query}.`,
-          citedDomains: cited ? [context.simple.domain] : ['roofcraft.example'], citedUrls: cited ? [`https://${context.simple.domain}/services/${queryIndex + 1}`] : ['https://roofcraft.example/guide'],
-          captureStatus: 'complete' as const, sourceCount: 1, resolvedCount: 1, captureVersion: 1, retrievalStatus: 'used' as const,
-          competitorOverlap: cited ? [] : ['roofcraft.example'], recommendedCompetitors: cited ? ['roofcraft.example'] : ['everlast-roofing.example'], createdAt,
+          ...answer,
+          captureStatus: 'complete' as const, sourceCount: answer.citedUrls.length, resolvedCount: answer.citedUrls.length, captureVersion: 1, retrievalStatus: 'used' as const,
+          createdAt,
         }
       }))).run()
 
@@ -286,4 +281,5 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
       }))).run()
     }
   })
+  seedDemoAnswerIntelligence(db, context.simple)
 }

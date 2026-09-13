@@ -69,8 +69,13 @@ describe('seedDemoSignals', () => {
       expect(db.select().from(adsInsightsDaily).where(eq(adsInsightsDaily.projectId, project.id)).all().length).toBeGreaterThan(2)
       expect(db.select().from(conversionTrackingContracts).where(eq(conversionTrackingContracts.projectId, project.id)).all()).toHaveLength(1)
       const storedInsights = db.select().from(insights).where(eq(insights.projectId, project.id)).all()
-      expect(storedInsights.length).toBeGreaterThan(1)
-      expect(storedInsights.every((insight) => insight.title.length > 12)).toBe(true)
+      if (project === context.portfolio) {
+        expect(storedInsights.length).toBeGreaterThan(1)
+        expect(storedInsights.every((insight) => insight.title.length > 12)).toBe(true)
+      } else {
+        // The simple project's insights come from its stored sweeps, not from signals.
+        expect(storedInsights).toHaveLength(0)
+      }
     }
 
     const app = Fastify()

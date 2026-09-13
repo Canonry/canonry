@@ -120,11 +120,15 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   const brokenLinkSource = (crawl.findings.find(finding => finding.sourceNodeKey?.startsWith('/guides/')) ?? crawl.findings.at(0))?.sourceUrl ?? root
   seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates })
 
-  db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, runId: syncRunId, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()
-  db.insert(insights).values([
-    { id: `${prefix}-insight-1`, projectId: project.id, runId: syncRunId, type: 'opportunity', severity: 'medium', title: 'Expand service comparison guidance', query: searchTerms[0]!, provider: 'openai', recommendation: { action: 'Draft a comparison section', target: `${root}services/`, reason: 'Sample insight for the public dashboard.' }, cause: { cause: 'Sample answer-history gap', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
-    { id: `${prefix}-insight-2`, projectId: project.id, runId: syncRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: brokenLinkSource, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
-  ]).run()
+  // The simple project's health and insights come from its stored sweeps
+  // (seed-answer-intelligence.ts). The portfolio keeps these fixed examples.
+  if (variant === 1) {
+    db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, runId: syncRunId, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()
+    db.insert(insights).values([
+      { id: `${prefix}-insight-1`, projectId: project.id, runId: syncRunId, type: 'opportunity', severity: 'medium', title: 'Expand service comparison guidance', query: searchTerms[0]!, provider: 'openai', recommendation: { action: 'Draft a comparison section', target: `${root}services/`, reason: 'Sample insight for the public dashboard.' }, cause: { cause: 'Sample answer-history gap', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
+      { id: `${prefix}-insight-2`, projectId: project.id, runId: syncRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: brokenLinkSource, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
+    ]).run()
+  }
   db.insert(auditLog).values([
     { id: `${prefix}-audit-1`, projectId: project.id, actor: 'sample-data', action: 'demo.seeded', entityType: 'project', entityId: project.id, diff: 'Synthetic public demo signals seeded; no provider was contacted.', createdAt: nowIso },
     { id: `${prefix}-audit-2`, projectId: project.id, actor: 'sample-data', action: 'demo.site-health.snapshot', entityType: 'site-crawl', entityId: crawlRunId, diff: 'Synthetic completed crawl graph and findings stored.', createdAt: nowIso },
