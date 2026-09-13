@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDemoHttpServer } from '../src/demo/http.js'
+import { PACKAGE_VERSION } from '../src/package-version.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.restoreAllMocks() })
@@ -115,7 +116,10 @@ describe('dedicated public demo server', () => {
 
   it('reports a demo with background execution disabled', async () => {
     const { app } = await fixture()
-    expect((await app.inject('/health')).json()).toMatchObject({ status: 'ok', demo: true, workerEnabled: false })
+    const health = (await app.inject('/health')).json()
+    expect(health).toMatchObject({ status: 'ok', service: 'canonry-demo', demo: true, workerEnabled: false })
+    expect(health.version).toBe(PACKAGE_VERSION)
+    expect(health.version).toMatch(/^\d+\.\d+\.\d+/)
     expect((await app.inject('/api/v1/demo')).json()).toMatchObject({ mode: 'view-only', sampleData: true })
   })
 })

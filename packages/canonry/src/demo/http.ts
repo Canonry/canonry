@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static'
 import rateLimit from '@fastify/rate-limit'
 import { apiRoutes, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
 import { apiKeys, bingKeywordStats, bingUrlInspections, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { PACKAGE_VERSION } from '../package-version.js'
 import { isDemoApiReadAllowed } from './access.js'
 
 const DEMO_VIEWER = { id: 'public-demo-viewer', name: 'Public demo', scopes: ['read'], projectId: null }
@@ -15,7 +16,7 @@ const DEMO_CLIENT_CONFIG = {
   dashboard: { showAgentBar: false, showUpdateNotification: false },
 }
 const DEMO_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
-const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo — this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
+const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo: this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
 
 /** Internal HTTP shell. The public command always supplies a fresh synthetic database. */
 export async function createDemoHttpServer(options: {
@@ -40,7 +41,7 @@ export async function createDemoHttpServer(options: {
   const app = Fastify({
     logger: false,
     bodyLimit: 1024 * 1024,
-    // The published service listens on loopback behind cloudflared. Trust its
+    // The published service listens on loopback behind a local reverse proxy. Trust its
     // caller chain without letting a directly connected remote client spoof it.
     trustProxy: ['127.0.0.1', '::1'],
   })
@@ -109,7 +110,7 @@ export async function createDemoHttpServer(options: {
     reply.removeHeader('content-length')
     return payload.replace(/<body([^>]*)>/i, `<body$1>${DEMO_REPORT_DISCLOSURE}`)
   })
-  app.get('/health', async () => ({ status: 'ok', service: 'canonry-demo', demo: true, workerEnabled: false }))
+  app.get('/health', async () => ({ status: 'ok', service: 'canonry-demo', version: PACKAGE_VERSION, demo: true, workerEnabled: false }))
   app.get('/api/v1/session', async () => ({ authenticated: true, setupRequired: false }))
   app.get('/api/v1/demo', async () => ({ mode: 'view-only', sampleData: true, seededAt: now.toISOString() }))
   // Deliberately register only the shared HTTP readers. The normal server,
