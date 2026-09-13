@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
 import { OPERATIONS_GUIDE } from '../src/mcp/operations-guide.generated.js'
+import { parseServerUpdateAvailable } from '../src/client.js'
+import { updateNoticeInstructions } from '../src/mcp/server.js'
 
 /**
  * The `instructions` string is the only activation channel that is both
@@ -21,11 +23,28 @@ function instructions(): string {
 
 describe('MCP server instructions', () => {
   it('is wired into the McpServer constructor', () => {
-    expect(SOURCE).toMatch(/instructions:\s*SERVER_INSTRUCTIONS/)
+    // The update notice is appended conditionally, so the guide may sit inside
+    // an expression; it must still be what the constructor option is built from.
+    expect(SOURCE).toMatch(/instructions:[^\n]*SERVER_INSTRUCTIONS/)
   })
 
   it('stays under the 2KB Claude Code truncates at', () => {
     expect(Buffer.byteLength(instructions(), 'utf-8')).toBeLessThan(2048)
+  })
+
+  it('stays under 2KB with the largest update notice the parser accepts', () => {
+    // The notice is appended LAST, so truncation would cut exactly the part
+    // that tells the agent to upgrade. Bounds come from parseServerUpdateAvailable.
+    for (const installMethod of ['npm', 'homebrew', 'docker']) {
+      const update = parseServerUpdateAvailable({
+        current: `1.0.0-${'a'.repeat(26)}`,
+        latest: `2.0.0-${'b'.repeat(26)}`,
+        installMethod,
+      })
+      expect(update).not.toBe(null)
+      const text = `${instructions().trimEnd()}\n\n${updateNoticeInstructions(update!)}`
+      expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(2048)
+    }
   })
 
   it('points to help as the universal entry point and makes the skill optional', () => {

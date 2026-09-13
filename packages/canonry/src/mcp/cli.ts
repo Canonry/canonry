@@ -4,6 +4,7 @@ import { isReadOnlyKey } from '@ainyc/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { autoSyncSkills } from '../skills-autosync.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
+import { createUpdateNoticeSource } from './update-notice.js'
 
 export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>] [--eager]
 
@@ -66,8 +67,21 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // `actorSession` is a per-process correlation value: the server counts one
   // MCP session per value. It is never accepted as identity or authority.
   const client = createApiClient({ clientName: 'canonry-mcp', surface: 'mcp-stdio', actorSession: randomUUID() })
-  const authorization = await resolveEffectiveAuthorization(client, options.scope)
-  const server = createCanonryMcpServer({ ...authorization, eager: options.eager, clientFactory: () => client })
+  // The update notice rides the same startup round-trip as the key probe. An
+  // MCP-only agent never runs the CLI, so this is the only place it can learn
+  // that the install is behind. Best-effort, opt-out aware, and refreshed
+  // hourly for hosts that keep this process alive for days.
+  const updateNotice = createUpdateNoticeSource(client)
+  const [authorization] = await Promise.all([
+    resolveEffectiveAuthorization(client, options.scope),
+    updateNotice.refresh(),
+  ])
+  const server = createCanonryMcpServer({
+    ...authorization,
+    eager: options.eager,
+    clientFactory: () => client,
+    updateAvailable: updateNotice.get,
+  })
   await server.connect(new StdioServerTransport())
 }
 

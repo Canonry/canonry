@@ -638,7 +638,46 @@ import {
   type PostApiV1ProjectsByNameMeasurementPlanDraftActionsDiscardResponse,
   type PostApiV1ProjectsByNameMeasurementPlanActionsDeactivateResponse,
 } from '@ainyc/canonry-api-client'
-import { describeError } from '@ainyc/canonry-contracts'
+import {
+  CANONRY_NPM_PACKAGE_URL,
+  compareSemver,
+  describeError,
+  isInstallMethod,
+  isStrictSemver,
+  upgradeCommandFor,
+  type InstallMethod,
+} from '@ainyc/canonry-contracts'
+
+/** A newer published canonry, as the connected server reports it on `/health`. */
+export interface ServerUpdateAvailable {
+  current: string
+  latest: string
+  installMethod: InstallMethod
+  /** Built locally from `installMethod`; never the server's text. */
+  upgradeCommand: string
+  url: string
+}
+
+/**
+ * Validate `/health`'s `updateAvailable`. Only the two versions (strict semver)
+ * and the install method (closed enum) are taken from the server; the upgrade
+ * command and URL are rebuilt locally. `canonry-mcp` places this notice in its
+ * initialize instructions, which clients load into the system prompt, so a
+ * server must not be able to put free text, such as a shell command, there.
+ * A missing `installMethod` (older servers) means npm.
+ */
+export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailable | null {
+  if (!value || typeof value !== 'object') return null
+  const { current, latest, installMethod } = value as Record<string, unknown>
+  // 32 chars covers any real release; the cap keeps the MCP instructions,
+  // which append this notice last, under the 2KB clients truncate at.
+  if (typeof current !== 'string' || current.length > 32 || !isStrictSemver(current)) return null
+  if (typeof latest !== 'string' || latest.length > 32 || !isStrictSemver(latest)) return null
+  if (compareSemver(latest, current) <= 0) return null
+  const method = installMethod === undefined ? 'npm' : installMethod
+  if (!isInstallMethod(method)) return null
+  return { current, latest, installMethod: method, upgradeCommand: upgradeCommandFor(method), url: CANONRY_NPM_PACKAGE_URL }
+}
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
@@ -2236,6 +2275,23 @@ export class ApiClient {
   /** Introspect the CURRENT key (the one this client authenticates with). */
   async getApiKeySelf(): Promise<ApiKeyDto> {
     return this.invoke<ApiKeyDto>(() => getApiV1KeysSelf({ client: this.heyClient }))
+  }
+
+  /**
+   * The connected server's update notice from `/health`, or null. Best-effort
+   * and bounded (2s), never throws: `canonry-mcp` uses it to tell agents that
+   * never run the CLI about a newer release.
+   */
+  async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
+    try {
+      await this.probeBasePath()
+      const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
+      if (!res.ok) return null
+      const body = (await res.json()) as { updateAvailable?: unknown }
+      return parseServerUpdateAvailable(body?.updateAvailable)
+    } catch {
+      return null
+    }
   }
 
   async createApiKey(body: CreateApiKeyRequest): Promise<CreatedApiKeyDto> {

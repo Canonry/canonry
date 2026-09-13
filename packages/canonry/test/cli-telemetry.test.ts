@@ -29,6 +29,8 @@ vi.mock('../src/telemetry.js', () => ({
 
 vi.mock('../src/update-check.js', () => ({
   checkLatestVersionForCli: vi.fn().mockResolvedValue(null),
+  readCachedUpdateAvailable: vi.fn().mockReturnValue(null),
+  formatUpdateNotice: vi.fn().mockReturnValue(''),
 }))
 
 const { runCli } = await import('../src/cli.js')

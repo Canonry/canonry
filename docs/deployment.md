@@ -364,6 +364,8 @@ sudo systemctl enable --now canonry
 ```dockerfile
 FROM node:22-alpine
 RUN npm install -g @canonry/canonry
+# Tells update notices to upgrade by rebuilding this image.
+ENV CANONRY_INSTALL_METHOD=docker
 EXPOSE 4100
 CMD ["canonry", "serve", "--host", "0.0.0.0"]
 ```

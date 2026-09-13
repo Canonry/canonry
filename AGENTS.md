@@ -385,6 +385,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 |----------|----|-------|---------|
 | database | `db.file.present` | global | Configured SQLite database file still exists on disk (catches `rm ~/.canonry/data.db` against a running daemon — SQLite holds the inode open across `unlink`) |
 | config | `config.file.present` | global | Configured `~/.canonry/config.yaml` still exists on disk (same gotcha as above) |
+| config | `canonry.version.current` | global | The running server is the newest published `@canonry/canonry`: warns `version.outdated` with an upgrade command for the detected install (npm, Homebrew, or container) plus a restart reminder; skipped when the update check is opted out (reports which opt-out, never suggests undoing it), before the registry has been reached, or on deployments that don't report update status. Registry values that are not strict semver are ignored |
 | auth | `google.auth.connection` | project | OAuth credentials present, refresh token works |
 | auth | `google.auth.property-access` | project | Authorized principal can list the selected GSC site |
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
@@ -1158,7 +1159,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - `commit`: the git sha the bundle was built from. `packages/canonry/tsup.config.ts` stamps it at build time from `git rev-parse HEAD` (`packages/canonry/scripts/build-commit.ts`). A build without git omits the stamp and the server falls back to the `CANONRY_COMMIT` env var at runtime; unset as well means the field is omitted.
 - `instance`: read at boot from `CANONRY_INSTANCE` (`name`) and `CANONRY_INSTANCE_ROLE` (`role`). Omitted entirely when `CANONRY_INSTANCE` is unset; `role` is dropped when its var is unset. Role is free text, but use the convention so fleet tooling can group on it: `internal` (our own engines), `client-demo` (a prospect's demo tenant), `client-trial` (a client on trial), `preview` (a branch or PR preview).
 - `basePath`: omitted when not configured.
-- `updateAvailable`: `{ current, latest, url, upgradeCommand }` when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
+- `updateAvailable`: `{ current, latest, url, upgradeCommand, installMethod }` (`installMethod` is `npm`, `homebrew`, or `docker`, detected from `CANONRY_INSTALL_METHOD`, a Homebrew `Cellar/canonry/` path, or a container marker; `upgradeCommand` and `url` come from fixed contracts helpers, never free text) when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
 
 ### Web UI — use `window.__CANONRY_CONFIG__.basePath`
 
