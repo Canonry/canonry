@@ -317,11 +317,12 @@ test('public demo reads saved research without settings or run controls', async 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => queryClient.clear())
 
-  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" onReviewForTracking={() => {}} /></QueryClientProvider>)
 
   await screen.findByText('Saved research answer.')
   expect(requests).not.toContain('/api/v1/settings')
   expect(screen.getByText('This public demo shows saved research results. Running research is unavailable.')).toBeTruthy()
   expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: RESEARCH_COPY.runAction })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
 })
