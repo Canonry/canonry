@@ -5,6 +5,7 @@ import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import {
+  adsCampaigns,
   adsInsightsDaily,
   backlinkSummaries,
   bingCoverageSnapshots,
@@ -113,5 +114,16 @@ describe('seedDemoSignals', () => {
     } finally {
       await app.close()
     }
+  })
+
+  it('names each project listing category and campaign for its own line of business', async () => {
+    await seedDemoSignals(db, context)
+    const category = (projectId: string) => db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).get()?.primaryCategoryDisplayName
+    const campaign = (projectId: string) => db.select().from(adsCampaigns).where(eq(adsCampaigns.projectId, projectId)).get()?.name
+    expect(category(context.simple.id)).toBe('Roofing contractor')
+    expect(campaign(context.simple.id)).toMatch(/roof/i)
+    expect(campaign(context.simple.id)).not.toMatch(/travel|resort/i)
+    expect(category(context.portfolio.id)).toBe('Resort hotel')
+    expect(campaign(context.portfolio.id)).toMatch(/resort/i)
   })
 })

@@ -118,7 +118,7 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   const crawl = await seedSiteCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso, inventory })
   // The link insight names a page that really carries a broken link, preferring a guide.
   const brokenLinkSource = (crawl.findings.find(finding => finding.sourceNodeKey?.startsWith('/guides/')) ?? crawl.findings.at(0))?.sourceUrl ?? root
-  seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates })
+  seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates, variant })
 
   // The simple project's health and insights come from its stored sweeps
   // (seed-answer-intelligence.ts). The portfolio keeps these fixed examples.
@@ -135,9 +135,12 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   ]).run()
 }
 
-function seedLocalAndCommercialSignals(db: DatabaseClient, input: { project: DemoSeedProject; prefix: string; root: string; syncRunId: string; campaignId: string; groupId: string; locationName: string; nowIso: string; dates: string[] }): void {
-  const { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates } = input
-  db.insert(gbpLocations).values({ id: `${prefix}-gbp-location`, projectId: project.id, accountName: 'accounts/demo-fixture', locationName, displayName: `${project.displayName} - Sample`, primaryCategoryDisplayName: 'Home and travel services', storefrontAddress: '100 Example Avenue, Demo City', websiteUri: root, placeId: `demo-place-${project.id}`, mapsUri: `https://maps.example/${project.id}`, description: 'Sample listing for the public, view-only Canonry dashboard.', selected: true, syncedAt: nowIso, createdAt: nowIso, updatedAt: nowIso }).run()
+function seedLocalAndCommercialSignals(db: DatabaseClient, input: { project: DemoSeedProject; prefix: string; root: string; syncRunId: string; campaignId: string; groupId: string; locationName: string; nowIso: string; dates: string[]; variant: number }): void {
+  const { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates, variant } = input
+  const business = variant === 0
+    ? { category: 'Roofing contractor', campaign: 'Spring roof inspection campaign' }
+    : { category: 'Resort hotel', campaign: 'Spring resort stays campaign' }
+  db.insert(gbpLocations).values({ id: `${prefix}-gbp-location`, projectId: project.id, accountName: 'accounts/demo-fixture', locationName, displayName: `${project.displayName} - Sample`, primaryCategoryDisplayName: business.category, storefrontAddress: '100 Example Avenue, Demo City', websiteUri: root, placeId: `demo-place-${project.id}`, mapsUri: `https://maps.example/${project.id}`, description: 'Sample listing for the public, view-only Canonry dashboard.', selected: true, syncedAt: nowIso, createdAt: nowIso, updatedAt: nowIso }).run()
   db.insert(gbpDailyMetrics).values(dates.slice(-7).flatMap((date, i) => [
     { id: `${prefix}-gbp-impressions-${date}`, projectId: project.id, locationName, date, metric: 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS', value: 44 + i * 2, syncRunId },
     { id: `${prefix}-gbp-clicks-${date}`, projectId: project.id, locationName, date, metric: 'WEBSITE_CLICKS', value: 7 + (i % 3), syncRunId },
@@ -148,7 +151,7 @@ function seedLocalAndCommercialSignals(db: DatabaseClient, input: { project: Dem
   db.insert(backlinkSummaries).values({ id: `${prefix}-backlinks`, projectId: project.id, source: 'commoncrawl', release: 'DEMO-2026-09', targetDomain: project.domain, totalLinkingDomains: 3, totalHosts: 12, top10HostsShare: '0.42', queriedAt: nowIso, createdAt: nowIso }).run()
   db.insert(backlinkDomains).values(['partners.demo.example', 'local-guides.demo.example', 'trade-directory.demo.example'].map((linkingDomain, i) => ({ id: `${prefix}-backlink-domain-${i}`, projectId: project.id, source: 'commoncrawl' as const, release: 'DEMO-2026-09', targetDomain: project.domain, linkingDomain, numHosts: 5 - i, createdAt: nowIso }))).run()
   db.insert(adsConnections).values({ id: `${prefix}-ads-connection`, projectId: project.id, adAccountId: `demo-account-${project.id}`, displayName: 'Sample Ad Account', currencyCode: 'USD', timezone: 'UTC', status: 'active', reviewStatus: 'approved', integrityReviewStatus: 'sample', integrityDecision: 'synthetic', lastSyncedAt: nowIso, conversionTrackingConfigured: true, createdAt: nowIso, updatedAt: nowIso }).run()
-  db.insert(adsCampaigns).values({ id: campaignId, projectId: project.id, name: 'Spring travel campaign', description: 'Sample stored campaign for the public dashboard.', status: 'ACTIVE', biddingType: 'MAXIMIZE_CONVERSIONS', dailySpendLimitMicros: 45000000, conversionEventSettingIds: ['demo-conversion-setting'], targeting: { sampleData: true }, syncRunId, syncedAt: nowIso }).run()
+  db.insert(adsCampaigns).values({ id: campaignId, projectId: project.id, name: business.campaign, description: 'Sample stored campaign for the public dashboard.', status: 'ACTIVE', biddingType: 'MAXIMIZE_CONVERSIONS', dailySpendLimitMicros: 45000000, conversionEventSettingIds: ['demo-conversion-setting'], targeting: { sampleData: true }, syncRunId, syncedAt: nowIso }).run()
   db.insert(adsAdGroups).values({ id: groupId, projectId: project.id, campaignId, name: 'Service comparison intent', description: 'Sample stored ad group.', status: 'ACTIVE', billingEventType: 'CPC', maxBidMicros: 3200000, contextHints: ['sample service\nsample comparison'], syncRunId, syncedAt: nowIso }).run()
   db.insert(adsAds).values({ id: `${prefix}-ad`, projectId: project.id, adGroupId: groupId, name: 'Sample responsive ad', status: 'ACTIVE', creative: { sampleData: true, headline: 'Sample service guidance' }, reviewStatus: 'APPROVED', syncRunId, syncedAt: nowIso }).run()
   db.insert(adsInsightsDaily).values(dates.slice(-7).map((date, i) => ({ id: `${prefix}-ads-insight-${date}`, projectId: project.id, level: 'campaign', entityId: campaignId, date, impressions: 340 + i * 20, clicks: 22 + i, spendMicros: 1800000 + i * 100000, conversions: 2 + (i % 3), syncRunId }))).run()
