@@ -8,6 +8,7 @@ vi.mock('../src/api.js', () => ({
   addLocation: vi.fn(),
   downloadResultsExport: mockDownloadResultsExport,
   isEmbed: vi.fn(() => false),
+  isPublicDemo: vi.fn(() => false),
   removeLocation: vi.fn(),
   setDefaultLocation: vi.fn(),
 }))

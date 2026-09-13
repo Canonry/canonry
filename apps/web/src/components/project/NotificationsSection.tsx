@@ -5,7 +5,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { listNotifications, addNotification, removeNotification, sendTestNotification, isEmbed, type ApiNotification } from '../../api.js'
+import { listNotifications, addNotification, removeNotification, sendTestNotification, isEmbed, isPublicDemo, type ApiNotification } from '../../api.js'
 
 // --- Notification events ---
 const NOTIFICATION_EVENTS = [
@@ -24,6 +24,8 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
   const [error, setError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, { state: 'testing' | 'ok' | 'fail'; status?: number }>>({})
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set())
+  // An embed and the public demo list webhooks without offering to change them.
+  const canManage = !isEmbed() && !isPublicDemo()
 
   useEffect(() => {
     listNotifications(projectName).then(setNotifs).catch(() => setNotifs([]))
@@ -111,14 +113,14 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Notifications</h2>
         </div>
-        {!isEmbed() && notifs !== 'loading' && (
+        {canManage && notifs !== 'loading' && (
           <Button type="button" variant="outline" size="sm" onClick={() => { setAdding(!adding); setError(null) }}>
             {adding ? 'Cancel' : '+ Add webhook'}
           </Button>
         )}
       </div>
 
-      {!isEmbed() && adding && (
+      {canManage && adding && (
         <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-secondary">Webhook URL</label>
@@ -215,12 +217,12 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
                           </ToneBadge>
                         )
                       })()}
-                      {!isEmbed() && (
+                      {canManage && (
                         <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id]?.state === 'testing'} onClick={() => { void handleTest(n.id) }}>
                           Test
                         </Button>
                       )}
-                      {!isEmbed() && (
+                      {canManage && (
                         <Button variant="ghost" size="sm" type="button" disabled={removingIds.has(n.id)} onClick={() => { void handleRemove(n.id) }}>
                           {removingIds.has(n.id) ? 'Removing…' : 'Remove'}
                         </Button>

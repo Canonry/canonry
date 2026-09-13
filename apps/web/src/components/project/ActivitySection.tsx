@@ -44,6 +44,7 @@ import {
   disconnectGa,
   heyClient,
   isEmbed,
+  isPublicDemo,
 } from '../../api.js'
 import {
   getApiV1ProjectsByNameGaAiReferralDailyOptions,
@@ -559,7 +560,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
 
   // Not connected state
   if (!status?.connected) {
-    if (isEmbed()) {
+    if (isEmbed() || isPublicDemo()) {
       return (
         <Card className="p-5">
           <div className="text-sm text-secondary">
@@ -628,7 +629,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
             {status.clientEmail && <> &middot; <span className="text-muted">{status.clientEmail}</span></>}
           </span>
         </div>
-        {!isEmbed() && (
+        {!isEmbed() && !isPublicDemo() && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -689,7 +690,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         ) : (
           <div className="surface-card rounded-lg p-6 text-center border border-default">
             <p className="text-sm text-secondary mb-3">No traffic data yet.</p>
-            {!isEmbed() && (
+            {!isEmbed() && !isPublicDemo() && (
               <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
                 <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
                 Sync from GA4

@@ -9,7 +9,7 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
+import { ApiError, heyClient, saveSchedule, removeSchedule, isEmbed, isPublicDemo, isDashboardManagedSweeps, type ApiSchedule } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 
 export const SCHEDULE_COPY = { edit: 'Edit schedule', pause: 'Pause', resume: 'Resume', save: 'Save schedule' } as const
@@ -59,7 +59,7 @@ function calendarRecurrenceLabel(recurrence: CalendarRecurrence, timezone: strin
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
   const managedSweeps = isDashboardManagedSweeps()
-  const canManageSchedule = !isEmbed() && !managedSweeps
+  const canManageSchedule = !isEmbed() && !isPublicDemo() && !managedSweeps
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [freq, setFreq] = useState('daily')
