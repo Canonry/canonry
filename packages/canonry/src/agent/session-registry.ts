@@ -197,7 +197,7 @@ export class SessionRegistry {
       // The stored prompt is a snapshot, not a permanent version pin. Keep
       // transcripts and notes while adopting the installed skill and appends.
       if (row.systemPrompt !== systemPrompt) {
-        this.updateRow(projectId, { systemPrompt })
+        this.persistPromptSnapshot(projectId, systemPrompt)
       }
 
       // Explicit caller preferences override the persisted values (and are
@@ -367,7 +367,7 @@ export class SessionRegistry {
     const row = this.loadRow(projectId)
     const systemPrompt = loadAeroSystemPrompt()
     if (row && row.systemPrompt !== systemPrompt) {
-      this.updateRow(projectId, { systemPrompt })
+      this.persistPromptSnapshot(projectId, systemPrompt)
       agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
     }
     this.alignToolSurface(projectName, agent, {
@@ -721,11 +721,25 @@ export class SessionRegistry {
       .run()
   }
 
-  private updateRow(projectId: string, patch: Partial<Pick<AgentSessionRow, 'messages' | 'followUpQueue' | 'systemPrompt'>>): void {
+  private updateRow(projectId: string, patch: Partial<Pick<AgentSessionRow, 'messages' | 'followUpQueue'>>): void {
     const now = new Date().toISOString()
     this.opts.db
       .update(agentSessions)
       .set({ ...patch, updatedAt: now })
+      .where(eq(agentSessions.projectId, projectId))
+      .run()
+  }
+
+  /**
+   * Store a refreshed prompt snapshot without touching `updatedAt`, which the
+   * transcript API reports as the conversation's last activity. Adopting a new
+   * bundled skill is not activity, so it must not make every session look
+   * recently used right after an upgrade.
+   */
+  private persistPromptSnapshot(projectId: string, systemPrompt: string): void {
+    this.opts.db
+      .update(agentSessions)
+      .set({ systemPrompt })
       .where(eq(agentSessions.projectId, projectId))
       .run()
   }

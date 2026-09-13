@@ -395,6 +395,9 @@ Tool surface has two layers:
   Advanced interpretation. `agent-operations` is generated from
   `docs/agent-operations/v1.md` by `pnpm guide:sync` and ships through the same
   skill-doc reader; built-in Aero does not expose external MCP help/load tools.
+  The Aero-only framing is a preface added by the generator, not guide text, so
+  external hosts reading the guide, `skills/canonry/SKILL.md`, or the MCP
+  resource never see Aero internals.
 - **Aero tool profiles** (`src/agent/tools.ts`) — the default profile exposes
   the full local MCP-derived tool surface for the requested scope. The
   `ads-operator` profile narrows local state tools to an explicit typed

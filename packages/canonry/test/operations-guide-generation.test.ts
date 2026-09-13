@@ -20,6 +20,11 @@ it('reproduces the checked-in runtime and native skill exactly', () => {
   expect(fs.readFileSync(path.join(root, 'packages/canonry/src/mcp/operations-guide.generated.ts'), 'utf8')).toBe(rendered.generated)
   expect(fs.readFileSync(path.join(root, 'skills/canonry/SKILL.md'), 'utf8')).toBe(rendered.skillMarkdown)
   expect(fs.readFileSync(path.join(root, 'skills/aero/references/agent-operations.md'), 'utf8')).toBe(rendered.aeroReferenceMarkdown)
+  // Aero-only framing reaches Aero's copy and nothing external hosts read.
+  expect(rendered.aeroReferenceMarkdown).toContain('**Built-in Aero:**')
+  for (const external of [source, rendered.skillMarkdown, rendered.generated]) {
+    expect(external).not.toContain('Built-in Aero')
+  }
   expect(readSkillResource('canonry-skill://canonry/SKILL.md')?.text).toBe(rendered.skillMarkdown)
 })
 

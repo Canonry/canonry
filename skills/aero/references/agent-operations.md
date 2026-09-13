@@ -5,6 +5,15 @@ description: Shared Canonry vocabulary, evidence scope, comparison rules, and au
 
 <!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->
 
+> **Built-in Aero:** your available `canonry_*` tools are already loaded, and
+> you read this guide through `read_skill_doc` (slug `agent-operations`). Your
+> catalog does not include `canonry_help` or `canonry_load_toolkit`; the
+> connection and navigation steps below are for external MCP hosts. Your
+> project-scoped tools use the current session's project. Dashboard selections
+> are not passed to chat: resolve the requested Property, market, filters, or
+> page before making a scoped claim. The `portfolio-analysis` and `site-health`
+> skill docs cover those investigations for Simple and Advanced portfolios.
+
 # Canonry Operations Guide v1
 
 Canonry is an agent-first AI visibility platform. MCP is the universal entry
@@ -38,15 +47,6 @@ guide. If the host cannot read resources or open links, continue through help.
 Do not install a plugin, local runtime, or skill merely to use connected MCP.
 An installed Codex or Claude Canonry skill contains a generated copy of this
 guide plus links to host-native references. It does not replace runtime help.
-
-Built-in Aero already receives its available `canonry_*` tools and can read
-this guide through `read_skill_doc` with slug `agent-operations`. Its catalog
-does not include `canonry_help` or `canonry_load_toolkit`; those navigation
-steps are for external MCP hosts. Aero's project-scoped tools use the current
-session's project. Dashboard selections are not automatically passed to chat:
-resolve the requested Property, market, filters, or page before making a
-scoped claim. The `portfolio-analysis` and `site-health` skill docs cover the
-corresponding investigations for both Simple and Advanced portfolios.
 
 ## Vocabulary and evidence
 

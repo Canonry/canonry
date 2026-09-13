@@ -679,6 +679,24 @@ describe('SessionRegistry', () => {
     expect(registry.isLive('demo')).toBe(false)
   })
 
+  it('adopting a new skill prompt on hydration does not report the conversation as updated', () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    registry.getOrCreate('demo')
+    const lastActivity = '2026-01-01T00:00:00.000Z'
+    db.update(agentSessions)
+      .set({ systemPrompt: 'obsolete skill prompt', updatedAt: lastActivity })
+      .where(eq(agentSessions.projectId, projectId))
+      .run()
+
+    registry.evict('demo')
+    registry.getOrCreate('demo')
+
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row!.systemPrompt).toBe(loadAeroSystemPrompt())
+    expect(row!.updatedAt).toBe(lastActivity)
+  })
+
   it('acquireForTurn throws AGENT_BUSY without mutating tools or refreshing the prompt when streaming', async () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
@@ -715,6 +733,7 @@ describe('SessionRegistry', () => {
     agent.state.messages = [{ role: 'user', content: 'Compare the two markets', timestamp: Date.now() }]
     registry.save('demo')
     const messagesBefore = agent.state.messages
+    const savedAt = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()!.updatedAt
     const { upsertMemoryEntry } = await import('../src/agent/memory-store.js')
     upsertMemoryEntry(db, {
       projectId, key: 'reporting-tone', value: 'Concise', source: MemorySources.user,
@@ -732,6 +751,8 @@ describe('SessionRegistry', () => {
     expect(row!.systemPrompt).toBe(loadAeroSystemPrompt())
     expect(row!.systemPrompt).not.toContain('<memory>')
     expect(parseJsonColumn<AgentMessage[]>(row!.messages, [])).toEqual(messagesBefore)
+    // The refresh is not conversation activity.
+    expect(row!.updatedAt).toBe(savedAt)
   })
 
   it('acquireForTurn aligns tool scope on cached agents when idle', async () => {
