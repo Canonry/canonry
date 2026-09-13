@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isDemoApiReadAllowed } from '../src/demo/access.js'
+import { isDemoApiReadAllowed, listDemoReadRoutes } from '../src/demo/access.js'
 
 describe('public demo read boundary', () => {
   it.each([
@@ -34,5 +34,14 @@ describe('public demo read boundary', () => {
     expect(isDemoApiReadAllowed('GET', undefined)).toBe(false)
     expect(isDemoApiReadAllowed('GET', '/api/v1/projects/:name/overview/extra')).toBe(false)
     expect(isDemoApiReadAllowed('GET', '/api/v1/projects/:name/overview?x=y')).toBe(false)
+  })
+
+  it('lists the audited routes as a copy that cannot widen access', () => {
+    const routes = listDemoReadRoutes()
+    expect(routes).toContain('/api/v1/projects/:name/technical-aeo/graph')
+    expect(routes.every(route => route.startsWith('/api/v1/') && isDemoApiReadAllowed('GET', route))).toBe(true)
+    routes.push('/api/v1/settings')
+    expect(isDemoApiReadAllowed('GET', '/api/v1/settings')).toBe(false)
+    expect(listDemoReadRoutes()).not.toContain('/api/v1/settings')
   })
 })

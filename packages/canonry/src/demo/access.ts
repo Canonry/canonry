@@ -157,6 +157,11 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/session',
 ])
 
+/** The audited route patterns, for tests that must exercise every one. A fresh copy, so no caller can widen access. */
+export function listDemoReadRoutes(): string[] {
+  return [...DEMO_READ_ROUTES]
+}
+
 export function isDemoApiReadAllowed(method: string, registeredRoute: string | undefined): boolean {
   return (method === 'GET' || method === 'HEAD')
     && registeredRoute !== undefined
