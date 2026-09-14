@@ -21,7 +21,7 @@ import {
   type VisibilityReportScopeOption,
 } from '@ainyc/canonry-contracts'
 
-import { heyClient, isEmbed, type ViewerResearchConfig } from '../../api.js'
+import { heyClient, isEmbed, isPublicDemo, type ViewerResearchConfig } from '../../api.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
@@ -101,6 +101,7 @@ export function ResearchQueriesSection({
   const { account, canWrite } = useAccount()
   const isViewerResearch = account?.role === 'viewer' && viewerResearchConfig !== null
   const limitedAccess = !canWrite
+  const publicDemo = isPublicDemo()
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -115,7 +116,7 @@ export function ResearchQueriesSection({
   })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !limitedAccess,
+    enabled: !limitedAccess && !publicDemo,
     staleTime: 60_000,
   })
   const historyInput = { client: heyClient, path: { name: projectName }, query: { limit: 20 } }
@@ -210,47 +211,55 @@ export function ResearchQueriesSection({
   return (
     <div className="space-y-4">
       <div className="space-y-4">
-        <ResearchBatchComposer
-          key={`${projectName}:${composerVersion}`}
-          projectName={projectName}
-          canWrite={canWrite}
-          researchAllowed={canRun && !historyError}
-          limitedAccess={limitedAccess}
-          isEmbed={isEmbed()}
-          scopeOptions={scopeOptions ?? []}
-          planRevision={planRevision ?? selectedScope?.planRevision ?? null}
-          initialScope={selectedScope}
-          scopePending={scopePending}
-          scopeError={scopeError}
-          onRetryScope={onRetryScope}
-          templates={templates}
-          locations={locations}
-          defaultLocation={projectQuery.data?.defaultLocation ?? null}
-          providerOptions={providerOptions}
-          provider={provider}
-          onProviderChange={(next) => { setProvider(next); setModel('') }}
-          resolvedModel={resolvedModel}
-          visibilityModel={visibilityModel}
-          configurableModel={configurableModel}
-          model={model}
-          onModelChange={setModel}
-          modelOptions={modelOptions}
-          settingsReady={limitedAccess ? !runsQuery.isPending && !historyError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
-          projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
-          isPending={researchMutation.isPending}
-          errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
-          onSubmit={(body, fingerprint) => {
-            if (!canRun || historyError || isEmbed() || submitInFlight.current) return
-            if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
-            submitInFlight.current = true
-            researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
-          }}
-        />
-        {dailyRunLimit !== null && <p className="text-sm text-secondary">Up to {dailyRunLimit} destination runs per project per day.</p>}
-        {!limitedAccess && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
-        {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
-        {!(limitedAccess ? historyError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
-        {createdRuns.length > 0 && <p role="status" className="text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{run.scope?.label ?? 'Whole site'}{run.location ? `, ${run.location.label}` : ', No location'}</a></span>)}</p>}
+        {publicDemo ? (
+          <Card className="surface-card min-w-0">
+            <p className="text-sm text-secondary">This public demo shows saved research results. Running research is unavailable.</p>
+          </Card>
+        ) : (
+          <>
+          <ResearchBatchComposer
+            key={`${projectName}:${composerVersion}`}
+            projectName={projectName}
+            canWrite={canWrite}
+            researchAllowed={canRun && !historyError}
+            limitedAccess={limitedAccess}
+            isEmbed={isEmbed()}
+            scopeOptions={scopeOptions ?? []}
+            planRevision={planRevision ?? selectedScope?.planRevision ?? null}
+            initialScope={selectedScope}
+            scopePending={scopePending}
+            scopeError={scopeError}
+            onRetryScope={onRetryScope}
+            templates={templates}
+            locations={locations}
+            defaultLocation={projectQuery.data?.defaultLocation ?? null}
+            providerOptions={providerOptions}
+            provider={provider}
+            onProviderChange={(next) => { setProvider(next); setModel('') }}
+            resolvedModel={resolvedModel}
+            visibilityModel={visibilityModel}
+            configurableModel={configurableModel}
+            model={model}
+            onModelChange={setModel}
+            modelOptions={modelOptions}
+            settingsReady={limitedAccess ? !runsQuery.isPending && !historyError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
+            projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
+            isPending={researchMutation.isPending}
+            errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
+            onSubmit={(body, fingerprint) => {
+              if (!canRun || historyError || isEmbed() || submitInFlight.current) return
+              if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
+              submitInFlight.current = true
+              researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
+            }}
+          />
+          {dailyRunLimit !== null && <p className="text-sm text-secondary">Up to {dailyRunLimit} destination runs per project per day.</p>}
+          {!limitedAccess && settingsQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load API providers.</p><Button variant="outline" onClick={() => { void settingsQuery.refetch() }}>Retry providers</Button></div> : null}
+          {projectQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load project locations.</p><Button variant="outline" onClick={() => { void projectQuery.refetch() }}>Retry locations</Button></div> : null}
+          {!(limitedAccess ? historyError : settingsQuery.isError) && noConfiguredApiProviders && <p className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">{limitedAccess ? 'No research engines are available. Ask your Canonry team to configure one.' : 'Configure an API provider in Settings before starting research. Browser engines are not available for this workflow.'}</p>}
+          {createdRuns.length > 0 && <p role="status" className="text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{run.scope?.label ?? 'Whole site'}{run.location ? `, ${run.location.label}` : ', No location'}</a></span>)}</p>}
+          </>
+        )}
 
         <Card className="surface-card min-w-0">
           <div className="section-head section-head-inline">
@@ -285,7 +294,7 @@ export function ResearchQueriesSection({
         </Card>
       </div>
 
-      {!historyError && detailQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={onReviewForTracking} /> : null}
+      {!historyError && detailQuery.isError ? <div role="alert" className="text-sm text-negative"><p>Could not load saved research results.</p><Button variant="outline" onClick={() => { void detailQuery.refetch() }}>Retry results</Button></div> : !historyError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
     </div>
   )
 }

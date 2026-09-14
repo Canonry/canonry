@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ResultsExportFormat } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
-import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, type ApiLocation } from '../../api.js'
+import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, isPublicDemo, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 
@@ -218,6 +218,9 @@ export function ProjectSettingsSection({
     JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? []) ||
     JSON.stringify(aliases) !== JSON.stringify(project.aliases ?? [])
 
+  // An embed and the public demo are view only: stored settings stay readable,
+  // but nothing that would change them is offered.
+  const canChange = !isEmbed() && !isPublicDemo()
   const inputClass = 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'
   const labelClass = 'mb-1 block text-sm font-medium text-secondary'
   const newLocValid = newLocLabel.trim() && newLocCity.trim() && newLocRegion.trim() && newLocCountry.trim()
@@ -230,7 +233,7 @@ export function ProjectSettingsSection({
           <p className="eyebrow eyebrow-soft">Configuration</p>
           <h2>Project settings</h2>
         </div>
-        {!isEmbed() && !editing && (
+        {canChange && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
             Edit settings
           </Button>
@@ -244,7 +247,7 @@ export function ProjectSettingsSection({
         </div>
       )}
 
-      {!isEmbed() && editing ? (
+      {canChange && editing ? (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -410,7 +413,7 @@ export function ProjectSettingsSection({
                             <td className="py-1.5 pr-3 text-muted">{loc.timezone ?? '\u2014'}</td>
                             <td className="py-1.5">
                               <div className="flex items-center gap-1.5">
-                                {!isEmbed() && loc.label !== project.defaultLocation && (
+                                {canChange && loc.label !== project.defaultLocation && (
                                   <button
                                     type="button"
                                     disabled={locationWorking}
@@ -421,7 +424,7 @@ export function ProjectSettingsSection({
                                     Set default
                                   </button>
                                 )}
-                                {!isEmbed() && (
+                                {canChange && (
                                   <button
                                     type="button"
                                     disabled={locationWorking}
@@ -441,7 +444,7 @@ export function ProjectSettingsSection({
                   ) : (
                     <p className="text-muted text-xs mb-2">No locations configured</p>
                   )}
-                  {isEmbed() ? null : showAddLocation ? (
+                  {!canChange ? null : showAddLocation ? (
                     <div className="mt-2 rounded border border-base bg-bg-elevated/50 p-3 space-y-2">
                       <p className="text-sm font-medium text-secondary">Add location</p>
                       <div className="grid grid-cols-2 gap-2">

@@ -27,6 +27,7 @@ import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
   shouldShowDashboardResourceLinks,
@@ -68,6 +69,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
@@ -541,10 +543,12 @@ export function RootLayout() {
   }
 
   return (
-    <div className={`app-shell ${shellModifier}`}>
-      <a className="skip-link" href="#content">
-        Skip to content
-      </a>
+    <>
+    <a className="skip-link" href="#content">
+      Skip to content
+    </a>
+    <DemoNotice />
+    <div className={`app-shell ${shellModifier}${isPublicDemo() ? ' app-shell-demo' : ''}`}>
 
       {/* ── Sidebar (desktop) ── */}
       {!isFocusedSetup && !sidebarHidden && (
@@ -603,7 +607,7 @@ export function RootLayout() {
             <Radar className="sidebar-icon" />
             <span>Traffic sources</span>
           </Link>
-          <Link
+          {!isPublicDemo() && <Link
             to="/backlinks"
             className="sidebar-link"
             activeProps={{ className: 'sidebar-link sidebar-link-active' }}
@@ -611,7 +615,7 @@ export function RootLayout() {
           >
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
-          </Link>
+          </Link>}
           {isAdmin && (
             <Link
               to="/settings"
@@ -762,7 +766,7 @@ export function RootLayout() {
                 className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
                 title={serviceStatusTooltip(healthSnapshot.workerStatus)}
               >
-                Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
+                {`Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
               </span>
             </div>
             {!isFocusedSetup ? (
@@ -810,9 +814,9 @@ export function RootLayout() {
           <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Traffic sources
           </Link>
-          <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+          {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
-          </Link>
+          </Link>}
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
               Settings
@@ -1076,5 +1080,6 @@ export function RootLayout() {
       <Toaster />
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
+    </>
   )
 }

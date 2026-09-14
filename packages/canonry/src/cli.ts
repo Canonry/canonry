@@ -31,6 +31,7 @@ Usage:  cnry <command> [options]
 Setup:
   bootstrap             Create local config/database (no provider required)
   serve                 Start the local server (foreground)
+  demo                  Serve a public view-only sample dashboard
   start / stop          Start/stop as a background daemon
   init                  Optional interactive provider/OAuth provisioning
   skills                List or install bundled agent skills (claude/codex)
@@ -161,6 +162,18 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
 
   const command = args[0]!
   const format = extractFormat(args)
+
+  // Demo startup must not read a personal config, send telemetry, refresh
+  // installed skills, or start an update check on the hosting machine.
+  if (command === 'demo') {
+    try {
+      await dispatchRegisteredCommand(args, format, REGISTERED_CLI_COMMANDS)
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
+  }
 
   // Skip telemetry entirely for help requests — the user is just reading usage
   const isHelpRequest = args.includes('--help') || args.includes('-h')

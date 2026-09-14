@@ -1,4 +1,5 @@
 import type { CliCommandSpec } from './cli-dispatch.js'
+import { DEMO_CLI_COMMANDS } from './cli-commands/demo.js'
 import { createApiClient } from './client.js'
 import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
@@ -40,6 +41,7 @@ import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 import { MEASUREMENT_PLAN_CLI_COMMANDS } from './cli-commands/measurement-plan.js'
 
 export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  ...DEMO_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
   ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,

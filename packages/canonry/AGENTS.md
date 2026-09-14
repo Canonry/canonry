@@ -584,3 +584,7 @@ A new event name must also be added to `ALLOWED_EVENTS` in the canonry.ai collec
 `--confirm` deletes those visibility/research results after the operator backs them up.
 The MCP equivalent is `canonry_results_clear`; exclude it from the in-product Aero agent.
 Site Health, backlinks, configuration, audit records, and usage accounting remain intact.
+
+### Public sample server
+
+`canonry demo` starts a separate in-memory, synthetic, view-only runtime. It must never use the normal server factory, personal config/database paths, provider callbacks, or background workers. The exact GET/HEAD allowlist in `src/demo/access.ts` is intentional; new route registrations are denied until explicitly audited. Startup has no MCP parity because it controls a host listener. See `docs/public-demo.md`.
