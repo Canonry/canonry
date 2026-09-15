@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSimpleMeasurementDefinition,
   canonicalMeasurementPlanJson,
@@ -520,19 +520,144 @@ describe('visibility report comparison: Simple', () => {
   })
 })
 
-describe('visibility report comparison opt-out', () => {
-  it('omits the field and never reads the predecessor when a report build opts out', () => {
+/** The same report with no population carrying a change. */
+function withoutComparison(body: VisibilityReportResponse): VisibilityReportResponse {
+  return {
+    ...body,
+    populations: body.populations.map(population => {
+      const rest = { ...population }
+      delete rest.comparison
+      return rest
+    }),
+  }
+}
+
+/** Breaks the frozen requested-model pin on every stored answer of a Simple run, so the run cannot be rebuilt. */
+function corruptModelPin(runId: string): void {
+  db.update(querySnapshots).set({ model: 'corrupt-pin' }).where(eq(querySnapshots.runId, runId)).run()
+}
+
+/** Stores a second answer for one slot of a Simple run: the run rebuilds, but its answers cannot be indexed. */
+function duplicateStoredAnswer(runId: string): void {
+  const answer = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()
+  if (!answer) throw new Error(`No stored answer for run ${runId}`)
+  db.insert(querySnapshots).values({ ...answer, id: crypto.randomUUID() }).run()
+}
+
+const SIMPLE_CORRUPTIONS = [
+  { name: 'a broken requested-model pin', corrupt: corruptModelPin },
+  { name: 'a duplicated stored answer', corrupt: duplicateStoredAnswer },
+]
+
+const INTERNAL_ERROR = { error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }
+
+describe('visibility report comparison: unreadable previous sweep', () => {
+  it.each(SIMPLE_CORRUPTIONS)('loads a pinned Simple report without comparison when the previous sweep has $name', async ({ corrupt }) => {
     seedSimpleRun({ id: 'simple-first', capturedAt: FIRST, frozen: true, answers: FIRST_SIMPLE })
     seedSimpleRun({ id: 'simple-second', capturedAt: SECOND, frozen: true, answers: SECOND_SIMPLE })
-    // Corrupt only the predecessor: reconstructing it fails closed, so any read
-    // of it is observable.
-    db.update(querySnapshots).set({ model: 'corrupt-pin' }).where(eq(querySnapshots.runId, 'simple-first')).run()
+    const pinned = 'mode=simple&queryClass=all&runId=simple-second'
+    const readable = await report(pinned)
+    expect(readable.populations[1]!.comparison).toEqual(simpleChange('simple-first'))
+
+    corrupt('simple-first')
+    const body = await report(pinned)
+    const nonBrand = body.populations[1]!
+
+    expect(body.selection.run).toEqual({ id: 'simple-second', explicit: true })
+    expect(body.populations.map(population => population.queryClass)).toEqual(['branded', 'non-brand', 'unknown'])
+    expect(nonBrand.trend.map(point => point.runId)).toEqual(['simple-second'])
+    expect(nonBrand.summary.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+    expect(nonBrand.summary.citationCoverage).toEqual({ numerator: 0, denominator: 2, rate: 0 })
+    expect(nonBrand.summary.propertyReach).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(body.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
+    // Only the change is lost: every other figure matches the readable report.
+    expect(body).toStrictEqual(withoutComparison(readable))
+  })
+
+  it('loads an Advanced report without comparison when a pinned run or a date window leaves out a corrupt previous sweep', async () => {
+    const frozenPlan = measurementPlanV2Fixture()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    const first = seedAdvancedRun({ versionId, frozenPlan, createdAt: FIRST, nearby: FIRST_ANSWERS })
+    const second = seedAdvancedRun({ versionId, frozenPlan, createdAt: SECOND, nearby: SECOND_ANSWERS })
+    const queries = [
+      `queryClass=non-brand&runId=${second}`,
+      `queryClass=non-brand&from=${encodeURIComponent('2026-09-02T00:00:00.000Z')}`,
+    ]
+    const readable: VisibilityReportResponse[] = []
+    for (const query of queries) readable.push(await report(query))
+    expect(readable.map(body => body.populations[0]!.comparison)).toEqual([secondVersusFirst(first), secondVersusFirst(first)])
+
+    // The stored question no longer matches its frozen execution node, so the sweep cannot be rebuilt.
+    db.update(querySnapshots).set({ queryText: 'corrupt question' }).where(eq(querySnapshots.runId, first)).run()
+    for (const [index, query] of queries.entries()) {
+      const body = await report(query)
+      const population = body.populations[0]!
+      expect(body.selection.run.id).toBe(second)
+      expect(population.trend.map(point => point.runId)).toEqual([second])
+      expect(population.summary.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+      expect(population.summary.citationCoverage).toEqual({ numerator: 0, denominator: 2, rate: 0 })
+      expect(population.summary.propertyReach).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+      expect(Object.hasOwn(population, 'comparison')).toBe(false)
+      expect(body).toStrictEqual(withoutComparison(readable[index]!))
+    }
+  })
+
+  it.each(SIMPLE_CORRUPTIONS)('still fails closed when the Simple previous sweep with $name is one of the report runs', async ({ corrupt }) => {
+    seedSimpleRun({ id: 'simple-first', capturedAt: FIRST, frozen: true, answers: FIRST_SIMPLE })
+    seedSimpleRun({ id: 'simple-second', capturedAt: SECOND, frozen: true, answers: SECOND_SIMPLE })
+    corrupt('simple-first')
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/visibility-report?mode=simple&queryClass=all' })
+    expect(response.statusCode).toBe(500)
+    expect(response.json()).toEqual(INTERNAL_ERROR)
+  })
+
+  it('still fails closed when the corrupt Advanced previous sweep is one of the report runs', async () => {
+    const frozenPlan = measurementPlanV2Fixture()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    const first = seedAdvancedRun({ versionId, frozenPlan, createdAt: FIRST, nearby: FIRST_ANSWERS })
+    seedAdvancedRun({ versionId, frozenPlan, createdAt: SECOND, nearby: SECOND_ANSWERS })
+    db.update(querySnapshots).set({ queryText: 'corrupt question' }).where(eq(querySnapshots.runId, first)).run()
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/visibility-report?queryClass=non-brand' })
+    expect(response.statusCode).toBe(500)
+    expect(response.json()).toEqual(INTERNAL_ERROR)
+  })
+})
+
+/** Runs `read` and returns its result with every SQL statement the database prepared meanwhile. */
+function traced<T>(read: () => T): { result: T; statements: string[] } {
+  const prepare = vi.spyOn(db.$client, 'prepare')
+  try {
+    const result = read()
+    return { result, statements: prepare.mock.calls.map(([source]) => source) }
+  } finally {
+    prepare.mockRestore()
+  }
+}
+
+/** The previous-sweep lookup is the only report statement that asks for a run created strictly before another. */
+function isPreviousSweepLookup(statement: string): boolean {
+  return /"created_at" < \?/.test(statement)
+}
+
+describe('visibility report comparison opt-out', () => {
+  it('omits the field and never looks up the previous sweep when a report build opts out', () => {
+    seedSimpleRun({ id: 'simple-first', capturedAt: FIRST, frozen: true, answers: FIRST_SIMPLE })
+    seedSimpleRun({ id: 'simple-second', capturedAt: SECOND, frozen: true, answers: SECOND_SIMPLE })
     const project = { id: projectId, displayName: 'Northstar', canonicalDomain: 'northstar.example' }
     const query = { mode: 'simple', queryClass: 'all', runId: 'simple-second' }
 
-    const optedOut = readVisibilityReport(db, project, query, { includeComparison: false })
-    expect(optedOut.selection.run.id).toBe('simple-second')
-    expect(optedOut.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
-    expect(() => readVisibilityReport(db, project, query)).toThrow('Frozen simple requested model is corrupt')
+    const optedOut = traced(() => readVisibilityReport(db, project, query, { includeComparison: false }))
+    expect(optedOut.result.selection.run.id).toBe('simple-second')
+    expect(optedOut.result.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
+    expect(optedOut.statements.filter(isPreviousSweepLookup)).toEqual([])
+
+    // The default read looks the previous sweep up exactly once, so the trace does see the lookup the opt-out skips.
+    const compared = traced(() => readVisibilityReport(db, project, query))
+    expect(compared.statements.filter(isPreviousSweepLookup)).toHaveLength(1)
+    expect(compared.result.populations[1]!.comparison).toEqual(simpleChange('simple-first'))
   })
 })

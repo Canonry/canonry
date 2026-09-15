@@ -666,6 +666,21 @@ function previousEligibleVisibilityRun(
   )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(1).get()
 }
 
+/**
+ * Finds and rebuilds the previous sweep without letting it fail the report.
+ * The report never displays that sweep, so a parse error, a missing
+ * definition, or a malformed snapshot there omits `comparison` instead. A
+ * predecessor the report already loaded is reused, not rebuilt: the report's
+ * own runs still fail closed.
+ */
+function readPreviousSweep(read: () => VisibilityReportPreviousRunInput | null): VisibilityReportPreviousRunInput | null {
+  try {
+    return read()
+  } catch {
+    return { unreadable: true }
+  }
+}
+
 type ParsedV2Version = { row: typeof measurementPlanVersions.$inferSelect; plan: MeasurementPlanV2 }
 
 function parseV2Versions(rows: readonly (typeof measurementPlanVersions.$inferSelect)[]): Map<string, ParsedV2Version> {
@@ -790,16 +805,18 @@ function advancedReaderInput(
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
     if (selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
-    const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
-    if (predecessor === undefined) return null
-    const loaded = candidates.find(candidate => candidate.id === predecessor.id)
-    if (loaded !== undefined) return { run: loaded }
-    const source = predecessor.measurementPlanVersionId === null ? undefined : versions.get(predecessor.measurementPlanVersionId)
-    // Schema-v1 history has no frozen v2 definition to compare with.
-    if (source === undefined) {
-      return { incomparable: { id: predecessor.id, createdAt: predecessor.createdAt, completedAt: predecessor.finishedAt } }
-    }
-    return { run: materialize({ run: predecessor, source }, false) }
+    return readPreviousSweep(() => {
+      const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
+      if (predecessor === undefined) return null
+      const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+      if (loaded !== undefined) return { run: loaded }
+      const source = predecessor.measurementPlanVersionId === null ? undefined : versions.get(predecessor.measurementPlanVersionId)
+      // Schema-v1 history has no frozen v2 definition to compare with.
+      if (source === undefined) {
+        return { incomparable: { id: predecessor.id, createdAt: predecessor.createdAt, completedAt: predecessor.finishedAt } }
+      }
+      return { run: materialize({ run: predecessor, source }, false) }
+    })
   }
   return {
     mode: 'advanced',
@@ -863,12 +880,14 @@ function simpleReaderInput(
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
     if (selectedRun === undefined || selectedRun.measurementScope !== null) return null
-    const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
-    if (predecessor === undefined) return null
-    const loaded = candidates.find(candidate => candidate.id === predecessor.id)
-    if (loaded !== undefined) return { run: loaded }
-    const definition = frozenSimpleDefinitions(db, project.id, [predecessor.id]).get(predecessor.id)
-    return { run: simpleRunInput(db, project, predecessor, definition, false) }
+    return readPreviousSweep(() => {
+      const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
+      if (predecessor === undefined) return null
+      const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+      if (loaded !== undefined) return { run: loaded }
+      const definition = frozenSimpleDefinitions(db, project.id, [predecessor.id]).get(predecessor.id)
+      return { run: simpleRunInput(db, project, predecessor, definition, false) }
+    })
   }
   return {
     mode: 'simple',
@@ -886,7 +905,8 @@ function simpleReaderInput(
  *
  * `includeComparison` (default true) adds each population's change since the
  * previous eligible sweep. Report builds pass false: they keep only summary and
- * trend, so they skip the predecessor read entirely.
+ * trend, so they skip the predecessor read entirely. A previous sweep that
+ * cannot be read leaves the change off and never fails the report.
  */
 export function readVisibilityReport(
   db: DatabaseClient,

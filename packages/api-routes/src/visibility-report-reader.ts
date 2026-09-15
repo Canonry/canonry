@@ -145,8 +145,14 @@ export interface VisibilityReportReaderSelection {
  */
 export type VisibilityReportPreviousRunInput =
   | { run: VisibilityReportRunInput }
-  /** A predecessor whose frozen definition cannot be reconstructed. */
+  /** A predecessor whose plan has no frozen definition to compare, such as schema v1. */
   | { incomparable: VisibilityReportComparedRun }
+  /**
+   * A predecessor the caller could not read: a parse error, a missing
+   * definition, or a malformed snapshot. The report still loads, and no
+   * population carries `comparison`.
+   */
+  | { unreadable: true }
 
 export interface VisibilityReportReaderInput {
   mode: 'simple' | 'advanced'
@@ -161,8 +167,9 @@ export interface VisibilityReportReaderInput {
   preferredRunId?: string
   runs: readonly VisibilityReportRunInput[]
   /**
-   * Omit to leave `comparison` off every population. `null` means the selected
-   * run has no eligible predecessor to compare.
+   * Omit to leave `comparison` off every population, as an unreadable
+   * predecessor does. `null` means the selected run has no eligible
+   * predecessor to compare.
    */
   previous?: VisibilityReportPreviousRunInput | null
 }
@@ -837,21 +844,56 @@ function continuity(
 
 type ComparisonBasis =
   | { state: 'unavailable'; reason: VisibilityReportComparisonUnavailableReason; previousRun: VisibilityReportComparedRun | null }
-  | { state: 'available'; previous: VisibilityReportRunInput }
+  | {
+    state: 'available'
+    previous: VisibilityReportRunInput
+    /** Per query class; `null` where the older definition lacks the selected scope. */
+    summaries: ReadonlyMap<VisibilityReportPopulationClass, ReturnType<typeof summary> | null>
+  }
 
 function comparedRun(run: VisibilityReportRunInput): VisibilityReportComparedRun {
   return { id: run.id, createdAt: run.createdAt, completedAt: run.completedAt }
 }
 
 /**
+ * The predecessor measured under its own frozen definition and scope targets,
+ * per query class. A selected scope that definition never had is no earlier
+ * value (`null`), not a failed read. Any other failure makes the whole
+ * predecessor unreadable (`undefined`). A predecessor among the report's own
+ * runs already passed these reads in the trend, which fails closed, so only a
+ * sweep from outside the loaded window can fail here.
+ */
+function previousSummaries(
+  run: VisibilityReportRunInput,
+  selection: VisibilityReportReaderSelection,
+  classes: readonly VisibilityReportPopulationClass[],
+): ReadonlyMap<VisibilityReportPopulationClass, ReturnType<typeof summary> | null> | undefined {
+  const summaries = new Map<VisibilityReportPopulationClass, ReturnType<typeof summary> | null>()
+  for (const queryClass of classes) {
+    try {
+      const { candidates } = candidatesFor(run, selection, queryClass)
+      summaries.set(queryClass, summary(candidates, run.definition, scopeTargetKeys(run.definition, selection)))
+    } catch (error) {
+      if (!(error instanceof VisibilityReportScopeError)) return undefined
+      summaries.set(queryClass, null)
+    }
+  }
+  return summaries
+}
+
+/**
  * Run-level eligibility, checked in a fixed order so the first failing check
  * names the reason. A reason about the selection alone names no previous
- * sweep; a reason about the pair names the predecessor it judged.
+ * sweep; a reason about the pair names the predecessor it judged. `undefined`
+ * means the previous sweep could not be read, so no population is compared.
  */
 function comparisonBasis(
   selectedRun: VisibilityReportRunInput | undefined,
   previous: VisibilityReportPreviousRunInput | null,
-): ComparisonBasis {
+  selection: VisibilityReportReaderSelection,
+  classes: readonly VisibilityReportPopulationClass[],
+): ComparisonBasis | undefined {
+  if (previous !== null && 'unreadable' in previous) return undefined
   if (!selectedRun) return { state: 'unavailable', reason: 'no-selected-run', previousRun: null }
   if (selectedRun.scoped) return { state: 'unavailable', reason: 'scoped-run', previousRun: null }
   if (previous === null) return { state: 'unavailable', reason: 'no-previous-run', previousRun: null }
@@ -861,7 +903,8 @@ function comparisonBasis(
   if (selectedRun.state === 'partial' || previous.run.state === 'partial') {
     return { state: 'unavailable', reason: 'partial-run', previousRun: comparedRun(previous.run) }
   }
-  return { state: 'available', previous: previous.run }
+  const summaries = previousSummaries(previous.run, selection, classes)
+  return summaries === undefined ? undefined : { state: 'available', previous: previous.run, summaries }
 }
 
 function rateChange(current: VisibilityReportRate, previous: VisibilityReportRate | null): VisibilityReportRateChange {
@@ -872,25 +915,6 @@ function rateChange(current: VisibilityReportRate, previous: VisibilityReportRat
   return { state: 'available', previous, delta: current.rate - previous.rate }
 }
 
-/**
- * The predecessor measured under its own frozen definition and scope targets.
- * A selected scope that definition never had is no earlier value, not a
- * failed read.
- */
-function previousSummary(
-  run: VisibilityReportRunInput,
-  selection: VisibilityReportReaderSelection,
-  queryClass: VisibilityReportPopulationClass,
-): ReturnType<typeof summary> | null {
-  try {
-    const { candidates } = candidatesFor(run, selection, queryClass)
-    return summary(candidates, run.definition, scopeTargetKeys(run.definition, selection))
-  } catch (error) {
-    if (error instanceof VisibilityReportScopeError) return null
-    throw error
-  }
-}
-
 function populationComparison(
   basis: ComparisonBasis,
   current: ReturnType<typeof summary>,
@@ -898,7 +922,7 @@ function populationComparison(
   queryClass: VisibilityReportPopulationClass,
 ): VisibilityReportComparison {
   if (basis.state === 'unavailable') return { state: 'unavailable', reason: basis.reason, previousRun: basis.previousRun }
-  const previous = previousSummary(basis.previous, selection, queryClass)
+  const previous = basis.summaries.get(queryClass) ?? null
   // A single selected Property's reach is its own mention signal, not a count
   // of Properties named, so Properties mentioned has no change to report.
   const currentReach = selection.scope === 'property' ? unavailable('not-applicable') : current.propertyReach
@@ -973,7 +997,7 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
   }
 
   // Every class population gets its own comparison; nothing is pooled.
-  const basis = input.previous === undefined ? undefined : comparisonBasis(selectedRun, input.previous)
+  const basis = input.previous === undefined ? undefined : comparisonBasis(selectedRun, input.previous, input.selection, classes)
   const populations = classes.map(queryClass => {
     if (!selectedRun) {
       const empty = emptyPopulation(queryClass, definition, input)

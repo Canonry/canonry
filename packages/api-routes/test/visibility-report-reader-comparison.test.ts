@@ -271,15 +271,15 @@ describe('visibility report comparison math', () => {
 })
 
 describe('visibility report comparison availability', () => {
-  it('reports definition-changed for a material publication or an unreadable predecessor', () => {
+  it('reports definition-changed for a material publication or an incomparable predecessor', () => {
     const material = previousRun({ definitionId: 'plan-v2' })
     const changed = buildVisibilityReport(input([material, currentRun()], { run: material }))
     expect(comparisonOf(changed)).toEqual({ state: 'unavailable', reason: 'definition-changed', previousRun: PREVIOUS_RUN })
     // The trend boundary and the comparison use one continuity rule.
     expect(changed.populations[0]!.trend[1]!.continuity).toEqual({ state: 'definition-changed', comparedRunId: 'run-previous' })
 
-    const unreadable = buildVisibilityReport(input([currentRun()], { incomparable: PREVIOUS_RUN }))
-    expect(comparisonOf(unreadable)).toEqual({ state: 'unavailable', reason: 'definition-changed', previousRun: PREVIOUS_RUN })
+    const incomparable = buildVisibilityReport(input([currentRun()], { incomparable: PREVIOUS_RUN }))
+    expect(comparisonOf(incomparable)).toEqual({ state: 'unavailable', reason: 'definition-changed', previousRun: PREVIOUS_RUN })
 
     const relabelled = currentRun({ definitionId: 'plan-v4', comparableDefinitionIds: ['plan-v4', 'plan-v3'] })
     const labelOnly = buildVisibilityReport(input([previousRun(), relabelled], { run: previousRun() }))
@@ -345,7 +345,7 @@ describe('visibility report comparison availability', () => {
       expected: { state: 'unavailable', reason: 'no-previous-run', previousRun: null },
     },
     {
-      name: 'an unreadable predecessor before a partial sweep',
+      name: 'an incomparable predecessor before a partial sweep',
       current: { state: 'partial' as const },
       previous: { incomparable: PREVIOUS_RUN },
       expected: { state: 'unavailable', reason: 'definition-changed', previousRun: PREVIOUS_RUN },
@@ -486,5 +486,37 @@ describe('visibility report comparison selection', () => {
       },
       propertyReach: expect.objectContaining({ state: 'available' }),
     })
+  })
+})
+
+/** The previous sweep with a second stored answer for its first slot: the run builds, but its answers cannot be indexed. */
+function duplicatedAnswerRun(): VisibilityReportRunInput {
+  const readable = previousRun()
+  return { ...readable, observations: [...readable.observations, readable.observations[0]!] }
+}
+
+describe('visibility report comparison with an unreadable previous sweep', () => {
+  it('omits comparison on every class population when the caller could not read the previous sweep', () => {
+    const report = buildVisibilityReport(input([currentRun()], { unreadable: true }, ALL_CLASSES))
+
+    expect(report.populations.map(population => population.queryClass)).toEqual(['branded', 'non-brand', 'unknown'])
+    expect(report.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
+    expect(report.populations[1]!.summary.mentionCoverage).toEqual({ numerator: 24, denominator: 36, rate: 24 / 36 })
+    // Absent means not computed: every other figure is the report that never asked for a change.
+    expect(report).toStrictEqual(buildVisibilityReport(input([currentRun()], undefined, ALL_CLASSES)))
+  })
+
+  it('omits comparison on every class population when a previous sweep outside the report runs cannot be summarized', () => {
+    const report = buildVisibilityReport(input([currentRun()], { run: duplicatedAnswerRun() }, ALL_CLASSES))
+
+    expect(report.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
+    expect(report).toStrictEqual(buildVisibilityReport(input([currentRun()], undefined, ALL_CLASSES)))
+  })
+
+  it('still fails closed when the unreadable previous sweep is one of the report runs', () => {
+    const duplicated = duplicatedAnswerRun()
+
+    expect(() => buildVisibilityReport(input([duplicated, currentRun()], { run: duplicated }, ALL_CLASSES)))
+      .toThrow('Duplicate visibility observation for slot north-0')
   })
 })
