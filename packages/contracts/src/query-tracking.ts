@@ -6,6 +6,7 @@ import {
 } from './measurement-plan-v2.js'
 import { providerNameSchema } from './provider.js'
 import { queryClassSchema } from './query-class.js'
+import { visibilityReportScopeOptionSchema } from './visibility-report.js'
 
 /** Expand an authoring template once; execution uses the editable final question verbatim. */
 export function expandQueryTemplate(pattern: string, bindings: Readonly<Record<string, string>>): string {
@@ -231,6 +232,11 @@ export const queryTrackingWorkspaceResponseSchema = z.object({
   targets: z.array(queryTrackingTargetSchema),
   groups: z.array(queryTrackingGroupSchema),
   markets: z.array(queryTrackingMarketSchema),
+  /**
+   * Server-built scope choices for this workspace's Groups, markets, and
+   * Properties. Optional so a client tolerates a server that predates it.
+   */
+  scopeOptions: z.array(visibilityReportScopeOptionSchema).optional(),
   tracked: z.array(queryTrackingTrackedRowSchema),
   savedSources: z.object({
     research: z.array(queryTrackingResearchCandidateSchema),

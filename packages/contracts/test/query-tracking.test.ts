@@ -102,38 +102,74 @@ describe('query tracking contract', () => {
   })
 
   it('exposes full contexts and exact edge-backed markets in a workspace', () => {
-    const workspace = queryTrackingWorkspaceResponseSchema.parse({
-      mode: 'advanced',
-      workspaceVersion: WORKSPACE_VERSION,
-      active: { revision: 4, compiledChecksum: 'c'.repeat(64) },
-      defaultContexts: [{
-        providers: ['gemini'], models: { gemini: 'gemini-3-pro' },
-        location: { label: 'northbridge', city: 'Northbridge', region: 'NB', country: 'US' },
-      }],
-      targets: [{ stableKey: 'harbor-point', label: 'Harbor Point' }],
-      groups: [{ stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'] }],
-      markets: [{
-        stableKey: 'alpha', label: 'Alpha',
-        usageEdges: [{ executionNodeKey: 'exec-1', targetKey: 'harbor-point', queryId: 'q-1' }],
-      }],
-      tracked: [{
-        queryId: 'q-1', queryText: 'best apartments in northbridge', normalizedText: 'best apartments in northbridge',
-        provenance: null,
-        state: 'awaiting-sweep',
-        lastMeasuredAt: null,
-        assignments: [{
-          targetKey: 'harbor-point', groupKeys: ['northbridge'], marketKeys: ['alpha'],
-          queryClass: 'non-brand', classificationSource: 'frozen',
-          contexts: [{
-            providers: ['gemini'], models: { gemini: 'gemini-3-pro' },
-            location: { label: 'northbridge', city: 'Northbridge', region: 'NB', country: 'US' },
-          }],
-        }],
-      }],
-      savedSources: { research: [], discovery: [] },
-    })
+    const workspace = queryTrackingWorkspaceResponseSchema.parse(advancedWorkspace())
 
     expect(workspace.markets[0]?.usageEdges[0]?.executionNodeKey).toBe('exec-1')
     expect(workspace.tracked[0]?.assignments[0]?.contexts[0]?.location).toMatchObject({ label: 'northbridge' })
   })
+
+  it('still parses a workspace without scope options from an older server', () => {
+    const workspace = queryTrackingWorkspaceResponseSchema.parse(advancedWorkspace())
+
+    expect('scopeOptions' in workspace).toBe(false)
+  })
+
+  it('carries server scope options on the workspace exactly as sent', () => {
+    // Tracking-shaped options: no market intersection, so only markets name a parent group.
+    const scopeOptions = [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+      { id: 'northbridge', label: 'Northbridge', kind: 'group', targetCount: 1 },
+      { id: 'alpha', label: 'Alpha', kind: 'market', targetCount: 1, parentGroupIds: ['northbridge'] },
+      { id: 'harbor-point', label: 'Harbor Point', kind: 'property', targetCount: 1, parentGroupIds: ['northbridge'] },
+    ]
+
+    const workspace = queryTrackingWorkspaceResponseSchema.parse({ ...advancedWorkspace(), scopeOptions })
+
+    expect(workspace.scopeOptions).toEqual(scopeOptions)
+  })
+
+  it('validates workspace scope options with the visibility report option contract', () => {
+    const result = queryTrackingWorkspaceResponseSchema.safeParse({
+      ...advancedWorkspace(),
+      scopeOptions: [{ id: 'alpha', label: 'Alpha', kind: 'region', targetCount: 1 }],
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'invalid_value', path: ['scopeOptions', 0, 'kind'] }),
+    ])
+  })
 })
+
+function advancedWorkspace() {
+  return {
+    mode: 'advanced',
+    workspaceVersion: WORKSPACE_VERSION,
+    active: { revision: 4, compiledChecksum: 'c'.repeat(64) },
+    defaultContexts: [{
+      providers: ['gemini'], models: { gemini: 'gemini-3-pro' },
+      location: { label: 'northbridge', city: 'Northbridge', region: 'NB', country: 'US' },
+    }],
+    targets: [{ stableKey: 'harbor-point', label: 'Harbor Point' }],
+    groups: [{ stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'] }],
+    markets: [{
+      stableKey: 'alpha', label: 'Alpha',
+      usageEdges: [{ executionNodeKey: 'exec-1', targetKey: 'harbor-point', queryId: 'q-1' }],
+    }],
+    tracked: [{
+      queryId: 'q-1', queryText: 'best apartments in northbridge', normalizedText: 'best apartments in northbridge',
+      provenance: null,
+      state: 'awaiting-sweep',
+      lastMeasuredAt: null,
+      assignments: [{
+        targetKey: 'harbor-point', groupKeys: ['northbridge'], marketKeys: ['alpha'],
+        queryClass: 'non-brand', classificationSource: 'frozen',
+        contexts: [{
+          providers: ['gemini'], models: { gemini: 'gemini-3-pro' },
+          location: { label: 'northbridge', city: 'Northbridge', region: 'NB', country: 'US' },
+        }],
+      }],
+    }],
+    savedSources: { research: [], discovery: [] },
+  }
+}

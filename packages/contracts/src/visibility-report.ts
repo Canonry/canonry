@@ -313,10 +313,77 @@ export function visibilityReportPageSchema<T extends z.ZodType>(itemSchema: T) {
   }).strict()
 }
 
+export const visibilityReportRateChangeUnavailableReasonSchema = z.enum([
+  'current-unavailable',
+  'previous-unavailable',
+  'not-applicable',
+])
+export type VisibilityReportRateChangeUnavailableReason = z.output<typeof visibilityReportRateChangeUnavailableReasonSchema>
+export const VisibilityReportRateChangeUnavailableReasons = visibilityReportRateChangeUnavailableReasonSchema.enum
+
+/**
+ * One headline rate's change since the previous comparable sweep. `delta` is
+ * the server's own `current.rate - previous.rate`, never a display value; the
+ * response refine checks it against the population's current summary.
+ */
+export const visibilityReportRateChangeSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    previous: visibilityReportRateSchema,
+    delta: z.number().min(-1).max(1),
+  }).strict(),
+  z.object({
+    state: z.literal('unavailable'),
+    reason: visibilityReportRateChangeUnavailableReasonSchema,
+  }).strict(),
+])
+export type VisibilityReportRateChange = z.output<typeof visibilityReportRateChangeSchema>
+
+export const visibilityReportComparedRunSchema = z.object({
+  id: nonBlankIdSchema,
+  createdAt: dateTimeSchema,
+  completedAt: dateTimeSchema.nullable(),
+}).strict()
+export type VisibilityReportComparedRun = z.output<typeof visibilityReportComparedRunSchema>
+
+export const visibilityReportComparisonUnavailableReasonSchema = z.enum([
+  'no-selected-run',
+  'no-previous-run',
+  'scoped-run',
+  'partial-run',
+  'definition-changed',
+  'model-changed',
+  'legacy-unknown',
+])
+export type VisibilityReportComparisonUnavailableReason = z.output<typeof visibilityReportComparisonUnavailableReasonSchema>
+export const VisibilityReportComparisonUnavailableReasons = visibilityReportComparisonUnavailableReasonSchema.enum
+
+/**
+ * Change versus the previous eligible whole-project sweep, per query class
+ * population and never pooled. An unavailable reason is not a zero change.
+ */
+export const visibilityReportComparisonSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    previousRun: visibilityReportComparedRunSchema,
+    mentionCoverage: visibilityReportRateChangeSchema,
+    citationCoverage: visibilityReportRateChangeSchema,
+    propertyReach: visibilityReportRateChangeSchema,
+  }).strict(),
+  z.object({
+    state: z.literal('unavailable'),
+    reason: visibilityReportComparisonUnavailableReasonSchema,
+    previousRun: visibilityReportComparedRunSchema.nullable(),
+  }).strict(),
+])
+export type VisibilityReportComparison = z.output<typeof visibilityReportComparisonSchema>
+
 export const visibilityReportPopulationSchema = z.object({
   queryClass: visibilityReportPopulationClassSchema,
   summary: visibilityReportSummarySchema,
   trend: z.array(visibilityReportTrendPointSchema),
+  /** Optional: report builds and servers that predate the field omit it. */
+  comparison: visibilityReportComparisonSchema.optional(),
   queries: visibilityReportPageSchema(visibilityReportQueryRowSchema),
   evidence: visibilityReportPageSchema(visibilityReportEvidenceRowSchema),
   /** `items: []` alone means no measured competitors only when this is available. */
@@ -386,5 +453,55 @@ export const visibilityReportResponseSchema = z.object({
       message: 'Populations must exactly match the selected query class order',
     })
   }
+  // An available change is this population's own summary rate minus the previous
+  // sweep's rate, for a selected run (the measurementMetricDeltaSchema precedent).
+  for (const [populationIndex, population] of value.populations.entries()) {
+    const comparison = population.comparison
+    if (comparison?.state !== 'available') continue
+    for (const key of ['mentionCoverage', 'citationCoverage', 'propertyReach'] as const) {
+      const change = comparison[key]
+      if (change.state !== 'available') continue
+      const path = ['populations', populationIndex, 'comparison', key]
+      const current = population.summary[key].rate
+      const previous = change.previous.rate
+      if (current === null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'Available changes require a current rate' })
+      }
+      if (previous === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...path, 'previous', 'rate'],
+          message: 'Available changes require a previous rate',
+        })
+      }
+      if (current !== null && previous !== null && Math.abs(change.delta - (current - previous)) > Number.EPSILON) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, 'delta'], message: 'Delta must equal current minus previous' })
+      }
+      if (value.selection.run.id === null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'Available changes require a selected run' })
+      }
+    }
+  }
 })
 export type VisibilityReportResponse = z.output<typeof visibilityReportResponseSchema>
+
+export const visibilityReportScopeErrorReasonSchema = z.enum(['retired-scope', 'retired-market'])
+export type VisibilityReportScopeErrorReason = z.output<typeof visibilityReportScopeErrorReasonSchema>
+export const VisibilityReportScopeErrorReasons = visibilityReportScopeErrorReasonSchema.enum
+
+/**
+ * Typed `error.details` on a report `VALIDATION_ERROR` whose selected scope or
+ * market refinement no longer exists. The project scope is never retired.
+ */
+export const visibilityReportScopeErrorDetailsSchema = z.object({
+  reason: visibilityReportScopeErrorReasonSchema,
+  kind: visibilityReportScopeKindSchema.exclude(['project']),
+  key: nonBlankIdSchema,
+}).strict()
+export type VisibilityReportScopeErrorDetails = z.output<typeof visibilityReportScopeErrorDetailsSchema>
+
+/** Reads retired-scope details from an untrusted error body; anything else is `undefined`. */
+export function parseVisibilityReportScopeErrorDetails(value: unknown): VisibilityReportScopeErrorDetails | undefined {
+  const parsed = visibilityReportScopeErrorDetailsSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
