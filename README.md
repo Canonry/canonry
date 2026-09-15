@@ -5,7 +5,7 @@
 
 Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
 
-**Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
+**Self-hosted, with your own (BYOK) provider keys.** Your dashboard and agent review the same project evidence.
 
 [Live demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
