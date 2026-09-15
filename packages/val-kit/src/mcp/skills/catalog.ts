@@ -152,7 +152,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 15833,
+    characters: 15956,
     content: canonryReferencesAeoAnalysisPart0,
   },
   {

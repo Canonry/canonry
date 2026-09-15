@@ -167,6 +167,7 @@ Read transitions on the mention signal first (primary), then the citation signal
 To answer "did it move since the last sweep?", read `populations[].comparison` from `cnry measurement-plan visibility <project> --format json` (MCP: `canonry_visibility_report`). Simple and Advanced projects return it the same way.
 
 - Every query class population carries its own comparison. Never pool branded and non-brand changes.
+- `comparison` is absent when the previous sweep cannot be read. Absent is not zero change: say the change is unavailable.
 - `state: available`: quote each metric's `delta` (current rate minus the previous rate) with both rates' numerators and denominators and the `previousRun` date. The previous sweep can predate the report's date window.
 - `state: unavailable`: report its `reason` (`no-previous-run`, `partial-run`, `scoped-run`, `definition-changed`, `model-changed`, `legacy-unknown`, `no-selected-run`). An unavailable reason is not zero change; never subtract rates by hand to fill it.
 - A metric inside an available comparison can still be unavailable (`current-unavailable`, `previous-unavailable`, `not-applicable`). Treat it the same way.

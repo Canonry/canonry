@@ -89,6 +89,7 @@ The date window and a selected run do not limit it, so the previous sweep can pr
 A change requires both sweeps to be complete, with a comparable definition and the same engines and models.
 Otherwise `comparison.reason` names the cause, such as `partial-run` or `model-changed`.
 Each available `delta` is the current rate minus the previous rate. An unavailable change is not a zero change.
+When the previous sweep cannot be read, `comparison` is absent and the rest of the report still loads.
 
 ## Revision continuity
 
