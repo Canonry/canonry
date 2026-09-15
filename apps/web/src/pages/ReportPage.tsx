@@ -59,6 +59,7 @@ import {
   reportServerActivityHeading,
   reportSeverityLabel,
   reportSeverityTone,
+  safeLinkHref,
 } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -68,9 +69,16 @@ import {
   CHART_AXIS_STROKE,
   CHART_AXIS_TICK,
   CHART_NEUTRAL,
+  CHART_SERIES_COLORS,
+  CHART_TONE,
   Cell,
+  formatChartDateLabel,
+  formatChartDateTick,
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
   LabelList,
   MultiAxisTrendChart,
+  observedInstant,
   ResponsiveContainer,
   XAxis,
   YAxis,
@@ -1264,10 +1272,52 @@ export function ShareBars({ title, rows, scale }: { title: string; rows: readonl
 }
 
 /**
+ * The chart palettes, so a report section needs no chart import of its own.
+ * `series[i]` stands in for the HTML report's `COLORS.series[i]` (its accent is
+ * `series[1]`), and `tone` for its positive, caution, negative and neutral colors.
+ */
+export const REPORT_CHART_COLORS = { series: CHART_SERIES_COLORS, tone: CHART_TONE } as const
+
+/**
+ * Axis tick and tooltip formatters for a dated x axis, chosen by what the date
+ * means. `calendar` values (a Search Console or server-log day) read exactly as
+ * written, with no timezone. `observed` values are run timestamps, localized
+ * for the viewer.
+ */
+export function reportChartDateFormatters(dates: 'calendar' | 'observed'): {
+  xTickFormatter: (value: string) => string
+  labelFormatter: (value: string) => string
+} {
+  return dates === 'calendar'
+    ? { xTickFormatter: formatChartDateTick, labelFormatter: formatChartDateLabel }
+    : {
+        xTickFormatter: value => formatObservedInstantTick(observedInstant(value)),
+        labelFormatter: value => formatObservedInstantLabel(observedInstant(value)),
+      }
+}
+
+/** A link to a cited or competitor page: a safe href only (`#` otherwise), opened in a new tab. */
+export function ReportExternalLink({
+  href,
+  children,
+  className = '',
+}: {
+  href: string | null | undefined
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <a href={safeLinkHref(href)} target="_blank" rel="noopener noreferrer" className={`text-link hover:underline ${className}`}>
+      {children}
+    </a>
+  )
+}
+
+/**
  * A one-series line chart in a card, named `<title> line chart` like the HTML
- * report's SVG. Renders nothing without data. Choose formatters by what the x
- * values mean: calendar dates use formatChartDateTick and formatChartDateLabel;
- * run timestamps go through observedInstant and the observed-instant formatters.
+ * report's SVG. Renders nothing without data. `dates` picks the x-axis
+ * formatters by what the x values mean (see reportChartDateFormatters); leave
+ * it out when the x values are not dates.
  */
 export function ReportLineChart({
   title,
@@ -1277,21 +1327,20 @@ export function ReportLineChart({
   color,
   height = 200,
   formatValue,
-  xTickFormatter,
-  labelFormatter,
+  dates,
 }: {
   title: string
   data: readonly Record<string, unknown>[]
   xKey: string
   dataKey: string
-  /** A CHART_SERIES_COLORS or CHART_TONE entry. */
+  /** A REPORT_CHART_COLORS entry. */
   color: string
   height?: number
   formatValue?: (value: number) => string
-  xTickFormatter?: (value: string) => string
-  labelFormatter?: (value: string) => string
+  dates?: 'calendar' | 'observed'
 }) {
   if (data.length === 0) return null
+  const formatters = dates ? reportChartDateFormatters(dates) : undefined
   return (
     <ReportCard title={title}>
       <div role="img" aria-label={reportLineChartLabel(title)}>
@@ -1300,8 +1349,8 @@ export function ReportLineChart({
           xKey={xKey}
           series={[{ dataKey, label: title, color, axisId: 'value', formatValue }]}
           height={height}
-          xTickFormatter={xTickFormatter}
-          labelFormatter={labelFormatter}
+          xTickFormatter={formatters?.xTickFormatter}
+          labelFormatter={formatters?.labelFormatter}
         />
       </div>
     </ReportCard>
