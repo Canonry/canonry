@@ -3,7 +3,7 @@ import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import { carryVisibilitySearch, measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
@@ -2640,6 +2640,11 @@ function ProjectPageContent({
           && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
+        renderPropertyLink={!isEmbed() ? ({ id, label }) => (
+          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+            Property details
+          </Link>
+        ) : undefined}
         fallback={overview}
       />
     )
@@ -3039,17 +3044,6 @@ function ProjectPageContent({
               setHasExpandedAdvancedProperty(true)
             }}
             onRetryEvidence={() => { void advancedMeasurementReportQuery.refetch() }}
-            renderPropertyLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed()
-              ? ({ id, name }) => (
-                  <Link
-                    to="/projects/$projectName/properties/$targetKey"
-                    params={{ projectName, targetKey: id }}
-                    className="text-link hover:underline"
-                  >
-                    {name}
-                  </Link>
-                )
-              : undefined}
             isViewLoading={advancedMeasurementOverviewQuery.isPlaceholderData}
             isLoadingMore={advancedMeasurementOverviewQuery.isFetchingNextPage}
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}

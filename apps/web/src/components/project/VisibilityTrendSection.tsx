@@ -243,6 +243,8 @@ export interface VisibilityReportViewProps {
   evidenceError?: string
   onRetryEvidence?: () => void
   onEvidencePage?: (cursor: string) => void
+  /** Rendered only for an Advanced Property scope. The caller owns routing and search preservation. */
+  renderPropertyLink?: (property: { id: string; label: string }) => ReactNode
 }
 
 function matchingReportPopulation(report: VisibilityReportResponse | undefined, queryKey?: string) {
@@ -287,7 +289,7 @@ export function VisibilityReportFilters({ report, onSelectionChange, queryClass 
 }
 
 /** Presentation only: every displayed count, rate and population comes from the report. */
-export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
+export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage, renderPropertyLink }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
   const answerTrigger = useRef<{ row: VisibilityReportQueryRow; element: HTMLButtonElement } | null>(null)
@@ -342,13 +344,15 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     <div className="mb-1 flex items-center gap-1"><label htmlFor={`${filterId}-${key}`} className="text-sm font-medium text-heading">{label}</label><InfoTooltip text={help} /></div>
     <select id={`${filterId}-${key}`} className={REPORT_CONTROL} value={value} onChange={event => onSelectionChange({ [key]: event.target.value || undefined, measurementQueryKey: undefined })}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
   </div>
+  const manageQueries = onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null
+  const propertyLink = selection.mode === 'advanced' && selection.scope.kind === 'property' ? renderPropertyLink?.({ id: selection.scope.id, label: selection.scope.label }) : null
   return <section ref={reportElement} className="visibility-report" aria-label="AI visibility results">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default pb-4">
       <div className="flex flex-wrap items-center gap-3">
         <ToneBadge tone={measurement.state === 'measured' ? 'positive' : 'neutral'}>{measurement.state === 'measured' ? 'Complete' : measurement.state === 'partial' ? 'Partial' : 'Not measured'}</ToneBadge>
         {measurement.completedAt ? <span className="text-sm text-secondary">{new Date(measurement.completedAt).toLocaleDateString()}</span> : null}
       </div>
-      {onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null}
+      {propertyLink ? <div className="flex flex-wrap items-center gap-3">{propertyLink}{manageQueries}</div> : manageQueries}
     </div>
     {selection.provenance.kind === 'legacy-simple' && selection.queryClass !== 'unknown' && selection.queryClass !== 'all' ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default py-3 text-sm text-secondary"><p>These saved results aren't separated by query type.</p><Button variant="outline" onClick={() => onSelectionChange({ queryClass: 'all', measurementQueryKey: undefined })}>View all saved results</Button></div> : null}
     <VisibilityReportFilters report={report} queryClass={selectedPopulation.queryClass} onSelectionChange={onSelectionChange} />
@@ -446,11 +450,12 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSe
   </section>
 }
 
-export function VisibilityWorkspace({ projectName, selection, onSelectionChange, onManageQueries, fallback, showUnmeasuredFallback = false }: {
+export function VisibilityWorkspace({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, fallback, showUnmeasuredFallback = false }: {
   projectName: string
   selection: VisibilitySelectionState
   onSelectionChange: (patch: Record<string, unknown>) => void
   onManageQueries?: () => void
+  renderPropertyLink?: VisibilityReportViewProps['renderPropertyLink']
   fallback?: ReactNode
   showUnmeasuredFallback?: boolean
 }) {
@@ -549,6 +554,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
       onSelectionChange(patch)
     }}
     onManageQueries={onManageQueries}
+    renderPropertyLink={renderPropertyLink}
   /></div>
 }
 const MODE_OPTIONS: Array<{ value: TrendSeriesMode; label: string }> = [

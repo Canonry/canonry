@@ -127,6 +127,18 @@ An explicitly selected market survives property navigation even when its group h
 multiple markets. Group rows and saved group URLs retain the report's existing
 filters; a navigation link alone must not change their totals.
 
+An Advanced Property scope in AI Visibility offers a `Property details` link to
+`/properties/$targetKey`. Breakdown rows still change the report scope; the link
+lives only on the Property scope and is omitted in embeds and Simple projects.
+Links between the report and the Property page carry the search through
+`carryVisibilitySearch`, which drops one-shot triggers such as `onboarding`. The
+Property page reads `queryClass` from that selection; an unset or unclassified
+class resolves to the first class the Property is assigned and is written back,
+matching the report's normalization. Its overview, evidence, and competitor reads
+take no market, engine, model, location, date range, or saved sweep, so carried
+filters are disclosed as `Filters not applied`, never applied. The market
+section's overview link returns to the whole-site scope.
+
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.
 Research retains ICP discovery and bounded tests. Promotion must use query-tracking preview and commit.

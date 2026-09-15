@@ -579,8 +579,8 @@ describe('Property page', () => {
       }, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
     })
 
-    const link = await screen.findByRole('link', { name: 'Go to measurement overview' })
-    expect(link.getAttribute('href')).toMatch(/\/projects\/[^/]+$/)
+    const link = await screen.findByRole('link', { name: 'Go to AI Visibility' })
+    await waitFor(() => expect(link.getAttribute('href')).toMatch(/\/projects\/[^/?]+\?queryClass=non-brand$/))
   })
 
   it('directs a legacy measurement plan to republish setup', async () => {

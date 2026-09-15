@@ -1,6 +1,7 @@
 import { describe, expect, it, test } from 'vitest'
 
 import {
+  carryVisibilitySearch,
   DEFAULT_MEASUREMENT_VIEW,
   measurementViewSearch,
   parseMeasurementViewSearch,
@@ -8,6 +9,15 @@ import {
   patchVisibilitySelection,
   shouldResetMeasurementView,
 } from '../src/lib/measurement-view-url.js'
+
+test('carrying the visibility selection to another project route drops only one-shot triggers', () => {
+  const selection = { measurementScope: 'property', measurementScopeKey: 'harbor-house', measurementMarketKey: 'north', queryClass: 'branded', runId: 'drawer-run' }
+  expect(carryVisibilitySearch({
+    ...selection, onboarding: 'site-health', manageQueries: true, siteHealthRunId: 'audit-1', siteScan: 'skip', setupProject: 'citypoint',
+  })).toEqual({
+    ...selection, onboarding: undefined, manageQueries: undefined, siteHealthRunId: undefined, siteScan: undefined, setupProject: undefined,
+  })
+})
 
 test('reads a group scope and a query class out of the URL', () => {
   expect(parseMeasurementViewSearch({ scope: 'group:north', class: 'branded' }))
