@@ -198,6 +198,20 @@ export function formatChartDateTick(value: string): string {
   return `${parts.month}/${parts.day}`
 }
 
+/**
+ * Format a CALENDAR DATE without its year (e.g. "Sep 1"), for the start of a
+ * range that names its year once. No timezone is applied.
+ */
+export function formatChartDateMonthDay(value: string): string {
+  const parts = calendarParts(String(value))
+  if (!parts) return String(value)
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 /** Format a real instant in the VIEWER's timezone (07-20T01:52Z reads "Jul 19, 2026" in New York). */
 export function formatObservedInstantLabel(instant: ObservedInstant): string {
   return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })

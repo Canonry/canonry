@@ -36,7 +36,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@ainyc/canonry-api-client` | **All web API calls must go through generated SDK** (`@ainyc/canonry-api-client/react-query`) — `fetch()` banned except here |
 | `src/api-aero.ts` | Aero SSE client | |
 | `src/embed.ts` | Presentational embed helpers: `embedViewIdForPath`, `isEmbedProjectTabAllowed`, `embedThemeStyle` | Pure, testable |
-| `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, etc. | |
+| `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, `measurement-view-url` (shared measurement URL selection and the first-page visibility-report query key), `project-scope` (which scope control the project context row shows on each tab), etc. | `VisibilityTrendSection` exports `VisibilityOverview` (results toolbar above the keyed workspace) and `useVisibilityReportFirstPage`. |
 | `src/queries/*` | TanStack Query hooks (`use-dashboard-overview`, `use-project-dashboard`, `use-health`, `mutations`, `server-traffic`) | |
 | `src/contexts/*` | `dashboard-context`, `account-context` | |
 | `src/mappers/insight-mapper.ts` | Insight DTO → view-model | |

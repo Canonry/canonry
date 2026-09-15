@@ -1027,10 +1027,12 @@
     @apply text-base font-semibold text-heading;
   }
 
-  /* The measurement scope slot takes a full line below md and caps its width
-     at md and up; the trigger label wraps instead of truncating. */
+  /* The measurement scope slot takes its own last line below md, so the
+     visible title and the actions share the first line; at md and up it
+     returns to DOM order and caps its width. The trigger label wraps
+     instead of truncating. */
   .project-context-scope {
-    @apply w-full min-w-0 md:w-auto md:min-w-64 md:max-w-md;
+    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-md;
   }
 
   .project-context-domain {
