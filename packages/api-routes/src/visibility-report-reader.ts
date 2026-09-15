@@ -10,11 +10,15 @@
 import { createHash } from 'node:crypto'
 import {
   visibilityReportResponseSchema,
+  type VisibilityReportComparedRun,
+  type VisibilityReportComparison,
+  type VisibilityReportComparisonUnavailableReason,
   type VisibilityReportLocationSelection,
   type VisibilityReportCompetitorAvailability,
   type VisibilityReportPopulationClass,
   type VisibilityReportProvenance,
   type VisibilityReportRate,
+  type VisibilityReportRateChange,
   type VisibilityReportResponse,
   type VisibilityReportScopeKind,
   type VisibilityReportScopeOption,
@@ -101,6 +105,8 @@ export interface VisibilityReportRunInput {
   state: 'measured' | 'partial'
   /** Probe and research work must not enter official report selection. */
   probe: boolean
+  /** A spot check measured a slice of the plan; it never compares against a whole-project sweep. */
+  scoped: boolean
   definition: VisibilityReportDefinitionInput
   /** Immutable plan version id, or a simple-run semantic id when available. */
   definitionId: string | null
@@ -131,6 +137,15 @@ export interface VisibilityReportReaderSelection {
   limit: number
 }
 
+/**
+ * The eligible whole-project sweep immediately before the selected run. The
+ * caller finds it without the report's date window, run pin, or revision.
+ */
+export type VisibilityReportPreviousRunInput =
+  | { run: VisibilityReportRunInput }
+  /** A predecessor whose frozen definition cannot be reconstructed. */
+  | { incomparable: VisibilityReportComparedRun }
+
 export interface VisibilityReportReaderInput {
   mode: 'simple' | 'advanced'
   /** Current active advanced revision, if one exists. */
@@ -143,6 +158,11 @@ export interface VisibilityReportReaderInput {
   /** Default selected run when a compatible label-only chain beats unrelated history. */
   preferredRunId?: string
   runs: readonly VisibilityReportRunInput[]
+  /**
+   * Omit to leave `comparison` off every population. `null` means the selected
+   * run has no eligible predecessor to compare.
+   */
+  previous?: VisibilityReportPreviousRunInput | null
 }
 
 export class VisibilityReportCursorError extends Error {
@@ -786,22 +806,103 @@ function filterOptions(definition: VisibilityReportDefinitionInput, selection: V
   return { providers, models, locations }
 }
 
+/** One continuity rule for trend boundaries and the change since the previous sweep. */
+function pairContinuity(previous: VisibilityReportRunInput, current: VisibilityReportRunInput) {
+  const currentLegacy = current.definition.provenance.kind === 'legacy-simple'
+  const previousLegacy = previous.definition.provenance.kind === 'legacy-simple'
+  if (currentLegacy || previousLegacy) return 'legacy-unknown' as const
+  const sameDefinition = current.definitionId !== null && previous.definitionId !== null && (
+    current.definitionId === previous.definitionId || current.comparableDefinitionIds.includes(previous.definitionId)
+  )
+  if (!sameDefinition) return 'definition-changed' as const
+  if (current.modelFingerprint === null || previous.modelFingerprint === null || current.modelFingerprint !== previous.modelFingerprint) {
+    return 'model-changed' as const
+  }
+  return 'comparable' as const
+}
+
 function continuity(
   previous: VisibilityReportRunInput | undefined,
   current: VisibilityReportRunInput,
 ) {
   if (!previous) return { state: 'first' as const, comparedRunId: null }
-  const currentLegacy = current.definition.provenance.kind === 'legacy-simple'
-  const previousLegacy = previous.definition.provenance.kind === 'legacy-simple'
-  if (currentLegacy || previousLegacy) return { state: 'legacy-unknown' as const, comparedRunId: previous.id }
-  const sameDefinition = current.definitionId !== null && previous.definitionId !== null && (
-    current.definitionId === previous.definitionId || current.comparableDefinitionIds.includes(previous.definitionId)
-  )
-  if (!sameDefinition) return { state: 'definition-changed' as const, comparedRunId: previous.id }
-  if (current.modelFingerprint === null || previous.modelFingerprint === null || current.modelFingerprint !== previous.modelFingerprint) {
-    return { state: 'model-changed' as const, comparedRunId: previous.id }
+  return { state: pairContinuity(previous, current), comparedRunId: previous.id }
+}
+
+type ComparisonBasis =
+  | { state: 'unavailable'; reason: VisibilityReportComparisonUnavailableReason; previousRun: VisibilityReportComparedRun | null }
+  | { state: 'available'; previous: VisibilityReportRunInput }
+
+function comparedRun(run: VisibilityReportRunInput): VisibilityReportComparedRun {
+  return { id: run.id, createdAt: run.createdAt, completedAt: run.completedAt }
+}
+
+/**
+ * Run-level eligibility, checked in a fixed order so the first failing check
+ * names the reason. A reason about the selection alone names no previous
+ * sweep; a reason about the pair names the predecessor it judged.
+ */
+function comparisonBasis(
+  selectedRun: VisibilityReportRunInput | undefined,
+  previous: VisibilityReportPreviousRunInput | null,
+): ComparisonBasis {
+  if (!selectedRun) return { state: 'unavailable', reason: 'no-selected-run', previousRun: null }
+  if (selectedRun.scoped) return { state: 'unavailable', reason: 'scoped-run', previousRun: null }
+  if (previous === null) return { state: 'unavailable', reason: 'no-previous-run', previousRun: null }
+  if ('incomparable' in previous) return { state: 'unavailable', reason: 'definition-changed', previousRun: previous.incomparable }
+  const pair = pairContinuity(previous.run, selectedRun)
+  if (pair !== 'comparable') return { state: 'unavailable', reason: pair, previousRun: comparedRun(previous.run) }
+  if (selectedRun.state === 'partial' || previous.run.state === 'partial') {
+    return { state: 'unavailable', reason: 'partial-run', previousRun: comparedRun(previous.run) }
   }
-  return { state: 'comparable' as const, comparedRunId: previous.id }
+  return { state: 'available', previous: previous.run }
+}
+
+function rateChange(current: VisibilityReportRate, previous: VisibilityReportRate | null): VisibilityReportRateChange {
+  if (current.rate === null) {
+    return { state: 'unavailable', reason: current.reason === 'not-applicable' ? 'not-applicable' : 'current-unavailable' }
+  }
+  if (previous === null || previous.rate === null) return { state: 'unavailable', reason: 'previous-unavailable' }
+  return { state: 'available', previous, delta: current.rate - previous.rate }
+}
+
+/**
+ * The predecessor measured under its own frozen definition and scope targets.
+ * A selected scope that definition never had is no earlier value, not a
+ * failed read.
+ */
+function previousSummary(
+  run: VisibilityReportRunInput,
+  selection: VisibilityReportReaderSelection,
+  queryClass: VisibilityReportPopulationClass,
+): ReturnType<typeof summary> | null {
+  try {
+    const { candidates } = candidatesFor(run, selection, queryClass)
+    return summary(candidates, run.definition, scopeTargetKeys(run.definition, selection))
+  } catch (error) {
+    if (error instanceof VisibilityReportScopeError) return null
+    throw error
+  }
+}
+
+function populationComparison(
+  basis: ComparisonBasis,
+  current: ReturnType<typeof summary>,
+  selection: VisibilityReportReaderSelection,
+  queryClass: VisibilityReportPopulationClass,
+): VisibilityReportComparison {
+  if (basis.state === 'unavailable') return { state: 'unavailable', reason: basis.reason, previousRun: basis.previousRun }
+  const previous = previousSummary(basis.previous, selection, queryClass)
+  // A single selected Property's reach is its own mention signal, not a count
+  // of Properties named, so Properties mentioned has no change to report.
+  const currentReach = selection.scope === 'property' ? unavailable('not-applicable') : current.propertyReach
+  return {
+    state: 'available',
+    previousRun: comparedRun(basis.previous),
+    mentionCoverage: rateChange(current.mentionCoverage, previous?.mentionCoverage ?? null),
+    citationCoverage: rateChange(current.citationCoverage, previous?.citationCoverage ?? null),
+    propertyReach: rateChange(currentReach, previous?.propertyReach ?? null),
+  }
 }
 
 function inTime(run: VisibilityReportRunInput, selection: VisibilityReportReaderSelection): boolean {
@@ -865,8 +966,15 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
     runCandidates.set(run.id, byClass)
   }
 
+  // Every class population gets its own comparison; nothing is pooled.
+  const basis = input.previous === undefined ? undefined : comparisonBasis(selectedRun, input.previous)
   const populations = classes.map(queryClass => {
-    if (!selectedRun) return emptyPopulation(queryClass, definition, input)
+    if (!selectedRun) {
+      const empty = emptyPopulation(queryClass, definition, input)
+      return basis === undefined
+        ? empty
+        : { ...empty, comparison: populationComparison(basis, empty.summary, input.selection, queryClass) }
+    }
     const selected = runCandidates.get(selectedRun.id)?.get(queryClass) ?? []
     const trend = runs.map((run, index) => {
       const candidates = runCandidates.get(run.id)?.get(queryClass) ?? []
@@ -888,10 +996,12 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
     })
     const rows = queryRows(selected, definition, input.selection)
     const evidence = evidenceRows(selected, definition, input.selection)
+    const selectedSummary = summary(selected, definition, populationTargetKeys)
     return {
       queryClass,
-      summary: summary(selected, definition, populationTargetKeys),
+      summary: selectedSummary,
       trend,
+      ...(basis === undefined ? {} : { comparison: populationComparison(basis, selectedSummary, input.selection, queryClass) }),
       queries: page(rows, row => [row.queryKey, row.provider, row.model ?? '', row.location ?? ''].join('\u0000'), 'queries', queryClass, input, selectedRun),
       evidence: page(evidence, row => [row.answerId, row.runId].join('\u0000'), 'evidence', queryClass, input, selectedRun),
       competitorAvailability: definition.competitorAvailability,

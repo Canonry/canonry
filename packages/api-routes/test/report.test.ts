@@ -584,6 +584,12 @@ describe('GET /api/v1/projects/:name/report', () => {
     const dashboard = (await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/frozen-report/visibility-report?queryClass=all' })).json()
     expect(report.visibility?.selection).toEqual(dashboard.selection)
     expect(report.visibility?.populations).toEqual(dashboard.populations.map(({ queryClass, summary, trend }: NonNullable<ProjectReportDto['visibility']>['populations'][number]) => ({ queryClass, summary, trend })))
+    // Report builds opt out of the change since the previous sweep; the DTO is unchanged.
+    expect(report.visibility?.populations.map(population => Object.keys(population).sort())).toEqual([
+      ['queryClass', 'summary', 'trend'],
+      ['queryClass', 'summary', 'trend'],
+      ['queryClass', 'summary', 'trend'],
+    ])
     const nonBrand = report.visibility?.populations.find(population => population.queryClass === 'non-brand')
     expect(nonBrand?.summary.queryCount).toBe(1)
     expect(nonBrand?.summary.answerCount).toBe(2)
