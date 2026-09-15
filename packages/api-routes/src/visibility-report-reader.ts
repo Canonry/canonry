@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto'
 import {
   visibilityReportResponseSchema,
+  VisibilityReportScopeErrorReasons,
   type VisibilityReportComparedRun,
   type VisibilityReportComparison,
   type VisibilityReportComparisonUnavailableReason,
@@ -20,6 +21,7 @@ import {
   type VisibilityReportRate,
   type VisibilityReportRateChange,
   type VisibilityReportResponse,
+  type VisibilityReportScopeErrorDetails,
   type VisibilityReportScopeKind,
   type VisibilityReportScopeOption,
 } from '@ainyc/canonry-contracts'
@@ -173,9 +175,13 @@ export class VisibilityReportCursorError extends Error {
 }
 
 export class VisibilityReportScopeError extends Error {
-  constructor(message: string) {
+  /** Set only when the selected scope or market key is absent from the frozen definition. */
+  readonly details?: VisibilityReportScopeErrorDetails
+
+  constructor(message: string, details?: VisibilityReportScopeErrorDetails) {
     super(message)
     this.name = 'VisibilityReportScopeError'
+    this.details = details
   }
 }
 
@@ -249,13 +255,13 @@ function scopeResolution(
     const key = selection.scopeKey
     if (!key) throw new VisibilityReportScopeError(`${selection.scope} scope requires a scope key.`)
     const scoped = definition.scopeOptions.find(candidate => candidate.kind === selection.scope && candidate.id === key)
-    if (!scoped) throw new VisibilityReportScopeError(`${selection.scope} scope "${key}" is not in this frozen definition.`)
+    if (!scoped) throw new VisibilityReportScopeError(`${selection.scope} scope "${key}" is not in this frozen definition.`, { reason: VisibilityReportScopeErrorReasons['retired-scope'], kind: selection.scope, key })
     option = scoped
     if (selection.scope === 'property') {
       edgeIds = new Set(definition.edges.filter(edge => edge.targetKey === key).map(edge => edge.id))
     } else if (selection.scope === 'group') {
       const group = definition.groups.find(candidate => candidate.id === key)
-      if (!group) throw new VisibilityReportScopeError(`Group "${key}" is not in this frozen definition.`)
+      if (!group) throw new VisibilityReportScopeError(`Group "${key}" is not in this frozen definition.`, { reason: VisibilityReportScopeErrorReasons['retired-scope'], kind: 'group', key })
       const targetKeys = new Set(group.targetKeys)
       edgeIds = new Set(definition.edges.filter(edge => targetKeys.has(edge.targetKey)).map(edge => edge.id))
     } else {
@@ -271,7 +277,7 @@ function scopeResolution(
   const marketKey = selection.scope === 'market' ? selection.scopeKey : selection.marketKey
   if (marketKey === undefined) return { option, edgeIds }
   const market = definition.scopeOptions.find(candidate => candidate.kind === 'market' && candidate.id === marketKey)
-  if (!market) throw new VisibilityReportScopeError(`Market "${marketKey}" is not in this frozen definition.`)
+  if (!market) throw new VisibilityReportScopeError(`Market "${marketKey}" is not in this frozen definition.`, { reason: VisibilityReportScopeErrorReasons['retired-market'], kind: 'market', key: marketKey })
   return {
     option,
     market,
@@ -299,7 +305,7 @@ function scopeTargetKeys(
   if (selection.scope === 'property') return [resolution.option.id]
   if (selection.scope === 'group') {
     const group = definition.groups.find(candidate => candidate.id === resolution.option.id)
-    if (!group) throw new VisibilityReportScopeError(`Group "${resolution.option.id}" is not in this frozen definition.`)
+    if (!group) throw new VisibilityReportScopeError(`Group "${resolution.option.id}" is not in this frozen definition.`, { reason: VisibilityReportScopeErrorReasons['retired-scope'], kind: 'group', key: resolution.option.id })
     return [...group.targetKeys].sort(compareText)
   }
   return [...new Set(definition.edges

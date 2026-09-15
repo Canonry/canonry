@@ -1136,7 +1136,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_workspace',
     title: 'Read query assignments',
-    description: 'Read tracked queries, exact assignments, saved research sources and the current workspace version for a simple site or advanced portfolio.',
+    description: 'Read tracked queries, exact assignments, saved research sources and the current workspace version for a simple site or advanced portfolio. Also returns scopeOptions: server-built project, group, market and property choices with distinct property counts.',
     access: 'read', tier: 'setup', inputSchema: projectInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/query-tracking'],

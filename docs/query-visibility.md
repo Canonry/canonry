@@ -53,6 +53,14 @@ The published plan stores market edges in `reportingScopes`.
 Property and group selections constrain a selected market. They do not add every property in that market.
 Each market retains its own frozen engines, models, and search locations.
 
+Both reads return server-built scope choices in `scopeOptions`.
+Each choice has a `targetCount`: the number of distinct properties it selects. A market with several edges to one property counts that property once.
+The visibility report builds its choices from the frozen definition it measures. There, groups and properties list their linked markets in `marketKeys`.
+The query workspace builds its choices from the active plan. Tracked assignments have no market intersection, so its groups and properties carry no `marketKeys`. Markets keep their group parent in `parentGroupIds`.
+A simple site returns only the project choice.
+A report scope or market that is not in the frozen definition returns `400 VALIDATION_ERROR` with typed `details`.
+The `reason` is `retired-scope` for a group, market, or property scope, and `retired-market` for a market refinement. `kind` and `key` name the missing selection.
+
 Templates expand before publication. Each result retains its template version, bindings, and resolved query text.
 Duplicate matching prefers the query ID that the active plan already uses.
 Otherwise, matching uses normalized query text.

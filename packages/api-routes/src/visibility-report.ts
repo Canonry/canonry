@@ -43,6 +43,7 @@ import {
   measurementRunExpectedSlots,
 } from './measurement-report-adapter.js'
 import { buildMeasurementObservationSignals } from './measurement-report.js'
+import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import {
   buildVisibilityReport,
   VisibilityReportCursorError,
@@ -264,56 +265,10 @@ function v2Definition(
       location: slot.context?.label ?? null,
     }
   })
-  const groupKeysForTarget = new Map(plan.targets.map(target => [target.stableKey, [] as string[]]))
-  for (const group of plan.groups) {
-    for (const targetKey of group.targetKeys) groupKeysForTarget.get(targetKey)?.push(group.stableKey)
-  }
-  const marketKeysForGroup = new Map<string, string[]>()
-  const marketKeysForTarget = new Map(plan.targets.map(target => [target.stableKey, [] as string[]]))
-  for (const market of plan.reportingScopes ?? []) {
-    if (market.groupKey !== undefined) {
-      const keys = marketKeysForGroup.get(market.groupKey) ?? []
-      keys.push(market.stableKey)
-      marketKeysForGroup.set(market.groupKey, keys)
-    }
-    for (const edge of market.usageEdges) marketKeysForTarget.get(edge.targetKey)?.push(market.stableKey)
-  }
-  const scopeOptions = [
-    { id: 'project', label: 'Project', kind: 'project' as const, targetCount: plan.targets.length },
-    ...plan.groups.map(group => {
-      const marketKeys = [...new Set(marketKeysForGroup.get(group.stableKey) ?? [])].sort()
-      return {
-        id: group.stableKey,
-        label: group.label,
-        kind: 'group' as const,
-        targetCount: group.targetKeys.length,
-        ...(group.parentGroupKey === undefined ? {} : { parentGroupIds: [group.parentGroupKey] }),
-        ...(marketKeys.length === 0 ? {} : { marketKeys }),
-      }
-    }),
-    ...plan.reportingScopes?.map(market => ({
-      id: market.stableKey,
-      label: market.label,
-      kind: 'market' as const,
-      targetCount: new Set(market.usageEdges.map(edge => edge.targetKey)).size,
-      ...(market.groupKey === undefined ? {} : { parentGroupIds: [market.groupKey] }),
-    })) ?? [],
-    ...plan.targets.map(target => {
-      const marketKeys = [...new Set(marketKeysForTarget.get(target.stableKey) ?? [])].sort()
-      return {
-        id: target.stableKey,
-        label: target.label,
-        kind: 'property' as const,
-        targetCount: 1,
-        parentGroupIds: [...new Set(groupKeysForTarget.get(target.stableKey) ?? [])].sort(),
-        ...(marketKeys.length === 0 ? {} : { marketKeys }),
-      }
-    }),
-  ]
   return {
     revision,
     provenance: { kind: 'frozen-advanced', definitionRevision: revision },
-    scopeOptions,
+    scopeOptions: planScopeOptions(plan, { marketLinks: true }),
     targets: plan.targets.map(target => ({ id: target.stableKey, label: target.label, mentionEligible: !target.mentionNotApplicable })),
     groups: plan.groups.map(group => ({ id: group.stableKey, label: group.label, targetKeys: group.targetKeys })),
     competitorAvailability: { state: 'available' },
@@ -392,7 +347,7 @@ function simpleScope(label: string, mentionEligible: boolean) {
   return {
     revision: null,
     provenance: { kind: 'legacy-simple' as const, definitionRevision: null },
-    scopeOptions: [{ id: 'project', label: 'Project', kind: 'project' as const, targetCount: 1 }],
+    scopeOptions: simpleScopeOptions(),
     targets: [{ id: 'project', label, mentionEligible }],
     groups: [],
     competitorAvailability: { state: 'unavailable' as const, reason: 'frozen-competitor-identity-missing' as const },
@@ -951,9 +906,9 @@ export function readVisibilityReport(
     }
     return buildVisibilityReport(simpleReaderInput(db, project, query, includeComparison))
   } catch (error) {
-    if (error instanceof VisibilityReportCursorError || error instanceof VisibilityReportScopeError) {
-      throw validationError(error.message)
-    }
+    // Retired-scope details ride the error envelope so a client recovers by reason, not by message text.
+    if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)
+    if (error instanceof VisibilityReportCursorError) throw validationError(error.message)
     throw error
   }
 }
