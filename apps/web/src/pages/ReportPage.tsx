@@ -129,6 +129,8 @@ import {
   reportServerActivityAgencyOperatorHeaders,
   reportServerActivityAgencyTiles,
   reportServerActivityCrawledPathsNote,
+  reportServerActivityOperatorDelta,
+  reportServerActivityPathHits,
   reportServerActivityTrendTitle,
   reportTrendProviderRates,
 } from '@ainyc/canonry-contracts'
@@ -1783,7 +1785,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
               <td className="text-right tabular-nums">{formatNumber(operator.userFetchHits)}</td>
               <td className="text-right tabular-nums">{formatNumber(operator.referralArrivals)}</td>
               <td className={`text-right tabular-nums ${operator.deltaPct === null ? '' : SERVER_ACTIVITY_DELTA_CLASS[deltaTone(operator.deltaPct)]}`}>
-                {operator.deltaPct === null ? agency.noDelta : `${operator.deltaPct > 0 ? '+' : ''}${operator.deltaPct}%`}
+                {reportServerActivityOperatorDelta(operator.deltaPct)}
               </td>
             </tr>
           ))}
@@ -1798,7 +1800,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
           {sa.topCrawledPaths.map((path, index) => (
             <tr key={`${index}-${path.path}`}>
               <td><LandingPageCell page={path.path} /></td>
-              <td className="text-right tabular-nums">{formatNumber(serverActivityPathHits(path))}</td>
+              <td className="text-right tabular-nums">{formatNumber(reportServerActivityPathHits(path))}</td>
               <td className="text-right tabular-nums text-secondary">{formatNumber(path.verifiedHits)}</td>
               <td className="text-right tabular-nums">{path.distinctOperators}</td>
             </tr>
@@ -1843,15 +1845,6 @@ function serverActivityDelta(delta: DeltaWindow, noun: string, priorWindowLabel:
   const text = formatDeltaCopy(delta, noun, priorWindowLabel)
   if (!text) return null
   return <span className={SERVER_ACTIVITY_DELTA_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
-}
-
-/**
- * A crawled path's total hits, verified plus unverified, added as the HTML
- * report adds them. The unverified count is optional here: a path stored before
- * it was recorded has none, and the schema default fills it only on parse.
- */
-function serverActivityPathHits(path: { verifiedHits: number; unverifiedHits?: number }): number {
-  return path.verifiedHits + (path.unverifiedHits ?? 0)
 }
 
 interface IndexingCoverageSegment {

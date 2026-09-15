@@ -953,6 +953,23 @@ export function reportServerActivityCrawledPathsNote(windowDays: number): string
   return `Pages AI bots fetched most often (verified only, last ${reportServerActivityWindowLabel(windowDays)}).`
 }
 
+/**
+ * An operator's prior-window change, signed as the API sent it: `+75%`,
+ * `-30%`, `0%`. With no prior window to compare against it is a dash.
+ */
+export function reportServerActivityOperatorDelta(deltaPct: number | null): string {
+  if (deltaPct === null) return SERVER_TRENDS_COPY['server-activity'].agency.noDelta
+  return `${deltaPct > 0 ? '+' : ''}${deltaPct}%`
+}
+
+/**
+ * A crawled path's total hits: verified plus unverified. A path stored before
+ * unverified hits were recorded has no count for them, and that adds nothing.
+ */
+export function reportServerActivityPathHits(path: { verifiedHits: number; unverifiedHits?: number }): number {
+  return path.verifiedHits + (path.unverifiedHits ?? 0)
+}
+
 /** `234 verified · 15 unverified`. */
 export function reportCrawlerTrustSummary(verified: number, unverified: number): string {
   return `${formatNumber(verified)} verified · ${formatNumber(unverified)} unverified`

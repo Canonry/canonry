@@ -56,6 +56,8 @@ import {
   reportServerActivityClientOperatorHeaders,
   reportServerActivityCrawledPathsNote,
   reportServerActivityHeading,
+  reportServerActivityOperatorDelta,
+  reportServerActivityPathHits,
   reportPriorWindowLabel,
   reportServerActivityTrendTitle,
   reportServerActivityWindowLabel,
@@ -469,6 +471,17 @@ describe('report slice S4: server-side, indexing and trend copy', () => {
     expect(reportCrawlerTrustSummary(1500, 0)).toBe('1.5K verified · 0 unverified')
     expect(reportReferralRedirectNote(120)).toBe('120 blocked by redirects')
     expect(reportReferralRedirectNote(0)).toBe('')
+  })
+
+  test('an operator delta is signed as the API sent it, and a missing delta is a dash', () => {
+    expect([75, -30, 0, 12.5, null].map(delta => reportServerActivityOperatorDelta(delta))).toEqual(['+75%', '-30%', '0%', '+12.5%', '—'])
+  })
+
+  test('a crawled path counts its unverified hits with its verified hits, and adds none when they were never recorded', () => {
+    expect(reportServerActivityPathHits({ verifiedHits: 80, unverifiedHits: 15 })).toBe(95)
+    expect(reportServerActivityPathHits({ verifiedHits: 50, unverifiedHits: 0 })).toBe(50)
+    expect(reportServerActivityPathHits({ verifiedHits: 50 })).toBe(50)
+    expect(reportServerActivityPathHits({ verifiedHits: 0, unverifiedHits: 0 })).toBe(0)
   })
 
   test('indexing intro names Google, and Bing otherwise', () => {
