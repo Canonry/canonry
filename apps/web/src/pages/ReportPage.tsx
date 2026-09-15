@@ -136,6 +136,15 @@ import type { DeltaTone, DeltaWindow } from '@ainyc/canonry-contracts'
 // ── end report slice S4 imports ──
 
 // ── report slice S5 imports: insights and content ──
+import {
+  absolutizeProjectUrl,
+  actionConfidenceLabel,
+  reportCompactList,
+  reportMissRateLabel,
+  reportOpportunityActionLine,
+  winnabilityClassLabel,
+  WinnabilityClasses,
+} from '@ainyc/canonry-contracts'
 // ── end report slice S5 imports ──
 
 /*
@@ -1959,19 +1968,179 @@ function AgencyCitationsTrend({ report }: { report: ProjectReportDto }) {
 // ── end report slice S4 ──
 
 // ── report slice S5: insights and content ──
-function AgencyInsights(_props: { report: ProjectReportDto }) {
+/**
+ * Insights & Alerts. The API has already deduped insights and counts repeats
+ * in `instanceCount`, so rows render as given. The table keeps the HTML
+ * report's fixed column widths and 680px minimum width.
+ */
+function AgencyInsights({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY.insights
-  return <ReportSection id={ReportSectionIds.insights} eyebrow={copy.eyebrow} title={copy.title} />
+  if (report.insights.length === 0) {
+    return (
+      <ReportSection id={ReportSectionIds.insights} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const [severityHeader, titleHeader, queryHeader, providerHeader, recommendationHeader] = copy.headers
+  return (
+    <ReportSection id={ReportSectionIds.insights} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <ReportTableBlock
+        headers={[
+          { label: severityHeader, className: 'w-24' },
+          { label: titleHeader, className: 'w-[28%]' },
+          { label: queryHeader, className: 'w-[18%]' },
+          { label: providerHeader, className: 'w-[88px]' },
+          { label: recommendationHeader, className: 'w-auto' },
+        ]}
+        tableClassName="table-fixed min-w-[680px]"
+      >
+        {report.insights.map(insight => (
+          <tr key={insight.id}>
+            <td className="align-top">
+              <ToneBadge tone={reportSeverityTone(insight.severity)}>{reportSeverityLabel(insight.severity)}</ToneBadge>
+            </td>
+            <td className="evidence-query-cell break-words align-top">
+              {insight.title}
+              {insight.instanceCount > 1 && <ToneBadge tone="neutral" className="ml-2">{reportInstanceCountLabel(insight.instanceCount)}</ToneBadge>}
+            </td>
+            <td className="break-words align-top text-[13px] text-secondary">{insight.query}</td>
+            <td className="break-words align-top text-[13px] text-secondary">{insight.provider}</td>
+            <td className="break-words align-top text-[13px] text-secondary">
+              {insight.recommendation ? insight.recommendation : <span className="text-muted">{copy.noRecommendation}</span>}
+            </td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
 }
 
-function AgencyContentOpportunities(_props: { report: ProjectReportDto }) {
+type ContentOpportunity = ProjectReportDto['contentOpportunities'][number]
+
+/**
+ * Content Opportunities: the top three as cards, then the top ten in a table,
+ * both from the deduped list the HTML report uses. reportSectionOrder leaves
+ * the section out when that list is empty.
+ */
+function AgencyContentOpportunities({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['content-opportunities']
-  return <ReportSection id={ReportSectionIds['content-opportunities']} eyebrow={copy.eyebrow} title={copy.title} />
+  const opportunities = dedupeReportOpportunities(report)
+  const canonicalDomain = report.meta.project.canonicalDomain
+  const [queryHeader, actionHeader, winnabilityHeader, scoreHeader, whyHeader, ourPageHeader, winningHeader, confidenceHeader] = copy.headers
+  return (
+    <ReportSection id={ReportSectionIds['content-opportunities']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {opportunities.slice(0, 3).map((opportunity, index) => (
+          <ContentOpportunityCard key={`${index}-${opportunity.targetRef}`} opportunity={opportunity} />
+        ))}
+      </div>
+      <ReportTableBlock
+        headers={[
+          queryHeader,
+          actionHeader,
+          winnabilityHeader,
+          { label: scoreHeader, numeric: true, tooltip: copy.scoreHeaderTooltip },
+          whyHeader,
+          ourPageHeader,
+          winningHeader,
+          confidenceHeader,
+        ]}
+      >
+        {opportunities.slice(0, 10).map((opportunity, index) => (
+          <ContentOpportunityRow key={`${index}-${opportunity.targetRef}`} opportunity={opportunity} canonicalDomain={canonicalDomain} />
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
 }
 
-function AgencyContentGaps(_props: { report: ProjectReportDto }) {
+/** A highlight card: the rounded score out of 100, the query, the action line, and up to two drivers. */
+function ContentOpportunityCard({ opportunity }: { opportunity: ContentOpportunity }) {
+  const copy = REPORT_SECTION_COPY['content-opportunities']
+  return (
+    <article className="rounded-xl border border-default bg-surface p-4">
+      <div className="mb-2.5 flex items-center gap-1.5">
+        <p className="text-3xl font-extrabold leading-none tracking-tight tabular-nums text-heading">
+          {Math.round(opportunity.score)}
+          <span className="ml-1 text-sm font-semibold text-muted">{copy.scoreSuffix}</span>
+        </p>
+        <InfoTooltip text={copy.scoreCardTooltip} />
+      </div>
+      <h3 className="text-sm font-semibold text-heading" data-report-heading>{opportunity.query}</h3>
+      <p className="mt-1 text-[13px] text-secondary">{reportOpportunityActionLine(opportunity)}</p>
+      <ProofChips items={opportunity.drivers} limit={2} className="mt-3" />
+    </article>
+  )
+}
+
+/** One table row. Winnability is caution only when the cited surface is ceded; our page links on the project domain. */
+function ContentOpportunityRow({ opportunity, canonicalDomain }: { opportunity: ContentOpportunity; canonicalDomain: string }) {
+  const copy = REPORT_SECTION_COPY['content-opportunities']
+  const ceded = opportunity.winnabilityClass === WinnabilityClasses.ceded
+  return (
+    <tr>
+      <td className="evidence-query-cell">{opportunity.query}</td>
+      <td><ToneBadge tone="neutral">{contentActionLabel(opportunity.action)}</ToneBadge></td>
+      <td><ToneBadge tone={ceded ? 'caution' : 'neutral'}>{winnabilityClassLabel(opportunity.winnabilityClass)}</ToneBadge></td>
+      <td className="text-right tabular-nums" title={copy.scoreHeaderTooltip}>{Math.round(opportunity.score)}</td>
+      <td>
+        {opportunity.drivers.length > 0 ? (
+          <ul className="list-disc space-y-0.5 pl-4 text-[13px] text-secondary">
+            {opportunity.drivers.map((driver, index) => <li key={index}>{driver}</li>)}
+          </ul>
+        ) : (
+          <span className="text-[13px] text-secondary">{copy.noDriverSignal}</span>
+        )}
+      </td>
+      <td>
+        {opportunity.ourBestPage ? (
+          <ReportExternalLink href={absolutizeProjectUrl(opportunity.ourBestPage.url, canonicalDomain)} className="break-all text-[13px]">
+            {opportunity.ourBestPage.url}
+          </ReportExternalLink>
+        ) : (
+          <span className="text-[13px] text-secondary">{copy.noPage}</span>
+        )}
+      </td>
+      <td>
+        {opportunity.winningCompetitor ? (
+          <ReportExternalLink href={opportunity.winningCompetitor.url} className="text-[13px]">
+            {opportunity.winningCompetitor.domain}
+          </ReportExternalLink>
+        ) : (
+          <span className="text-muted">{copy.noWinningCompetitor}</span>
+        )}
+      </td>
+      <td><ToneBadge tone="neutral">{actionConfidenceLabel(opportunity.actionConfidence)}</ToneBadge></td>
+    </tr>
+  )
+}
+
+/** Content Gaps: the top ten, each naming its first five competitor domains. reportSectionOrder leaves the section out when there are none. */
+function AgencyContentGaps({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['content-gaps']
-  return <ReportSection id={ReportSectionIds['content-gaps']} eyebrow={copy.eyebrow} title={copy.title} />
+  const [queryHeader, competitorsHeader, domainsHeader, missRateHeader] = copy.headers
+  return (
+    <ReportSection id={ReportSectionIds['content-gaps']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <ReportTableBlock
+        headers={[
+          queryHeader,
+          { label: competitorsHeader, numeric: true },
+          domainsHeader,
+          { label: missRateHeader, numeric: true },
+        ]}
+      >
+        {report.contentGaps.slice(0, 10).map((gap, index) => (
+          <tr key={`${index}-${gap.query}`}>
+            <td className="evidence-query-cell">{gap.query}</td>
+            <td className="text-right tabular-nums">{gap.competitorCount}</td>
+            <td className="text-[13px] text-secondary">{reportCompactList(gap.competitorDomains, 5)}</td>
+            <td className="text-right tabular-nums">{reportMissRateLabel(gap.missRate)}</td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
 }
 // ── end report slice S5 ──
 
