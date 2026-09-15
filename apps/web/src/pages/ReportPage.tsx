@@ -134,7 +134,7 @@ import {
   reportServerActivityTrendTitle,
   reportTrendProviderRates,
 } from '@ainyc/canonry-contracts'
-import type { DeltaTone, DeltaWindow } from '@ainyc/canonry-contracts'
+import type { DeltaWindow } from '@ainyc/canonry-contracts'
 // ── end report slice S4 imports ──
 
 // ── report slice S5 imports: insights and content ──
@@ -182,6 +182,18 @@ const TONE_BAR_CLASS: Readonly<Record<MetricTone, string>> = {
   caution: 'bg-caution-500/70',
   negative: 'bg-negative-500/70',
   neutral: 'bg-mono-500/70',
+}
+
+/**
+ * A toned fragment inside a line of supporting copy, such as a trend label or a
+ * delta. A neutral or unknown tone adds no class, so the fragment keeps the
+ * line's own color.
+ */
+const TONE_INLINE_TEXT_CLASS: Readonly<Record<MetricTone, string>> = {
+  positive: TONE_TEXT_CLASS.positive,
+  caution: TONE_TEXT_CLASS.caution,
+  negative: TONE_TEXT_CLASS.negative,
+  neutral: '',
 }
 
 export function ReportPage({ projectName }: { projectName: string }) {
@@ -989,9 +1001,10 @@ function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; a
 }
 
 // ─── Agency report sections ────────────────────────────────────────────────
-// One marked region per build slice. Each placeholder renders its section
-// heading only; the slice replaces it inside its own region, keeping the
-// function name and its `{ report }` props, which ReportSectionSlot renders.
+// One marked region per group of agency sections, each with its own import
+// slot above. ReportSectionSlot renders every section by its function name
+// with `{ report }` props, so keep both. Name a region's private helpers after
+// its section, so regions never collide.
 
 // ── report slice S1: agency overview ──
 /**
@@ -1014,14 +1027,6 @@ function overviewInsightCardClass(tone: MetricTone, layout: string): string {
 /** The market scope warning: a caution insight card. */
 const EXECUTIVE_SCOPE_WARNING_CLASS = overviewInsightCardClass('caution', 'gap-1 rounded-r-lg bg-caution-950/25 px-3 py-2')
 
-/** The trend label inside the citation rate line takes the trend's color; a flat or unknown trend keeps the line's color. */
-const EXECUTIVE_TREND_LABEL_CLASS: Readonly<Record<MetricTone, string>> = {
-  positive: TONE_TEXT_CLASS.positive,
-  caution: TONE_TEXT_CLASS.caution,
-  negative: TONE_TEXT_CLASS.negative,
-  neutral: '',
-}
-
 /** Metric tile columns: the row stays full whether or not GSC and GA are connected. */
 function executiveMetricColumns(count: number): 3 | 4 | 5 {
   return count >= 5 ? 5 : count === 4 ? 4 : 3
@@ -1043,7 +1048,7 @@ function AgencyExecutiveSummary({ report }: { report: ProjectReportDto }) {
       value: `${summary.citationRate}%`,
       subtitle: (
         <>
-          <span className={EXECUTIVE_TREND_LABEL_CLASS[headline.trendTone] || undefined}>{headline.trendLabel}</span>
+          <span className={TONE_INLINE_TEXT_CLASS[headline.trendTone] || undefined}>{headline.trendLabel}</span>
           {` · ${headline.citedFragment} · ${headline.providerCountLabel}`}
         </>
       ),
@@ -1697,13 +1702,6 @@ function searchTrafficShareBarRows(
 // ── end report slice S3 ──
 
 // ── report slice S4: server-side, indexing and trend ──
-/** A prior-window delta takes its direction's tone; a flat or unknown change stays plain copy. */
-const SERVER_ACTIVITY_DELTA_CLASS: Readonly<Record<DeltaTone, string>> = {
-  positive: TONE_TEXT_CLASS.positive,
-  negative: TONE_TEXT_CLASS.negative,
-  neutral: '',
-}
-
 /**
  * The agency's full server-side view, in the HTML report's order: four window
  * tiles, the verified crawl trend, then the operator, crawled path, product and
@@ -1784,7 +1782,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
               <td className="text-right tabular-nums text-secondary">{formatNumber(operator.unverifiedHits)}</td>
               <td className="text-right tabular-nums">{formatNumber(operator.userFetchHits)}</td>
               <td className="text-right tabular-nums">{formatNumber(operator.referralArrivals)}</td>
-              <td className={`text-right tabular-nums ${operator.deltaPct === null ? '' : SERVER_ACTIVITY_DELTA_CLASS[deltaTone(operator.deltaPct)]}`}>
+              <td className={`text-right tabular-nums ${operator.deltaPct === null ? '' : TONE_INLINE_TEXT_CLASS[deltaTone(operator.deltaPct)]}`}>
                 {reportServerActivityOperatorDelta(operator.deltaPct)}
               </td>
             </tr>
@@ -1844,7 +1842,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
 function serverActivityDelta(delta: DeltaWindow, noun: string, priorWindowLabel: string): ReactNode {
   const text = formatDeltaCopy(delta, noun, priorWindowLabel)
   if (!text) return null
-  return <span className={SERVER_ACTIVITY_DELTA_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
+  return <span className={TONE_INLINE_TEXT_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
 }
 
 interface IndexingCoverageSegment {
