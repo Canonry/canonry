@@ -197,13 +197,25 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
   `)
 })
 
+function classOrNull(html: string, selector: string): string | null {
+  const element = new DOMParser().parseFromString(html, 'text/html').querySelector(selector)
+  return element ? element.getAttribute('class') ?? '' : null
+}
+
 test('project route keeps the core metric and evidence class baseline stable', async () => {
   const html = await renderRoute('/projects/Citypoint%20Dental%20NYC')
 
+  // Operator project pages render the project context row instead of the
+  // page header; only embeds keep `.page-header`.
   expect({
     pageContainer: classFor(html, '.page-container'),
-    pageHeader: classFor(html, '.page-header'),
-    pageTitle: classFor(html, '.page-title'),
+    pageHeader: classOrNull(html, '.page-header'),
+    pageTitle: classOrNull(html, '.page-title'),
+    projectContextRow: classFor(html, '.project-context-row'),
+    projectContextTitle: classFor(html, '.project-context-title'),
+    projectContextDomain: classFor(html, '.project-context-domain'),
+    projectContextMeta: classFor(html, '.project-context-meta'),
+    projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
     firstMetricFill: classFor(html, '.metric-card-bar-fill'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
@@ -213,8 +225,13 @@ test('project route keeps the core metric and evidence class baseline stable', a
       "firstMetricFill": "metric-card-bar-fill progress-fill-positive",
       "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
-      "pageHeader": "page-header",
-      "pageTitle": "page-title",
+      "pageHeader": null,
+      "pageTitle": null,
+      "projectContextActions": "project-context-actions",
+      "projectContextDomain": "project-context-domain",
+      "projectContextMeta": "project-context-meta",
+      "projectContextRow": "project-context-row",
+      "projectContextTitle": "project-context-title md:sr-only",
     }
   `)
 })

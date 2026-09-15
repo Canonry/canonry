@@ -2132,7 +2132,7 @@ test('an established schedule stays visible when run prerequisites need repair',
 test('deleting the project is not reachable from the page header', async () => {
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('AI sweep')
+  expect(projectActions(html).textContent).toContain('AI sweep')
   expect(html).not.toContain('Delete project')
 })
 
@@ -2604,10 +2604,14 @@ const managedSchedule = {
   nextRunAt: '2026-09-08T06:00:00.000Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
 }
 
-function projectHeader(html: string) {
+function renderedPage(html: string) {
   const container = document.createElement('div')
   container.innerHTML = html
-  return container.querySelector('.page-header')!
+  return container
+}
+
+function projectActions(html: string) {
+  return renderedPage(html).querySelector('[data-project-actions]')!
 }
 
 test('managed sweeps unset preserves the operator sweep control and identical opt-out markup', async () => {
@@ -2618,8 +2622,8 @@ test('managed sweeps unset preserves the operator sweep control and identical op
   }
   const original = await renderAt('/projects/project_citypoint', undefined, undefined, options)
   const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
-  expect(projectHeader(original).outerHTML).toBe(projectHeader(disabled).outerHTML)
-  expect(projectHeader(original).textContent).toContain('Run AI sweep')
+  expect(projectActions(original).outerHTML).toBe(projectActions(disabled).outerHTML)
+  expect(projectActions(original).textContent).toContain('Run AI sweep')
   expect(original).not.toContain(MANAGED_SWEEPS_COPY)
 })
 
@@ -2631,11 +2635,16 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
         dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
       } },
     )
-    const header = projectHeader(html)
-    expect(header.querySelectorAll('button')).toHaveLength(0)
-    expect(header.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
-    expect(header.textContent).toContain(MANAGED_SWEEPS_NEXT_LABEL)
-    if (mode === 'advanced') expect(header.querySelectorAll('.page-header-right > p:not([role="status"])')).toHaveLength(0)
+    const actions = projectActions(html)
+    expect(actions.querySelectorAll('button')).toHaveLength(0)
+    expect(actions.querySelector('time')?.dateTime).toBe(managedSchedule.nextRunAt)
+    expect(actions.textContent).toContain(MANAGED_SWEEPS_NEXT_LABEL)
+    if (mode === 'advanced') {
+      // No default range: Advanced renders no meta element at all, and the
+      // actions hold nothing but the managed status.
+      expect(renderedPage(html).querySelector('.project-context-meta')).toBeNull()
+      expect(actions.querySelectorAll('p:not([role="status"])')).toHaveLength(0)
+    }
     expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
   }
 })
@@ -2645,10 +2654,7 @@ test('Advanced header keeps an explicit historical measurement range', async () 
     { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() },
     { managedSweeps: true, schedule: managedSchedule },
   )
-  const header = projectHeader(html)
-  const range = header.querySelector('.page-header-right > p:not([role="status"])')
-  expect(range?.textContent).toContain('2026-09-01')
-  expect(range?.textContent).toContain('2026-09-08')
+  expect(renderedPage(html).querySelector('.project-context-meta')?.textContent).toBe('2026-09-01 to 2026-09-08')
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
@@ -2657,10 +2663,10 @@ test('managed sweeps without a schedule replaces the header action without inven
       dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
     },
   })
-  const status = projectHeader(html).querySelector('[role="status"]')!
+  const status = projectActions(html).querySelector('[role="status"]')!
   expect(status.textContent).toBe(MANAGED_SWEEPS_UNAVAILABLE_COPY)
   expect(status.querySelector('time')).toBeNull()
-  expect(projectHeader(html).querySelector('button')).toBeNull()
+  expect(projectActions(html).querySelector('button')).toBeNull()
 })
 
 test.each(['simple', 'advanced'] as const)('managed %s project header retains queued and running sweep signals', async mode => {
@@ -2672,10 +2678,10 @@ test.each(['simple', 'advanced'] as const)('managed %s project header retains qu
         project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'answer-visibility', status }]
       } },
     )
-    const header = projectHeader(html)
-    expect(header.querySelector('[role="status"]')?.textContent).toBe(MANAGED_SWEEPS_RUNNING_COPY)
-    expect(header.querySelector('time')).toBeNull()
-    expect(header.querySelector('button')).toBeNull()
+    const actions = projectActions(html)
+    expect(actions.querySelector('[role="status"]')?.textContent).toBe(MANAGED_SWEEPS_RUNNING_COPY)
+    expect(actions.querySelector('time')).toBeNull()
+    expect(actions.querySelector('button')).toBeNull()
   }
 })
 
@@ -2699,7 +2705,7 @@ test('managed header does not label an active Site Health scan as a sweep', asyn
       project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'site-audit', status: 'running' }]
     },
   })
-  expect(projectHeader(html).textContent).not.toContain('AI sweep running')
+  expect(projectActions(html).textContent).not.toContain('AI sweep running')
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {
@@ -2713,7 +2719,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
 test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
   const html = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, { managedSweeps: true })
   expect(html).toMatch(/Run scan|Checking scan/)
-  expect(projectHeader(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
+  expect(projectActions(html).textContent).toContain(MANAGED_SWEEPS_RUNNING_COPY)
 })
 
 test('managed sweeps replaces the global batch sweep control', async () => {

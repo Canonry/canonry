@@ -55,7 +55,7 @@ import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
+import { ManagedSweepStatus, MANAGED_SWEEPS_COPY, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -2299,9 +2299,12 @@ function ProjectPageContent({
   const sweepSchedule = sweepSchedulesQuery.data?.find(
     schedule => schedule.kind === RunKinds['answer-visibility'],
   )
-  const nextSweepLabel = sweepSchedule?.enabled && sweepSchedule.nextRunAt
-    ? `Next AI sweep ${new Date(sweepSchedule.nextRunAt).toLocaleString()}`
+  // Date only, in the schedule's own timezone. A timezone the formatter rejects
+  // yields no label, never "null" or a time in the viewer's zone.
+  const nextSweepDate = sweepSchedule?.enabled && sweepSchedule.nextRunAt
+    ? managedSweepDate(sweepSchedule.nextRunAt, sweepSchedule.timezone)
     : null
+  const nextSweepLabel = nextSweepDate ? `Next AI sweep ${nextSweepDate}` : null
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -2650,64 +2653,78 @@ function ProjectPageContent({
     )
   }
 
+  // Overview's date range. Simple always shows it; an Advanced portfolio shows
+  // only an explicit historical range and renders no element otherwise.
+  const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
+    ? isSimpleOverview
+      ? model.dateRangeLabel
+      : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
+    : null
+
   return (
     <div className="page-container">
-      <div className="page-header">
-        <div className="page-header-left">
-          <h1 className="page-title">{model.project.displayName || model.project.name}</h1>
-          <p className="page-subtitle">
-            {model.project.canonicalDomain} · {model.contextLabel}
-          </p>
-          {!isEmbed() && (
-            <div className="tag-row">
-              <span className="tag">{model.project.country}</span>
-              <span className="tag">{model.project.language.toUpperCase()}</span>
-              {model.project.tags.map((tag) => (
-                <span key={tag} className="tag">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
+      {isEmbed() ? (
+        // Embeds have no topbar, so they keep the in-page header: identity and
+        // context only, never an action.
+        <div className="page-header">
+          <div className="page-header-left">
+            <h1 className="page-title">{model.project.displayName || model.project.name}</h1>
+            <p className="page-subtitle">
+              {model.project.canonicalDomain} · {model.contextLabel}
+            </p>
+          </div>
+          <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
+            {overviewRangeLabel !== null ? <p className="text-sm text-muted">{overviewRangeLabel}</p> : null}
+          </div>
         </div>
-        <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-          {tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to) ? <p className="text-sm text-muted">{isSimpleOverview ? model.dateRangeLabel : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`}</p> : null}
-          {!isEmbed() && (isDashboardManagedSweeps() ? (
-            <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
-          ) : (
-            <div className="flex items-center gap-3">
-              {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
-              {/* Secondary, not primary. The schedule beside it is what actually
-                  runs the sweep; this is the override for when you can't wait
-                  for it. Deleting the project used to sit here too — an
-                  irreversible action one misclick from the page's most-used
-                  button — and now lives at the bottom of the Settings tab. */}
-              <WriteButton
-                type="button"
-                variant="outline"
-                disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
-                onClick={providerReadinessFailed
-                  ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
-                  : sweepSetupRequired
-                    ? openAiVisibilitySetup
-                    : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
-              >
-                {triggerRunMutation.isPending
-                  ? 'Starting…'
-                  : hasActiveVisibilitySweep
-                    ? 'AI sweep running…'
-                    : sweepReadinessPending
-                      ? 'Checking AI readiness…'
-                      : providerReadinessFailed
-                        ? 'Retry AI readiness'
-                      : sweepSetupRequired
-                        ? 'Set up AI Visibility'
-                        : 'Run AI sweep'}
-              </WriteButton>
-            </div>
-          ))}
+      ) : (
+        // The topbar breadcrumb names the project. The row keeps the page's one
+        // h1 for assistive tech and narrow screens, except on Report, which
+        // renders its own.
+        <div className="project-context-row">
+          {tab !== 'report' ? (
+            <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
+          ) : null}
+          {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
+          {overviewRangeLabel !== null ? <p className="project-context-meta">{overviewRangeLabel}</p> : null}
+          <div className="project-context-actions" data-project-actions>
+            {isDashboardManagedSweeps() ? (
+              <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
+            ) : (
+              <>
+                {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+                {/* Secondary, not primary. The schedule beside it is what actually
+                    runs the sweep; this is the override for when you can't wait
+                    for it. Deleting the project used to sit here too — an
+                    irreversible action one misclick from the page's most-used
+                    button — and now lives at the bottom of the Settings tab. */}
+                <WriteButton
+                  type="button"
+                  variant="outline"
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
+                  onClick={providerReadinessFailed
+                    ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
+                    : sweepSetupRequired
+                      ? openAiVisibilitySetup
+                      : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
+                >
+                  {triggerRunMutation.isPending
+                    ? 'Starting…'
+                    : hasActiveVisibilitySweep
+                      ? 'AI sweep running…'
+                      : sweepReadinessPending
+                        ? 'Checking AI readiness…'
+                        : providerReadinessFailed
+                          ? 'Retry AI readiness'
+                        : sweepSetupRequired
+                          ? 'Set up AI Visibility'
+                          : 'Run AI sweep'}
+                </WriteButton>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {!isEmbed() && !isDashboardManagedSweeps() && <ProjectSweepConfirmation
         open={sweepConfirmationProject === projectName}

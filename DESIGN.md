@@ -13,7 +13,8 @@ remain restrained, high contrast, and quiet. Design serves the task.
 
 Every page should reduce to this order:
 
-1. A compact title and optional one-sentence subtitle.
+1. A compact title and optional one-sentence subtitle. On project pages at md
+   and up, the topbar breadcrumb's project name is the visible compact title.
 2. Current readiness or state.
 3. One primary action, only when action is required.
 4. The primary chart or table.
@@ -82,8 +83,9 @@ each choice.
 - The sidebar label and destination page title must match.
 - Do not repeat a global collection link and collection heading with the same
   label in one navigation group.
-- Keep project identity in the header. Editing domains, aliases, locations, and
-  other configuration belongs in project Settings.
+- Keep project identity in the topbar breadcrumb. Project pages keep one
+  visually hidden `h1` that is visible below md and in embeds. Editing domains,
+  aliases, locations, and other configuration belongs in project Settings.
 
 ## Accessibility and responsive behavior
 
