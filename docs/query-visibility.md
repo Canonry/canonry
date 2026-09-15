@@ -75,6 +75,13 @@ Branded and non-brand queries remain separate populations.
 Historical simple results without a frozen classification appear under **Unclassified**.
 Unknown or incomplete evidence is not a measured zero.
 
+Each population also carries `comparison`, its change since the previous eligible sweep.
+That sweep is the whole-project sweep immediately before the selected run. Spot checks and probe runs never qualify.
+The date window and a selected run do not limit it, so the previous sweep can predate the date window.
+A change requires both sweeps to be complete, with a comparable definition and the same engines and models.
+Otherwise `comparison.reason` names the cause, such as `partial-run` or `model-changed`.
+Each available `delta` is the current rate minus the previous rate. An unavailable change is not a zero change.
+
 ## Revision continuity
 
 A label-only publication uses the existing comparable-revision chain.
