@@ -519,7 +519,7 @@ table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; color: ${COLOR
 }
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   gap: 16px;
 }
 .mention-branded-block {
@@ -873,7 +873,7 @@ table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; color: ${COLOR
 .client-progress-fill.tone-negative { background: ${COLORS.negative}b3; }
 .client-evidence-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   gap: 16px;
 }
 .client-opportunity-list {
@@ -1259,10 +1259,10 @@ function renderProviderMovements(
   const colB = isClient ? 'Was' : 'Prior'
   const colC = isClient ? 'Now' : 'Current'
   return `<div class="chart-card"><h3>${heading}</h3>
-    <table class="report-table">
+    <div class="table-scroll"><table class="report-table">
       <thead><tr><th>${colA}</th><th class="numeric">${colB}</th><th class="numeric">${colC}</th><th class="numeric">Change</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   </div>`
 }
 
@@ -1293,10 +1293,10 @@ function renderWinsLosses(
     ? `<tr><th>What changed</th><th>Customer query</th><th>AI tool</th></tr>`
     : `<tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th></tr>`
   return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
-    <table class="report-table">
+    <div class="table-scroll"><table class="report-table">
       <thead>${headers}</thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   </div>`
 }
 
@@ -1388,10 +1388,10 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
 
   const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Legend: <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited/not, <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned/not, <span class="cell-pending">–</span> = no data.</p>'
 
-  return `${legend}<table class="report-table">
+  return `${legend}<div class="table-scroll"><table class="report-table">
     <thead><tr><th>Query</th>${headers}</tr></thead>
     <tbody>${rows}</tbody>
-  </table>`
+  </table></div>`
 }
 
 function renderCitationScorecard(report: ProjectReportDto): string {
@@ -1514,10 +1514,10 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
     ? `Mentions on ${scopeLabel}. Branded queries are counted separately — the client is named on nearly all of them and a competitor cannot be, so pooling the two would rank the client on its own brand recall.`
     : `Mentions on ${scopeLabel}. The project has no usable brand identity for a branded/non-brand split, so all tracked queries remain pooled and this is not a competitive category read.`
   const table = competitors.length > 0
-    ? `<table class="report-table">
+    ? `<div class="table-scroll"><table class="report-table">
         <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric" title="${escapeHtml(mentionScopeTooltip)}">Mentions (${escapeHtml(scopeLabel)})</th><th class="numeric" title="Citation share — % of cited-source slots that went to this competitor across tracked queries. Distinct from Mention Share.">Citation share</th><th>Cited queries</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`
+      </table></div>`
     : renderEmpty('No competitors configured.')
 
   const citationBars = renderCompetitorBars(report.competitorLandscape, report.meta.project.canonicalDomain)
@@ -1652,10 +1652,10 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
 
   const table = origin.topDomains.length > 0
     ? `<div class="chart-card"><h3>Top sources</h3>
-        <table class="report-table">
+        <div class="table-scroll"><table class="report-table">
           <thead><tr><th>Domain</th><th class="numeric">Citations</th><th>Tag</th></tr></thead>
           <tbody>${rows}</tbody>
-        </table>
+        </table></div>
       </div>`
     : ''
 
@@ -1768,10 +1768,10 @@ function renderGsc(report: ProjectReportDto): string {
     </div>
     ${trendChart}
     <div class="chart-card"><h3>Top queries</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Query</th><th class="numeric">Clicks</th><th class="numeric">Imp.</th><th class="numeric">CTR</th><th class="numeric">Pos.</th><th>Category</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
     </div>
     ${categoryBars}
     ${crossoverBlocks.join('\n')}`,
@@ -1813,10 +1813,10 @@ function renderGa(report: ProjectReportDto): string {
       <div class="metric"><div class="label">Organic sessions</div><div class="value">${formatNumber(ga.totalOrganicSessions)}</div></div>
     </div>
     <div class="chart-card"><h3>Top landing pages</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Page</th><th class="numeric">Sessions</th><th class="numeric">Organic</th></tr></thead>
         <tbody>${pageRows}</tbody>
-      </table>
+      </table></div>
     </div>
     ${channelBars}`,
   )
@@ -1858,10 +1858,10 @@ function renderSocial(report: ProjectReportDto): string {
     </div>
     ${channelBars}
     <div class="chart-card"><h3>Top campaigns</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Source</th><th>Medium</th><th class="numeric">Sessions</th></tr></thead>
         <tbody>${campaignRows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
 }
@@ -1906,10 +1906,10 @@ function renderAiReferrals(report: ProjectReportDto): string {
     ${trendChart}
     ${sourceBars}
     <div class="chart-card"><h3>Top AI landing pages</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Page</th><th class="numeric">Sessions</th></tr></thead>
         <tbody>${pageRows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
 }
@@ -2032,10 +2032,10 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         </div>
       </div>
       ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
-        <table class="report-table">
+        <div class="table-scroll"><table class="report-table">
           <thead><tr><th>AI tool</th><th class="numeric">Bot requests (${windowLabel})</th><th class="numeric">User fetches (${windowLabel})</th><th class="numeric">Referral sessions</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
-        </table>
+        </table></div>
         <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.</p>
       </div>` : ''}`,
     )
@@ -2119,30 +2119,30 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     ${trendChart}
     ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
       <p class="meta">Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified.</p>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">${windowLabel} delta</th></tr></thead>
         <tbody>${operatorRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
     ${pathRows ? `<div class="chart-card"><h3>Top crawled paths</h3>
       <p class="meta">Pages AI bots fetched most often (verified only, last ${windowLabel}).</p>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Path</th><th class="numeric">Hits</th><th class="numeric">Verified</th><th class="numeric">Distinct operators</th></tr></thead>
         <tbody>${pathRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
     ${referralProductRows ? `<div class="chart-card"><h3>AI-referral sessions by product</h3>
       <p class="meta">Where humans landed coming from each AI product (chatgpt.com, claude.ai, …).</p>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Product</th><th class="numeric">Sessions</th><th class="numeric">Distinct landing paths</th></tr></thead>
         <tbody>${referralProductRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
     ${referralLandingRows ? `<div class="chart-card"><h3>Top AI-referral landing paths</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Path</th><th class="numeric">Sessions</th><th class="numeric">Distinct products</th></tr></thead>
         <tbody>${referralLandingRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}`,
   )
 }
@@ -2226,10 +2226,10 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time', intro: 'Citation coverage across recent checks.' },
     `${chart}
     <div class="chart-card"><h3>Check-by-check breakdown</h3>
-      <table class="report-table">
+      <div class="table-scroll"><table class="report-table">
         <thead><tr><th>Check</th><th class="numeric">Cited queries</th><th>Per-engine rates</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
 }
@@ -2264,7 +2264,7 @@ function renderInsights(report: ProjectReportDto): string {
 
   return section(
     { id: 'insights', eyebrow: 'Section 13', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
-    `<table class="report-table insights-table">
+    `<div class="table-scroll"><table class="report-table insights-table">
       <thead><tr>
         <th class="col-severity">Severity</th>
         <th class="col-title">Title</th>
@@ -2273,7 +2273,7 @@ function renderInsights(report: ProjectReportDto): string {
         <th class="col-recommendation">Recommendation</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
@@ -2320,10 +2320,10 @@ function renderOpportunities(report: ProjectReportDto): string {
       title: 'Content Opportunities',
       intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger. Winnability flags whether the cited surface is ownable or ceded to aggregators/editorial.',
     },
-    `${highlights}<table class="report-table">
+    `${highlights}<div class="table-scroll"><table class="report-table">
       <thead><tr><th>Query</th><th>Action</th><th>Winnability</th><th class="numeric" title="Opportunity score (0–100)">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
@@ -2347,10 +2347,10 @@ function renderContentGaps(report: ProjectReportDto): string {
       title: 'Content Gaps',
       intro: 'Tracked queries where competitors are cited and the client is missing.',
     },
-    `<table class="report-table">
+    `<div class="table-scroll"><table class="report-table">
       <thead><tr><th>Query</th><th class="numeric">Competitors cited</th><th>Domains</th><th class="numeric">Miss rate</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
