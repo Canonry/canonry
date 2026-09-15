@@ -1757,6 +1757,38 @@ test('the report grid check flags a column minimum wider than a phone', () => {
   expect(gridMinimumProblems(`@media (max-width: 760px) { ${grid('minmax(400px, 1fr) minmax(min(360px, 100%), 1fr)')} }`)).toEqual(tooWide('400px', '@media (max-width: 760px) .cards'))
 })
 
+test('the insights table keeps every column readable on a phone', () => {
+  // `table-layout: fixed` sizes the insights columns from the table's own
+  // width: two fixed label columns (96px, 88px) plus 18% and 28% of the table.
+  // Squeezed into a 343px phone content box, that left Recommendation, the
+  // longest text in the report, about 1px wide. A minimum table width keeps
+  // every column readable and lets its div.table-scroll scroll instead.
+  const html = renderReportHtml(richReport(), { audience: 'agency' })
+  expect(html).toContain('<table class="report-table insights-table">')
+  expect(insightsColumnProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
+})
+
+test('the insights column check catches columns a phone would crush', () => {
+  const sound = [
+    'table.insights-table { table-layout: fixed; min-width: 680px; }',
+    'table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }',
+    'table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }',
+    'table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }',
+    'table.insights-table th.col-title, table.insights-table td.col-title { width: 28%; }',
+    'table.insights-table th.col-recommendation, table.insights-table td.col-recommendation { width: auto; }',
+  ].join('\n')
+  expect(insightsColumnProblems(sound)).toEqual([])
+  expect(insightsColumnProblems(sound.replace(' min-width: 680px;', ''))).toEqual(['table.insights-table has no px min-width, so its columns shrink with the screen'])
+  expect(insightsColumnProblems(sound.replace('680px', '400px'))).toEqual([
+    'at 400px the title column is 112px wide; it needs 120px',
+    'at 400px the query column is 72px wide; it needs 120px',
+    'at 400px the recommendation column is 32px wide; it needs 160px',
+  ])
+  expect(insightsColumnProblems(sound.replace('width: 28%;', 'width: 60%;'))).toEqual(['at 680px the recommendation column is 0px wide; it needs 160px'])
+  expect(insightsColumnProblems(sound.replace('680px', '900px'))).toEqual(['table.insights-table is at least 900px wide, wider than a printed A4 page (698px), and print does not release it'])
+  expect(insightsColumnProblems(`${sound.replace('680px', '900px')}\n@media print { table.insights-table { min-width: 0; } }`)).toEqual([])
+})
+
 interface ReportCssRule { media: string | null; selector: string; declarations: Map<string, string> }
 
 /** Top-level rules plus the rules one level inside `@media` blocks, which is every nesting the report stylesheet uses. */
@@ -1868,6 +1900,50 @@ function gridMinimumProblems(css: string): string[] {
         problems.push(`${rule.media === null ? '' : `@media ${rule.media} `}${rule.selector}: minmax() minimum ${minimum} can exceed a ${PHONE_CONTENT_WIDTH_PX}px phone content box; cap it with min(<length>, 100%)`)
       }
     }
+  }
+  return problems
+}
+
+/** The narrowest each insights column may get: label columns hold one badge or engine name, text columns hold sentences. */
+const INSIGHTS_COLUMN_FLOOR_PX = { severity: 80, title: 120, query: 120, provider: 80, recommendation: 160 } as const
+
+/** A4 less the report's 0.5in print margins, at 96 CSS px per inch. US Letter is wider. */
+const PRINTABLE_A4_WIDTH_PX = 698
+
+/**
+ * What would crush the insights table's `table-layout: fixed` columns: no px
+ * minimum table width, a column narrower than its floor at that minimum (px
+ * widths stay put, percentages scale with the table, and `auto` columns share
+ * what is left), or a minimum wider than a printed page that print keeps.
+ */
+function insightsColumnProblems(css: string): string[] {
+  const rules = reportCssRules(css)
+  const declared = (selector: string, property: string, media: string | null = null) =>
+    rules.filter(rule => rule.media === media && rule.selector === selector && rule.declarations.has(property)).at(-1)?.declarations.get(property)
+  const minimum = /^([\d.]+)px$/.exec(declared('table.insights-table', 'min-width') ?? '')
+  if (!minimum) return ['table.insights-table has no px min-width, so its columns shrink with the screen']
+  const tablePx = Number(minimum[1])
+  const columns = Object.keys(INSIGHTS_COLUMN_FLOOR_PX) as Array<keyof typeof INSIGHTS_COLUMN_FLOOR_PX>
+  const sized = new Map<string, number>()
+  for (const column of columns) {
+    const width = declared(`table.insights-table td.col-${column}`, 'width') ?? 'auto'
+    const px = /^([\d.]+)px$/.exec(width)
+    const percent = /^([\d.]+)%$/.exec(width)
+    if (px) sized.set(column, Number(px[1]))
+    else if (percent) sized.set(column, tablePx * Number(percent[1]) / 100)
+  }
+  const autoColumns = columns.filter(column => !sized.has(column))
+  const remainder = Math.max(0, tablePx - Array.from(sized.values()).reduce((sum, px) => sum + px, 0))
+  const problems: string[] = []
+  for (const column of columns) {
+    const px = sized.get(column) ?? remainder / autoColumns.length
+    if (px < INSIGHTS_COLUMN_FLOOR_PX[column]) {
+      problems.push(`at ${tablePx}px the ${column} column is ${Math.round(px)}px wide; it needs ${INSIGHTS_COLUMN_FLOOR_PX[column]}px`)
+    }
+  }
+  const printMinimum = declared('table.insights-table', 'min-width', 'print')
+  if (tablePx > PRINTABLE_A4_WIDTH_PX && !['0', 'auto', 'none', 'initial', 'unset'].includes(printMinimum ?? '')) {
+    problems.push(`table.insights-table is at least ${tablePx}px wide, wider than a printed A4 page (${PRINTABLE_A4_WIDTH_PX}px), and print does not release it`)
   }
   return problems
 }
