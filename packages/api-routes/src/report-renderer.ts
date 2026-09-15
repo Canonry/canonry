@@ -493,6 +493,7 @@ table.report-table td .badge {
   font-weight: 600;
   border: 1px solid;
 }
+table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; color: ${COLORS.textMuted}; }
 .cell-cited { color: ${COLORS.positive}; font-weight: 600; }
 .cell-not-cited { color: ${COLORS.textFaint}; }
 .cell-pending { color: ${COLORS.textFaint}; font-style: italic; }
@@ -966,6 +967,7 @@ table.report-table td .badge {
     print-color-adjust: exact;
   }
   .container { max-width: none; padding: 0; }
+  .table-scroll { overflow: visible; }
   section.report-section,
   .executive-hero,
   .headline-card,

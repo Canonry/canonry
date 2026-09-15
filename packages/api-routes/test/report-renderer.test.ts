@@ -1654,16 +1654,100 @@ test('HTML report visibility tables scroll inside their own container on narrow 
 
   const section = renderReportVisibility(visibility)
   const [summary, history] = section.split('<details>')
-  expect(section.match(/<table\b[^>]*>/g)).toEqual(['<table class="report-table">', '<table class="report-table">'])
-  expect(summary!.match(/<div class="table-scroll"><table class="report-table">/g)).toHaveLength(1)
-  expect(history!.match(/<div class="table-scroll"><table class="report-table">/g)).toHaveLength(1)
+  // Class tokens, not literal tags: another class on either element is fine.
+  const wrappedReportTable = /<div class="[^"]*\btable-scroll\b[^"]*">\s*<table\s[^>]*?\bclass="[^"]*\breport-table\b[^"]*"[^>]*>/g
+  expect(section.match(/<table\b/g) ?? [], 'the visibility section renders exactly two tables').toHaveLength(2)
+  expect(summary!.match(wrappedReportTable) ?? [], 'the summary table must be a report-table directly inside div.table-scroll').toHaveLength(1)
+  expect(history!.match(wrappedReportTable) ?? [], 'the history table must be a report-table directly inside div.table-scroll').toHaveLength(1)
 
   const report = richReport()
   report.visibility = visibility
   for (const audience of ['client', 'agency'] as const) {
     const html = renderReportHtml(report, { audience })
-    const style = html.match(/<style[\s\S]*?<\/style>/)![0]
-    expect(style).toMatch(/\.table-scroll\s*\{\s*overflow-x:\s*auto;\s*\}/)
     expect(html).toContain(section)
+    expect(tableScrollStyleProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
   }
 })
+
+test('the report stylesheet check catches a table-scroll rule that stops working', () => {
+  const sound = [
+    '.table-scroll { overflow-x: auto; max-width: 100%; }',
+    'table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; }',
+    '@media (max-width: 760px) { .container { padding: 0; } }',
+    '@media print { @page { margin: 0.5in; } .table-scroll { overflow: visible; } }',
+  ].join('\n')
+  expect(tableScrollStyleProblems(sound)).toEqual([])
+  expect(tableScrollStyleProblems(sound.replace('overflow-x: auto;', ''))).toEqual(['no top-level .table-scroll rule scrolls horizontally'])
+  expect(tableScrollStyleProblems(`${sound}\n.table-scroll { overflow-x: visible; }`)).toEqual(['no top-level .table-scroll rule scrolls horizontally'])
+  expect(tableScrollStyleProblems(`${sound}\n@media (max-width: 760px) { .table-scroll { overflow-x: visible; } }`)).toEqual(['@media (max-width: 760px) stops .table-scroll from scrolling'])
+  expect(tableScrollStyleProblems(sound.replace('.table-scroll { overflow: visible; }', ''))).toEqual(['print keeps .table-scroll scrolling, so a wide or long table clips on paper'])
+  expect(tableScrollStyleProblems(sound.replace('table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; }', ''))).toEqual(['report-table evidence lines (p.muted) have no style'])
+})
+
+interface ReportCssRule { media: string | null; selector: string; declarations: Map<string, string> }
+
+/** Top-level rules plus the rules one level inside `@media` blocks, which is every nesting the report stylesheet uses. */
+function reportCssRules(css: string): ReportCssRule[] {
+  const source = css.replace(/<\/?style[^>]*>/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules: ReportCssRule[] = []
+  const parse = (block: string, media: string | null) => {
+    for (const [, selectorText, body] of block.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+      const declarations = new Map<string, string>()
+      for (const declaration of body!.split(';')) {
+        const colon = declaration.indexOf(':')
+        if (colon > 0) declarations.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim())
+      }
+      for (const selector of selectorText!.split(',')) rules.push({ media, selector: selector.trim(), declarations })
+    }
+  }
+  let topLevel = ''
+  let index = 0
+  while (index < source.length) {
+    const at = source.indexOf('@media', index)
+    if (at === -1) {
+      topLevel += source.slice(index)
+      break
+    }
+    topLevel += source.slice(index, at)
+    const open = source.indexOf('{', at)
+    let depth = 1
+    let cursor = open + 1
+    while (cursor < source.length && depth > 0) {
+      if (source[cursor] === '{') depth++
+      else if (source[cursor] === '}') depth--
+      cursor++
+    }
+    parse(source.slice(open + 1, cursor - 1), source.slice(at + '@media'.length, open).trim())
+    index = cursor
+  }
+  parse(topLevel, null)
+  return rules
+}
+
+/**
+ * What would stop the visibility tables scrolling inside their section: no
+ * scrolling rule that wins at the top level, a narrow-screen override that
+ * turns it off, or print keeping a scroll container (browsers clip it on paper
+ * rather than paginate it). Also pins the evidence line's style, which lives
+ * in the same cells.
+ */
+function tableScrollStyleProblems(css: string): string[] {
+  const rules = reportCssRules(css)
+  const overflowValue = (rule: ReportCssRule) => rule.declarations.get('overflow-x') ?? rule.declarations.get('overflow')
+  const tableScroll = rules.filter(rule => rule.selector === '.table-scroll')
+  const problems: string[] = []
+  const lastTopLevel = tableScroll.filter(rule => rule.media === null && overflowValue(rule) !== undefined).at(-1)
+  if (!lastTopLevel || !['auto', 'scroll'].includes(overflowValue(lastTopLevel)!)) problems.push('no top-level .table-scroll rule scrolls horizontally')
+  for (const rule of tableScroll) {
+    if (rule.media !== null && rule.media !== 'print' && ['visible', 'hidden', 'clip'].includes(overflowValue(rule) ?? '')) {
+      problems.push(`@media ${rule.media} stops .table-scroll from scrolling`)
+    }
+  }
+  if (!tableScroll.some(rule => rule.media === 'print' && rule.declarations.get('overflow') === 'visible')) {
+    problems.push('print keeps .table-scroll scrolling, so a wide or long table clips on paper')
+  }
+  if (!rules.some(rule => rule.media === null && rule.selector === 'table.report-table td p.muted' && rule.declarations.has('font-size'))) {
+    problems.push('report-table evidence lines (p.muted) have no style')
+  }
+  return problems
+}
