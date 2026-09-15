@@ -153,6 +153,42 @@ function activate(versionId: string): void {
   }).run()
 }
 
+/** A schema-v1 plan version, which the v2 reader cannot reconstruct. */
+function seedV1Version(): string {
+  const queryId = crypto.randomUUID()
+  db.insert(queries).values({ id: queryId, projectId, query: 'homes near harbor', createdAt: FIRST }).run()
+  const v1Plan = compileMeasurementPlan({
+    schemaVersion: 1,
+    targets: [{
+      stableKey: 'harbor',
+      label: 'Harbor Homes',
+      urls: [{ kind: 'host', host: 'northstar.example' }],
+      aliases: ['Harbor Homes'],
+    }],
+    groups: [{ stableKey: 'regional', label: 'Regional comparison', targetKeys: ['harbor'], competitors: [] }],
+    targetQuerySelections: [{ targetKey: 'harbor', queryIds: [queryId] }],
+  }, {
+    canonicalDomain: 'northstar.example',
+    ownedDomains: [],
+    brandNames: ['Northstar'],
+    trackedQueries: [{ id: queryId, query: 'homes near harbor' }],
+    locations: [],
+    defaultContext: null,
+    expectedSnapshots: 1,
+  })
+  const versionId = crypto.randomUUID()
+  db.insert(measurementPlanVersions).values({
+    id: versionId,
+    projectId,
+    revision: 1,
+    canonicalJson: canonicalMeasurementPlanJson(v1Plan),
+    checksum: 'b'.repeat(64),
+    schemaVersion: 1,
+    createdAt: FIRST,
+  }).run()
+  return versionId
+}
+
 function seedAdvancedRun(input: {
   versionId: string
   frozenPlan: MeasurementPlanV2
@@ -374,39 +410,34 @@ describe('visibility report comparison: Advanced', () => {
     expect(spot.populations.map(population => population.comparison)).toEqual([SCOPED, SCOPED, SCOPED])
   })
 
-  it('omits comparison from an unsupported schema-v1 response', async () => {
-    const queryId = crypto.randomUUID()
-    db.insert(queries).values({ id: queryId, projectId, query: 'homes near harbor', createdAt: FIRST }).run()
-    const v1Plan = compileMeasurementPlan({
-      schemaVersion: 1,
-      targets: [{
-        stableKey: 'harbor',
-        label: 'Harbor Homes',
-        urls: [{ kind: 'host', host: 'northstar.example' }],
-        aliases: ['Harbor Homes'],
-      }],
-      groups: [{ stableKey: 'regional', label: 'Regional comparison', targetKeys: ['harbor'], competitors: [] }],
-      targetQuerySelections: [{ targetKey: 'harbor', queryIds: [queryId] }],
-    }, {
-      canonicalDomain: 'northstar.example',
-      ownedDomains: [],
-      brandNames: ['Northstar'],
-      trackedQueries: [{ id: queryId, query: 'homes near harbor' }],
-      locations: [],
-      defaultContext: null,
-      expectedSnapshots: 1,
-    })
-    const versionId = crypto.randomUUID()
-    db.insert(measurementPlanVersions).values({
-      id: versionId,
+  it('reports definition-changed against a schema-v1 predecessor it cannot reconstruct', async () => {
+    const v1VersionId = seedV1Version()
+    const v1RunId = crypto.randomUUID()
+    db.insert(runs).values({
+      id: v1RunId,
       projectId,
-      revision: 1,
-      canonicalJson: canonicalMeasurementPlanJson(v1Plan),
-      checksum: 'b'.repeat(64),
-      schemaVersion: 1,
+      kind: RunKinds['answer-visibility'],
+      status: RunStatuses.completed,
+      trigger: RunTriggers.manual,
+      measurementPlanVersionId: v1VersionId,
+      finishedAt: FIRST,
       createdAt: FIRST,
     }).run()
+    const frozenPlan = measurementPlanV2Fixture()
+    const versionId = seedVersion(2, frozenPlan)
     activate(versionId)
+    const second = seedAdvancedRun({ versionId, frozenPlan, createdAt: SECOND, nearby: SECOND_ANSWERS })
+
+    const body = await report('queryClass=all')
+    expect(body.selection.run).toEqual({ id: second, explicit: false })
+    // The v1 run never enters the trend; it is still the sweep that came before.
+    expect(body.populations[0]!.trend.map(point => point.runId)).toEqual([second])
+    const changed = { state: 'unavailable', reason: 'definition-changed', previousRun: { id: v1RunId, createdAt: FIRST, completedAt: FIRST } }
+    expect(body.populations.map(population => population.comparison)).toEqual([changed, changed, changed])
+  })
+
+  it('omits comparison from an unsupported schema-v1 response', async () => {
+    activate(seedV1Version())
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/visibility-report?queryClass=all' })
     expect(response.statusCode, response.body).toBe(200)
@@ -456,6 +487,21 @@ describe('visibility report comparison: Simple', () => {
       reason: 'model-changed',
       previousRun: { id: 'simple-first', createdAt: FIRST, completedAt: FIRST },
     })
+  })
+
+  it('orders sweeps created at the same instant by id when finding the previous sweep', async () => {
+    seedSimpleRun({ id: 'simple-a', capturedAt: SECOND, frozen: true, answers: FIRST_SIMPLE })
+    seedSimpleRun({ id: 'simple-b', capturedAt: SECOND, frozen: true, answers: SECOND_SIMPLE })
+    const tied = { ...simpleChange('simple-a'), previousRun: { id: 'simple-a', createdAt: SECOND, completedAt: SECOND } }
+
+    for (const query of ['mode=simple&queryClass=non-brand', 'mode=simple&queryClass=non-brand&runId=simple-b']) {
+      const body = await report(query)
+      expect(body.selection.run.id).toBe('simple-b')
+      expect(body.populations[0]!.comparison).toEqual(tied)
+    }
+    // The lower id is the earlier sweep, so it has nothing before it.
+    expect((await report('mode=simple&queryClass=non-brand&runId=simple-a')).populations[0]!.comparison)
+      .toEqual({ state: 'unavailable', reason: 'no-previous-run', previousRun: null })
   })
 
   it('skips a planless spot check as the previous sweep and reports scoped-run when one is selected', async () => {
