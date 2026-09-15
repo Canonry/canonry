@@ -2643,6 +2643,13 @@ function ProjectPageContent({
           && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
+        renderPropertyLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed() ? ({ id, label }) => (
+          <Button asChild variant="outline">
+            <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={previous => previous} aria-label={`Property details for ${label}`}>
+              Property details
+            </Link>
+          </Button>
+        ) : undefined}
         fallback={overview}
       />
     )

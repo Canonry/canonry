@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
@@ -26,6 +26,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { safeExternalUrl } from '../lib/safe-url.js'
+import { parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 
@@ -345,7 +346,7 @@ function MarketLink({
           </h2>
         </div>
         <Button asChild type="button" size="sm" variant="outline">
-          <Link to="/projects/$projectName" params={{ projectName: project }}>Open measurement overview</Link>
+          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => previous}>Open measurement overview</Link>
         </Button>
       </div>
       <ul className="flex flex-wrap gap-2">
@@ -759,7 +760,13 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
 
 export function MeasurementPropertyPage() {
   const { projectName, targetKey } = useParams({ strict: false }) as { projectName?: string; targetKey?: string }
-  const [queryClass, setQueryClass] = useState<QueryClass>('non-brand')
+  const navigate = useNavigate()
+  // Query type and market arrive in AI Visibility's shared URL selection. This
+  // page has no pooled or unclassified population, so any other class opens on
+  // non-brand without rewriting the link the reader followed.
+  const urlSearch = useSearch({ strict: false }) as Record<string, unknown>
+  const selection = parseVisibilitySelection(urlSearch)
+  const queryClass: QueryClass = selection.queryClass === 'branded' ? 'branded' : 'non-brand'
   const [expandedAnswers, setExpandedAnswers] = useState<ReadonlySet<string>>(new Set<string>())
   const project = projectName ?? ''
   const property = targetKey ?? ''
@@ -866,6 +873,7 @@ export function MeasurementPropertyPage() {
     <Link
       to="/projects/$projectName"
       params={{ projectName: project }}
+      search={previous => previous}
       className="inline-flex items-center gap-1 text-xs text-muted hover:text-strong"
     >
       <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -948,7 +956,15 @@ export function MeasurementPropertyPage() {
         <div className="page-header-left">
           {backLink}
           <h1 className="page-title mt-2">{target.label}</h1>
-          <p className="page-subtitle">Property in {project}</p>
+          <p className="page-subtitle">
+            Property in {project}
+            {selection.marketKey ? (
+              <>
+                {' · All markets '}
+                <InfoTooltip text={`AI Visibility is filtered to ${planV2.reportingScopes?.find(scope => scope.stableKey === selection.marketKey)?.label ?? 'one market'}. This page includes every market for this Property.`} />
+              </>
+            ) : null}
+          </p>
         </div>
         <div className="page-header-right">
           {selected ? (
@@ -987,7 +1003,7 @@ export function MeasurementPropertyPage() {
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName" params={{ projectName: project }}>
+            <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => previous}>
               {canWrite ? 'Go to measurement overview' : 'View measurement overview'}
             </Link>
           </Button>
@@ -1000,7 +1016,10 @@ export function MeasurementPropertyPage() {
           <select
             id="property-query-class"
             value={queryClass}
-            onChange={event => setQueryClass(event.target.value === 'branded' ? 'branded' : 'non-brand')}
+            onChange={event => {
+              const next: QueryClass = event.target.value === 'branded' ? 'branded' : 'non-brand'
+              void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
+            }}
             className="h-11 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
           >
             <option value="non-brand">{CLASS_LABELS['non-brand'].technical}</option>

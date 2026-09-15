@@ -127,6 +127,17 @@ An explicitly selected market survives property navigation even when its group h
 multiple markets. Group rows and saved group URLs retain the report's existing
 filters; a navigation link alone must not change their totals.
 
+A published schema-v2 Property scope in AI Visibility offers `Property details`,
+a link to `/properties/$targetKey` that keeps the whole search. Breakdown rows
+still change the report scope; the link lives only on the Property scope. The
+Property page reads `queryClass` from that selection: branded stays branded, and
+every other class opens on non-brand without rewriting the URL. Its query type
+control writes through `patchVisibilitySelection`, and every link back to the
+project keeps the search, so the market and report filters return intact. Its
+overview, evidence, and competitor reads take no market, so a carried
+`measurementMarketKey` is labeled `All markets`, never applied. Omit the link in
+embeds, Simple projects, and schema-v1 plans.
+
 `ProjectPage` owns the shared measurement URL selection and the `/queries` route.
 `QueriesSection` in `DiscoverySection.tsx` owns tracked assignments and the separate Research workspace.
 Research retains ICP discovery and bounded tests. Promotion must use query-tracking preview and commit.

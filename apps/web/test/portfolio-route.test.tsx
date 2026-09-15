@@ -2436,6 +2436,156 @@ test('a stale group key fails closed instead of silently broadening to the whole
   expect(observed.some(path => path.includes('/visibility-report?scope=project'))).toBe(false)
 })
 
+const PROPERTY_MARKET = { id: 'north-market', label: 'North Market', kind: 'market' as const, targetCount: 1, parentGroupIds: ['north'] }
+
+function measurementPlanV2WithMarket() {
+  const base = measurementPlanV2Response(4)
+  return {
+    active: {
+      ...base.active,
+      plan: {
+        ...base.active.plan,
+        reportingScopes: [{ stableKey: PROPERTY_MARKET.id, label: PROPERTY_MARKET.label, kind: 'market' as const, groupKey: 'north', usageEdges: base.active.plan.usageEdges }],
+      },
+    },
+  }
+}
+
+function propertyScopeReport(queryClass: 'branded' | 'non-brand' = 'non-brand', market?: typeof PROPERTY_MARKET): VisibilityReportResponse {
+  const report = visibilityReportResponse({ mode: 'advanced', queryClass, scope: 'property', scopeKey: 'harbor-house', scopeLabel: 'Harbor House' })
+  report.scopeOptions.push(
+    { id: 'harbor-house', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'], marketKeys: [PROPERTY_MARKET.id] },
+    PROPERTY_MARKET,
+  )
+  if (market) report.selection.market = market
+  return report
+}
+
+function propertyOverviewResponse(queryClass: 'branded' | 'non-brand') {
+  const metric = { state: 'available' as const, value: 0.5, numerator: 1, denominator: 2 }
+  return {
+    mode: 'active-v2' as const,
+    scope: { kind: 'property' as const, key: 'harbor-house', label: 'Harbor House' },
+    queryClass,
+    measurement: { state: 'complete' as const, displayedRunId: 'run-synthetic', completed: 1, expected: 1, completedAt: '2026-08-02T12:05:00.000Z' },
+    nextAction: { kind: 'none' as const },
+    metrics: { propertiesMentioned: metric, mentionCoverage: metric, citationCoverage: metric, brandPresence: metric, sov: metric },
+    properties: {
+      items: [{ targetKey: 'harbor-house', label: 'Harbor House', mentionCoverage: metric, citationCoverage: metric, providers: [], flags: 0 }],
+      nextCursor: null,
+      totalEstimate: 1,
+    },
+    flags: { total: 0 },
+  }
+}
+
+async function renderPropertyRoute(entry: string) {
+  const observed: URL[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    observed.push(url)
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith('/runs')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2WithMarket())
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({ state: 'operational', nextAction: 'view_measurement', mode: 'active-v2', activeRevision: 4, activeSchemaVersion: 2, draft: null })
+    }
+    if (path.endsWith('/visibility-report')) {
+      return jsonResponse(propertyScopeReport(url.searchParams.get('queryClass') === 'non-brand' ? 'non-brand' : 'branded', PROPERTY_MARKET))
+    }
+    if (path.endsWith('/measurement-overview')) {
+      return jsonResponse(propertyOverviewResponse(url.searchParams.get('queryClass') === 'branded' ? 'branded' : 'non-brand'))
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [entry] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+  return { observed, page, router }
+}
+
+test('a published Property scope opens the Property page, and every return keeps the report selection', async () => {
+  const reportSearch = new URLSearchParams({
+    measurementScope: 'property',
+    measurementScopeKey: 'harbor-house',
+    measurementMarketKey: PROPERTY_MARKET.id,
+    queryClass: 'branded',
+    measurementRunId: 'run-synthetic',
+  })
+  const { observed, page, router } = await renderPropertyRoute(`/projects/project_citypoint?${reportSearch}`)
+  const hrefOf = (link: HTMLElement) => new URL(link.getAttribute('href')!, window.location.origin)
+
+  // ProjectPage links by project name, not by the id this entry resolved.
+  const projectPath = `/projects/${encodeURIComponent('Citypoint Dental NYC')}`
+  const details = await page.findByRole('link', { name: 'Property details for Harbor House' })
+  expect(hrefOf(details).pathname).toBe(`${projectPath}/properties/harbor-house`)
+  expect(Object.fromEntries(hrefOf(details).searchParams)).toEqual(Object.fromEntries(reportSearch))
+
+  fireEvent.click(details)
+  expect(await page.findByRole('heading', { level: 1, name: 'Harbor House' })).toBeTruthy()
+  // Property reads take no market, so the page states its wider scope instead
+  // of implying the carried market filter applies to these numbers.
+  expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}. This page includes every market for this Property.` })).toBeTruthy()
+  expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded')
+  const back = page.getByRole('link', { name: 'Back to measurement overview' })
+  expect(hrefOf(back).pathname).toBe(projectPath)
+  expect(Object.fromEntries(hrefOf(back).searchParams)).toEqual(Object.fromEntries(reportSearch))
+
+  fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'non-brand' } })
+  await waitFor(() => expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand'))
+  expect(router.state.location.search).toMatchObject({ ...Object.fromEntries(reportSearch), queryClass: 'non-brand' })
+  expect(router.state.location.search.runId).toBeUndefined()
+
+  fireEvent.click(page.getByRole('link', { name: 'Back to measurement overview' }))
+  expect(await page.findByRole('link', { name: 'Property details for Harbor House' })).toBeTruthy()
+  const returned = observed.filter(url => url.pathname.endsWith('/visibility-report')).at(-1)!
+  expect(Object.fromEntries(returned.searchParams)).toMatchObject({
+    scope: 'property', scopeKey: 'harbor-house', marketKey: PROPERTY_MARKET.id, queryClass: 'non-brand', runId: 'run-synthetic',
+  })
+}, 15_000)
+
+test('a clean Property URL opens on non-brand without writing a query type', async () => {
+  const { page, router } = await renderPropertyRoute('/projects/project_citypoint/properties/harbor-house')
+
+  expect(await page.findByRole('heading', { level: 1, name: 'Harbor House' })).toBeTruthy()
+  expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand')
+  expect(router.state.location.search.queryClass).toBeUndefined()
+  expect(page.queryByText(/All markets/)).toBeNull()
+  expect(page.getByRole('link', { name: 'Back to measurement overview' }).getAttribute('href')).toBe('/projects/project_citypoint')
+})
+
+test('Property details is offered only for a published Advanced Property scope outside embeds', async () => {
+  const propertyPath = '/projects/project_citypoint?measurementScope=property&measurementScopeKey=harbor-house'
+
+  const published = await renderAt(propertyPath, undefined, { plan: measurementPlanV2Response(4), visibilityReport: propertyScopeReport() })
+  expect(published).toContain('aria-label="Property details for Harbor House"')
+  expect(published).toContain(`/projects/${encodeURIComponent('Citypoint Dental NYC')}/properties/harbor-house?measurementScope=property&amp;measurementScopeKey=harbor-house`)
+
+  const wholeSite = await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) })
+  expect(wholeSite).toContain('Properties mentioned')
+  expect(wholeSite).not.toContain('/properties/')
+
+  const embedded = await renderAt(propertyPath, { enabled: true, projectTabs: ['overview'] }, { plan: measurementPlanV2Response(4), visibilityReport: propertyScopeReport() })
+  expect(embedded).toContain('aria-label="AI visibility results"')
+  expect(embedded).not.toContain('/properties/')
+
+  // Simple projects keep their own overview; there is no Property to open.
+  const simple = await renderAt(propertyPath)
+  expect(simple).not.toContain('aria-label="AI visibility results"')
+  expect(simple).not.toContain('/properties/')
+})
+
 const managedSchedule = {
   id: 'managed-schedule', projectId: 'project_citypoint', kind: 'answer-visibility',
   enabled: true, cronExpr: '0 6 * * *', timezone: 'UTC', providers: [],
