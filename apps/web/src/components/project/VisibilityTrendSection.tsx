@@ -1202,45 +1202,50 @@ function TrendDataSummary({
   series: readonly string[]
 }) {
   const summaryScope = buckets[buckets.length - 1]?.mentionShare.scope
+  // The wrapper hides the table, not `sr-only` on the table: a table box never
+  // shrinks below its content, so it would ignore the 1px width and its nowrap
+  // rows would push the page sideways on narrow screens.
   return (
-    <table className="sr-only">
-      <caption>{metricLabel(metric, summaryScope)} trend data</caption>
-      <thead>
-        <tr>
-          <th scope="col">Bucket</th>
-          <th scope="col">Values</th>
-        </tr>
-      </thead>
-      <tbody>
-        {buckets.map(bucket => {
-          let valueText: string
-          if (metric === 'mentionShare') {
-            const projectMentions = bucket.mentionShare.projectMentionSnapshots
-            const competitorMentions = bucket.mentionShare.competitorMentionSnapshots
-            const denominator = projectMentions + competitorMentions
-            const scope = mentionShareScopeLabel(bucket.mentionShare.scope)
-            valueText = denominator > 0
-              ? `${formatRatePercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} brand mentions were you`
-              : `mention share undefined for ${scope}, no project or competitor brand mentions`
-          } else if (mode === 'byProvider') {
-            valueText = series.map(provider => {
-              const counts = providerMetricCount(bucket, provider, metric)
-              if (!counts) return `${providerDisplayName(provider)} no data`
-              return `${providerDisplayName(provider)} ${formatRatePercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} snapshots`
-            }).join('; ')
-          } else {
-            valueText = `${formatRatePercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
-          }
-          valueText += `; ${formatBucketModelEvidence(bucket)}`
-          return (
-            <tr key={bucket.startDate}>
-              <th scope="row">{formatBucketDateLabel(bucket)}</th>
-              <td>{valueText}</td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+    <div className="sr-only">
+      <table>
+        <caption>{metricLabel(metric, summaryScope)} trend data</caption>
+        <thead>
+          <tr>
+            <th scope="col">Bucket</th>
+            <th scope="col">Values</th>
+          </tr>
+        </thead>
+        <tbody>
+          {buckets.map(bucket => {
+            let valueText: string
+            if (metric === 'mentionShare') {
+              const projectMentions = bucket.mentionShare.projectMentionSnapshots
+              const competitorMentions = bucket.mentionShare.competitorMentionSnapshots
+              const denominator = projectMentions + competitorMentions
+              const scope = mentionShareScopeLabel(bucket.mentionShare.scope)
+              valueText = denominator > 0
+                ? `${formatRatePercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} brand mentions were you`
+                : `mention share undefined for ${scope}, no project or competitor brand mentions`
+            } else if (mode === 'byProvider') {
+              valueText = series.map(provider => {
+                const counts = providerMetricCount(bucket, provider, metric)
+                if (!counts) return `${providerDisplayName(provider)} no data`
+                return `${providerDisplayName(provider)} ${formatRatePercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} snapshots`
+              }).join('; ')
+            } else {
+              valueText = `${formatRatePercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
+            }
+            valueText += `; ${formatBucketModelEvidence(bucket)}`
+            return (
+              <tr key={bucket.startDate}>
+                <th scope="row">{formatBucketDateLabel(bucket)}</th>
+                <td>{valueText}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

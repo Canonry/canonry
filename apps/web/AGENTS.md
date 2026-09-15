@@ -391,6 +391,7 @@ Keep fixture dates and behavior checks independent of display wording.
 - **Hardcoding `/api/v1`** — use the base path from `window.__CANONRY_CONFIG__`.
 - **Using card grids for tabular data** — analysts prefer tables for scanability.
 - **Adding decorative gradients or glow effects** — the design system is clean and flat.
+- **Putting `sr-only` on a `<table>`** — a table box never shrinks below its content, so the 1px `sr-only` width does not apply, and its `nowrap` rows push the page sideways (the Simple trend data table made the overview 1,812px wide at 375px). Hide it through a wrapper: `<div className="sr-only"><table>…</table></div>`. `test/sr-only-table.test.tsx` scans `src` for the pattern.
 
 ## See Also
 
