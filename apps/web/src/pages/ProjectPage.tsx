@@ -41,7 +41,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { useVisibilityReportFirstPage, VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
 import { QueriesSection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
@@ -2668,9 +2668,9 @@ function ProjectPageContent({
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
     if (isSimpleOverview) return overview
+    // The overview keys its results by the selection and keeps its toolbar mounted.
     return (
-      <VisibilityWorkspace
-        key={`${projectName}:${JSON.stringify({ ...visibilitySelection, queryKey: undefined, answer: undefined })}`}
+      <VisibilityOverview
         projectName={projectName}
         selection={visibilitySelection}
         showUnmeasuredFallback={!activeMeasurementPlan && !hasVisibilityBaseline
@@ -2752,6 +2752,9 @@ function ProjectPageContent({
       ? model.dateRangeLabel
       : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
+  // The operator row keeps only the Simple range. An Advanced explicit range is a
+  // filter token in the results toolbar; the embed header keeps its text.
+  const contextMetaLabel = isSimpleOverview ? overviewRangeLabel : null
   const scopeSlotContent = renderScopeSlot()
 
   return (
@@ -2780,7 +2783,7 @@ function ProjectPageContent({
           ) : null}
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
-          {overviewRangeLabel !== null ? <p className="project-context-meta">{overviewRangeLabel}</p> : null}
+          {contextMetaLabel !== null ? <p className="project-context-meta">{contextMetaLabel}</p> : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />

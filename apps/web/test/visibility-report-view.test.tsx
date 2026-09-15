@@ -8,7 +8,8 @@ import { useState } from 'react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { REPORT_CLASS_NOUN, VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_CLASS_NOUN, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
@@ -91,11 +92,21 @@ function legacyReportFixture(): VisibilityReportResponse {
 }
 
 describe('shared production visibility view', () => {
-  it('shows the completed measurement date without its clock time', () => {
+  it('shows the completed measurement date in the results toolbar without its clock time', () => {
     const report = reportFixture()
-    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(screen.getByText(new Date('2026-09-01T10:00:00Z').toLocaleDateString())).toBeTruthy()
-    expect(screen.queryByText(/10:00/)).toBeNull()
+    const measuredDate = formatObservedInstantLabel(observedInstant('2026-09-01T10:00:00Z'))
+    const { container } = render(<>
+      <VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand' })} onSelectionChange={() => {}} />
+      <VisibilityReportView report={report} onSelectionChange={() => {}} />
+    </>)
+    const toolbar = container.querySelector<HTMLElement>('.visibility-results-toolbar')!
+    expect(within(toolbar).getByText(measuredDate, { selector: 'span' })).toBeTruthy()
+    expect(within(toolbar).getByText('Complete')).toBeTruthy()
+    expect(toolbar.textContent).not.toMatch(/\d{1,2}:\d{2}/)
+    // The results view no longer repeats the run state below the toolbar.
+    const results = screen.getByRole('region', { name: 'AI visibility results' })
+    expect(within(results).queryByText('Complete')).toBeNull()
+    expect(results.textContent).not.toContain(measuredDate)
   })
 
   it('recovers a retired group link without changing query class, engine, or unrelated URL state', async () => {
@@ -185,7 +196,7 @@ describe('shared production visibility view', () => {
     onTestFinished(() => client.clear())
     function Workspace() {
       const [search, setSearch] = useState<Record<string, unknown>>({ measurementScope: 'group', measurementScopeKey: 'metro-alpha', measurementProvider: 'gemini' })
-      return <VisibilityWorkspace key={String(search.queryClass ?? 'all')} projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+      return <VisibilityOverview projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
     }
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
     await waitFor(() => expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe(queryClass))
@@ -210,12 +221,15 @@ describe('shared production visibility view', () => {
       if (queryClass !== 'all') report.populations = report.populations.filter(population => population.queryClass === queryClass)
       return jsonResponse(report)
     }))
+    let currentSearch: Record<string, unknown> = {}
     function Workspace() {
       const [search, setSearch] = useState<Record<string, unknown>>({})
-      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+      return <VisibilityOverview projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => (currentSearch = patchVisibilitySelection(previous, patch)))} />
     }
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
+    // Recording the served class remounts the keyed results once, as on the page.
+    await waitFor(() => expect(currentSearch.queryClass).toBe('unknown'))
     const population = await screen.findByRole('region', { name: 'Unclassified queries', exact: true })
     expect(requests[0]!.searchParams.get('queryClass')).toBe('all')
     expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
@@ -256,14 +270,16 @@ describe('shared production visibility view', () => {
     }))
     function Workspace() {
       const [search, setSearch] = useState<Record<string, unknown>>({ queryClass: 'non-brand' })
-      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
+      return <VisibilityOverview projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => patchVisibilitySelection(previous, patch))} />
     }
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><Workspace /></QueryClientProvider>)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
     fireEvent.change(screen.getByRole('combobox', { name: 'Query type' }), { target: { value: 'unknown' } })
     await waitFor(() => expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown'))
-    expect(screen.getByRole('region', { name: 'Unclassified queries', exact: true })).toBeTruthy()
+    // The keyed results reload under the toolbar, which already shows the new class.
+    expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('unknown')
+    expect(await screen.findByRole('region', { name: 'Unclassified queries', exact: true })).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
     expect(screen.getAllByRole('img', { name: /mention and citation trend/ })).toHaveLength(1)
   })
@@ -337,12 +353,19 @@ describe('shared production visibility view', () => {
   it('leaves the scope control to the project context row', () => {
     const report = reportFixture()
     expect(report.scopeOptions).toHaveLength(2)
-    const { container } = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const { container } = render(<>
+      <VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand' })} onSelectionChange={() => {}} />
+      <VisibilityReportView report={report} onSelectionChange={() => {}} />
+    </>)
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
     expect(container.querySelector('.visibility-scope-trigger')).toBeNull()
     expect(screen.queryByRole('searchbox', { name: 'Search scopes' })).toBeNull()
+    const toolbar = container.querySelector<HTMLElement>('.visibility-results-toolbar')!
+    expect(within(toolbar).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Query type'])
     const filters = screen.getByRole('group', { name: 'Visibility filters' })
-    expect(filters.getAttribute('data-has-scope')).toBe('false')
-    expect(within(filters).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Query type', 'Answer engine', 'Search location'])
+    expect(filters.hasAttribute('data-has-scope')).toBe(false)
+    expect(within(filters).getAllByRole('combobox').map(control => (control as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Answer engine', 'Search location', 'AI model', 'Results from'])
+    expect(within(screen.getByRole('region', { name: 'AI visibility results' })).queryAllByRole('combobox')).toEqual([])
   })
 
   it('paginates large property breakdowns and searches all properties without changing server metrics', () => {
@@ -493,7 +516,7 @@ describe('shared production visibility view', () => {
     }))
     const answer = { queryKey: 'branded-query', queryClass: 'branded' as const, provider: 'gemini', model: null, location: null, runId: 'run-2', revision: 2 }
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({ queryClass: 'all', measurementQueryKey: answer.queryKey, measurementAnswer: JSON.stringify(answer) })} onSelectionChange={() => {}} /></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><VisibilityOverview projectName="demo" selection={parseVisibilitySelection({ queryClass: 'all', measurementQueryKey: answer.queryKey, measurementAnswer: JSON.stringify(answer) })} onSelectionChange={() => {}} /></QueryClientProvider>)
     expect(await screen.findByText('Saved branded answer.')).toBeTruthy()
     expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'branded')
     expect(screen.getByRole('region', { name: 'Branded queries', exact: true })).toBeTruthy()
@@ -562,7 +585,8 @@ describe('shared production visibility view', () => {
       ],
     }
     const select = vi.fn()
-    const view = render(<VisibilityReportView report={report} onSelectionChange={select} />)
+    const view = render(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand' })} onSelectionChange={select} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
 
     const modelChoices = () => [...(screen.getByLabelText('AI model') as HTMLSelectElement).options]
       .map(option => ({ value: option.value, label: option.text }))
@@ -576,8 +600,9 @@ describe('shared production visibility view', () => {
     fireEvent.change(screen.getByLabelText('AI model'), { target: { value: 'shared-model' } })
     expect(select).toHaveBeenLastCalledWith({ measurementModel: 'shared-model', measurementQueryKey: undefined })
 
-    report.selection.provider = 'gemini'
-    view.rerender(<VisibilityReportView report={report} onSelectionChange={select} />)
+    // Choices follow the engine in the URL, not the displayed report's echo.
+    view.rerender(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand', measurementProvider: 'gemini' })} onSelectionChange={select} />)
+    expect(report.selection.provider).toBeNull()
     expect(modelChoices()).toEqual([
       { value: '', label: 'All models' },
       { value: 'shared-model', label: 'shared-model' },
@@ -612,10 +637,11 @@ describe('shared production visibility view', () => {
       continuity: { state: 'first', comparedRunId: null },
     }))
     const select = vi.fn()
-    render(<VisibilityReportView report={report} onSelectionChange={select} />)
-    const disclosure = screen.getByText('More filters', { selector: 'summary' }).closest('details')!
-    expect(disclosure.open).toBe(false)
-    fireEvent.click(screen.getByText('More filters', { selector: 'summary' }))
+    render(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ queryClass: 'non-brand' })} onSelectionChange={select} />)
+    const disclosure = screen.getByRole('button', { name: 'Filters' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     expect(screen.queryByText('Measured run')).toBeNull()
     expect(screen.queryByText('All observed models')).toBeNull()
     expect(screen.getByRole('button', { name: 'Choose a saved AI sweep to view its results. No new sweep starts.' })).toBeTruthy()
@@ -740,13 +766,18 @@ describe('shared production visibility view', () => {
     expect(targets.closest('details')!.textContent).toContain('Lake House')
   })
 
-  it('keeps query management without an agent copy action', () => {
+  it('keeps query management in the results toolbar without an agent copy action', async () => {
+    onTestFinished(mockFetch(() => jsonResponse(reportFixture())))
     const manageQueries = vi.fn()
-    render(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} onManageQueries={manageQueries} />)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { container } = render(<QueryClientProvider client={queryClient}><VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand' }} onSelectionChange={() => {}} onManageQueries={manageQueries} /></QueryClientProvider>)
+    const results = await screen.findByRole('region', { name: 'AI visibility results' })
+    const toolbar = container.querySelector<HTMLElement>('.visibility-results-toolbar')!
     expect(screen.queryByRole('button', { name: 'Copy for agent' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Manage queries' }))
+    expect(within(results).queryByRole('button', { name: 'Manage queries' })).toBeNull()
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Manage queries' }))
     expect(manageQueries).toHaveBeenCalledOnce()
-    expect(screen.getByText('Query results', { selector: 'span' }).closest('details')!.open).toBe(false)
+    expect(within(results).getByText('Query results', { selector: 'span' }).closest('details')!.open).toBe(false)
   })
 
   it('keeps competitor details collapsed while exposing their availability', () => {
@@ -848,12 +879,12 @@ describe('shared production visibility view', () => {
     function Harness({ startingSearch }: { startingSearch: Record<string, unknown> }) {
       const [url, setUrl] = useState(startingSearch)
       currentSearch = url
-      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(url)} onSelectionChange={patch => setUrl(previous => patchVisibilitySelection(previous, patch))} />
+      return <VisibilityOverview projectName="demo" selection={parseVisibilitySelection(url)} onSelectionChange={patch => setUrl(previous => patchVisibilitySelection(previous, patch))} />
     }
     const client = () => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
     const view = render(<QueryClientProvider client={client()}><Harness startingSearch={initialSearch} /></QueryClientProvider>)
-    await screen.findByRole('combobox', { name: 'Answer engine' })
-    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    fireEvent.click(await screen.findByRole('button', { name: /^Filters/ }))
+    fireEvent.click((await screen.findByText('Query results', { selector: 'span' })).closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' }))
     expect(await screen.findByText('Stored negative evidence for this exact context.')).toBeTruthy()
     expect(screen.getByText('Not mentioned')).toBeTruthy()
@@ -882,6 +913,7 @@ describe('shared production visibility view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close answers' }))
     expect(screen.queryByRole('region', { name: 'Measured answers' })).toBeNull()
     expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'non-brand')
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
     expect(Object.fromEntries(Object.entries(currentSearch).filter(([, value]) => value !== undefined))).toEqual({ ...initialSearch, queryClass: 'non-brand' })
@@ -990,8 +1022,9 @@ describe('shared production visibility view', () => {
     })
     onTestFinished(restore)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-    render(<QueryClientProvider client={queryClient}><VisibilityWorkspace projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand', queryKey: 'query-context' }} onSelectionChange={() => {}} /></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand', queryKey: 'query-context' }} onSelectionChange={() => {}} /></QueryClientProvider>)
     expect(await screen.findByRole('button', { name: 'Retry answers' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'AI visibility unavailable' })).toBeNull()

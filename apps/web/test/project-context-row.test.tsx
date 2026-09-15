@@ -327,11 +327,13 @@ test.each([
     meta: null,
   },
   {
+    // The explicit range is a filter token in the results toolbar
+    // (portfolio-route.test.tsx), so the row renders no meta element.
     label: 'Advanced overview with an explicit range',
     path: `/projects/project_citypoint${RANGE_QUERY}`,
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-meta', 'project-context-actions'],
-    meta: '2026-09-01 to 2026-09-08',
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
+    meta: null,
   },
   {
     label: 'Advanced Report',

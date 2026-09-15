@@ -709,6 +709,13 @@ function competitorLandscapeResponse({
   }
 }
 
+/** Simple overviews keep their own controls: no results toolbar and no Filters button. */
+function expectNoResultsToolbar(html: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  expect(doc.querySelector('.visibility-results-toolbar')).toBeNull()
+  expect([...doc.querySelectorAll('button')].filter(button => /^Filters/.test(button.textContent ?? ''))).toEqual([])
+}
+
 test('the Portfolio route is an explicit non-embed project workspace', async () => {
   const html = await renderAt('/projects/project_citypoint/portfolio')
 
@@ -734,7 +741,7 @@ test.each([false, true])('a Simple project retains its overview with or without 
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
-  expect(html).not.toContain('More filters')
+  expectNoResultsToolbar(html)
   expect(html).not.toContain('Project signals')
   expect(html).not.toContain('Latest signals')
 })
@@ -767,7 +774,7 @@ test('an unpublished Advanced draft and stale report filters do not replace the 
   expect(html).toContain('Coverage now')
   expect(html).toContain('Query evidence')
   expect(html).toContain('Pinned operator')
-  expect(html).not.toContain('More filters')
+  expectNoResultsToolbar(html)
   expect(html).not.toContain('Unclassified queries')
 })
 
@@ -3081,12 +3088,19 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
   }
 })
 
-test('Advanced header keeps an explicit historical measurement range', async () => {
+test('an Advanced explicit historical range is a results filter token, not context-row meta', async () => {
   const html = await renderAt('/projects/project_citypoint?measurementFrom=2026-09-01T00:00:00.000Z&measurementTo=2026-09-08T23:59:59.999Z', undefined,
     { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() },
     { managedSweeps: true, schedule: managedSchedule },
   )
-  expect(renderedPage(html).querySelector('.project-context-meta')?.textContent).toBe('2026-09-01 to 2026-09-08')
+  const page = renderedPage(html)
+  expect(page.querySelector('.project-context-meta')).toBeNull()
+  const toolbar = page.querySelector('.visibility-results-toolbar')!
+  expect([...toolbar.querySelectorAll('button[aria-label^="Remove filter "]')].map(token => [token.textContent, token.getAttribute('aria-label')])).toEqual([
+    ['Sep 1 to Sep 8, 2026 (UTC)', 'Remove filter Sep 1 to Sep 8, 2026 (UTC)'],
+  ])
+  expect(toolbar.querySelector('button[aria-controls]')?.textContent).toBe('Filters · 1')
+  expect(page.textContent).not.toContain('2026-09-01 to 2026-09-08')
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
