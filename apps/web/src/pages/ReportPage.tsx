@@ -116,6 +116,7 @@ import {
 // ── end report slice S2 imports ──
 
 // ── report slice S3 imports: search and traffic ──
+import { formatRatio, reportGaIntro, reportGscIntro, reportShareBarShareLabel } from '@ainyc/canonry-contracts'
 // ── end report slice S3 imports ──
 
 // ── report slice S4 imports: server-side, indexing and trend ──
@@ -1425,24 +1426,249 @@ function sourceOriginBarColor(tone: MetricTone): string {
 // ── end report slice S2 ──
 
 // ── report slice S3: search and traffic ──
-function AgencyGscPerformance(_props: { report: ProjectReportDto }) {
+// Mirrors renderGsc, renderGa, renderSocial and renderAiReferrals in the HTML
+// report: the same blocks in the same order, each shown under the same
+// condition. A section without its data source shows only its empty state.
+
+/** A GSC crossover card lists this many queries, then `+N more`. */
+const GSC_CROSSOVER_CHIP_LIMIT = 6
+
+function AgencyGscPerformance({ report }: { report: ProjectReportDto }) {
+  const gsc = report.gsc
   const copy = REPORT_SECTION_COPY.gsc
-  return <ReportSection id={ReportSectionIds.gsc} eyebrow={copy.eyebrow} title={copy.title} />
+  if (!gsc) {
+    return (
+      <ReportSection id={ReportSectionIds.gsc} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const [queryHeader, clicksHeader, impressionsHeader, ctrHeader, positionHeader, categoryHeader] = copy.topQueryHeaders
+  return (
+    <ReportSection id={ReportSectionIds.gsc} eyebrow={copy.eyebrow} title={copy.title} intro={reportGscIntro(report)}>
+      <ReportTiles
+        columns={4}
+        tiles={[
+          { label: copy.tiles.clicks, value: formatNumber(gsc.totalClicks) },
+          { label: copy.tiles.impressions, value: formatNumber(gsc.totalImpressions) },
+          { label: copy.tiles.ctr, value: formatRatio(gsc.ctr) },
+          { label: copy.tiles.position, value: gsc.avgPosition.toFixed(1) },
+        ]}
+      />
+      <ReportLineChart
+        title={copy.trendTitle}
+        data={gsc.trend}
+        xKey="date"
+        dataKey="clicks"
+        color={REPORT_CHART_COLORS.series[1]}
+        formatValue={formatNumber}
+        dates="calendar"
+      />
+      <ReportTableBlock
+        title={copy.topQueriesHeading}
+        headers={[
+          queryHeader,
+          { label: clicksHeader, numeric: true },
+          { label: impressionsHeader, numeric: true },
+          { label: ctrHeader, numeric: true },
+          { label: positionHeader, numeric: true },
+          categoryHeader,
+        ]}
+      >
+        {gsc.topQueries.map((row, index) => (
+          <tr key={`${index}-${row.query}`}>
+            <td className="evidence-query-cell">{row.query}</td>
+            <td className="text-right tabular-nums">{formatNumber(row.clicks)}</td>
+            <td className="text-right tabular-nums">{formatNumber(row.impressions)}</td>
+            <td className="text-right tabular-nums">{formatRatio(row.ctr)}</td>
+            <td className="text-right tabular-nums">{row.avgPosition.toFixed(1)}</td>
+            <td><ToneBadge tone="neutral">{row.category}</ToneBadge></td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+      <ShareBars
+        title={copy.intentHeading}
+        scale="share"
+        rows={searchTrafficShareBarRows(
+          gsc.categoryBreakdown.map(row => ({ label: row.category, count: row.clicks, sharePct: row.sharePct })),
+          copy.intentCountLabel,
+        )}
+      />
+      <GscCrossoverCard title={copy.untrackedDemand.heading} note={copy.untrackedDemand.subtitle} queries={gsc.trackedButNoGsc} />
+      <GscCrossoverCard title={copy.suggestedQueries.heading} note={copy.suggestedQueries.subtitle} queries={gsc.gscButNotTracked} />
+    </ReportSection>
+  )
 }
 
-function AgencyGaTraffic(_props: { report: ProjectReportDto }) {
+/** Tracked queries with no search demand, or searched queries not yet tracked. Nothing renders for an empty list. */
+function GscCrossoverCard({ title, note, queries }: { title: string; note: string; queries: readonly string[] }) {
+  if (queries.length === 0) return null
+  return (
+    <ReportCard title={title}>
+      <ReportNote>{note}</ReportNote>
+      <ProofChips items={queries} limit={GSC_CROSSOVER_CHIP_LIMIT} className="mt-3" />
+    </ReportCard>
+  )
+}
+
+function AgencyGaTraffic({ report }: { report: ProjectReportDto }) {
+  const ga = report.ga
   const copy = REPORT_SECTION_COPY.ga
-  return <ReportSection id={ReportSectionIds.ga} eyebrow={copy.eyebrow} title={copy.title} />
+  if (!ga) {
+    return (
+      <ReportSection id={ReportSectionIds.ga} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const [pageHeader, sessionsHeader, organicHeader] = copy.topPageHeaders
+  return (
+    <ReportSection id={ReportSectionIds.ga} eyebrow={copy.eyebrow} title={copy.title} intro={reportGaIntro(ga)}>
+      <ReportTiles
+        columns={3}
+        tiles={[
+          { label: copy.tiles.sessions, value: formatNumber(ga.totalSessions) },
+          { label: copy.tiles.users, value: formatNumber(ga.totalUsers) },
+          { label: copy.tiles.organicSessions, value: formatNumber(ga.totalOrganicSessions) },
+        ]}
+      />
+      <ReportTableBlock
+        title={copy.topPagesHeading}
+        headers={[pageHeader, { label: sessionsHeader, numeric: true }, { label: organicHeader, numeric: true }]}
+      >
+        {ga.topLandingPages.map((row, index) => (
+          <tr key={`${index}-${row.page}`}>
+            <td><LandingPageCell page={row.page} /></td>
+            <td className="text-right tabular-nums">{formatNumber(row.sessions)}</td>
+            <td className="text-right tabular-nums">{formatNumber(row.organicSessions)}</td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+      <ShareBars
+        title={copy.channelsHeading}
+        scale="share"
+        rows={searchTrafficShareBarRows(
+          ga.channelBreakdown.map(row => ({ label: row.channel, count: row.sessions, sharePct: row.sharePct })),
+          copy.channelsCountLabel,
+        )}
+      />
+    </ReportSection>
+  )
 }
 
-function AgencySocialReferrals(_props: { report: ProjectReportDto }) {
+function AgencySocialReferrals({ report }: { report: ProjectReportDto }) {
+  const social = report.socialReferrals
   const copy = REPORT_SECTION_COPY['social-referrals']
-  return <ReportSection id={ReportSectionIds['social-referrals']} eyebrow={copy.eyebrow} title={copy.title} />
+  if (!social) {
+    return (
+      <ReportSection id={ReportSectionIds['social-referrals']} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const [sourceHeader, mediumHeader, sessionsHeader] = copy.campaignHeaders
+  // Unlike GA, the channel bars come before the table, and the table renders even with no campaigns.
+  return (
+    <ReportSection id={ReportSectionIds['social-referrals']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <ReportTiles
+        columns={3}
+        tiles={[
+          { label: copy.tiles.sessions, value: formatNumber(social.totalSessions) },
+          { label: copy.tiles.organic, value: formatNumber(social.organicSessions) },
+          { label: copy.tiles.paid, value: formatNumber(social.paidSessions) },
+        ]}
+      />
+      <ShareBars
+        title={copy.channelsHeading}
+        scale="share"
+        rows={searchTrafficShareBarRows(
+          social.channels.map(row => ({ label: row.channelGroup, count: row.sessions, sharePct: row.sharePct })),
+          copy.channelsCountLabel,
+        )}
+      />
+      <ReportTableBlock
+        title={copy.campaignsHeading}
+        headers={[sourceHeader, mediumHeader, { label: sessionsHeader, numeric: true }]}
+      >
+        {social.topCampaigns.map((row, index) => (
+          <tr key={`${index}-${row.source}-${row.medium}`}>
+            <td className="evidence-query-cell">{row.source}</td>
+            <td className="text-[13px] text-secondary">{row.medium}</td>
+            <td className="text-right tabular-nums">{formatNumber(row.sessions)}</td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
 }
 
-function AgencyAiReferrals(_props: { report: ProjectReportDto }) {
+function AgencyAiReferrals({ report }: { report: ProjectReportDto }) {
+  const ai = report.aiReferrals
   const copy = REPORT_SECTION_COPY['ai-referrals']
-  return <ReportSection id={ReportSectionIds['ai-referrals']} eyebrow={copy.eyebrow} title={copy.title} />
+  if (!ai) {
+    return (
+      <ReportSection id={ReportSectionIds['ai-referrals']} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const [pageHeader, sessionsHeader] = copy.topPageHeaders
+  // Sessions only: the DTO carries no truthful AI-referral user count.
+  return (
+    <ReportSection id={ReportSectionIds['ai-referrals']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <ReportTiles columns={3} tiles={[{ label: copy.tiles.sessions, value: formatNumber(ai.totalSessions) }]} />
+      <ReportLineChart
+        title={copy.trendTitle}
+        data={ai.trend}
+        xKey="date"
+        dataKey="sessions"
+        color={REPORT_CHART_COLORS.series[2]}
+        formatValue={formatNumber}
+        dates="calendar"
+      />
+      <ShareBars
+        title={copy.sourcesHeading}
+        scale="share"
+        rows={searchTrafficShareBarRows(
+          ai.bySource.map(row => ({ label: row.source, count: row.sessions, sharePct: row.sharePct })),
+          copy.sourcesCountLabel,
+          2,
+        )}
+      />
+      <ReportTableBlock title={copy.topPagesHeading} headers={[pageHeader, { label: sessionsHeader, numeric: true }]}>
+        {ai.topLandingPages.map((row, index) => (
+          <tr key={`${index}-${row.page}`}>
+            <td><LandingPageCell page={row.page} /></td>
+            <td className="text-right tabular-nums">{formatNumber(row.sessions)}</td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
+}
+
+/**
+ * Share bars for a traffic breakdown, drawn the way the HTML report draws them:
+ * each row keeps the series color of its position in the breakdown (starting
+ * `colorOffset` colors in), so dropping an empty row never recolors the rest,
+ * and the text after the bar reads `8.0K sessions · 67%`.
+ */
+function searchTrafficShareBarRows(
+  rows: readonly { label: string; count: number; sharePct: number }[],
+  countLabel: string,
+  colorOffset = 0,
+): ShareBarRow[] {
+  const palette = REPORT_CHART_COLORS.series
+  return rows.map((row, index) => ({
+    ...row,
+    color: palette[(index + colorOffset) % palette.length],
+    valueLabel: (
+      <>
+        <span className="font-medium text-heading">{formatNumber(row.count)}</span>{' '}
+        {reportShareBarShareLabel(countLabel, row.sharePct)}
+      </>
+    ),
+  }))
 }
 // ── end report slice S3 ──
 
