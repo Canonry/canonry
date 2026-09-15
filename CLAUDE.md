@@ -107,6 +107,10 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 **The downloadable HTML report (`canonry report` / `GET /report.html`) and the in-app SPA report view must stay perfectly aligned.** They are two renderers of the same `ProjectReportDto` — clients and agencies see one report. Any change to a section, label, headline, chart, tile, or order in `apps/web/src/pages/ReportPage.tsx` must ship the same change in `packages/api-routes/src/report-renderer.ts` in the same commit, and vice versa. Tile labels, eyebrows, titles, subtitles, action-card copy, and evidence-card titles must match verbatim across both. Update `packages/api-routes/test/report-renderer.test.ts` whenever client/agency strings change. See AGENTS.md "Report parity" for the full rule set.
 
+- **Shared copy:** every string both report renderers show lives in `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` plus copy functions such as `reportExecutiveHeadline` and `reportServerActivityHeading`). Both renderers read it; never write report copy inline in either one.
+- **Shared order:** both renderers follow `reportSectionOrder(report, audience)`. The SPA renders it through an exhaustive switch over `ReportSectionIds`.
+- **Outline goldens:** `packages/api-routes/test/report-renderer-bytes.test.ts` pins the HTML bytes and writes the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. `apps/web/test/report-page.test.tsx` holds the SPA to those goldens through its `data-report-*` hooks. Only the api-routes suite regenerates them, and never to make a failing test pass.
+
 ### Theme Migration Tests
 
 - `apps/web/test/design-tokens.test.ts` compiles `styles.css` with Tailwind's compiler and asserts semantic utilities such as `bg-bg`, `bg-surface/50`, `border-default`, and `text-primary` resolve through CSS variables. This is the build assertion that guards against accidentally putting color tokens in `@theme inline` and confirms chart-only tokens are emitted before the chart bridge uses them.

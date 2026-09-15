@@ -272,6 +272,9 @@ export default tseslint.config(
       'packages/api-routes/src/**/*.ts',
       'apps/web/src/**/*.ts',
       'apps/web/src/**/*.tsx',
+      // The report copy both report renderers show lives here, outside the
+      // renderer trees, so it is named explicitly.
+      'packages/contracts/src/report-sections.ts',
     ],
     plugins: { 'canonry-vocabulary': canonryVocabularyPlugin },
     rules: { 'canonry-vocabulary/no-banned-metric-literal': 'error' },
@@ -469,10 +472,11 @@ export default tseslint.config(
   },
   {
     // Vocabulary ratchet: web UI copy says "query", never "question". Scoped to
-    // apps/web/src: the frozen route paths and MCP tool names live in
-    // packages/api-routes + packages/canonry, so keeping the rule off those
-    // trees exempts them structurally instead of by regex.
-    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    // apps/web/src plus the report copy module the SPA report renders: the
+    // frozen route paths and MCP tool names live in packages/api-routes +
+    // packages/canonry, so keeping the rule off those trees exempts them
+    // structurally instead of by regex.
+    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx', 'packages/contracts/src/report-sections.ts'],
     ignores: [...QUESTION_COPY_PERMANENT_EXCLUSIONS],
     plugins: { 'canonry-vocabulary': canonryVocabularyPlugin },
     rules: { 'canonry-vocabulary/no-question-ui-copy': 'error' },
