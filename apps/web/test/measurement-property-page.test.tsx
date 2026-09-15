@@ -404,7 +404,7 @@ describe('Property page in a read-only embed', () => {
     })
 
     expect(await screen.findByText('This view is not available here.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to measurement overview' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}`)
+    expect(screen.getByRole('link', { name: 'Back to AI Visibility' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}`)
     // The message is on the first render, so give any query that did start time
     // to reach the mocked fetch, then check the cache: the queries exist but never ran.
     await new Promise(resolve => setTimeout(resolve, 50))
