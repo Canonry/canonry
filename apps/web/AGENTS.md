@@ -19,6 +19,7 @@ constraints; `DESIGN.md` owns hierarchy, copy, typography, and control choices.
 | `src/embed.ts` | Read-only embed mode (#716) presentational helpers: `embedViewIdForPath(pathname)` (coarse route→view-id map for the route allowlist), `effectiveEmbedProjectTabs(embed)` / `filterEmbedProjectTabs(allow)` (the project-TAB allowlist actually in force — `embed.projectTabs` normalized against `EMBED_PROJECT_TABS`, `undefined` outside embed; the one value every project surface gates on), `isEmbedProjectTabAllowed(tab, allow)` / `resolveEmbedProjectTab(requested, allow)` (used by `ProjectPage` to filter the subnav + fall a hidden tab back to a visible one, and by `MeasurementPropertyPage` for its `portfolio` gate; finer than the coarse view allowlist), and `embedThemeStyle(theme)` (allowlisted `--canonry-embed-*` CSS custom properties with per-value strict color-regex sanitization — CSS-injection guard) |
 | `src/router/routes.tsx` | TanStack Router route tree |
 | `src/pages/` | One file per page (ProjectPage is largest at 1,600 LOC) |
+| `src/pages/ReportPage.tsx` | In-app report: the SPA twin of the downloadable HTML report. The audience toggle, the section switch, and every agency section live here, the agency sections in marked regions. See "Report" under Patterns. |
 | `src/components/shared/ChartPrimitives.tsx` | Recharts wrapper — chart components and styling constants |
 | `src/components/shared/ToneBadge.tsx` | Status indicator component with tone colors |
 | `src/components/project/` | Project page section components (GscSection, TrafficSection, `SiteHealthSection`, etc.) |
@@ -378,6 +379,15 @@ Token migration guardrails:
   `canWrite && !isEmbed()`; market pins create/update a draft and never publish.
 - History fallback pins show unavailable metrics, never latest-only counts under
   a historical window.
+
+### Report
+
+`ReportPage.tsx` and `packages/api-routes/src/report-renderer.ts` render the same `ProjectReportDto`. Change both together (root `AGENTS.md` "Report parity").
+
+- The page opens on the Client audience. The `Report audience` toggle switches to Agency, and the download follows the selected audience.
+- A read-only embed (`isEmbed()`) shows no toggle. It renders and downloads only the client report.
+- Agency sections are functions in `ReportPage.tsx`, in marked regions, each with its own import slot. `ReportSectionSlot` renders them by name through an exhaustive switch, so keep each function name and its `{ report }` props. Build sections from the shared report helpers at the end of the file; they write the `data-report-*` outline hooks.
+- Parity guards: strings and derived labels come from `packages/contracts/src/report-sections.ts`, the section order comes from `reportSectionOrder(report, audience)`, and the SPA outline must equal the committed goldens in `packages/api-routes/test/fixtures/report-outline/`. Only `packages/api-routes/test/report-renderer-bytes.test.ts` writes those goldens, from the HTML renderer, so a SPA-only change cannot make parity pass by editing them.
 
 ### UI tests
 
