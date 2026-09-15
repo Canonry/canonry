@@ -1665,6 +1665,10 @@ test('HTML report visibility tables scroll inside their own container on narrow 
   for (const audience of ['client', 'agency'] as const) {
     const html = renderReportHtml(report, { audience })
     expect(html).toContain(section)
+    // The every-table guard sees these two tables only when the report carries visibility.
+    const tables = reportTables(html)
+    expect(tables.flatMap(({ section: id, problem }) => problem === null ? [] : [`#${id} table ${problem}`])).toEqual([])
+    expect(tables.filter(table => table.section === 'client-summary')).toHaveLength(2)
     expect(tableScrollStyleProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
   }
 })
