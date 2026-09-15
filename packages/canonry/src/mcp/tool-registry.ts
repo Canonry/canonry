@@ -1123,7 +1123,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_visibility_report',
     title: 'Read scoped AI visibility',
-    description: 'Read stored visibility for a site, group, market or property. Branded, non-brand and unclassified answers remain separate populations. The response owns rates, trends, query performance, answers and competitors under one frozen measured definition. Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable. Material plan changes retain the prior measured revision; pending assignments are explicit. Search filters the query list only. Reuse cursors with identical selection. Never starts a sweep.',
+    description: 'Read stored visibility for a site, group, market or property. Branded, non-brand and unclassified answers remain separate populations. The response owns rates, trends, query performance, answers and competitors under one frozen measured definition. Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable; it is absent when that sweep cannot be read. Material plan changes retain the prior measured revision; pending assignments are explicit. Search filters the query list only. Reuse cursors with identical selection. Never starts a sweep.',
     access: 'read', tier: 'monitoring',
     inputSchema: visibilityReportRequestSchema.safeExtend({ project: projectNameSchema }),
     annotations: readAnnotations(),

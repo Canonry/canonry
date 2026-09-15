@@ -275,7 +275,7 @@ describe('MCP tool registry', () => {
   it('tells agents each visibility population carries its change since the previous sweep', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_report')!
     expect(tool.description).toContain(
-      'Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable.',
+      'Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable; it is absent when that sweep cannot be read.',
     )
   })
 
