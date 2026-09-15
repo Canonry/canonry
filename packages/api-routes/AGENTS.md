@@ -33,6 +33,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/doctor.ts` / `src/doctor/registry.ts` / `src/doctor/runner.ts` | `GET /doctor`, `GET /projects/:name/doctor` → `DoctorReport`; `ALL_CHECKS`; `runChecks()`, `matchesCheckId()` |
 | `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (rules: `src/doctor/AGENTS.md`) |
 | `src/bing.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools, WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
+| `src/visibility-report.ts` | Stored-evidence `GET /projects/:name/visibility-report`. `previousEligibleVisibilityRun` uses `notProbeRun()` and ignores the date window and pinned run. An unreadable predecessor omits `comparison`. |
+| `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
 
 ## Patterns
 

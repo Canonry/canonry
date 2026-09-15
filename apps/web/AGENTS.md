@@ -389,7 +389,7 @@ Token migration guardrails:
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
-- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
 - The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
