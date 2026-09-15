@@ -86,7 +86,7 @@ import {
   type ApiGoogleConnection,
   type ApiProject,
 } from '../api.js'
-import { filterEmbedProjectTabs, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
+import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
 import {
   getApiV1CdpStatusOptions,
   getApiV1ProjectsByNameBingCoverageOptions,
@@ -1442,7 +1442,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     ?? projectsListQuery.data?.find(p => p.name === routeIdentifier || p.id === routeIdentifier)?.name
     ?? null
   const embed = getEmbedConfig()
-  const resolvedTab = resolveEmbedProjectTab(props.tab, embed ? filterEmbedProjectTabs(embed.projectTabs) : undefined)
+  const resolvedTab = resolveEmbedProjectTab(props.tab, effectiveEmbedProjectTabs(embed))
   // The server overview supplies Simple's primary metrics, but Advanced only
   // exposes it through the collapsed Project signals disclosure. Wait until
   // the plan resolves (or that disclosure opens) before starting the read.
@@ -1816,14 +1816,11 @@ function ProjectPageContent({
     configuredApiProviders,
     cdpConfigured,
   })
-  // Read-only embed mode (#716): an optional project-tab allowlist hides operator
-  // surfaces (Search Engines, Activity, Backlinks, ...) from the embedded client
-  // dashboard. Unset (or non-embed) = all tabs. The subnav below is filtered to
-  // the allowlist; a direct-URL hit on a hidden tab falls back to a visible board.
-  const embedProjectTabs = useMemo(() => {
-    const embed = getEmbedConfig()
-    return embed ? filterEmbedProjectTabs(embed.projectTabs) : undefined
-  }, [])
+  // Read-only embed mode (#716): the effective project-tab allowlist hides
+  // operator surfaces from the embedded client dashboard. Non-embed = all tabs;
+  // an embed without `projectTabs` gets the embed-safe set. The subnav below is
+  // filtered to it; a direct-URL hit on a hidden tab falls back to a visible board.
+  const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
   const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
@@ -2616,8 +2613,8 @@ function ProjectPageContent({
     { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
     { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
-  // The embed projectTabs allowlist (when set) narrows the subnav to the curated
-  // client-facing tabs; with no allowlist every tab shows (today's behavior).
+  // In embed mode the effective allowlist narrows the subnav to the curated
+  // client-facing tabs; outside embed it is undefined and every tab shows.
   const projectTabItems = projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs))
   const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),

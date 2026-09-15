@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import {
+  EMBED_PROJECT_TABS,
+  effectiveEmbedProjectTabs,
   embedViewIdForPath,
   embedThemeStyle,
   embedThemeMode,
@@ -170,6 +172,25 @@ describe('filterEmbedProjectTabs', () => {
 
   it('returns a safe fallback when every configured tab is rejected', () => {
     expect(filterEmbedProjectTabs(['portfolio', 'not-a-tab'])).toEqual(['overview'])
+  })
+})
+
+describe('effectiveEmbedProjectTabs', () => {
+  it('leaves every tab visible outside embed mode, including portfolio', () => {
+    expect(effectiveEmbedProjectTabs(null)).toBeUndefined()
+    expect(isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs(null))).toBe(true)
+  })
+
+  // The raw host list is `undefined` here, and `isEmbedProjectTabAllowed` reads
+  // `undefined` as "every tab". Normalizing first is what keeps portfolio out.
+  it('uses the embed-safe set when an embed sends no tab allowlist', () => {
+    expect(effectiveEmbedProjectTabs({})).toEqual([...EMBED_PROJECT_TABS])
+    expect(isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs({}))).toBe(false)
+  })
+
+  it('drops portfolio even when the host names it explicitly', () => {
+    expect(effectiveEmbedProjectTabs({ projectTabs: ['overview', 'portfolio'] })).toEqual(['overview'])
+    expect(isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs({ projectTabs: ['portfolio'] }))).toBe(false)
   })
 })
 

@@ -16,10 +16,9 @@ import {
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient, isDashboardManagedSweeps } from '../api.js'
+import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
-import { getEmbedConfig } from '../api.js'
-import { isEmbedProjectTabAllowed } from '../embed.js'
+import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
 import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -763,7 +762,14 @@ export function MeasurementPropertyPage() {
   const [expandedAnswers, setExpandedAnswers] = useState<ReadonlySet<string>>(new Set<string>())
   const project = projectName ?? ''
   const property = targetKey ?? ''
-  const enabled = Boolean(project) && Boolean(property)
+  const hasRouteParams = Boolean(project) && Boolean(property)
+  // Property detail is Advanced portfolio content, so the `portfolio` token
+  // governs it, read through the same effective allowlist as the project subnav.
+  // That allowlist never admits `portfolio`, so no embed renders this page or
+  // fires its reads. ProjectPage agrees: embedded, it skips the plan read and
+  // renders no Property links. Presentational only; the API key scope governs data.
+  const embedAllowsProperty = useMemo(() => isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs(getEmbedConfig())), [])
+  const enabled = hasRouteParams && embedAllowsProperty
   const { canWrite } = useAccount()
 
   const planQuery = useQuery({
@@ -873,16 +879,15 @@ export function MeasurementPropertyPage() {
     </Link>
   )
 
-  if (!enabled) {
+  if (!hasRouteParams) {
     return <div className="page-container"><p className="text-sm text-muted">Missing project name or Property key in URL.</p></div>
   }
 
-  // This page is a child route, so the project subnav's tab allowlist never saw
-  // it and a direct link reached Advanced Measurement inside an embed that hides
-  // the portfolio tab. Presentational, exactly like the subnav filter.
-  if (!isEmbedProjectTabAllowed('portfolio', getEmbedConfig()?.projectTabs)) {
+  // A child route the subnav never renders, so a direct link is the only way in.
+  if (!embedAllowsProperty) {
     return (
-      <div className="page-container">
+      <div className="page-container space-y-3">
+        {backLink}
         <p className="text-sm text-muted">This view is not available here.</p>
       </div>
     )

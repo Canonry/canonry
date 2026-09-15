@@ -382,6 +382,41 @@ function propertyPageResponses({
   }
 }
 
+describe('Property page in a read-only embed', () => {
+  // The project subnav drops `portfolio` in every embed. A direct link to this
+  // child route must agree for every host list: none and one naming `portfolio`
+  // (the raw list admitted both), and the server default of `overview`.
+  it.each<{ label: string; embed: { enabled: true; projectTabs?: string[] } }>([
+    { label: 'no tab allowlist', embed: { enabled: true } },
+    { label: 'the default overview allowlist', embed: { enabled: true, projectTabs: ['overview'] } },
+    { label: 'an allowlist that names portfolio', embed: { enabled: true, projectTabs: ['overview', 'portfolio'] } },
+  ])('renders the unavailable state and reads no measurement data with $label', async ({ embed }) => {
+    const previousConfig = window.__CANONRY_CONFIG__
+    window.__CANONRY_CONFIG__ = { ...previousConfig, embed }
+    onTestFinished(() => {
+      if (previousConfig === undefined) delete window.__CANONRY_CONFIG__
+      else window.__CANONRY_CONFIG__ = previousConfig
+    })
+    const fetched: string[] = []
+    const { projectName, queryClient } = await renderPropertyPageFromApi(url => {
+      fetched.push(pathOf(url))
+      return propertyPageResponses()(url)
+    })
+
+    expect(await screen.findByText('This view is not available here.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Back to measurement overview' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}`)
+    // The message is on the first render, so give any query that did start time
+    // to reach the mocked fetch, then check the cache: the queries exist but never ran.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(fetched.filter(path => path.includes('/measurement-'))).toEqual([])
+    const measurementQueries = queryClient.getQueryCache().findAll()
+      .filter(query => JSON.stringify(query.queryKey).includes('Measurement'))
+    expect(measurementQueries.length).toBeGreaterThan(0)
+    expect(measurementQueries.map(query => [query.state.fetchStatus, query.state.dataUpdatedAt, query.state.errorUpdatedAt]))
+      .toEqual(measurementQueries.map(() => ['idle', 0, 0]))
+  })
+})
+
 describe('Property page', () => {
   it('keeps the compact loading skeleton inside a readable status', async () => {
     await renderPropertyPageFromApi(() => new Promise<Response>(() => {}))
