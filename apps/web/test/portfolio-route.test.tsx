@@ -14,6 +14,7 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
 import { VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
@@ -2893,6 +2894,59 @@ async function renderPropertyRoute(entry: string, assignedClass: 'branded' | 'no
   )
   return { observed, page, router }
 }
+
+test('the AI Visibility row picker writes a single-market Group\'s market for a Property inside it, names that market, and writes none for the Group', async () => {
+  // Server-declared links: North links exactly one market, and Harbor House sits in both.
+  const withMarketLinks = (report: VisibilityReportResponse) => {
+    report.scopeOptions = [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 },
+      { id: 'north', label: 'North', kind: 'group', targetCount: 1, marketKeys: [PROPERTY_MARKET.id] },
+      { id: 'harbor-house', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'], marketKeys: [PROPERTY_MARKET.id] },
+      PROPERTY_MARKET,
+    ]
+    return report
+  }
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint?queryClass=non-brand', overviewRoute(url => {
+    const scopeKey = url.searchParams.get('scopeKey')
+    if (scopeKey === 'harbor-house') return jsonResponse(withMarketLinks(propertyScopeReport('non-brand', url.searchParams.get('marketKey') === PROPERTY_MARKET.id ? PROPERTY_MARKET : undefined)))
+    if (scopeKey === 'north') return jsonResponse(withMarketLinks(visibilityReportResponse({ mode: 'advanced', scope: 'group', scopeKey: 'north', scopeLabel: 'North' })))
+    return jsonResponse(withMarketLinks(visibilityReportResponse({ mode: 'advanced' })))
+  }))
+  const trigger = await rowTrigger(page.container)
+  await waitFor(() => expect(trigger.textContent).toBe('Whole site'))
+  const details = trigger.closest('details')!
+
+  fireEvent.click(trigger)
+  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.browse('North') }))
+  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('Harbor House') }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({
+    measurementScope: 'property', measurementScopeKey: 'harbor-house', measurementMarketKey: PROPERTY_MARKET.id, queryClass: 'non-brand',
+  }))
+  // The trigger reads the market from the URL, so it names the drilldown's market.
+  await waitFor(() => expect(trigger.textContent).toBe(`Harbor House · ${PROPERTY_MARKET.label}`))
+  expect(router.state.location.search.runId).toBeUndefined()
+
+  fireEvent.click(trigger)
+  fireEvent.click(within(details).getByRole('button', { name: 'Back to all groups' }))
+  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('North'), exact: true }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
+  expect(router.state.location.search.measurementMarketKey).toBeUndefined()
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+}, 15_000)
+
+test('the tracked Queries row picker drops a carried market when it changes scope', async () => {
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&measurementMarketKey=new-york', trackingRoute())
+  const trigger = await rowTrigger(page.container)
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+  const details = trigger.closest('details')!
+
+  fireEvent.click(trigger)
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Citypoint' } })
+  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('Citypoint Dental') }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' }))
+  expect(router.state.location.search.measurementMarketKey).toBeUndefined()
+  await waitFor(() => expect(trigger.textContent).toBe('Citypoint Dental · Property'))
+})
 
 test('a published Property scope opens the Property page, and every return keeps the report selection', async () => {
   const reportSearch = new URLSearchParams({
