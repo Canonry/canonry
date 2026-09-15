@@ -120,6 +120,19 @@ import { formatRatio, reportGaIntro, reportGscIntro, reportShareBarShareLabel } 
 // ── end report slice S3 imports ──
 
 // ── report slice S4 imports: server-side, indexing and trend ──
+import {
+  deltaTone,
+  isTrendBaseline,
+  reportCitationsTrendBaseline,
+  reportIndexingIntro,
+  reportIndexingLegendLabel,
+  reportServerActivityAgencyOperatorHeaders,
+  reportServerActivityAgencyTiles,
+  reportServerActivityCrawledPathsNote,
+  reportServerActivityTrendTitle,
+  reportTrendProviderRates,
+} from '@ainyc/canonry-contracts'
+import type { DeltaTone, DeltaWindow } from '@ainyc/canonry-contracts'
 // ── end report slice S4 imports ──
 
 // ── report slice S5 imports: insights and content ──
@@ -1673,19 +1686,275 @@ function searchTrafficShareBarRows(
 // ── end report slice S3 ──
 
 // ── report slice S4: server-side, indexing and trend ──
+/** A prior-window delta takes its direction's tone; a flat or unknown change stays plain copy. */
+const SERVER_ACTIVITY_DELTA_CLASS: Readonly<Record<DeltaTone, string>> = {
+  positive: TONE_TEXT_CLASS.positive,
+  negative: TONE_TEXT_CLASS.negative,
+  neutral: '',
+}
+
+/**
+ * The agency's full server-side view, in the HTML report's order: four window
+ * tiles, the verified crawl trend, then the operator, crawled path, product and
+ * landing tables. The window is the report period, as in the HTML report.
+ */
 function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
-  const heading = reportServerActivityHeading('agency', report.serverActivity?.hasData ?? false, report.meta.periodDays)
-  return <ReportSection id={heading.id} eyebrow={heading.eyebrow} title={heading.title} />
+  const sa = report.serverActivity
+  const windowDays = report.meta.periodDays
+  const copy = REPORT_SECTION_COPY['server-activity']
+  const agency = copy.agency
+  // Unlike the client view, the agency view keeps the section before a source
+  // is connected or synced: the operator is the reader who can act on it.
+  if (!sa?.hasData) {
+    return (
+      <ReportSection {...reportServerActivityHeading('agency', false, windowDays)}>
+        <EmptyHint message={sa ? agency.empty : agency.emptyNotConnected} />
+      </ReportSection>
+    )
+  }
+
+  const priorWindowLabel = reportPriorWindowLabel(windowDays)
+  const tiles = reportServerActivityAgencyTiles(windowDays)
+  const [operatorHeader, verifiedHeader, unverifiedHeader, userFetchesHeader, referralSessionsHeader, deltaHeader] = reportServerActivityAgencyOperatorHeaders(windowDays)
+  const [crawledPathHeader, hitsHeader, verifiedHitsHeader, operatorCountHeader] = agency.crawledPathHeaders
+  const [productHeader, productSessionsHeader, landingPathCountHeader] = agency.referralProductHeaders
+  const [landingPathHeader, landingSessionsHeader, productCountHeader] = agency.referralLandingHeaders
+  // Referral arrivals mix paid and organic clicks, and arrivals lost to
+  // redirects are named rather than hidden: the HTML report's fragments, in its order.
+  const referralParts = [
+    serverActivityDelta(sa.referralArrivals, copy.countNouns.sessions, priorWindowLabel),
+    sa.referralArrivalsClassSummary,
+    reportReferralRedirectNote(sa.referralRedirects),
+  ].filter(Boolean)
+
+  return (
+    <ReportSection {...reportServerActivityHeading('agency', true, windowDays)}>
+      <ReportTiles
+        columns={4}
+        tiles={[
+          { label: tiles.verified, value: formatNumber(sa.verifiedCrawlerHits.current), subtitle: serverActivityDelta(sa.verifiedCrawlerHits, copy.countNouns.hits, priorWindowLabel) },
+          { label: tiles.unverified, value: formatNumber(sa.unverifiedCrawlerHits.current), subtitle: serverActivityDelta(sa.unverifiedCrawlerHits, copy.countNouns.hits, priorWindowLabel) },
+          { label: tiles.userFetches, value: formatNumber(sa.aiUserFetchHits.current), subtitle: serverActivityDelta(sa.aiUserFetchHits, copy.countNouns.hits, priorWindowLabel) },
+          {
+            label: tiles.referralSessions,
+            value: formatNumber(sa.referralArrivals.current),
+            subtitle: referralParts.length > 0
+              ? referralParts.map((part, index) => <span key={index}>{index > 0 ? ' · ' : null}{part}</span>)
+              : undefined,
+          },
+        ]}
+      />
+      <ReportLineChart
+        title={reportServerActivityTrendTitle(windowDays)}
+        data={sa.dailyTrend}
+        xKey="date"
+        dataKey="verifiedCrawlerHits"
+        color={REPORT_CHART_COLORS.series[1]}
+        formatValue={formatNumber}
+        dates="calendar"
+      />
+      {sa.byOperator.length > 0 && (
+        <ReportTableBlock
+          title={agency.operatorsHeading}
+          tooltip={agency.operatorsNote}
+          headers={[
+            operatorHeader,
+            { label: verifiedHeader, numeric: true },
+            { label: unverifiedHeader, numeric: true },
+            { label: userFetchesHeader, numeric: true },
+            { label: referralSessionsHeader, numeric: true },
+            { label: deltaHeader, numeric: true },
+          ]}
+        >
+          {sa.byOperator.map(operator => (
+            <tr key={operator.operator}>
+              <td className="evidence-query-cell">{operator.operator}</td>
+              <td className="text-right tabular-nums">{formatNumber(operator.verifiedHits)}</td>
+              <td className="text-right tabular-nums text-secondary">{formatNumber(operator.unverifiedHits)}</td>
+              <td className="text-right tabular-nums">{formatNumber(operator.userFetchHits)}</td>
+              <td className="text-right tabular-nums">{formatNumber(operator.referralArrivals)}</td>
+              <td className={`text-right tabular-nums ${operator.deltaPct === null ? '' : SERVER_ACTIVITY_DELTA_CLASS[deltaTone(operator.deltaPct)]}`}>
+                {operator.deltaPct === null ? agency.noDelta : `${operator.deltaPct > 0 ? '+' : ''}${operator.deltaPct}%`}
+              </td>
+            </tr>
+          ))}
+        </ReportTableBlock>
+      )}
+      {sa.topCrawledPaths.length > 0 && (
+        <ReportTableBlock
+          title={agency.crawledPathsHeading}
+          note={<ReportNote className="mb-2">{reportServerActivityCrawledPathsNote(windowDays)}</ReportNote>}
+          headers={[crawledPathHeader, { label: hitsHeader, numeric: true }, { label: verifiedHitsHeader, numeric: true }, { label: operatorCountHeader, numeric: true }]}
+        >
+          {sa.topCrawledPaths.map((path, index) => (
+            <tr key={`${index}-${path.path}`}>
+              <td><LandingPageCell page={path.path} /></td>
+              <td className="text-right tabular-nums">{formatNumber(serverActivityPathHits(path))}</td>
+              <td className="text-right tabular-nums text-secondary">{formatNumber(path.verifiedHits)}</td>
+              <td className="text-right tabular-nums">{path.distinctOperators}</td>
+            </tr>
+          ))}
+        </ReportTableBlock>
+      )}
+      {sa.referralProducts.length > 0 && (
+        <ReportTableBlock
+          title={agency.referralProductsHeading}
+          note={<ReportNote className="mb-2">{agency.referralProductsNote}</ReportNote>}
+          headers={[productHeader, { label: productSessionsHeader, numeric: true }, { label: landingPathCountHeader, numeric: true }]}
+        >
+          {sa.referralProducts.map(product => (
+            <tr key={product.product}>
+              <td className="evidence-query-cell">{product.product}</td>
+              <td className="text-right tabular-nums">{formatNumber(product.arrivals)}</td>
+              <td className="text-right tabular-nums">{product.distinctLandingPaths}</td>
+            </tr>
+          ))}
+        </ReportTableBlock>
+      )}
+      {sa.topReferralLandingPaths.length > 0 && (
+        <ReportTableBlock
+          title={agency.referralLandingHeading}
+          headers={[landingPathHeader, { label: landingSessionsHeader, numeric: true }, { label: productCountHeader, numeric: true }]}
+        >
+          {sa.topReferralLandingPaths.map((landing, index) => (
+            <tr key={`${index}-${landing.path}`}>
+              <td><LandingPageCell page={landing.path} /></td>
+              <td className="text-right tabular-nums">{formatNumber(landing.arrivals)}</td>
+              <td className="text-right tabular-nums">{landing.distinctProducts}</td>
+            </tr>
+          ))}
+        </ReportTableBlock>
+      )}
+    </ReportSection>
+  )
 }
 
-function AgencyIndexingHealth(_props: { report: ProjectReportDto }) {
+/** A prior-window delta in the HTML report's words and tone, or nothing when there is no copy to show. */
+function serverActivityDelta(delta: DeltaWindow, noun: string, priorWindowLabel: string): ReactNode {
+  const text = formatDeltaCopy(delta, noun, priorWindowLabel)
+  if (!text) return null
+  return <span className={SERVER_ACTIVITY_DELTA_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
+}
+
+/**
+ * A crawled path's total hits, verified plus unverified, added as the HTML
+ * report adds them. The unverified count is optional here: a path stored before
+ * it was recorded has none, and the schema default fills it only on parse.
+ */
+function serverActivityPathHits(path: { verifiedHits: number; unverifiedHits?: number }): number {
+  return path.verifiedHits + (path.unverifiedHits ?? 0)
+}
+
+interface IndexingCoverageSegment {
+  key: 'indexed' | 'notIndexed' | 'deindexed' | 'unknown'
+  label: string
+  count: number
+  /** A REPORT_CHART_COLORS tone. */
+  color: string
+}
+
+/** Indexing coverage from the connected search console: three tiles, then a stacked coverage bar and its legend. */
+function AgencyIndexingHealth({ report }: { report: ProjectReportDto }) {
+  const health = report.indexingHealth
   const copy = REPORT_SECTION_COPY['indexing-health']
-  return <ReportSection id={ReportSectionIds['indexing-health']} eyebrow={copy.eyebrow} title={copy.title} />
+  if (!health) {
+    return (
+      <ReportSection id={ReportSectionIds['indexing-health']} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const coverage: IndexingCoverageSegment[] = [
+    { key: 'indexed', label: copy.segments.indexed, count: health.indexed, color: REPORT_CHART_COLORS.tone.positive },
+    { key: 'notIndexed', label: copy.segments.notIndexed, count: health.notIndexed, color: REPORT_CHART_COLORS.tone.caution },
+    { key: 'deindexed', label: copy.segments.deindexed, count: health.deindexed, color: REPORT_CHART_COLORS.tone.negative },
+    { key: 'unknown', label: copy.segments.unknown, count: health.unknown, color: REPORT_CHART_COLORS.tone.neutral },
+  ]
+  // A state with no pages draws no segment and names no legend entry, as in the HTML report.
+  const segments = coverage.filter(segment => segment.count > 0)
+  return (
+    <ReportSection id={ReportSectionIds['indexing-health']} eyebrow={copy.eyebrow} title={copy.title} intro={reportIndexingIntro(health.provider)}>
+      <ReportTiles
+        columns={3}
+        tiles={[
+          { label: copy.tiles.indexed, value: formatNumber(health.indexed), tone: 'positive' },
+          { label: copy.tiles.total, value: formatNumber(health.total) },
+          { label: copy.tiles.share, value: `${health.indexedPct}%` },
+        ]}
+      />
+      <ReportCard title={copy.coverageHeading}>
+        <IndexingCoverageBar label={copy.coverageLabel} segments={segments} />
+        <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-secondary">
+          {segments.map(segment => (
+            <li key={segment.key} className="inline-flex items-center gap-2">
+              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-sm" style={{ background: segment.color }} />
+              {reportIndexingLegendLabel(segment.label, segment.count)}
+            </li>
+          ))}
+        </ul>
+      </ReportCard>
+    </ReportSection>
+  )
 }
 
-function AgencyCitationsTrend(_props: { report: ProjectReportDto }) {
+/** One full-width stacked bar with a segment per coverage state, both axes hidden. */
+function IndexingCoverageBar({ label, segments }: { label: string; segments: readonly IndexingCoverageSegment[] }) {
+  const row = Object.fromEntries(segments.map(segment => [segment.key, segment.count]))
+  return (
+    <div role="img" aria-label={label}>
+      <ResponsiveContainer width="100%" height={28}>
+        <BarChart data={[row]} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }} barCategoryGap={0}>
+          <XAxis type="number" domain={[0, 'dataMax']} hide />
+          <YAxis type="category" hide />
+          {segments.map(segment => (
+            <Bar key={segment.key} dataKey={segment.key} stackId="coverage" fill={segment.color} isAnimationActive={false} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** Citation coverage across recent checks, charted once there are enough checks to read as a trend. */
+function AgencyCitationsTrend({ report }: { report: ProjectReportDto }) {
+  const trend = report.citationsTrend
   const copy = REPORT_SECTION_COPY['citations-trend']
-  return <ReportSection id={ReportSectionIds['citations-trend']} eyebrow={copy.eyebrow} title={copy.title} />
+  const id = ReportSectionIds['citations-trend']
+  // Too few checks for a trend: the HTML report prints the empty or baseline state alone, with no intro.
+  if (isTrendBaseline(trend)) {
+    return (
+      <ReportSection id={id} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={trend.length === 0 ? copy.empty : reportCitationsTrendBaseline(trend.length)} />
+      </ReportSection>
+    )
+  }
+  const [checkHeader, citedQueriesHeader, engineRatesHeader] = copy.breakdownHeaders
+  return (
+    <ReportSection id={id} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      {/* A check's date is when its run finished: a real instant, localized for the viewer. */}
+      <ReportLineChart
+        title={copy.chartTitle}
+        data={trend}
+        xKey="date"
+        dataKey="citationRate"
+        color={REPORT_CHART_COLORS.tone.positive}
+        height={220}
+        formatValue={value => `${value}%`}
+        dates="observed"
+      />
+      <ReportTableBlock title={copy.breakdownHeading} headers={[checkHeader, { label: citedQueriesHeader, numeric: true }, engineRatesHeader]}>
+        {trend.map(point => (
+          <tr key={point.runId}>
+            <td>{formatDate(point.date)}</td>
+            <td className="text-right tabular-nums">
+              {point.citationRate}% <span className="text-muted">({point.citedQueryCount}/{point.totalQueryCount})</span>
+            </td>
+            <td>{reportTrendProviderRates(point.providerRates)}</td>
+          </tr>
+        ))}
+      </ReportTableBlock>
+    </ReportSection>
+  )
 }
 // ── end report slice S4 ──
 
