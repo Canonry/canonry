@@ -16,9 +16,8 @@ import {
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient, isDashboardManagedSweeps } from '../api.js'
+import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
-import { getEmbedConfig } from '../api.js'
 import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
 import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
@@ -769,7 +768,7 @@ export function MeasurementPropertyPage() {
   // That allowlist never admits `portfolio`, so no embed renders this page or
   // fires its reads. ProjectPage agrees: embedded, it skips the plan read and
   // renders no Property links. Presentational only; the API key scope governs data.
-  const embedAllowsProperty = isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs(getEmbedConfig()))
+  const embedAllowsProperty = useMemo(() => isEmbedProjectTabAllowed('portfolio', effectiveEmbedProjectTabs(getEmbedConfig())), [])
   const enabled = hasRouteParams && embedAllowsProperty
   const { canWrite } = useAccount()
 
@@ -887,7 +886,8 @@ export function MeasurementPropertyPage() {
   // A child route the subnav never renders, so a direct link is the only way in.
   if (!embedAllowsProperty) {
     return (
-      <div className="page-container">
+      <div className="page-container space-y-3">
+        {backLink}
         <p className="text-sm text-muted">This view is not available here.</p>
       </div>
     )
