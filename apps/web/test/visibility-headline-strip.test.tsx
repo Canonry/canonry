@@ -1,8 +1,29 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import type { ReactNode } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
 import { REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
+
+// jsdom lays out no SVG, so each Recharts Line renders as a span carrying the
+// props that decide what is drawn: its series key, stroke, dash, and dot.
+vi.mock('recharts', async importOriginal => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  const passthrough = ({ children }: { children?: ReactNode }) => <div>{children}</div>
+  const nul = () => null
+  return {
+    ...actual,
+    ResponsiveContainer: passthrough,
+    ComposedChart: passthrough,
+    CartesianGrid: nul,
+    XAxis: nul,
+    YAxis: nul,
+    Tooltip: nul,
+    Line: ({ dataKey, stroke, strokeDasharray, dot }: { dataKey: string; stroke: string; strokeDasharray?: string; dot?: { fill?: string; strokeDasharray?: string } }) =>
+      <span data-line={dataKey} data-stroke={stroke} data-dasharray={strokeDasharray ?? ''} data-dot-fill={dot?.fill ?? ''} data-dot-dasharray={dot?.strokeDasharray ?? ''} />,
+  }
+})
 
 afterEach(cleanup)
 
@@ -243,6 +264,26 @@ describe('headline strip', () => {
     fireEvent.click(mentioned)
     expect(chart.getAttribute('data-visible-series')).toBe('cited')
     expect([mentioned.checked, mentioned.disabled, cited.checked, cited.disabled]).toEqual([false, false, true, true])
+  })
+
+  it('omits an unchecked series from every continuity segment and draws Cited dashed with hollow dots', () => {
+    const report = headlineReport({ comparison: MOVED })
+    // A model change between the two sweeps splits the trend into two segments.
+    report.populations[0]!.trend[1]!.continuity = { state: 'model-changed', comparedRunId: 'run-1' }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const chart = screen.getByRole('img', { name: 'Non-brand queries mention and citation trend' })
+    const lines = () => [...chart.querySelectorAll<HTMLElement>('[data-line]')].map(line => ({ ...line.dataset }))
+    const mentioned = (segment: number) => ({ line: `mentioned-${segment}`, stroke: CHART_SERIES_COLORS[1], dasharray: '', dotFill: CHART_SERIES_COLORS[1], dotDasharray: '' })
+    const cited = (segment: number) => ({ line: `cited-${segment}`, stroke: CHART_TONE.positive, dasharray: '6 4', dotFill: 'var(--chart-tooltip-bg)', dotDasharray: 'none' })
+    expect(lines()).toEqual([mentioned(0), cited(0), mentioned(1), cited(1)])
+
+    const legend = screen.getByRole('group', { name: 'Trend legend' })
+    fireEvent.click(within(legend).getByRole('checkbox', { name: 'Cited' }))
+    expect(lines()).toEqual([mentioned(0), mentioned(1)])
+
+    fireEvent.click(within(legend).getByRole('checkbox', { name: 'Cited' }))
+    fireEvent.click(within(legend).getByRole('checkbox', { name: 'Mentioned' }))
+    expect(lines()).toEqual([cited(0), cited(1)])
   })
 
   it('draws breakdown bars at the server rate and omits them for a null rate', () => {
