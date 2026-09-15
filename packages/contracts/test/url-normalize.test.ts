@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   absolutizeProjectUrl,
   brandLabelFromDomain,
+  describeLandingPage,
   extractDomainsFromText,
   hostMatchesDomain,
   hostOf,
   normalizeUrlPath,
   registrableDomain,
+  safeLinkHref,
   textContainsDomain,
 } from '../src/url-normalize.js'
 
@@ -295,5 +297,61 @@ describe('absolutizeProjectUrl', () => {
 
   it('returns the original input when canonicalDomain is empty', () => {
     expect(absolutizeProjectUrl('/blog/foo', '')).toBe('/blog/foo')
+  })
+})
+
+describe('safeLinkHref', () => {
+  it('keeps http(s), mailto, and slash-prefixed links as written, trimmed and unescaped', () => {
+    expect(safeLinkHref('https://rival.com/post?a=1&b=2')).toBe('https://rival.com/post?a=1&b=2')
+    expect(safeLinkHref('  HTTP://example.com/x  ')).toBe('HTTP://example.com/x')
+    expect(safeLinkHref('mailto:hello@example.com')).toBe('mailto:hello@example.com')
+    expect(safeLinkHref('/blog/foo')).toBe('/blog/foo')
+    expect(safeLinkHref('//cdn.example.com/x')).toBe('//cdn.example.com/x')
+  })
+
+  it('turns executable schemes, bare paths, and empty values into #', () => {
+    for (const value of ['javascript:alert(1)', ' JavaScript:alert(1)', 'data:text/html,<script>alert(2)</script>', 'vbscript:msgbox', 'blog/foo', '', '   ', null, undefined]) {
+      expect(safeLinkHref(value), String(value)).toBe('#')
+    }
+  })
+})
+
+describe('describeLandingPage', () => {
+  it('returns the path alone when there is no query string', () => {
+    expect(describeLandingPage('/blog/foo')).toEqual({ path: '/blog/foo', querySummary: null, raw: '/blog/foo' })
+    expect(describeLandingPage('(not set)')).toEqual({ path: '(not set)', querySummary: null, raw: '(not set)' })
+  })
+
+  it('shows / for an empty path, with or without a query', () => {
+    expect(describeLandingPage('')).toEqual({ path: '/', querySummary: null, raw: '' })
+    expect(describeLandingPage('?gclid=1')).toEqual({ path: '/', querySummary: 'Google Ad · 1 param', raw: '?gclid=1' })
+  })
+
+  it('treats a query with no parameters as no query', () => {
+    expect(describeLandingPage('/x?')).toEqual({ path: '/x', querySummary: null, raw: '/x?' })
+    expect(describeLandingPage('/x?&')).toEqual({ path: '/x', querySummary: null, raw: '/x?&' })
+  })
+
+  it('names the ad click id or campaign tags behind a query, with the parameter count', () => {
+    const cases: Array<[string, string]> = [
+      ['/pricing?gclid=abc&utm_source=x', 'Google Ad · 2 params'],
+      ['/solar?fbclid=abc&h_ad_id=123', 'Facebook Ad · 2 params'],
+      ['/x?gbraid=abc', 'Google Ad · 1 param'],
+      ['/x?wbraid=abc', 'Google Ad · 1 param'],
+      ['/x?msclkid=abc', 'Microsoft Ad · 1 param'],
+      ['/x?ttclid=abc', 'TikTok Ad · 1 param'],
+      ['/x?li_fat_id=abc', 'LinkedIn Ad · 1 param'],
+      ['/x?twclid=abc', 'X / Twitter Ad · 1 param'],
+      ['/x?epik=abc', 'Pinterest Ad · 1 param'],
+      ['/roofing?adgroupid=1&hsa_acc=2&hsa_cam=3&hsa_grp=4&hsa_ad=5&hsa_kw=roof&hsa_mt=e&hsa_net=adwords&hsa_ver=3', 'Search Ad · 9 params'],
+      ['/x?utm_source=newsletter&utm_medium=email&utm_campaign=may', 'newsletter / email · 3 params'],
+      ['/x?utm_source=newsletter', 'Source: newsletter · 1 param'],
+      ['/x?utm_medium=email', 'Medium: email · 1 param'],
+      ['/x?foo=1&bar=2', '2 tracking params'],
+      ['/x?foo=1', '1 tracking param'],
+    ]
+    for (const [raw, querySummary] of cases) {
+      expect(describeLandingPage(raw), raw).toEqual({ path: raw.slice(0, raw.indexOf('?')), querySummary, raw })
+    }
   })
 })

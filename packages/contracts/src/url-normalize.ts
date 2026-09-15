@@ -110,6 +110,82 @@ export function absolutizeProjectUrl(
 }
 
 /**
+ * A value that is safe to put in an `href`. Report links point at citation and
+ * competitor URLs taken from LLM grounding sources, so a planted `javascript:`
+ * or `data:` URI would otherwise run when someone clicks it. Keeps http(s),
+ * `mailto:`, and slash-prefixed paths as written (trimmed, NOT HTML-escaped:
+ * the HTML renderer escapes on output and React escapes attributes); returns
+ * `#` for anything else, including an empty value.
+ */
+export function safeLinkHref(value: string | null | undefined): string {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) return '#'
+  if (trimmed.startsWith('/')) return trimmed
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (/^mailto:/i.test(trimmed)) return trimmed
+  return '#'
+}
+
+/** A landing page as a report cell shows it: the path, plus a short summary of any tracking query. */
+export interface LandingPageDescription {
+  /** The path before any `?`, or `/` when that is empty. */
+  path: string
+  /** e.g. `Google Ad · 2 params` or `3 tracking params`; null when there is no query to summarize. */
+  querySummary: string | null
+  /** The full value as stored, for a title that shows the whole URL. */
+  raw: string
+}
+
+/**
+ * Split a stored landing page (GA, AI referral, or crawled path) into the path
+ * a reader scans and a summary of its query string, so ad-click noise does not
+ * bury the path. Both report renderers display pages this way.
+ */
+export function describeLandingPage(raw: string | null | undefined): LandingPageDescription {
+  const value = raw ?? ''
+  const queryIndex = value.indexOf('?')
+  const path = queryIndex === -1 ? value : value.slice(0, queryIndex)
+  const query = queryIndex === -1 ? '' : value.slice(queryIndex + 1)
+  const displayPath = path || '/'
+  if (!query) return { path: displayPath, querySummary: null, raw: value }
+  let summary = ''
+  try {
+    summary = summarizeQueryParams(new URLSearchParams(query))
+  } catch {
+    summary = 'tracking params'
+  }
+  return { path: displayPath, querySummary: summary || null, raw: value }
+}
+
+function summarizeQueryParams(params: URLSearchParams): string {
+  const keys = Array.from(params.keys())
+  const total = keys.length
+  if (total === 0) return ''
+  const noun = total === 1 ? 'param' : 'params'
+  const tag = inferAdSource(params)
+  return tag ? `${tag} · ${total} ${noun}` : `${total} tracking ${noun}`
+}
+
+function inferAdSource(params: URLSearchParams): string | null {
+  if (params.has('fbclid')) return 'Facebook Ad'
+  if (params.has('gclid') || params.has('gbraid') || params.has('wbraid')) return 'Google Ad'
+  if (params.has('msclkid')) return 'Microsoft Ad'
+  if (params.has('ttclid')) return 'TikTok Ad'
+  if (params.has('li_fat_id')) return 'LinkedIn Ad'
+  if (params.has('twclid')) return 'X / Twitter Ad'
+  if (params.has('epik')) return 'Pinterest Ad'
+  for (const k of params.keys()) {
+    if (k.startsWith('hsa_')) return 'Search Ad'
+  }
+  const src = params.get('utm_source')
+  const med = params.get('utm_medium')
+  if (src && med) return `${src} / ${med}`
+  if (src) return `Source: ${src}`
+  if (med) return `Medium: ${med}`
+  return null
+}
+
+/**
  * Extract the normalized host from a URL or bare hostname: lowercased, with a
  * leading `www.` stripped and the scheme/path/query discarded. Accepts both
  * full URLs (`https://www.Example.com/x`) and bare hosts (`Example.com`).

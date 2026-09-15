@@ -17,6 +17,7 @@ import {
   contentGapRowDtoSchema,
 } from './content.js'
 import { validationError } from './errors.js'
+import { SourceCategories } from './source-categories.js'
 
 /**
  * Selectable report time windows, in days. Every time-windowed section of the
@@ -894,6 +895,41 @@ export function reportActionTone(
   if (action.confidence === 'high') return 'caution'
   if (action.confidence === 'low') return 'neutral'
   return 'caution'
+}
+
+/**
+ * Badge tone for a competitor's citation pressure. High pressure is bad news
+ * for the client, so it reads negative; an unrecognized label stays neutral.
+ */
+export function reportPressureTone(label: CompetitorRow['pressureLabel']): ReportTone {
+  if (label === 'High') return 'negative'
+  if (label === 'Moderate') return 'caution'
+  if (label === 'Low') return 'positive'
+  return 'neutral'
+}
+
+/** Badge tone for an insight's severity. */
+export function reportSeverityTone(severity: ReportInsight['severity']): ReportTone {
+  switch (severity) {
+    case 'critical': return 'negative'
+    case 'high': return 'negative'
+    case 'medium': return 'caution'
+    case 'low': return 'neutral'
+  }
+}
+
+/**
+ * Tone for an AI citation source category: citations that went to a tracked
+ * competitor are negative, directories and forums are caution, and every other
+ * category (including one this build does not know) is neutral.
+ */
+export function reportSourceCategoryTone(category: AiSourceCategoryBucket['category']): ReportTone {
+  switch (category) {
+    case SourceCategories.competitor: return 'negative'
+    case SourceCategories.directory:
+    case SourceCategories.forum: return 'caution'
+    default: return 'neutral'
+  }
 }
 
 /**
