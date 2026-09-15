@@ -161,6 +161,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Structured `error.details` from a failed API read, whichever shape carried
+ * it: an `ApiError` from `invokeWeb`, the `{ error: { details } }` body that a
+ * generated TanStack query throws, or a flat `{ details }` body. Anything else
+ * is `undefined`; callers validate the details they expect.
+ */
+export function apiErrorDetails(error: unknown): Record<string, unknown> | undefined {
+  if (error instanceof ApiError) return error.details
+  if (typeof error !== 'object' || error === null) return undefined
+  const envelope = (error as { error?: unknown }).error
+  const details = typeof envelope === 'object' && envelope !== null
+    ? (envelope as { details?: unknown }).details
+    : (error as { details?: unknown }).details
+  return typeof details === 'object' && details !== null && !Array.isArray(details)
+    ? details as Record<string, unknown>
+    : undefined
+}
+
 declare global {
   interface Window {
     __CANONRY_CONFIG__?: {

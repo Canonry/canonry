@@ -2,15 +2,15 @@ import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPointDelta, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatPointDelta, parseVisibilityReportScopeErrorDetails, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
-import { heyClient } from '../../api.js'
+import { apiErrorDetails, heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
+import { visibilityReportFirstPageQuery } from '../../lib/measurement-view-url.js'
 import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus } from 'lucide-react'
-import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
@@ -184,6 +184,14 @@ function ReportHeadlineCell({ label, help, value, unit, change }: {
 }
 
 export const REPORT_MARKET_COPY = { otherQueries: 'Other queries' }
+
+/** Recovery for a saved scope or market that the displayed measurement no longer has. */
+export const VISIBILITY_SCOPE_RECOVERY_COPY = {
+  retiredScope: 'This saved scope is unavailable for this measurement. Show the whole site to choose another.',
+  retiredMarket: 'This saved market is unavailable for this measurement. Show all markets to choose another.',
+  showWholeSite: 'Show whole site',
+  showAllMarkets: 'Show all markets',
+} as const
 
 export interface VisibilityQueryGroup {
   queryKey: string
@@ -380,7 +388,7 @@ function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: s
 
 /** Shared by the live report and the isolated overview review. No metric changes. */
 export function VisibilityReportFilters({ report, onSelectionChange, queryClass = selectedReportPopulation(report).queryClass }: Pick<VisibilityReportViewProps, 'report' | 'onSelectionChange'> & { queryClass?: VisibilityReportPopulation['queryClass'] }) {
-  const { selection, scopeOptions, filterOptions } = report
+  const { selection, filterOptions } = report
   const select = (label: string, key: string, value: string, choices: { value: string; label: string }[]) => (
     <label className="min-w-0">
       <span className="mb-1 block text-sm font-medium text-heading">{label}</span>
@@ -390,10 +398,8 @@ export function VisibilityReportFilters({ report, onSelectionChange, queryClass 
     </label>
   )
 
-  return <div className="visibility-filter-container"><div className="visibility-report-filters" data-has-scope={scopeOptions.length > 1} role="group" aria-label="Visibility filters">
-    {scopeOptions.length > 1 ? <VisibilityScopePicker options={scopeOptions} selected={selection.scope} marketKey={selection.market?.id} onSelect={(scope, marketKey) => {
-      onSelectionChange({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })
-    }} /> : null}
+  // The project context row owns measurement scope, so this grid never holds it.
+  return <div className="visibility-filter-container"><div className="visibility-report-filters" data-has-scope="false" role="group" aria-label="Visibility filters">
     {select('Query type', 'queryClass', queryClass, [{ value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
     {select('Answer engine', 'measurementProvider', selection.provider ?? '', [{ value: '', label: 'All engines' }, ...filterOptions.providers.map(provider => ({ value: provider, label: provider }))])}
     {select('Search location', 'measurementLocation', selection.location.kind === 'exact' ? selection.location.value : selection.location.kind === 'none' ? 'none' : '', [{ value: '', label: 'All locations' }, ...filterOptions.locations.filter(location => location.kind !== 'all').map(location => ({ value: location.kind === 'exact' ? location.value : 'none', label: location.kind === 'exact' ? location.value : 'No location' }))])}
@@ -565,10 +571,26 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSe
   </section>
 }
 
+/**
+ * The report's first page for a URL selection. The project context row and the
+ * workspace below it read the same key with the same observer options, so a
+ * mounted AI Visibility page makes one first-page request.
+ */
+export function useVisibilityReportFirstPage(projectName: string, selection: VisibilitySelectionState, { enabled }: { enabled: boolean }) {
+  return useQuery({
+    ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: visibilityReportFirstPageQuery(selection) }),
+    enabled,
+    staleTime: DEFAULT_QUERY_STALE_MS,
+    retry: false,
+    placeholderData: keepPreviousData,
+  })
+}
+
 export function VisibilityWorkspace({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, fallback, showUnmeasuredFallback = false }: {
   projectName: string
   selection: VisibilitySelectionState
-  onSelectionChange: (patch: Record<string, unknown>) => void
+  /** `replace` corrects the URL in place instead of adding a history entry. */
+  onSelectionChange: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
   onManageQueries?: () => void
   renderPropertyLink?: VisibilityReportViewProps['renderPropertyLink']
   fallback?: ReactNode
@@ -585,7 +607,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
   }), [selection.measurementScope, selection.measurementScopeKey, selection.marketKey, selection.queryClass, selection.provider, selection.model, selection.location, selection.from, selection.to, selection.revision, selection.measurementRunId])
   const reportQuery = useQuery({
     ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: {
-      ...sharedQuery, limit: 25, cursor, search: search || undefined,
+      ...visibilityReportFirstPageQuery(selection), cursor, search: search || undefined,
     } }),
     staleTime: DEFAULT_QUERY_STALE_MS,
     retry: false,
@@ -624,29 +646,30 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
       // The server's all-class response contains the exact independently paged
       // population. Keep its timestamp so normalization neither repeats the
       // read nor makes old evidence fresh. A changed scope/search still fetches.
-      const { queryKey } = getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: {
-        ...sharedQuery, queryClass: population.queryClass, limit: 25,
-      } })
+      const { queryKey } = getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: projectName }, query: visibilityReportFirstPageQuery({ ...selection, queryClass: population.queryClass }) })
       queryClient.setQueryData(queryKey, {
         ...reportQuery.data,
         selection: { ...reportQuery.data.selection, queryClass: population.queryClass },
         populations: [population],
       }, { updatedAt: reportQuery.dataUpdatedAt })
     }
+    // Normalization corrects a clean URL in place; there is nothing to go Back to.
     onSelectionChange({
       queryClass: population.queryClass,
       ...(selection.queryKey ? { measurementQueryKey: selection.queryKey, measurementAnswer: selection.answer ? JSON.stringify(selection.answer) : undefined } : {}),
-    })
+    }, { replace: true })
   }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
   if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
   if (reportQuery.error) {
-    const message = describeError(reportQuery.error)
-    const retiredScope = selection.measurementScope !== 'project' && message.includes('scope') && message.includes('is not in this frozen definition.')
+    // Recovery follows the server's typed details, never the message text.
+    const retired = parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportQuery.error))
+    const retiredMarket = retired?.reason === VisibilityReportScopeErrorReasons['retired-market']
     return <section className="page-section-divider" role="alert"><h2>AI visibility unavailable</h2>
-      <p className="my-3 text-sm text-secondary">{retiredScope ? 'This saved group or property filter is unavailable for this measurement. Show the whole site to choose another.' : message}</p>
-      {retiredScope ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>Show whole site</Button>
-        : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
+      <p className="my-3 text-sm text-secondary">{retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket : retired ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope : describeError(reportQuery.error)}</p>
+      {retiredMarket ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementMarketKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets}</Button>
+        : retired ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>
+          : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
     </section>
   }
   if (!reportQuery.data) return <section className="page-section-divider" role="status" aria-label="Loading AI visibility"><div className="h-64 animate-pulse rounded-md bg-surface" /></section>

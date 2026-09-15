@@ -40,13 +40,13 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
-import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
+import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
 import { useAccount } from '../../contexts/account-context.js'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
 
-export type QueryWorkspace = 'tracked' | 'research'
+export type { QueryWorkspace }
 export type ResearchWorkspaceMode = 'find' | 'test'
 type SavedTrackingSource =
   | { source: 'research'; researchRunQueryId: string }
@@ -92,9 +92,9 @@ export function QueriesSection({
   const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>('find')
   const [pendingTrackingSource, setPendingTrackingSource] = useState<PendingTrackingSource | null>(null)
   const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
-  const showResearchWorkspace = account?.role !== 'viewer' || viewerResearchConfig !== null
+  const showResearchWorkspace = canUseResearchWorkspace(account?.role, viewerResearchConfig)
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
-  const queryWorkspace = requestedWorkspace === 'research' && !showResearchWorkspace ? 'tracked' : requestedWorkspace
+  const queryWorkspace = effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
 
   const selectWorkspace = (workspace: QueryWorkspace) => {
@@ -405,7 +405,6 @@ function TrackedQueriesWorkspace({
     <div className="query-tracking-workspace space-y-4">
       <section aria-label="Tracked queries">
         <div className="flex flex-wrap items-end gap-3">
-          <TrackingScopePicker workspace={workspace} selection={selection} onSelectionChange={onSelectionChange} />
           {workspace.mode === 'advanced' ? <TrackingQueryTypeFilter selection={selection} onSelectionChange={onSelectionChange} /> : null}
           <DataTableSearch
             value={table.query}
@@ -622,20 +621,6 @@ function audienceForSelection(selection: NonNullable<QueriesSectionProps['select
   return undefined
 }
 
-function unavailableTrackingScope(
-  workspace: QueryTrackingWorkspaceResponse,
-  selection: NonNullable<QueriesSectionProps['selection']>,
-): boolean {
-  if (selection.measurementScope === 'project') return false
-  if (!selection.measurementScopeKey) return true
-  const scopes = selection.measurementScope === 'group'
-    ? workspace.groups
-    : selection.measurementScope === 'property'
-      ? workspace.targets
-      : workspace.markets
-  return !scopes.some(scope => scope.stableKey === selection.measurementScopeKey)
-}
-
 function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selection']>, workspace: QueryTrackingWorkspaceResponse): string {
   const collection = selection.measurementScope === 'property' ? workspace.targets : selection.measurementScope === 'group' ? workspace.groups : selection.measurementScope === 'market' ? workspace.markets : []
   const label = collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label
@@ -701,49 +686,6 @@ function scopeValue(selection: NonNullable<QueriesSectionProps['selection']>): s
   return selection.measurementScopeKey && selection.measurementScope !== 'project'
     ? `${selection.measurementScope}:${selection.measurementScopeKey}`
     : 'project'
-}
-
-function TrackingScopePicker({
-  workspace,
-  selection,
-  onSelectionChange,
-}: {
-  workspace: QueryTrackingWorkspaceResponse
-  selection: NonNullable<QueriesSectionProps['selection']>
-  onSelectionChange?: QueriesSectionProps['onSelectionChange']
-}) {
-  const options = useMemo<VisibilityReportScopeOption[]>(() => {
-    const parentGroupIdsByTarget = new Map(workspace.targets.map(target => [target.stableKey, [] as string[]]))
-    for (const group of workspace.groups) {
-      for (const targetKey of group.targetKeys) parentGroupIdsByTarget.get(targetKey)?.push(group.stableKey)
-    }
-    return [
-      { id: 'project', label: 'Whole site', kind: 'project', targetCount: workspace.targets.length },
-      ...workspace.groups.map(group => ({
-        id: group.stableKey,
-        label: group.label,
-        kind: 'group' as const,
-        targetCount: group.targetKeys.length,
-        ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}),
-      })),
-      ...workspace.markets.map(market => ({ id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: new Set(market.usageEdges.map(edge => edge.targetKey)).size, ...(market.groupKey ? { parentGroupIds: [market.groupKey] } : {}) })),
-      ...workspace.targets.map(target => ({
-        id: target.stableKey,
-        label: target.label,
-        kind: 'property' as const,
-        targetCount: 1,
-        ...(parentGroupIdsByTarget.get(target.stableKey)?.length ? { parentGroupIds: parentGroupIdsByTarget.get(target.stableKey) } : {}),
-      })),
-    ]
-  }, [workspace.groups, workspace.markets, workspace.targets])
-  const selected = options.find(option => option.kind === selection.measurementScope && (option.kind === 'project' || option.id === selection.measurementScopeKey)) ?? options[0]!
-
-  return <VisibilityScopePicker options={options} selected={selected} onSelect={scope => {
-    onSelectionChange?.({
-      measurementScope: scope.kind,
-      measurementScopeKey: scope.kind === 'project' ? undefined : scope.id,
-    })
-  }} />
 }
 
 function provenanceLabel(row: QueryTrackingTrackedRow): string {

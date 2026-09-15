@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
 
@@ -66,15 +66,6 @@ test('a group opens its properties while a property avoids a redundant group sum
   expect(within(breakdown).queryByRole('button', { name: 'Metro Alpha' })).toBeNull()
   rerender(<VisibilityReportView report={fixture('property')} onSelectionChange={() => {}} />)
   expect(screen.queryByRole('region', { name: 'Scope breakdown' })).toBeNull()
-})
-
-test('scope choices distinguish a property group from a market query context', () => {
-  render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
-  const trigger = screen.getByText('Whole site', { selector: 'summary' })
-  trigger.closest('details')!.open = true
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Metro Alpha' } })
-  expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 properties')
-  expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
 })
 
 test('keeps the dated measured report unchanged when future assignments are pending', () => {

@@ -54,7 +54,9 @@ each choice.
 
 - Pills are reserved for non-interactive tags and semantic status badges.
 - Navigation uses underline tabs or standard links.
-- Scope and project selection uses a native/select control.
+- Project selection uses the sidebar. Measurement scope uses the shared
+  group-first scope picker, a searchable disclosure, because a flat select
+  cannot express Group drill-down.
 - A small mutually exclusive time range may use one rectangular segmented
   control with `rounded-md`, never a rack of separate pills.
 - Chart series use a checkbox-style legend.

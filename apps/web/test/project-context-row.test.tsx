@@ -322,14 +322,15 @@ test.each([
     label: 'Advanced overview without an explicit range',
     path: '/projects/project_citypoint',
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
+    // The v2 overview's measurement scope slot sits between identity and domain.
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
     meta: null,
   },
   {
     label: 'Advanced overview with an explicit range',
     path: `/projects/project_citypoint${RANGE_QUERY}`,
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-meta', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-meta', 'project-context-actions'],
     meta: '2026-09-01 to 2026-09-08',
   },
   {
