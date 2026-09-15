@@ -10,6 +10,7 @@ import {
 } from '../src/components/shared/ChartPrimitives.js'
 import {
   LandingPageCell,
+  ProofChips,
   REPORT_CHART_COLORS,
   ReportBarChart,
   ReportCard,
@@ -150,6 +151,17 @@ test('LandingPageCell shows the path and names the tracking query, with the full
   cleanup()
   render(<LandingPageCell page="" />)
   expect(screen.getByText('/')).toBeTruthy()
+})
+
+test('ProofChips shows evidence at 13px, the smallest size for meaningful text, and counts the items past its limit', () => {
+  const { container } = render(<ProofChips items={['Cited by gemini', 'Mentioned by openai', 'rival.com cited instead']} limit={2} />)
+  expect(screen.getByText('Cited by gemini').className).toContain('text-[13px]')
+  expect(screen.getByText('Mentioned by openai').className).toContain('text-[13px]')
+  expect(screen.queryByText('rival.com cited instead')).toBeNull()
+  const more = screen.getByText('+1 more')
+  expect(more.className).toContain('text-[13px]')
+  expect(more.className).toContain('text-secondary')
+  for (const chip of container.querySelectorAll('span')) expect(chip.className).not.toContain('text-[11px]')
 })
 
 // The helpers below exist so no two agency slices import the same name into

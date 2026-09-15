@@ -2516,12 +2516,12 @@ export function ProofChips({ items, limit = 3, className }: { items: readonly st
   return (
     <div className={`flex flex-wrap gap-1.5 ${className ?? ''}`}>
       {visible.map((item, i) => (
-        <span key={i} className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[11px] text-neutral">
+        <span key={i} className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[13px] text-neutral">
           {item}
         </span>
       ))}
       {more > 0 && (
-        <span className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[11px] text-secondary">
+        <span className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[13px] text-secondary">
           +{more} more
         </span>
       )}
