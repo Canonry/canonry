@@ -899,7 +899,7 @@ function simpleReaderInput(
   // project may have many historical captures, but this report's bounded run
   // selection is the only history it is entitled to reconstruct.
   const frozen = frozenSimpleDefinitions(db, project.id, sourceRuns.map(run => run.id))
-  const selectedRun = sourceRuns[0]
+  const selectedRun = sourceRuns.at(0)
   const candidates = sourceRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
   if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
