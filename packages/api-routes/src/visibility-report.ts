@@ -7,13 +7,12 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   RunKinds,
   RunStatuses,
-  RunTriggers,
   compileBrandAliases,
   effectiveBrandNames,
   matcherMatchesText,
@@ -36,7 +35,7 @@ import {
   simpleMeasurementDefinitions,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import {
   buildMeasurementPlanV2Manifest,
@@ -50,6 +49,7 @@ import {
   VisibilityReportScopeError,
   type VisibilityReportDefinitionInput,
   type VisibilityReportObservationInput,
+  type VisibilityReportPreviousRunInput,
   type VisibilityReportReaderInput,
   type VisibilityReportRunInput,
 } from './visibility-report-reader.js'
@@ -379,6 +379,7 @@ function advancedRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
+    scoped: run.measurementScope !== null,
     definition: v2Definition(plan, version.revision, populated.manifest, run),
     definitionId: version.id,
     comparableDefinitionIds,
@@ -515,6 +516,7 @@ function frozenSimpleRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
+    scoped: run.measurementScope !== null,
     definition: {
       ...simpleScope(definition.identity.displayName, matcher.keys.size > 0),
       provenance: { kind: 'frozen-simple', definitionRevision: null },
@@ -561,6 +563,7 @@ function legacySimpleRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
+    scoped: run.measurementScope !== null,
     definition: {
       ...simpleScope(project.displayName, true),
       slots,
@@ -671,7 +674,7 @@ function completedVisibilityRuns(
     eq(runs.projectId, projectId),
     eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-    ne(runs.trigger, RunTriggers.probe),
+    notProbeRun(),
     planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
     // A scoped spot check is never a whole-project sweep. It can be inspected
     // by its exact id, but must not win the default latest-result selection.
@@ -680,6 +683,32 @@ function completedVisibilityRuns(
     query.from === undefined ? undefined : gte(runs.createdAt, query.from),
     query.to === undefined ? undefined : lte(runs.createdAt, query.to),
   )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(VISIBILITY_REPORT_MAX_RUNS).all()
+}
+
+/**
+ * The eligible whole-project sweep immediately before `selected`. Unlike the
+ * report's run list, it ignores the date window, run pin, and revision: a
+ * change compares against the sweep that actually came before, which can
+ * predate the charted window.
+ */
+function previousEligibleVisibilityRun(
+  db: DatabaseClient,
+  projectId: string,
+  planless: boolean,
+  selected: Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>,
+) {
+  return db.select().from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    notProbeRun(),
+    planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
+    isNull(runs.measurementScope),
+    or(
+      lt(runs.createdAt, selected.createdAt),
+      and(eq(runs.createdAt, selected.createdAt), lt(runs.id, selected.id)),
+    ),
+  )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(1).get()
 }
 
 type ParsedV2Version = { row: typeof measurementPlanVersions.$inferSelect; plan: MeasurementPlanV2 }
@@ -742,6 +771,7 @@ function advancedReaderInput(
   projectId: string,
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
+  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -780,7 +810,7 @@ function advancedReaderInput(
   const selectedSource = query.runId === undefined
     ? preferredSource
     : sourceCandidates.find(candidate => candidate.run.id === query.runId)
-  const candidates = sourceCandidates.map(candidate => {
+  const materialize = (candidate: { run: typeof runs.$inferSelect; source: ParsedV2Version }, includeEvidence: boolean) => {
     // A display-only revision uses the same exact frozen execution. Resolve
     // its presentation definition once instead of materializing the old and
     // rebased evidence separately. Material predecessors keep their own plan.
@@ -796,10 +826,26 @@ function advancedReaderInput(
       plan,
       snapshots,
       usePresentation ? [...presentationComparableIds] : comparableVersionIds(allVersionRowsById, candidate.source.row.id),
-      candidate.run.id === selectedSource?.run.id,
+      includeEvidence,
     )
-  })
+  }
+  const candidates = sourceCandidates.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
   const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
+  const previousInput = (): VisibilityReportPreviousRunInput | null => {
+    // A missing or scoped selection is never compared (the reader checks both
+    // first), so it needs no predecessor read.
+    if (selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
+    const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
+    if (predecessor === undefined) return null
+    const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+    if (loaded !== undefined) return { run: loaded }
+    const source = predecessor.measurementPlanVersionId === null ? undefined : versions.get(predecessor.measurementPlanVersionId)
+    // Schema-v1 history has no frozen v2 definition to compare with.
+    if (source === undefined) {
+      return { incomparable: { id: predecessor.id, createdAt: predecessor.createdAt, completedAt: predecessor.finishedAt } }
+    }
+    return { run: materialize({ run: predecessor, source }, false) }
+  }
   return {
     mode: 'advanced',
     activeRevision: active.version.revision,
@@ -810,37 +856,64 @@ function advancedReaderInput(
     activeDefinition: activeV2Definition(presentationPlan, presentationVersion.revision),
     ...(preferredSource === undefined ? {} : { preferredRunId: preferredSource.run.id }),
     runs: candidates,
+    ...(includeComparison ? { previous: previousInput() } : {}),
   }
+}
+
+/** Frozen sidecars for exactly these runs; a run without one is legacy history. */
+function frozenSimpleDefinitions(
+  db: DatabaseClient,
+  projectId: string,
+  runIds: readonly string[],
+): Map<string, SimpleMeasurementDefinition> {
+  if (runIds.length === 0) return new Map()
+  return new Map(db.select().from(simpleMeasurementDefinitions)
+    .where(and(
+      eq(simpleMeasurementDefinitions.projectId, projectId),
+      inArray(simpleMeasurementDefinitions.runId, [...runIds]),
+    )).all()
+    .map(row => [row.runId, row.definition] as const))
+}
+
+function simpleRunInput(
+  db: DatabaseClient,
+  project: { displayName: string; canonicalDomain: string },
+  run: typeof runs.$inferSelect,
+  definition: SimpleMeasurementDefinition | undefined,
+  includeEvidence: boolean,
+): VisibilityReportRunInput {
+  const snapshots = loadVisibilitySnapshots(db, [run.id]).get(run.id) ?? []
+  return definition
+    ? frozenSimpleRun(run, definition, snapshots, includeEvidence)
+    : legacySimpleRun(project, run, snapshots, includeEvidence)
 }
 
 function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
+  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
   // Apply the run/time predicate before touching sidecars. A long-lived
   // project may have many historical captures, but this report's bounded run
   // selection is the only history it is entitled to reconstruct.
-  const frozen = new Map<string, SimpleMeasurementDefinition>(sourceRuns.length === 0
-    ? []
-    : db.select().from(simpleMeasurementDefinitions)
-      .where(and(
-        eq(simpleMeasurementDefinitions.projectId, project.id),
-        inArray(simpleMeasurementDefinitions.runId, sourceRuns.map(run => run.id)),
-      )).all()
-      .map(row => [row.runId, row.definition] as const))
-  const selectedRunId = sourceRuns[0]?.id
-  const candidates = sourceRuns.map(run => {
-    const snapshots = loadVisibilitySnapshots(db, [run.id]).get(run.id) ?? []
-    const definition = frozen.get(run.id)
-    const includeEvidence = run.id === selectedRunId
-    return definition
-      ? frozenSimpleRun(run, definition, snapshots, includeEvidence)
-      : legacySimpleRun(project, run, snapshots, includeEvidence)
-  })
+  const frozen = frozenSimpleDefinitions(db, project.id, sourceRuns.map(run => run.id))
+  const selectedRun = sourceRuns[0]
+  const candidates = sourceRuns.map(run => simpleRunInput(db, project, run, frozen.get(run.id), run.id === selectedRun?.id))
   if (query.runId !== undefined && !candidates.some(run => run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible simple result.`)
+  }
+  const previousInput = (): VisibilityReportPreviousRunInput | null => {
+    // A missing or scoped selection is never compared (the reader checks both
+    // first), so it needs no predecessor read.
+    if (selectedRun === undefined || selectedRun.measurementScope !== null) return null
+    const predecessor = previousEligibleVisibilityRun(db, project.id, true, selectedRun)
+    if (predecessor === undefined) return null
+    const loaded = candidates.find(candidate => candidate.id === predecessor.id)
+    if (loaded !== undefined) return { run: loaded }
+    const definition = frozenSimpleDefinitions(db, project.id, [predecessor.id]).get(predecessor.id)
+    return { run: simpleRunInput(db, project, predecessor, definition, false) }
   }
   return {
     mode: 'simple',
@@ -849,15 +922,24 @@ function simpleReaderInput(
     selection: query,
     activeDefinition: simpleActiveDefinition(project),
     runs: candidates,
+    ...(includeComparison ? { previous: previousInput() } : {}),
   }
 }
 
-/** Shared stored-evidence reader. Callers enforce authorization before resolving the project. */
+/**
+ * Shared stored-evidence reader. Callers enforce authorization before resolving the project.
+ *
+ * `includeComparison` (default true) adds each population's change since the
+ * previous eligible sweep. Report builds pass false: they keep only summary and
+ * trend, so they skip the predecessor read entirely.
+ */
 export function readVisibilityReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   rawQuery: Record<string, unknown>,
+  options: { includeComparison?: boolean } = {},
 ) {
+  const includeComparison = options.includeComparison ?? true
   const query = parseQuery(rawQuery)
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
@@ -865,9 +947,9 @@ export function readVisibilityReport(
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
       if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
+      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeComparison))
     }
-    return buildVisibilityReport(simpleReaderInput(db, project, query))
+    return buildVisibilityReport(simpleReaderInput(db, project, query, includeComparison))
   } catch (error) {
     if (error instanceof VisibilityReportCursorError || error instanceof VisibilityReportScopeError) {
       throw validationError(error.message)

@@ -2241,7 +2241,9 @@ function buildWhatsChanged(input: {
 function buildProjectReport(db: DatabaseClient, projectName: string, periodDays: number): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
-  const canonicalVisibility = readVisibilityReport(db, project, { queryClass: 'all', scope: 'project' })
+  // The report DTO keeps only summary and trend, so it skips the per-population
+  // change since the previous sweep and its predecessor read.
+  const canonicalVisibility = readVisibilityReport(db, project, { queryClass: 'all', scope: 'project' }, { includeComparison: false })
   const generatedAt = new Date().toISOString()
   const historyWindow = { from: new Date(Date.parse(generatedAt) - periodDays * 86_400_000).toISOString(), to: generatedAt }
   const visibility = {
