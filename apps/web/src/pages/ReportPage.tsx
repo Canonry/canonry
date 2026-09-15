@@ -101,6 +101,18 @@ import { reportExecutiveHeadline, reportMarketScope } from '@ainyc/canonry-contr
 // ── end report slice S1 imports ──
 
 // ── report slice S2 imports: competitive evidence ──
+import {
+  CitationStates,
+  reportCitedUrlCount,
+  reportCompetitorMentionCopy,
+  reportPressureTone,
+  reportProviderRateLabel,
+  reportSourceCategoryShareLabel,
+  reportSourceCategoryTone,
+  reportSourceOriginHeadline,
+  reportTruncatedList,
+  type ReportCompetitorMentionCopy,
+} from '@ainyc/canonry-contracts'
 // ── end report slice S2 imports ──
 
 // ── report slice S3 imports: search and traffic ──
@@ -1131,19 +1143,284 @@ function AgencyRecommendedNextSteps({ report }: { report: ProjectReportDto }) {
 // ── end report slice S1 ──
 
 // ── report slice S2: competitive evidence ──
-function AgencyCitationScorecard(_props: { report: ProjectReportDto }) {
+type ScorecardData = ProjectReportDto['citationScorecard']
+type ScorecardCellData = ScorecardData['matrix'][number][number]
+type LandscapeMentions = ProjectReportDto['mentionLandscape']
+type LandscapeCompetitor = ProjectReportDto['competitorLandscape']['competitors'][number]
+
+function AgencyCitationScorecard({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['citation-scorecard']
-  return <ReportSection id={ReportSectionIds['citation-scorecard']} eyebrow={copy.eyebrow} title={copy.title} />
+  const scorecard = report.citationScorecard
+  const series = REPORT_CHART_COLORS.series
+  return (
+    <ReportSection id={ReportSectionIds['citation-scorecard']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <ReportBarChart
+        title={copy.providerChartTitle}
+        rows={scorecard.providerRates.map((rate, index) => ({
+          label: rate.provider,
+          value: rate.citationRate,
+          color: series[index % series.length],
+          valueLabel: reportProviderRateLabel(rate),
+        }))}
+        domainMax={Math.max(...scorecard.providerRates.map(rate => rate.citationRate), 100)}
+        track
+      />
+      {scorecard.queries.length > 0 && scorecard.providers.length > 0
+        ? <ScorecardMatrix scorecard={scorecard} />
+        : <EmptyHint message={copy.empty} />}
+    </ReportSection>
+  )
 }
 
-function AgencyCompetitorLandscape(_props: { report: ProjectReportDto }) {
+/** The query × provider matrix under its glyph legend. */
+function ScorecardMatrix({ scorecard }: { scorecard: ScorecardData }) {
+  const { queryHeader, glyphs, legend } = REPORT_SECTION_COPY['citation-scorecard']
+  return (
+    <ReportTableBlock
+      headers={[queryHeader, ...scorecard.providers]}
+      note={
+        <ReportNote className="mb-2">
+          {legend.lead}{' '}
+          <ScorecardGlyph mark="yes">{glyphs.cited}</ScorecardGlyph>/<ScorecardGlyph mark="no">{glyphs.notCited}</ScorecardGlyph>{' '}
+          {legend.citedMeaning}{' '}
+          <ScorecardGlyph mark="yes">{glyphs.mentioned}</ScorecardGlyph>/<ScorecardGlyph mark="no">{glyphs.notMentioned}</ScorecardGlyph>{' '}
+          {legend.mentionedMeaning}{' '}
+          <ScorecardGlyph mark="pending">{glyphs.pending}</ScorecardGlyph>{' '}
+          {legend.pendingMeaning}
+        </ReportNote>
+      }
+    >
+      {scorecard.queries.map((query, queryIndex) => (
+        <tr key={`${queryIndex}-${query}`}>
+          <td className="evidence-query-cell">{query}</td>
+          {scorecard.providers.map((provider, providerIndex) => (
+            <td key={`${providerIndex}-${provider}`} className="whitespace-nowrap font-mono text-[13px]">
+              <ScorecardCell cell={scorecard.matrix.at(queryIndex)?.at(providerIndex) ?? null} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </ReportTableBlock>
+  )
+}
+
+const SCORECARD_MARK_CLASS = {
+  yes: `font-semibold ${TONE_TEXT_CLASS.positive}`,
+  no: 'text-secondary',
+  pending: 'italic text-secondary',
+} as const
+
+function ScorecardGlyph({ mark, children }: { mark: keyof typeof SCORECARD_MARK_CLASS; children: ReactNode }) {
+  return <span className={SCORECARD_MARK_CLASS[mark]}>{children}</span>
+}
+
+/**
+ * Citation glyph, then mention glyph: the two signals are independent, so a
+ * cell never folds them into one label. Only a cited state reads C, an answer
+ * with no mention verdict reads –, and a pair with no snapshot reads — —.
+ */
+function ScorecardCell({ cell }: { cell: ScorecardCellData }) {
+  const { glyphs } = REPORT_SECTION_COPY['citation-scorecard']
+  if (!cell) return <ScorecardGlyph mark="pending">{glyphs.missingCell}</ScorecardGlyph>
+  const cited = cell.citationState === CitationStates.cited
+  return (
+    <>
+      <ScorecardGlyph mark={cited ? 'yes' : 'no'}>{cited ? glyphs.cited : glyphs.notCited}</ScorecardGlyph>{' '}
+      {cell.answerMentioned === null
+        ? <ScorecardGlyph mark="pending">{glyphs.pending}</ScorecardGlyph>
+        : <ScorecardGlyph mark={cell.answerMentioned ? 'yes' : 'no'}>{cell.answerMentioned ? glyphs.mentioned : glyphs.notMentioned}</ScorecardGlyph>}
+    </>
+  )
+}
+
+function AgencyCompetitorLandscape({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['competitor-landscape']
-  return <ReportSection id={ReportSectionIds['competitor-landscape']} eyebrow={copy.eyebrow} title={copy.title} />
+  const { competitors, projectCitationCount } = report.competitorLandscape
+  const mentions = report.mentionLandscape
+  // `canonry report` renders whatever payload the API returned, and an older
+  // server sends no class split. The HTML report reads that as no branded data.
+  const branded = mentions.branded as LandscapeMentions['branded'] | undefined
+  const nonBrand = mentions.nonBrand as LandscapeMentions['nonBrand'] | undefined
+  const hasBrandedAnswers = (branded?.totalAnswerSnapshots ?? 0) > 0
+  const noCitationData = competitors.length === 0 && projectCitationCount === 0
+  const noMentionData = mentions.competitors.length === 0 && mentions.projectMentionCount === 0 && !hasBrandedAnswers
+  if (noCitationData && noMentionData) {
+    return (
+      <ReportSection id={ReportSectionIds['competitor-landscape']} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+
+  const canonicalDomain = report.meta.project.canonicalDomain
+  const mentionCopy = reportCompetitorMentionCopy(mentions)
+  const citationRows = landscapeChartRows(canonicalDomain, projectCitationCount, competitors.map(row => ({ domain: row.domain, count: row.citationCount })))
+  const mentionRows = landscapeChartRows(canonicalDomain, mentions.projectMentionCount, mentions.competitors.map(row => ({ domain: row.domain, count: row.mentionCount })))
+  // Branded recall gets its own labelled chart and is never added into the competitive one.
+  const brandedRows = branded && hasBrandedAnswers
+    ? landscapeChartRows(canonicalDomain, branded.projectMentionCount, branded.competitors.map(row => ({ domain: row.domain, count: row.mentionCount })))
+    : []
+  const mentionShareUnavailable = !nonBrand?.shareOfVoice
+    && mentions.projectMentionCount === 0
+    && mentions.competitors.length > 0
+    && mentions.competitors.every(row => row.sharePct === null)
+  const citationChart = <LandscapeChart title={copy.citationsChartTitle} rows={citationRows} />
+  const mentionChart = <LandscapeChart title={mentionCopy.mentionsChartTitle} rows={mentionRows} />
+
+  return (
+    <ReportSection id={ReportSectionIds['competitor-landscape']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      {mentionShareUnavailable ? <ReportNote>{mentionCopy.mentionShareUnavailable}</ReportNote> : null}
+      {citationRows.length > 0 && mentionRows.length > 0
+        ? <div className="grid gap-x-4 lg:grid-cols-2">{citationChart}{mentionChart}</div>
+        : <>{citationChart}{mentionChart}</>}
+      {competitors.length > 0
+        ? <LandscapeTable report={report} mentionCopy={mentionCopy} />
+        : <EmptyHint message={copy.noCompetitors} />}
+      {brandedRows.length > 0 ? (
+        <div className="mt-4">
+          <ReportNote>{mentionCopy.brandedNote}</ReportNote>
+          <LandscapeChart title={copy.brandedChartTitle} rows={brandedRows} />
+        </div>
+      ) : null}
+    </ReportSection>
+  )
 }
 
-function AgencyAiSourceOrigin(_props: { report: ProjectReportDto }) {
+/**
+ * The project's bar first in the accent color, then one bar per competitor in
+ * the palette colors after it, as the HTML report draws them. A chart with only
+ * the project's bar compares nothing, so it gets no rows and is left out.
+ */
+function landscapeChartRows(
+  canonicalDomain: string,
+  projectCount: number,
+  competitors: readonly { domain: string; count: number }[],
+): ReportBarChartRow[] {
+  if (competitors.length === 0) return []
+  const series = REPORT_CHART_COLORS.series
+  return [
+    { label: canonicalDomain, value: projectCount, color: series[1], valueLabel: String(projectCount) },
+    // The project is bar 0, so competitor `index` is bar index + 1, drawn in series[(bar + 1) % 8].
+    ...competitors.map((competitor, index) => ({
+      label: competitor.domain,
+      value: competitor.count,
+      color: series[(index + 2) % series.length],
+      valueLabel: String(competitor.count),
+    })),
+  ]
+}
+
+function LandscapeChart({ title, rows }: { title: string; rows: readonly ReportBarChartRow[] }) {
+  return <ReportBarChart title={title} rows={rows} rowHeight={28} labelWidth={160} />
+}
+
+/** One row per competitor. Its mentions come from the class-scoped mention landscape, matched by domain. */
+function LandscapeTable({ report, mentionCopy }: { report: ProjectReportDto; mentionCopy: ReportCompetitorMentionCopy }) {
+  const copy = REPORT_SECTION_COPY['competitor-landscape']
+  const mentions = report.mentionLandscape
+  const mentionByDomain = new Map(mentions.competitors.map(row => [row.domain, row]))
+  return (
+    <ReportTableBlock
+      headers={[
+        copy.headers.domain,
+        copy.headers.pressure,
+        { label: copy.headers.citations, numeric: true },
+        { label: mentionCopy.mentionsHeader, numeric: true, tooltip: mentionCopy.mentionsTooltip },
+        { label: copy.headers.citationShare, numeric: true, tooltip: copy.citationShareTooltip },
+        copy.headers.citedQueries,
+      ]}
+    >
+      {report.competitorLandscape.competitors.map((competitor, index) => {
+        const mention = mentionByDomain.get(competitor.domain)
+        return (
+          <tr key={`${index}-${competitor.domain}`}>
+            <td className="evidence-query-cell">{competitor.domain}</td>
+            <td><ToneBadge tone={reportPressureTone(competitor.pressureLabel)}>{competitor.pressureLabel}</ToneBadge></td>
+            <td className="whitespace-nowrap text-right tabular-nums">{competitor.citationCount} / {competitor.totalCount}</td>
+            <td className="whitespace-nowrap text-right tabular-nums">{mention?.mentionCount ?? 0} / {mention?.totalCount ?? mentions.totalAnswerSnapshots}</td>
+            <td className="text-right tabular-nums">{competitor.sharePct}%</td>
+            <td className="min-w-48">
+              {reportTruncatedList(competitor.citedQueries, 5)}
+              {competitor.theirCitedPages.length > 0 ? <LandscapeCitedPages pages={competitor.theirCitedPages} /> : null}
+            </td>
+          </tr>
+        )
+      })}
+    </ReportTableBlock>
+  )
+}
+
+/** A competitor's cited URLs behind a disclosure. An unsafe URL keeps its text, and its link goes nowhere. */
+function LandscapeCitedPages({ pages }: { pages: LandscapeCompetitor['theirCitedPages'] }) {
+  return (
+    <details className="mt-2 text-[13px] text-secondary">
+      <summary className="cursor-pointer rounded-sm text-secondary hover:text-neutral focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">{reportCitedUrlCount(pages.length)}</summary>
+      <ul className="mt-2 space-y-1">
+        {pages.map((page, index) => (
+          <li key={`${index}-${page.url}`} className="break-all">
+            <ReportExternalLink href={page.url}>{page.url}</ReportExternalLink>{' '}
+            <span className="text-secondary">{page.citedFor.join(', ')}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+function AgencyAiSourceOrigin({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['ai-source-origin']
-  return <ReportSection id={ReportSectionIds['ai-source-origin']} eyebrow={copy.eyebrow} title={copy.title} />
+  const origin = report.aiSourceOrigin
+  if (origin.categories.length === 0 && origin.topDomains.length === 0) {
+    return (
+      <ReportSection id={ReportSectionIds['ai-source-origin']} eyebrow={copy.eyebrow} title={copy.title}>
+        <EmptyHint message={copy.empty} />
+      </ReportSection>
+    )
+  }
+  const headline = reportSourceOriginHeadline(origin.categories)
+  const [domainHeader, citationsHeader, tagHeader] = copy.topSourceHeaders
+  return (
+    <ReportSection id={ReportSectionIds['ai-source-origin']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      {headline ? <ReportNote><strong className="font-semibold text-heading">{headline.share}</strong> {headline.detail}</ReportNote> : null}
+      {origin.topDomains.length > 0 ? (
+        <ReportTableBlock title={copy.topSourcesHeading} headers={[domainHeader, { label: citationsHeader, numeric: true }, tagHeader]}>
+          {origin.topDomains.map((source, index) => (
+            <tr key={`${index}-${source.domain}`}>
+              <td className="evidence-query-cell">{source.domain}</td>
+              <td className="text-right tabular-nums">{source.count}</td>
+              <td>
+                {source.isCompetitor
+                  ? <ToneBadge tone="negative">{copy.trackedCompetitorTag}</ToneBadge>
+                  : <ToneBadge tone="neutral">{copy.externalTag}</ToneBadge>}
+              </td>
+            </tr>
+          ))}
+        </ReportTableBlock>
+      ) : null}
+      <ShareBars
+        title={copy.categoriesHeading}
+        scale="max"
+        rows={origin.categories.map(category => ({
+          label: category.label,
+          count: category.count,
+          sharePct: category.sharePct,
+          color: sourceOriginBarColor(reportSourceCategoryTone(category.category)),
+          valueLabel: `${category.count} ${reportSourceCategoryShareLabel(category.sharePct)}`,
+        }))}
+      />
+    </ReportSection>
+  )
+}
+
+/** A source-type bar color, picked as the HTML report picks it: its accent color for any source it does not flag. */
+function sourceOriginBarColor(tone: MetricTone): string {
+  const colors: Readonly<Record<MetricTone, string>> = {
+    negative: REPORT_CHART_COLORS.tone.negative,
+    caution: REPORT_CHART_COLORS.tone.caution,
+    positive: REPORT_CHART_COLORS.series[1],
+    neutral: REPORT_CHART_COLORS.series[1],
+  }
+  return colors[tone]
 }
 // ── end report slice S2 ──
 
