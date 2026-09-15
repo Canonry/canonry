@@ -1080,15 +1080,28 @@
     container-type: inline-size;
   }
 
+  /* The results toolbar sits above the keyed results, so it stays mounted while
+     a filter change reloads them. Its two groups share one row at a container
+     width of 50rem and up, and wrap below that. */
+  .visibility-results-toolbar {
+    @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-default py-3;
+  }
+
+  /* A removable active filter: a rectangular 44px Button that never outgrows its row. */
+  .visibility-filter-token {
+    @apply max-w-full;
+  }
+
+  /* The Filters panel grid: engine, location and model, then the UTC dates and Results from. */
   .visibility-report-filters {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    @apply items-end gap-4 border-b border-default py-4;
+    @apply items-end gap-4 py-4;
   }
 
   @container (min-width: 50rem) {
-    .visibility-report-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .visibility-report-filters[data-has-scope='false'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .visibility-results-toolbar { flex-wrap: nowrap; }
+    .visibility-report-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
 
   @container (max-width: 26rem) {

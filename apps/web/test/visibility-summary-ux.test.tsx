@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
+import { VisibilityReportView, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
+import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
+import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 
 afterEach(cleanup)
 
@@ -77,9 +79,17 @@ test('keeps the dated measured report unchanged when future assignments are pend
   const props = { onSelectionChange: () => {} }
   const { container, rerender } = render(<VisibilityReportView report={current} {...props} />)
   const measuredView = container.innerHTML
-  expect(screen.getByText(new Date(current.selection.measurement.completedAt!).toLocaleDateString(), { selector: 'span' })).toBeTruthy()
   rerender(<VisibilityReportView report={report} {...props} />)
   expect(container.innerHTML).toBe(measuredView)
+  cleanup()
+
+  // The results toolbar is the dated header, and pending assignments leave it unchanged too.
+  const selection = parseVisibilitySelection({ queryClass: 'non-brand' })
+  const toolbar = render(<VisibilityResultsToolbar report={current} selection={selection} {...props} />)
+  const measuredToolbar = toolbar.container.innerHTML
+  expect(within(toolbar.container).getByText(formatObservedInstantLabel(observedInstant(current.selection.measurement.completedAt!)), { selector: 'span' })).toBeTruthy()
+  toolbar.rerender(<VisibilityResultsToolbar report={report} selection={selection} {...props} />)
+  expect(toolbar.container.innerHTML).toBe(measuredToolbar)
 })
 
 test.each(['simple', 'advanced'] as const)('keeps %s comparison warnings beside the chart with accessible history', mode => {

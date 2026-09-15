@@ -10,7 +10,7 @@ import { apiErrorDetails, heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
 import { visibilityReportFirstPageQuery } from '../../lib/measurement-view-url.js'
 import { Button } from '../ui/button.js'
-import { Check, ChevronRight, Minus } from 'lucide-react'
+import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
@@ -24,6 +24,7 @@ import {
   CHART_TONE,
   CHART_TOOLTIP_STYLE,
   ComposedChart,
+  formatChartDateLabel,
   formatObservedInstantLabel,
   Line,
   observedInstant,
@@ -352,7 +353,6 @@ export interface VisibilityReportViewProps {
   report: VisibilityReportResponse
   isRefreshing?: boolean
   onSelectionChange: (patch: Record<string, unknown>) => void
-  onManageQueries?: () => void
   onPage?: (cursor: string) => void
   onSearch?: (search: string) => void
   search?: string
@@ -363,8 +363,6 @@ export interface VisibilityReportViewProps {
   evidenceError?: string
   onRetryEvidence?: () => void
   onEvidencePage?: (cursor: string) => void
-  /** Rendered only for an Advanced Property scope. The caller owns routing and search preservation. */
-  renderPropertyLink?: (property: { id: string; label: string }) => ReactNode
 }
 
 function matchingReportPopulation(report: VisibilityReportResponse | undefined, queryKey?: string) {
@@ -386,28 +384,172 @@ function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: s
     ?? report.populations[0]!
 }
 
-/** Shared by the live report and the isolated overview review. No metric changes. */
-export function VisibilityReportFilters({ report, onSelectionChange, queryClass = selectedReportPopulation(report).queryClass }: Pick<VisibilityReportViewProps, 'report' | 'onSelectionChange'> & { queryClass?: VisibilityReportPopulation['queryClass'] }) {
-  const { selection, filterOptions } = report
-  const select = (label: string, key: string, value: string, choices: { value: string; label: string }[]) => (
-    <label className="min-w-0">
-      <span className="mb-1 block text-sm font-medium text-heading">{label}</span>
-      <select aria-label={label} className={REPORT_CONTROL} value={value} onChange={event => onSelectionChange({ [key]: event.target.value || undefined, measurementQueryKey: undefined })}>
-        {choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-      </select>
-    </label>
-  )
+/** Results toolbar copy. A filter token names the URL value it removes. */
+export const VISIBILITY_TOOLBAR_COPY = {
+  queryType: 'Query type',
+  filters: (activeCount: number) => activeCount === 0 ? 'Filters' : `Filters · ${activeCount}`,
+  panel: 'Visibility filters',
+  clearFilters: 'Clear filters',
+  manageQueries: 'Manage queries',
+  removeFilter: (label: string) => `Remove filter ${label}`,
+  engine: (provider: string) => `Engine: ${provider}`,
+  model: (model: string) => `Model: ${model}`,
+  location: (location: string) => `Location: ${location}`,
+  noLocation: 'No location',
+  dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
+  dateFrom: (from: string) => `From ${from} (UTC)`,
+  dateThrough: (to: string) => `Through ${to} (UTC)`,
+  resultsFrom: (date: string) => `Results from: ${date}`,
+  resultsFromSelectedSweep: 'Results from: selected sweep',
+} as const
 
-  // The project context row owns measurement scope, so this grid never holds it.
-  return <div className="visibility-filter-container"><div className="visibility-report-filters" data-has-scope="false" role="group" aria-label="Visibility filters">
-    {select('Query type', 'queryClass', queryClass, [{ value: 'non-brand', label: 'Non-brand' }, { value: 'branded', label: 'Branded' }, { value: 'unknown', label: 'Unclassified' }])}
-    {select('Answer engine', 'measurementProvider', selection.provider ?? '', [{ value: '', label: 'All engines' }, ...filterOptions.providers.map(provider => ({ value: provider, label: provider }))])}
-    {select('Search location', 'measurementLocation', selection.location.kind === 'exact' ? selection.location.value : selection.location.kind === 'none' ? 'none' : '', [{ value: '', label: 'All locations' }, ...filterOptions.locations.filter(location => location.kind !== 'all').map(location => ({ value: location.kind === 'exact' ? location.value : 'none', label: location.kind === 'exact' ? location.value : 'No location' }))])}
-  </div></div>
+/** Clear filters empties exactly the panel's filters. Scope, market, class and every other param stay. */
+const CLEARED_VISIBILITY_FILTERS = {
+  measurementProvider: undefined, measurementModel: undefined, measurementLocation: undefined,
+  measurementFrom: undefined, measurementTo: undefined, measurementRunId: undefined,
+} as const
+
+/** The toolbar select sizes to its content instead of filling a grid cell. */
+const TOOLBAR_SELECT = 'min-h-11 rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+
+interface VisibilityFilterChoice { value: string; label: string }
+
+interface VisibilityFilterToken {
+  key: 'engine' | 'model' | 'location' | 'dates' | 'run'
+  label: string
+  /** Removing a token clears only the URL keys it names. */
+  patch: Record<string, undefined>
+}
+
+/** The month and day written in a `YYYY-MM-DD` prefix, never shifted by the viewer's timezone. */
+function calendarMonthDay(value: string): string {
+  const day = new Date(`${value.slice(0, 10)}T00:00:00.000Z`)
+  return Number.isNaN(day.getTime()) ? value : day.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })
+}
+
+/** URL dates are UTC calendar days, so the label reads their prefix and names UTC. */
+function dateFilterLabel(from: string | undefined, to: string | undefined): string | null {
+  // A range inside one calendar year names that year once.
+  if (from && to) return VISIBILITY_TOOLBAR_COPY.dateRange(from.slice(0, 4) === to.slice(0, 4) ? calendarMonthDay(from) : formatChartDateLabel(from), formatChartDateLabel(to))
+  if (from) return VISIBILITY_TOOLBAR_COPY.dateFrom(formatChartDateLabel(from))
+  if (to) return VISIBILITY_TOOLBAR_COPY.dateThrough(formatChartDateLabel(to))
+  return null
+}
+
+/** One token per non-default URL filter. Labels read the URL, never the server echo. */
+function visibilityFilterTokens(selection: VisibilitySelectionState, report: VisibilityReportResponse): VisibilityFilterToken[] {
+  const tokens: VisibilityFilterToken[] = []
+  if (selection.provider) tokens.push({ key: 'engine', label: VISIBILITY_TOOLBAR_COPY.engine(selection.provider), patch: { measurementProvider: undefined } })
+  if (selection.model) tokens.push({ key: 'model', label: VISIBILITY_TOOLBAR_COPY.model(selection.model), patch: { measurementModel: undefined } })
+  if (selection.location) tokens.push({ key: 'location', label: selection.location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(selection.location), patch: { measurementLocation: undefined } })
+  const dates = dateFilterLabel(selection.from, selection.to)
+  if (dates) tokens.push({ key: 'dates', label: dates, patch: { measurementFrom: undefined, measurementTo: undefined } })
+  if (selection.measurementRunId) {
+    // The displayed trend dates the sweep; a report still loading may not include it yet.
+    const point = report.populations.flatMap(population => population.trend).find(trendPoint => trendPoint.runId === selection.measurementRunId)
+    tokens.push({
+      key: 'run',
+      label: point ? VISIBILITY_TOOLBAR_COPY.resultsFrom(formatObservedInstantLabel(observedInstant(point.createdAt))) : VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep,
+      patch: { measurementRunId: undefined },
+    })
+  }
+  return tokens
+}
+
+/** Keep the URL value selectable, so a select never shows a value it cannot hold. */
+function withSelectedChoice(choices: VisibilityFilterChoice[], value: string, label: string): VisibilityFilterChoice[] {
+  return value === '' || choices.some(choice => choice.value === value) ? choices : [...choices, { value, label }]
+}
+
+export interface VisibilityResultsToolbarProps {
+  /** The displayed report. It supplies the run state and the choice lists. */
+  report: VisibilityReportResponse
+  /** The URL selection. It supplies every control value and token. */
+  selection: VisibilitySelectionState
+  onSelectionChange: (patch: Record<string, unknown>) => void
+  onManageQueries?: () => void
+  /** Rendered only for an Advanced Property scope. The caller owns routing and search preservation. */
+  renderPropertyLink?: (property: { id: string; label: string }) => ReactNode
+}
+
+/**
+ * Query type, run state, active filter tokens and the inline Filters panel.
+ * Presentation only: every value comes from the URL selection or the report.
+ */
+export function VisibilityResultsToolbar({ report, selection, onSelectionChange, onManageQueries, renderPropertyLink }: VisibilityResultsToolbarProps) {
+  const [open, setOpen] = useState(false)
+  const filtersButton = useRef<HTMLButtonElement>(null)
+  const controlId = useId()
+  const panelId = `${controlId}-filters`
+  const { filterOptions, selection: served } = report
+  const measurement = served.measurement
+  const population = selectedReportPopulation(report, selection.queryKey, selection.answer)
+  // A clean URL asks for every class until normalization records the served one.
+  const queryClass = selection.queryClass === 'all' ? population.queryClass : selection.queryClass
+  const tokens = visibilityFilterTokens(selection, report)
+  const propertyLink = served.mode === 'advanced' && served.scope.kind === 'property' ? renderPropertyLink?.({ id: served.scope.id, label: served.scope.label }) : null
+  const provider = selection.provider ?? ''
+  const model = selection.model ?? ''
+  const location = selection.location ?? ''
+  const runId = selection.measurementRunId ?? ''
+  const focusFilters = () => filtersButton.current?.focus()
+  const filterSelect = (label: string, key: string, value: string, choices: VisibilityFilterChoice[], help?: string) => <div className="min-w-0">
+    <div className="mb-1 flex items-center gap-1"><label htmlFor={`${controlId}-${key}`} className="text-sm font-medium text-heading">{label}</label>{help ? <InfoTooltip text={help} /> : null}</div>
+    <select id={`${controlId}-${key}`} className={REPORT_CONTROL} value={value} onChange={event => onSelectionChange({ [key]: event.target.value || undefined, measurementQueryKey: undefined })}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
+  </div>
+  const dateInput = (label: string, key: 'measurementFrom' | 'measurementTo', value: string | undefined, time: string) => <div className="min-w-0">
+    <label htmlFor={`${controlId}-${key}`} className="mb-1 block text-sm font-medium text-heading">{label}</label>
+    <input id={`${controlId}-${key}`} type="date" className={REPORT_CONTROL} value={value?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ [key]: event.target.value ? `${event.target.value}${time}` : undefined })} />
+  </div>
+  return <div className="visibility-filter-container">
+    <div className="visibility-results-toolbar">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <label className="flex items-center gap-2">
+          <span className="text-sm font-medium text-heading">{VISIBILITY_TOOLBAR_COPY.queryType}</span>
+          <select aria-label={VISIBILITY_TOOLBAR_COPY.queryType} className={TOOLBAR_SELECT} value={queryClass} onChange={event => onSelectionChange({ queryClass: event.target.value, measurementQueryKey: undefined })}>
+            <option value="non-brand">Non-brand</option>
+            <option value="branded">Branded</option>
+            <option value="unknown">Unclassified</option>
+          </select>
+        </label>
+        <div className="flex items-center gap-2">
+          <ToneBadge tone={measurement.state === 'measured' ? 'positive' : 'neutral'}>{measurement.state === 'measured' ? 'Complete' : measurement.state === 'partial' ? 'Partial' : 'Not measured'}</ToneBadge>
+          {measurement.completedAt ? <span className="text-sm text-secondary">{formatObservedInstantLabel(observedInstant(measurement.completedAt))}</span> : null}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <Button ref={filtersButton} type="button" variant="outline" className="min-h-11" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)}>{VISIBILITY_TOOLBAR_COPY.filters(tokens.length)}</Button>
+        {tokens.map(token => <Button key={token.key} type="button" variant="outline" className="visibility-filter-token min-h-11 rounded-md text-sm" aria-label={VISIBILITY_TOOLBAR_COPY.removeFilter(token.label)} onClick={() => { onSelectionChange(token.patch); focusFilters() }}>
+          <span className="min-w-0 truncate">{token.label}</span><X size={16} className="shrink-0" aria-hidden="true" />
+        </Button>)}
+        {propertyLink}
+        {onManageQueries ? <Button type="button" variant="outline" className="min-h-11" onClick={onManageQueries}>{VISIBILITY_TOOLBAR_COPY.manageQueries}</Button> : null}
+      </div>
+    </div>
+    <div id={panelId} role="group" aria-label={VISIBILITY_TOOLBAR_COPY.panel} hidden={!open} className="border-b border-default" onKeyDown={event => {
+      if (event.key !== 'Escape') return
+      // An open help tooltip takes the first Escape; the next one closes the panel.
+      if (event.target instanceof HTMLElement && event.target.getAttribute('aria-expanded') === 'true') return
+      setOpen(false)
+      focusFilters()
+    }}>
+      <div className="visibility-report-filters">
+        {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: value }))], provider, provider))}
+        {filterSelect('Search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
+        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
+        {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
+        {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
+        {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved sweep' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected sweep'), 'Choose a saved AI sweep to view its results. No new sweep starts.')}
+      </div>
+      <div className="flex justify-end pb-3">
+        <Button type="button" variant="ghost" className="min-h-11" disabled={tokens.length === 0} onClick={() => { onSelectionChange({ ...CLEARED_VISIBILITY_FILTERS }); focusFilters() }}>{VISIBILITY_TOOLBAR_COPY.clearFilters}</Button>
+      </div>
+    </div>
+  </div>
 }
 
 /** Presentation only: every displayed count, rate and population comes from the report. */
-export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onManageQueries, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage, renderPropertyLink }: VisibilityReportViewProps) {
+export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
   const answerTrigger = useRef<{ row: VisibilityReportQueryRow; element: HTMLButtonElement } | null>(null)
@@ -416,7 +558,6 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
   const matchingPopulations = answerReport.populations.filter(population => [...population.queries.items, ...population.evidence.items].some(row => row.queryKey === queryKey))
   const answerClasses = answerSelection ? [answerSelection.queryClass] : (matchingPopulations.length ? matchingPopulations : isEvidenceLoading ? [] : [selectedPopulation]).map(population => population.queryClass)
   const answerFocusKey = queryKey ? JSON.stringify([answerSelection ?? queryKey, answerClasses]) : undefined
-  const filterId = useId()
   useEffect(() => {
     if (!answerFocusKey) {
       if (!isRefreshing) focusedQueryKey.current = undefined
@@ -433,8 +574,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     answers[0]!.scrollIntoView?.({ block: 'start' })
     focusedQueryKey.current = answerFocusKey
   }, [answerFocusKey, isRefreshing])
-  const { selection, filterOptions } = report
-  const measurement = selection.measurement
+  const { selection } = report
   const scopeLabel = reportScopeLabel(selection.scope)
   const targetLabels = new Map(report.scopeOptions.filter(scope => scope.kind === 'property').map(scope => [scope.id, scope.label]))
   const answerPage = (population: VisibilityReportPopulation) => {
@@ -458,28 +598,8 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     else reportElement.current?.querySelector<HTMLElement>(`details[data-query-results="${selectedPopulation.queryClass}"] > summary`)?.focus()
     onSelectionChange({ measurementQueryKey: undefined, measurementAnswer: undefined })
   }
-  const filterSelect = (label: string, key: string, value: string, choices: { value: string; label: string }[], help: string) => <div className="min-w-40 flex-1">
-    <div className="mb-1 flex items-center gap-1"><label htmlFor={`${filterId}-${key}`} className="text-sm font-medium text-heading">{label}</label><InfoTooltip text={help} /></div>
-    <select id={`${filterId}-${key}`} className={REPORT_CONTROL} value={value} onChange={event => onSelectionChange({ [key]: event.target.value || undefined, measurementQueryKey: undefined })}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
-  </div>
-  const manageQueries = onManageQueries ? <Button variant="outline" onClick={onManageQueries}>Manage queries</Button> : null
-  const propertyLink = selection.mode === 'advanced' && selection.scope.kind === 'property' ? renderPropertyLink?.({ id: selection.scope.id, label: selection.scope.label }) : null
   return <section ref={reportElement} className="visibility-report" aria-label="AI visibility results">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default pb-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <ToneBadge tone={measurement.state === 'measured' ? 'positive' : 'neutral'}>{measurement.state === 'measured' ? 'Complete' : measurement.state === 'partial' ? 'Partial' : 'Not measured'}</ToneBadge>
-        {measurement.completedAt ? <span className="text-sm text-secondary">{new Date(measurement.completedAt).toLocaleDateString()}</span> : null}
-      </div>
-      {propertyLink ? <div className="flex flex-wrap items-center gap-3">{propertyLink}{manageQueries}</div> : manageQueries}
-    </div>
     {selection.provenance.kind === 'legacy-simple' && selection.queryClass !== 'unknown' && selection.queryClass !== 'all' ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-default py-3 text-sm text-secondary"><p>These saved results aren't separated by query type.</p><Button variant="outline" onClick={() => onSelectionChange({ queryClass: 'all', measurementQueryKey: undefined })}>View all saved results</Button></div> : null}
-    <VisibilityReportFilters report={report} queryClass={selectedPopulation.queryClass} onSelectionChange={onSelectionChange} />
-    <details className="border-b border-default text-sm text-secondary"><summary className="min-h-11 cursor-pointer py-3">More filters</summary><div className="flex flex-wrap gap-4 pb-3">
-      <label className="min-w-40 flex-1"><span className="mb-1 block text-sm font-medium text-heading">Start date (UTC)</span><input type="date" className={REPORT_CONTROL} value={selection.time.from?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ measurementFrom: event.target.value ? `${event.target.value}T00:00:00.000Z` : undefined })} /></label>
-      <label className="min-w-40 flex-1"><span className="mb-1 block text-sm font-medium text-heading">End date (UTC)</span><input type="date" className={REPORT_CONTROL} value={selection.time.to?.slice(0, 10) ?? ''} onChange={event => onSelectionChange({ measurementTo: event.target.value ? `${event.target.value}T23:59:59.999Z` : undefined })} /></label>
-      {filterSelect('AI model', 'measurementModel', selection.model ?? '', [{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(model => !selection.provider || model.provider === selection.provider).map(model => model.model))).map(model => ({ value: model, label: model }))], 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
-      {filterSelect('Results from', 'measurementRunId', selection.run.explicit ? selection.run.id ?? '' : '', [{ value: '', label: 'Latest saved sweep' }, ...[...selectedPopulation.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], 'Choose a saved AI sweep to view its results. No new sweep starts.')}
-    </div></details>
     {[selectedPopulation].map(population => {
       const queryGroups = groupVisibilityQueryRows(population.queries.items, selection.scope.kind === 'property' && !selection.market && population.queryClass === 'non-brand' ? new Map(report.scopeOptions.filter(option => option.kind === 'market').map(option => [option.id, option.label])) : undefined)
       const answers = answerPage(population)
@@ -586,16 +706,21 @@ export function useVisibilityReportFirstPage(projectName: string, selection: Vis
   })
 }
 
-export function VisibilityWorkspace({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, fallback, showUnmeasuredFallback = false }: {
+interface VisibilityWorkspaceProps {
   projectName: string
   selection: VisibilitySelectionState
   /** `replace` corrects the URL in place instead of adding a history entry. */
   onSelectionChange: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
-  onManageQueries?: () => void
-  renderPropertyLink?: VisibilityReportViewProps['renderPropertyLink']
   fallback?: ReactNode
   showUnmeasuredFallback?: boolean
-}) {
+}
+
+/** An unmeasured Simple project shows the page's existing overview when the page asks for it. */
+function usesUnmeasuredFallback(report: VisibilityReportResponse, showUnmeasuredFallback: boolean): boolean {
+  return showUnmeasuredFallback && report.selection.mode === 'simple' && report.selection.measurement.state === 'not-measured'
+}
+
+export function VisibilityWorkspace({ projectName, selection, onSelectionChange, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps) {
   const [cursor, setCursor] = useState<string | undefined>()
   const [search, setSearch] = useState('')
   const [answerCursor, setAnswerCursor] = useState<{ selection: string; cursor: string }>()
@@ -660,7 +785,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     }, { replace: true })
   }, [selection.queryClass, selection.queryKey, selection.answer, reportQuery.data, reportQuery.dataUpdatedAt, reportQuery.isPlaceholderData, reportQuery.isFetching, reportQuery.isError, evidenceQuery.data, onSelectionChange, queryClient, projectName, sharedQuery, cursor, search])
   if (reportQuery.data?.selection.availability.state === 'unsupported') return <>{fallback}</>
-  if (showUnmeasuredFallback && reportQuery.data?.selection.mode === 'simple' && reportQuery.data.selection.measurement.state === 'not-measured') return <>{fallback}</>
+  if (reportQuery.data && usesUnmeasuredFallback(reportQuery.data, showUnmeasuredFallback)) return <>{fallback}</>
   if (reportQuery.error) {
     // Recovery follows the server's typed details, never the message text.
     const retired = parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportQuery.error))
@@ -691,9 +816,34 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
       setAnswerCursor(undefined)
       onSelectionChange(patch)
     }}
-    onManageQueries={onManageQueries}
-    renderPropertyLink={renderPropertyLink}
   /></div>
+}
+
+/**
+ * The Advanced overview: the results toolbar above the results workspace. The
+ * workspace is keyed by the whole selection except the open answer, so a filter
+ * change remounts it onto its skeleton. The toolbar reads the same first page
+ * through an unkeyed observer that keeps the previous report while the next one
+ * loads, so it stays mounted, with its focus and open panel, across the reload.
+ */
+export function VisibilityOverview({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps & Pick<VisibilityResultsToolbarProps, 'onManageQueries' | 'renderPropertyLink'>) {
+  const firstPage = useVisibilityReportFirstPage(projectName, selection, { enabled: true })
+  // Absent before the first report, on error (the workspace alert owns
+  // recovery), and wherever the page's fallback replaces the report.
+  const report = firstPage.error ? undefined : firstPage.data
+  return <>
+    {report && report.selection.availability.state === 'available' && !usesUnmeasuredFallback(report, showUnmeasuredFallback)
+      ? <VisibilityResultsToolbar report={report} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} />
+      : null}
+    <VisibilityWorkspace
+      key={`${projectName}:${JSON.stringify({ ...selection, queryKey: undefined, answer: undefined })}`}
+      projectName={projectName}
+      selection={selection}
+      onSelectionChange={onSelectionChange}
+      fallback={fallback}
+      showUnmeasuredFallback={showUnmeasuredFallback}
+    />
+  </>
 }
 const MODE_OPTIONS: Array<{ value: TrendSeriesMode; label: string }> = [
   { value: 'byProvider', label: 'By engine' },
