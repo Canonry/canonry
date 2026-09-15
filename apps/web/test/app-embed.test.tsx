@@ -279,22 +279,24 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
 // control that would 403 on click against the read-only project-scoped key,
 // while keeping every read-only view. Not a security boundary (the API key
 // scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
-test('embed hides the page-header run action that leaks on every tab', async () => {
+test('embed hides the project sweep action that leaks on every tab', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the header action… (the YAML-export button was removed in
-  // favor of the Settings-tab results downloads + `canonry export`. Deleting
-  // the project is no longer here at all — it moved to the end of the Settings
-  // tab, away from the button next to it.)
+  // Operator sees the sweep action in the project context row… (the
+  // YAML-export button was removed in favor of the Settings-tab results
+  // downloads + `canonry export`. Deleting the project is no longer here at
+  // all — it moved to the end of the Settings tab, away from the button next
+  // to it.)
   const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
   const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
-  const hasSweepAction = (doc: Document) => [...doc.querySelectorAll('.page-header button')]
-    .some(button => /^(?:Run AI sweep|AI sweep running…|Starting…)$/.test(button.textContent ?? ''))
-  expect(hasSweepAction(operatorDoc)).toBe(true)
-  // …the embed render does not (this renders OUTSIDE the tab switch, so it
-  // would otherwise leak on the default overview embed).
-  expect(hasSweepAction(embedDoc)).toBe(false)
+  const isSweepAction = (button: Element) => /^(?:Run AI sweep|AI sweep running…|Starting…)$/.test(button.textContent ?? '')
+  expect([...operatorDoc.querySelectorAll('[data-project-actions] button')].some(isSweepAction)).toBe(true)
+  // …the embed render has no project actions at all, and its page header
+  // carries no button (this renders OUTSIDE the tab switch, so it would
+  // otherwise leak on the default overview embed).
+  expect(embedDoc.querySelector('[data-project-actions]')).toBeNull()
+  expect(embedDoc.querySelectorAll('.page-header button')).toHaveLength(0)
   // Delete is absent from BOTH headers now, so its absence in the embed is no
   // longer evidence of anything — assert it left the header instead.
   expect(operator).not.toContain('Delete project')
@@ -322,12 +324,12 @@ test('embed hides the overview competitor and query managers', async () => {
   expect(embed).not.toContain('Manage competitors')
   expect(embed).not.toContain('Manage queries')
 
-  // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the
-  // embed drops it while the operator keeps it. The locale still shows once in
-  // the subtitle, so no information is lost.
+  // Project tags moved to a read-only Settings row, so neither the operator
+  // chrome nor the embed header renders a tag row. The embed subtitle still
+  // shows the locale, so no information is lost.
   const embedDoc = parseHtml(embed)
   const operatorDoc = parseHtml(operator)
-  expect(operatorDoc.querySelector('.page-header .tag-row')).not.toBeNull()
+  expect(operatorDoc.querySelector('.tag-row')).toBeNull()
   expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 

@@ -1015,12 +1015,28 @@
     @apply flex shrink-0 items-center gap-2;
   }
 
-  .tag-row {
-    @apply mt-2 flex flex-wrap gap-1.5;
+  /* ── Project context row ── */
+  /* Operator project pages only; embeds keep `.page-header`. The title is
+     visually hidden at md and up, where the topbar breadcrumb names the project. */
+
+  .project-context-row {
+    @apply flex min-h-11 flex-wrap items-center gap-x-4 gap-y-2;
   }
 
-  .tag {
-    @apply rounded-md border border-base bg-bg-elevated/50 px-2 py-0.5 text-[11px] font-medium text-secondary;
+  .project-context-title {
+    @apply text-base font-semibold text-heading;
+  }
+
+  .project-context-domain {
+    @apply text-[13px] text-secondary;
+  }
+
+  .project-context-meta {
+    @apply text-[13px] text-secondary;
+  }
+
+  .project-context-actions {
+    @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }
 
   /* ── Eyebrow / labels ── */
@@ -1741,7 +1757,7 @@
      text that recedes, the active tab marked by a Snow underline sitting on
      the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply relative mt-5 mb-5 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
+    @apply relative mt-2 mb-4 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
   }
 
   .project-subnav-measure {
