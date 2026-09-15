@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
+import { MIN_TREND_POINTS, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
 import { formatLandingPageHtml, renderReportHtml, renderReportVisibility } from '../src/report-renderer.js'
 
 function emptyReport(): ProjectReportDto {
@@ -1684,6 +1684,75 @@ test('the report stylesheet check catches a table-scroll rule that stops working
   expect(tableScrollStyleProblems(sound.replace('table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; }', ''))).toEqual(['report-table evidence lines (p.muted) have no style'])
 })
 
+/** richReport() plus the change history it leaves out: provider movements, wins, regressions, and a trend long enough to chart. */
+function reportWithChangeHistory(): ProjectReportDto {
+  const report = richReport()
+  const regression = report.insights[0]!
+  report.whatsChanged.providerMovements = [{ provider: 'gemini', prior: 50, current: 65, deltaAbs: 15, direction: 'up' }]
+  report.whatsChanged.wins = [{ ...regression, id: 'i-2', type: 'gain', severity: 'high', title: 'Gained citation on answer engine', query: 'answer engine' }]
+  report.whatsChanged.regressions = [regression]
+  report.citationsTrend = Array.from({ length: MIN_TREND_POINTS }, (_, index) => ({
+    ...report.citationsTrend[1]!,
+    runId: `r-${index + 1}`,
+    date: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00Z`,
+  }))
+  return report
+}
+
+test.each([
+  { name: 'client', audience: 'client' as const, build: richReport, tablesIn: { 'server-activity': 1 } },
+  { name: 'agency', audience: 'agency' as const, build: richReport, tablesIn: { 'competitor-landscape': 1, gsc: 1, 'server-activity': 4, 'content-opportunities': 1 } },
+  { name: 'client change-history', audience: 'client' as const, build: reportWithChangeHistory, tablesIn: { 'whats-changed': 3 } },
+  { name: 'agency change-history', audience: 'agency' as const, build: reportWithChangeHistory, tablesIn: { 'whats-changed': 3, 'citations-trend': 1 } },
+])('every table in the $name report scrolls inside its own container on narrow screens', ({ audience, build, tablesIn }) => {
+  // DESIGN.md: only tables, diagrams and code blocks may be wider than the
+  // page, and each needs its own overflow-x: auto container. At a 375px
+  // viewport the agency report's bare competitor, GSC, server-activity and
+  // content-opportunity tables pushed the page out to 627px. The
+  // change-history renders reach the what's-changed and citations-trend
+  // tables, which richReport() leaves empty.
+  const html = renderReportHtml(build(), { audience })
+  const tables = reportTables(html)
+  expect(tables.flatMap(({ section, problem }) => problem === null ? [] : [`#${section} table ${problem}`])).toEqual([])
+  // Not vacuous: the sections under test really do render their tables.
+  const tablesPerSection: Record<string, number> = {}
+  for (const { section } of tables) tablesPerSection[section] = (tablesPerSection[section] ?? 0) + 1
+  expect(tablesPerSection).toMatchObject(tablesIn)
+  expect(tableScrollStyleProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
+})
+
+test('the report table check wants each table alone inside a div.table-scroll', () => {
+  const inSection = (body: string) => reportTables(`<section class="report-section" id="demo"><h2>Demo</h2>${body}</section>`)
+  const table = '<table class="report-table"><tbody><tr><td>1</td></tr></tbody></table>'
+  expect(inSection(`<div class="table-scroll">\n  ${table}\n</div>`)).toEqual([{ section: 'demo', problem: null }])
+  expect(inSection(`<div class="chart-body table-scroll">${table}</div>`)).toEqual([{ section: 'demo', problem: null }])
+  expect(inSection(`<div class="chart-card"><h3>Top</h3>${table}</div>`)).toEqual([{ section: 'demo', problem: expect.stringMatching(/it follows: .*<div class="chart-card"><h3>Top<\/h3>$/) }])
+  expect(inSection(`<div class="table-scroller">${table}</div>`)).toEqual([{ section: 'demo', problem: expect.stringContaining('is not inside a div.table-scroll') }])
+  expect(inSection(`<div class="table-scroll">${table}<p class="meta">Note</p></div>`)).toEqual([{ section: 'demo', problem: 'shares its div.table-scroll with markup after </table>' }])
+})
+
+test('report grid columns shrink to fit a phone instead of widening the page', () => {
+  // A 375px phone leaves a 343px content box inside the report's 16px
+  // gutters. `.client-evidence-grid` asked for 360px columns, so every client
+  // report's evidence cards ran past the right edge and the page scrolled.
+  for (const audience of ['client', 'agency'] as const) {
+    const style = renderReportHtml(richReport(), { audience }).match(/<style[\s\S]*?<\/style>/)![0]
+    expect(gridMinimumProblems(style)).toEqual([])
+  }
+})
+
+test('the report grid check flags a column minimum wider than a phone', () => {
+  const grid = (columns: string) => `.cards { display: grid; grid-template-columns: ${columns}; gap: 16px; }`
+  const tooWide = (minimum: string, where = '.cards') => [`${where}: minmax() minimum ${minimum} can exceed a 343px phone content box; cap it with min(<length>, 100%)`]
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(360px, 1fr))'))).toEqual(tooWide('360px'))
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(min(360px, 100%), 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(min(100%, 360px), 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(343px, 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('minmax(0, 1.35fr) minmax(240px, 0.65fr)'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(max(360px, 50%), 1fr))'))).toEqual(tooWide('max(360px, 50%)'))
+  expect(gridMinimumProblems(`@media (max-width: 760px) { ${grid('minmax(400px, 1fr) minmax(min(360px, 100%), 1fr)')} }`)).toEqual(tooWide('400px', '@media (max-width: 760px) .cards'))
+})
+
 interface ReportCssRule { media: string | null; selector: string; declarations: Map<string, string> }
 
 /** Top-level rules plus the rules one level inside `@media` blocks, which is every nesting the report stylesheet uses. */
@@ -1750,4 +1819,66 @@ function tableScrollStyleProblems(css: string): string[] {
     problems.push('report-table evidence lines (p.muted) have no style')
   }
   return problems
+}
+
+interface ReportTable { section: string; problem: string | null }
+
+/**
+ * Every `<table>` in rendered report markup, with the section it sits in and
+ * what keeps it from being the only child of a `.table-scroll` div (null when
+ * nothing does): the nearest markup before `<table` must open that div, and
+ * the nearest markup after `</table>` must close it.
+ */
+function reportTables(html: string): ReportTable[] {
+  // The embedded report JSON escapes `<`, so it holds no tags, but it is not markup either.
+  const markup = html.split('<script')[0]!
+  return Array.from(markup.matchAll(/<table\b/g), ({ index }) => {
+    const before = markup.slice(0, index).trimEnd()
+    const section = Array.from(before.matchAll(/<section\b[^>]*\sid="([^"]+)"/g)).at(-1)?.[1] ?? '(no section)'
+    const opener = /<div\b[^>]*>$/.exec(before)?.[0] ?? ''
+    if (!(/\bclass="([^"]*)"/.exec(opener)?.[1] ?? '').split(/\s+/).includes('table-scroll')) {
+      return { section, problem: `is not inside a div.table-scroll; it follows: ${before.slice(-70).replace(/\s+/g, ' ')}` }
+    }
+    const close = markup.indexOf('</table>', index)
+    const closesWrapper = close !== -1 && markup.slice(close + '</table>'.length).trimStart().startsWith('</div>')
+    return { section, problem: closesWrapper ? null : 'shares its div.table-scroll with markup after </table>' }
+  })
+}
+
+/** A 375px phone viewport less the report's 16px side gutters. */
+const PHONE_CONTENT_WIDTH_PX = 343
+
+/**
+ * Grid rules whose `minmax()` minimum is a px length wider than a phone's
+ * content box. A track never shrinks below its minimum, so the grid widens the
+ * page instead. `min(<length>, 100%)` caps the minimum at the grid's own width
+ * and is accepted. The report stylesheet sizes grid tracks in px.
+ */
+function gridMinimumProblems(css: string): string[] {
+  const capped = /^min\(\s*(?:[\d.]+px\s*,\s*100%|100%\s*,\s*[\d.]+px)\s*\)$/
+  const problems: string[] = []
+  for (const rule of reportCssRules(css)) {
+    for (const minimum of minmaxMinimums(rule.declarations.get('grid-template-columns') ?? '')) {
+      const widestPx = Math.max(0, ...Array.from(minimum.matchAll(/([\d.]+)px\b/g), ([, px]) => Number(px)))
+      if (widestPx > PHONE_CONTENT_WIDTH_PX && !capped.test(minimum)) {
+        problems.push(`${rule.media === null ? '' : `@media ${rule.media} `}${rule.selector}: minmax() minimum ${minimum} can exceed a ${PHONE_CONTENT_WIDTH_PX}px phone content box; cap it with min(<length>, 100%)`)
+      }
+    }
+  }
+  return problems
+}
+
+/** The first argument of each `minmax()` in a grid track list, with any nested function kept whole. */
+function minmaxMinimums(tracks: string): string[] {
+  const minimums: string[] = []
+  for (let start = tracks.indexOf('minmax('); start !== -1; start = tracks.indexOf('minmax(', start + 1)) {
+    const from = start + 'minmax('.length
+    let end = from
+    for (let depth = 0; end < tracks.length && !(depth === 0 && (tracks[end] === ',' || tracks[end] === ')')); end++) {
+      if (tracks[end] === '(') depth++
+      else if (tracks[end] === ')') depth--
+    }
+    minimums.push(tracks.slice(from, end).trim())
+  }
+  return minimums
 }
