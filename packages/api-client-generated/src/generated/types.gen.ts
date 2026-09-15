@@ -10210,7 +10210,7 @@ export type RunDto = {
     createdAt: string;
 };
 
-export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor';
+export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor' | 'site-liveness';
 
 export type CalendarRecurrence = {
     everyDays: number;

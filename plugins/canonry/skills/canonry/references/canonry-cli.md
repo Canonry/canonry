@@ -376,6 +376,7 @@ cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
+cnry schedule show <project> --kind site-liveness # seeded for every project: probes the homepage every 10 min, pages health.degraded after two failed passes
 cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule show <project>
 cnry schedule list <project> --format json      # all configured schedule kinds

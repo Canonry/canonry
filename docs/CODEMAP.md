@@ -111,7 +111,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/site-crawl-graph-layout.ts` | Publication-time Graphology/ForceAtlas2 worker: deterministic hierarchy seed → bounded layout → persisted coordinates/edge sample; timeout or failure records an unavailable layout without failing the crawl. |
 | `src/job-runner.ts` | In-process queue: `answer-visibility`, `site-audit`, `discovery`, `research`, etc. |
 | `src/provider-registry.ts` | Collects `ProviderAdapter` impls |
-| `src/scheduler.ts` | Cron kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`, `ads-sync` |
+| `src/scheduler.ts` | Cron kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`, `ads-sync`, `doctor`, `site-liveness` |
 | `src/agent/*` | Aero agent: `session.ts` (pi-agent-core), `session-registry.ts` (hybrid mem+DB), `tools.ts` (exposes MCP registry via `mcp-to-agent-tool.ts`), `memory-store.ts`, `compaction.ts` |
 | `src/mcp/*` | `canonry-mcp` stdio adapter, `tool-registry.ts` (188 tools), `toolkits.ts`, `dynamic-catalog.ts`. Cloudflare connect is classified `deferred`: deployment consumes local secrets and must stay out of MCP/Aero transcripts. |
 | `src/gsc-sitemap-submission.ts` | GSC sitemap helpers (`dedupeGscSitemapUrls`, `resolveDiscoveredGscSitemapUrls`, `submitGscSitemapBatches`) — dedupe + index expansion (4× parallel) + 50-url batched submit |

@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, doctorHealthState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, doctorHealthState, siteLivenessState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -45,6 +45,9 @@ function insightMagnitude(insight: Insight): number | null {
 function insightNotifyKey(projectId: string, insight: Insight): string {
   return `${projectId}:${insight.type}:${insight.query}:${insightFingerprint(insight)}`
 }
+
+/** Failed liveness passes in a row before a site-down page. */
+export const SITE_LIVENESS_FAILURES_TO_PAGE = 2
 
 export class Notifier {
   private db: DatabaseClient
@@ -279,6 +282,100 @@ export class Notifier {
         .where(eq(doctorHealthState.projectId, projectId)).run()
     }
     log.info('health.notified', { projectId, event, status, code, subscribers: notifs.length, delivered })
+    return event
+  }
+
+  /**
+   * Record a website liveness probe and notify on a confirmed change.
+   *
+   * Separate from onHealthChecked: that state grades the whole 6h doctor pass,
+   * and this pass sees one check. Sharing its row would let "site is up" clear
+   * an unrelated GA outage and send a false recovery.
+   *
+   * Two failed passes in a row before paging. The probe already retries once
+   * inside a pass, so an alert means four failed requests spread over at least
+   * one schedule interval, not a blip or a host restart. A recovery is sent only
+   * for an outage that was paged, so a blip that never alerted stays silent in
+   * both directions.
+   */
+  async onSiteLivenessChecked(
+    projectId: string,
+    result: {
+      check: { id: string; status: string; code: string; summary: string; remediation?: string | null }
+      checkedAt: string
+    },
+  ): Promise<'health.degraded' | 'health.recovered' | null> {
+    const { check, checkedAt } = result
+    // Skipped (no domain, a refused address) is not a liveness signal.
+    if (check.status !== 'ok' && check.status !== 'fail') return null
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) {
+      log.error('project.not-found', { projectId, msg: 'skipping site liveness notification' })
+      return null
+    }
+
+    const previous = this.db.select().from(siteLivenessState)
+      .where(eq(siteLivenessState.projectId, projectId)).get()
+    const failures = check.status === 'fail' ? (previous?.consecutiveFailures ?? 0) + 1 : 0
+    const outagePaged = previous?.status === 'fail' && Boolean(previous.notifiedAt)
+
+    let event: 'health.degraded' | 'health.recovered' | null = null
+    if (check.status === 'fail' && failures >= SITE_LIVENESS_FAILURES_TO_PAGE && !outagePaged) event = 'health.degraded'
+    if (check.status === 'ok' && outagePaged) event = 'health.recovered'
+
+    const observation = {
+      projectId,
+      status: check.status,
+      code: check.code,
+      summary: check.summary,
+      consecutiveFailures: failures,
+      checkedAt,
+      notifiedAt: check.status === 'ok' ? null : (previous?.notifiedAt ?? null),
+    }
+    if (previous === undefined) {
+      this.db.insert(siteLivenessState).values(observation).run()
+    } else {
+      this.db.update(siteLivenessState).set(observation).where(eq(siteLivenessState.projectId, projectId)).run()
+    }
+
+    if (!event) {
+      log.info('site-liveness.unchanged', { projectId, status: check.status, code: check.code, failures })
+      return null
+    }
+
+    const notifs = this.db.select().from(notifications)
+      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+    const payload: HealthWebhookPayload = {
+      source: 'canonry',
+      event,
+      project: { name: project.name, canonicalDomain: project.canonicalDomain },
+      health: {
+        status: check.status as 'ok' | 'fail',
+        code: check.code,
+        summary: check.summary,
+        remediation: check.remediation ?? null,
+        checkedAt,
+        previousStatus: (previous?.status ?? null) as 'ok' | 'warn' | 'fail' | null,
+        failing: event === 'health.degraded'
+          ? [{ id: check.id, status: check.status, code: check.code, summary: check.summary }]
+          : [],
+      },
+      dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+    }
+
+    // Same rule as onHealthChecked: health events reach every enabled webhook.
+    let delivered = 0
+    for (const notif of notifs) {
+      const config = notif.config as { url: string; events?: string[] }
+      if (!config.url) continue
+      await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)
+      delivered += 1
+    }
+    if (event === 'health.degraded' && delivered > 0) {
+      this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
+        .where(eq(siteLivenessState.projectId, projectId)).run()
+    }
+    log.info('site-liveness.notified', { projectId, event, code: check.code, subscribers: notifs.length, delivered })
     return event
   }
 
