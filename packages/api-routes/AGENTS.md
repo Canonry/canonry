@@ -21,7 +21,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/analytics.ts` | Analytics and visibility score endpoints |
 | `src/visibility-stats.ts` / `src/visibility-compare.ts` | `GET /visibility-stats` and `GET /visibility-compare`; pure `computeVisibilityCompare` |
 | `src/visibility-attribution.ts` | `buildQueryAttribution` + `resolveCurrentQuery`: historical query attribution |
-| `src/report.ts` / `src/report-renderer.ts` | Client-facing AEO report bundle (JSON + HTML); `renderReportHtml(report)` |
+| `src/report.ts` / `src/report-renderer.ts` | Client-facing AEO report bundle (JSON + HTML); `renderReportHtml(report)`. Strings, section order (`reportSectionOrder`) and shared display helpers come from `packages/contracts/src/report-sections.ts`, which the SPA report also renders from. `test/report-renderer-bytes.test.ts` pins the output bytes for both audiences and writes the outline goldens in `test/fixtures/report-outline/` that the SPA must match; update a snapshot or golden only for an intended change. |
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
