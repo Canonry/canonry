@@ -86,6 +86,8 @@ import {
   reportServerActivityClientOperatorHeaders,
   reportServerActivityCrawledPathsNote,
   reportServerActivityHeading,
+  reportServerActivityOperatorDelta,
+  reportServerActivityPathHits,
   reportServerActivityTrendTitle,
   reportShareBarShareLabel,
   reportSourceCategoryShareLabel,
@@ -1882,9 +1884,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
 
   // ── Agency view (full forensic detail) ──
   const operatorRows = sa.byOperator.map(o => {
-    const deltaText = o.deltaPct === null
-      ? copy.agency.noDelta
-      : `${o.deltaPct > 0 ? '+' : ''}${o.deltaPct}%`
+    const deltaText = reportServerActivityOperatorDelta(o.deltaPct)
     const toneClass = o.deltaPct === null ? '' : `tone-${deltaTone(o.deltaPct)}`
     return `
     <tr>
@@ -1904,7 +1904,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   const pathRows = sa.topCrawledPaths.map(p => `
     <tr>
       <td class="page-cell">${formatLandingPageHtml(p.path)}</td>
-      <td class="numeric">${formatNumber(p.verifiedHits + (p.unverifiedHits ?? 0))}</td>
+      <td class="numeric">${formatNumber(reportServerActivityPathHits(p))}</td>
       <td class="numeric meta">${formatNumber(p.verifiedHits)}</td>
       <td class="numeric">${p.distinctOperators}</td>
     </tr>`).join('')
