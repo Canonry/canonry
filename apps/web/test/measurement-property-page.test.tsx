@@ -382,6 +382,38 @@ function propertyPageResponses({
   }
 }
 
+describe('Property page in a read-only embed', () => {
+  // The project subnav drops `portfolio` in every embed. A direct link to this
+  // child route must agree, whether the host sends no tab allowlist or names
+  // `portfolio` explicitly; the raw host list admitted it in both cases.
+  async function renderEmbeddedPropertyPage(embed: { enabled: true; projectTabs?: string[] }) {
+    window.__CANONRY_CONFIG__ = { embed }
+    onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
+    const fetched: string[] = []
+    await renderPropertyPageFromApi(url => {
+      fetched.push(pathOf(url))
+      return propertyPageResponses()(url)
+    })
+    return fetched
+  }
+
+  it('renders the unavailable state and reads no measurement data when the embed has no tab allowlist', async () => {
+    const fetched = await renderEmbeddedPropertyPage({ enabled: true })
+
+    expect(await screen.findByText('This view is not available here.')).toBeTruthy()
+    expect(screen.queryByText('Back to measurement overview')).toBeNull()
+    expect(fetched.filter(path => path.includes('/measurement-'))).toEqual([])
+  })
+
+  it('renders the unavailable state and reads no measurement data when the allowlist names portfolio', async () => {
+    const fetched = await renderEmbeddedPropertyPage({ enabled: true, projectTabs: ['overview', 'portfolio'] })
+
+    expect(await screen.findByText('This view is not available here.')).toBeTruthy()
+    expect(screen.queryByText('Back to measurement overview')).toBeNull()
+    expect(fetched.filter(path => path.includes('/measurement-'))).toEqual([])
+  })
+})
+
 describe('Property page', () => {
   it('keeps the compact loading skeleton inside a readable status', async () => {
     await renderPropertyPageFromApi(() => new Promise<Response>(() => {}))

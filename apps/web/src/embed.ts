@@ -28,11 +28,12 @@ export function embedViewIdForPath(pathname: string): string {
 
 /**
  * Whether a project-page tab key is visible under an embed `projectTabs`
- * allowlist. An absent allowlist (non-embed, or embed without the option) means
- * every tab is visible. Finer-grained than `embedViewIdForPath`, which collapses
- * the whole project page to one `project` id and so cannot hide a single tab.
- * Presentational only, NOT a security boundary (the project-scoped API key
- * governs data access).
+ * allowlist. An absent allowlist means every tab is visible, so pass
+ * `effectiveEmbedProjectTabs(...)`, never the raw host list: an embed with no
+ * `projectTabs` would otherwise admit the operator-only tabs. Finer-grained than
+ * `embedViewIdForPath`, which collapses the whole project page to one `project`
+ * id and so cannot hide a single tab. Presentational only, NOT a security
+ * boundary (the project-scoped API key governs data access).
  */
 export function isEmbedProjectTabAllowed(tab: string, allow: readonly string[] | undefined): boolean {
   return !allow || allow.includes(tab)
@@ -69,6 +70,18 @@ export function filterEmbedProjectTabs(allow: readonly string[] | undefined): Ar
     EMBED_PROJECT_TAB_SET.has(tab),
   ))]
   return filtered.length > 0 ? filtered : ['overview']
+}
+
+/**
+ * The project-tab allowlist in force: `undefined` outside embed mode (every tab
+ * visible), otherwise the host list normalized by `filterEmbedProjectTabs`. The
+ * project subnav and every project child route must gate on this one value, so
+ * a direct link can never reach a surface the subnav drops.
+ */
+export function effectiveEmbedProjectTabs(
+  embed: { projectTabs?: readonly string[] } | null | undefined,
+): Array<(typeof EMBED_PROJECT_TABS)[number]> | undefined {
+  return embed ? filterEmbedProjectTabs(embed.projectTabs) : undefined
 }
 
 /**
