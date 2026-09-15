@@ -70,7 +70,7 @@ vi.mock('recharts', () => {
 
 import { BacklinksSection } from '../src/components/project/BacklinksSection.js'
 import { TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
-import { formatChartDateLabel, formatChartDateTick } from '../src/components/shared/ChartPrimitives.js'
+import { formatChartDateLabel, formatChartDateMonthDay, formatChartDateTick } from '../src/components/shared/ChartPrimitives.js'
 import { mockFetch, jsonResponse, pathOf } from './mock-fetch.js'
 
 afterEach(() => {
@@ -228,6 +228,14 @@ test('a date-only value still renders unshifted through the calendar formatters'
   expect(formatChartDateTick('2026-07-20')).toBe('7/20')
   expect(formatChartDateLabel('2026-01-01')).toBe('Jan 1, 2026')
   expect(formatChartDateTick('2026-01-01')).toBe('1/1')
+})
+
+test('a same-year range start drops only the year and stays unshifted', () => {
+  // The results toolbar names a range year once ("Sep 1 to Sep 8, 2026"), so its
+  // start reads the calendar prefix with no year and no viewer timezone.
+  expect(formatChartDateMonthDay('2026-09-01')).toBe('Sep 1')
+  expect(formatChartDateMonthDay('2026-01-01T23:30:00.000Z')).toBe('Jan 1')
+  expect(formatChartDateMonthDay('not-a-date')).toBe('not-a-date')
 })
 
 test('the converted charts are the only remaining consumers of the raw axis value', async () => {

@@ -25,6 +25,7 @@ import {
   CHART_TOOLTIP_STYLE,
   ComposedChart,
   formatChartDateLabel,
+  formatChartDateMonthDay,
   formatObservedInstantLabel,
   Line,
   observedInstant,
@@ -421,16 +422,10 @@ interface VisibilityFilterToken {
   patch: Record<string, undefined>
 }
 
-/** The month and day written in a `YYYY-MM-DD` prefix, never shifted by the viewer's timezone. */
-function calendarMonthDay(value: string): string {
-  const day = new Date(`${value.slice(0, 10)}T00:00:00.000Z`)
-  return Number.isNaN(day.getTime()) ? value : day.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })
-}
-
 /** URL dates are UTC calendar days, so the label reads their prefix and names UTC. */
 function dateFilterLabel(from: string | undefined, to: string | undefined): string | null {
   // A range inside one calendar year names that year once.
-  if (from && to) return VISIBILITY_TOOLBAR_COPY.dateRange(from.slice(0, 4) === to.slice(0, 4) ? calendarMonthDay(from) : formatChartDateLabel(from), formatChartDateLabel(to))
+  if (from && to) return VISIBILITY_TOOLBAR_COPY.dateRange(from.slice(0, 4) === to.slice(0, 4) ? formatChartDateMonthDay(from) : formatChartDateLabel(from), formatChartDateLabel(to))
   if (from) return VISIBILITY_TOOLBAR_COPY.dateFrom(formatChartDateLabel(from))
   if (to) return VISIBILITY_TOOLBAR_COPY.dateThrough(formatChartDateLabel(to))
   return null
