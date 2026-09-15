@@ -82,7 +82,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 5626,
+    characters: 5758,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -152,7 +152,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 14833,
+    characters: 15833,
     content: canonryReferencesAeoAnalysisPart0,
   },
   {

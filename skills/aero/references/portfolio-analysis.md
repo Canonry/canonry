@@ -38,7 +38,7 @@ invented combined share-of-voice ratio.
 | Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
 | Who appeared instead? | `canonry_measurement_property_competitors`; report stored replacement names as observations |
-| Did performance change? | `canonry_measurement_changes` for Advanced; `canonry_visibility_compare` for Simple month comparisons |
+| Did performance change? | `populations[].comparison` from `canonry_visibility_report` for the displayed selection (Simple and Advanced); `canonry_measurement_changes` for changed Properties (Advanced); `canonry_visibility_compare` for Simple month comparisons |
 | Can these results support a conclusion? | `canonry_measurement_data_quality` for Advanced completeness, capture, retrieval, and comparability |
 
 For schema-v1 plans use `canonry_measurement_report` pinned to the requested
