@@ -166,4 +166,13 @@ describe('shared report shell', () => {
     const rates = within(getReportSection(ReportSectionIds['client-summary'])).getAllByText('50%')
     expect(rates.map(rate => rate.tagName)).toEqual(['STRONG', 'STRONG', 'STRONG', 'STRONG'])
   })
+
+  // A browser logs an invalid-nesting error for a block element inside a
+  // paragraph, and parsing the same markup as HTML would move the element out.
+  test.each(['client', 'agency'] as const)('the %s report never nests a block element inside a paragraph', (audience) => {
+    renderReportPage(fullReport(), { audience })
+    const nested = Array.from(document.querySelectorAll('p div, p p, p ul, p ol, p li, p table, p section, p article, p h2, p h3'))
+      .map(element => `${element.closest('[data-report-section]')?.getAttribute('data-report-section') ?? 'header'}: <${element.tagName.toLowerCase()}> in <p>`)
+    expect(nested).toEqual([])
+  })
 })

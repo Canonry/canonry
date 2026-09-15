@@ -812,10 +812,10 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
                 {opportunities.map((o, i) => (
                   <li key={i} className="rounded-lg border border-default bg-bg/40 px-3 py-2">
                     <p className="font-medium text-heading">{o.query}</p>
-                    <p className="mt-0.5 flex items-center gap-2 text-[13px] text-secondary">
+                    <div className="mt-0.5 flex items-center gap-2 text-[13px] text-secondary">
                       {contentActionLabel(o.action)}
-                      {o.winnabilityClass === 'ceded' && <ToneBadge tone="caution">{copy.opportunities.cededTag}</ToneBadge>}
-                    </p>
+                      {o.winnabilityClass === WinnabilityClasses.ceded && <ToneBadge tone="caution">{copy.opportunities.cededTag}</ToneBadge>}
+                    </div>
                   </li>
                 ))}
               </ul>
