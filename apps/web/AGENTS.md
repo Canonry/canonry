@@ -478,7 +478,7 @@ Keep fixture dates and behavior checks independent of display wording.
 - **Adding decorative gradients or glow effects** — the design system is clean and flat.
 - **Hero grids with large descriptive text blocks on the project page** — keep headers compact.
 - **Multi-sentence explanatory prose inline in a data view** — move it to an `InfoTooltip` on the heading or row title (empty / onboarding states are the exception).
-- **Putting `sr-only` on a `<table>`** — a table box never shrinks below its content, so the 1px `sr-only` width does not apply, and its `nowrap` rows push the page sideways (the Simple trend data table made the overview 1,812px wide at 375px). Hide it through a wrapper: `<div className="sr-only"><table>…</table></div>`. `test/sr-only-table.test.tsx` scans `src` for the pattern.
+- **Putting `sr-only` on a `<table>`** — a table box never shrinks below its content, so the 1px `sr-only` width does not apply, and its `nowrap` rows push the page sideways (the Simple trend data table made the overview 1,812px wide at 375px). Hide it through a wrapper: `<div className="sr-only"><table>…</table></div>`. A `table` / `inline-table` display class does the same. `test/sr-only-table.test.tsx` parses every `.tsx` file in `src` and `styles.css` and fails on either form.
 
 ## See Also
 
