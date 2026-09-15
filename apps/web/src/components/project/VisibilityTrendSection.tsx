@@ -498,7 +498,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
   </div>
   return <div className="visibility-filter-container">
     <div className="visibility-results-toolbar">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
         <label className="flex items-center gap-2">
           <span className="text-sm font-medium text-heading">{VISIBILITY_TOOLBAR_COPY.queryType}</span>
           <select aria-label={VISIBILITY_TOOLBAR_COPY.queryType} className={TOOLBAR_SELECT} value={queryClass} onChange={event => onSelectionChange({ queryClass: event.target.value, measurementQueryKey: undefined })}>

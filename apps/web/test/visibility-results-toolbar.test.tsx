@@ -365,6 +365,24 @@ describe('URL-bound toolbar controls', () => {
     expect(classes(screen.getByRole('combobox', { name: 'Query type' }))).toEqual(expect.arrayContaining(['min-h-11', 'text-sm']))
   })
 
+  it('lets both toolbar groups shrink so a phone-width row wraps instead of widening the page', () => {
+    // A flex item starts at its natural width. With shrink-0, the Query type
+    // group (label, select, run badge, date) stayed 382px wide inside a 343px
+    // phone row and pushed the whole page sideways. Both groups must be allowed
+    // to shrink so their own items wrap.
+    renderToolbar(FILTERED, toolbarReport(), { onManageQueries: () => {} })
+    const classes = (element: Element) => element.className.split(/\s+/)
+    const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
+    const groups = [...toolbar.children]
+    expect(groups).toHaveLength(2)
+    expect(within(groups[0] as HTMLElement).getByRole('combobox', { name: 'Query type' })).toBeTruthy()
+    expect(within(groups[1] as HTMLElement).getByRole('button', { name: filtersButton().textContent! })).toBeTruthy()
+    for (const group of groups) {
+      expect(classes(group)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0']))
+      expect(classes(group)).not.toContain('shrink-0')
+    }
+  })
+
   it.each([
     ['measured', 'Complete'],
     ['partial', 'Partial'],
