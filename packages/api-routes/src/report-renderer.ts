@@ -462,7 +462,7 @@ table.report-table th {
 }
 table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.report-table td.page-cell { max-width: 0; }
-table.insights-table { table-layout: fixed; }
+table.insights-table { table-layout: fixed; min-width: 680px; }
 table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }
 table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }
 table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }
