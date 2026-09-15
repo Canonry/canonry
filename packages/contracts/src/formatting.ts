@@ -473,6 +473,22 @@ export function formatWindowCountDelta(
   return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
 }
 
+export type PointDeltaDirection = 'up' | 'down' | 'none'
+
+/**
+ * A server rate delta (a fraction in [-1, 1]) as percentage points for a change
+ * line. Formats only: the delta is the server's own `current - previous`.
+ *
+ * A non-zero change below 0.05 points reads `<0.1`, so a real movement never
+ * rounds to a misleading `0.0`. One decimal keeps its trailing `.0`, matching
+ * `formatRatio`.
+ */
+export function formatPointDelta(delta: number): { direction: PointDeltaDirection; magnitude: string } {
+  if (delta === 0) return { direction: 'none', magnitude: '0' }
+  const points = Math.abs(delta) * 100
+  return { direction: delta > 0 ? 'up' : 'down', magnitude: points < 0.05 ? '<0.1' : points.toFixed(1) }
+}
+
 /**
  * Convert a compact `YYYYMMDD` calendar date to ISO `YYYY-MM-DD`.
  *

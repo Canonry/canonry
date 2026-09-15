@@ -42,9 +42,10 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(screen.getByText('Answers mentioning a property')).toBeTruthy()
   expect(screen.getByText('Answers citing a property')).toBeTruthy()
   expect(screen.getByText('Properties mentioned')).toBeTruthy()
-  const legend = screen.getByRole('list', { name: 'Trend legend' })
-  expect(within(legend).getByText('Mentioned')).toBeTruthy()
-  expect(within(legend).getByText('Cited')).toBeTruthy()
+  const legend = screen.getByRole('group', { name: 'Trend legend' })
+  expect(within(legend).getAllByRole('checkbox')).toHaveLength(2)
+  expect((within(legend).getByRole('checkbox', { name: 'Mentioned' }) as HTMLInputElement).checked).toBe(true)
+  expect((within(legend).getByRole('checkbox', { name: 'Cited' }) as HTMLInputElement).checked).toBe(true)
   const outcomes = screen.getByText('Property outcomes', { selector: 'summary' }).closest('details')!
   expect(outcomes.open).toBe(false)
   expect(screen.queryByText('Trend data and comparability')).toBeNull()
@@ -53,7 +54,9 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(within(data).getAllByRole('row')).toHaveLength(2)
   expect(screen.getByText('First measurement. A trend appears after another comparable run.')).toBeTruthy()
   const trend = screen.getByRole('img', { name: /mention and citation trend/ })
-  expect(trend.compareDocumentPosition(outcomes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+  expect(trend.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(breakdown.compareDocumentPosition(outcomes) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 })
 
 test('a group opens its properties while a property avoids a redundant group summary', () => {
