@@ -137,6 +137,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/doctor/*` | Health checks — `registry.ts`, `runner.ts`, `checks/*`. Cloudflare direct push skips pull lag. Both direct and Queue sources use `traffic.source.worker-version` to compare the generated version with the most recently ingested batch's Worker version. |
 | `src/discovery/*` | Discovery orchestrator + routes |
 | `src/measurement-*` | Advanced measurement plans, overview, property evidence |
+| `src/measurement-scope-options.ts` | `planScopeOptions`: the single server scope-option builder (visibility report with `marketLinks: true`, query-tracking workspace with `marketLinks: false`); `simpleScopeOptions` for Simple projects |
 | `src/visibility-attribution.ts` | Query attribution helpers (`buildQueryAttribution`, `resolveCurrentQuery`) — by-id then by-text fallback for historical snapshots |
 | `AGENTS.md` | Route file map, `notProbeRun` contract, SDK layering |
 

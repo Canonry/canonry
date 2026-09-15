@@ -12,7 +12,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
-- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 
 ### Color & Theme
 - Use semantic color tokens for new dashboard code. `apps/web/src/styles.css`
