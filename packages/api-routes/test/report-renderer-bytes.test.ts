@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import type { ProjectReportDto, ReportAudience } from '@ainyc/canonry-contracts'
+import { ReportSectionIds, reportSectionOrder, type ProjectReportDto, type ReportAudience } from '@ainyc/canonry-contracts'
 import {
   advancedReport,
   emptyReport,
@@ -126,8 +126,41 @@ const ORDER_CASES: Array<{ name: string; audience: ReportAudience; build: () => 
   },
 ]
 
+ORDER_CASES.push({
+  name: 'agency, opportunities that all collapse into the report market',
+  audience: 'agency',
+  build: () => {
+    const report = richReport()
+    const [first] = report.contentOpportunities
+    report.contentOpportunities = [{ ...first!, query: 'michigan' }, { ...first!, targetRef: 'rich:create:in-michigan', query: 'in michigan' }]
+    return report
+  },
+  expected: without(AGENCY_ORDER, 'content-opportunities'),
+})
+
+const withoutShareOfVoice = (order: readonly string[]) => order.filter(id => id !== ReportSectionIds['share-of-voice'])
+
 test.each(ORDER_CASES)('section order: $name', ({ audience, build, expected }) => {
-  expect(reportHtmlSectionIds(renderReportHtml(build(), { audience }))).toEqual(expected)
+  const report = build()
+  const htmlIds = reportHtmlSectionIds(renderReportHtml(report, { audience }))
+  expect(htmlIds).toEqual(expected)
+  // The shared order both renderers follow, minus share of voice (not a section in the HTML).
+  expect(withoutShareOfVoice(reportSectionOrder(report, audience))).toEqual(htmlIds)
+})
+
+const ORDER_MATRIX = AUDIENCES.flatMap(audience =>
+  ([undefined, 'simple', 'advanced'] as const).flatMap(visibility =>
+    (['connected', 'no-data', 'not-connected'] as const).flatMap(serverActivity =>
+      ([true, false] as const).flatMap(opportunities =>
+        ([true, false] as const).map(gaps => ({
+          audience,
+          shape: { visibility, serverActivity, opportunities, gaps },
+          label: `${audience}, visibility ${visibility ?? 'none'}, server ${serverActivity}, opportunities ${opportunities}, gaps ${gaps}`,
+        }))))))
+
+test.each(ORDER_MATRIX)('reportSectionOrder matches the HTML: $label', ({ audience, shape }) => {
+  const report = variant(shape)
+  expect(withoutShareOfVoice(reportSectionOrder(report, audience))).toEqual(reportHtmlSectionIds(renderReportHtml(report, { audience })))
 })
 
 describe('reportHtmlOutline', () => {
