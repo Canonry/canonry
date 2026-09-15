@@ -2438,13 +2438,14 @@ test('a stale group key fails closed instead of silently broadening to the whole
 
 const PROPERTY_MARKET = { id: 'north-market', label: 'North Market', kind: 'market' as const, targetCount: 1, parentGroupIds: ['north'] }
 
-function measurementPlanV2WithMarket() {
+function measurementPlanV2WithMarket(assignedClass: 'branded' | 'non-brand' = 'non-brand') {
   const base = measurementPlanV2Response(4)
   return {
     active: {
       ...base.active,
       plan: {
         ...base.active.plan,
+        assignments: base.active.plan.assignments.map(assignment => ({ ...assignment, queryClass: assignedClass })),
         reportingScopes: [{ stableKey: PROPERTY_MARKET.id, label: PROPERTY_MARKET.label, kind: 'market' as const, groupKey: 'north', usageEdges: base.active.plan.usageEdges }],
       },
     },
@@ -2479,7 +2480,7 @@ function propertyOverviewResponse(queryClass: 'branded' | 'non-brand') {
   }
 }
 
-async function renderPropertyRoute(entry: string) {
+async function renderPropertyRoute(entry: string, assignedClass: 'branded' | 'non-brand' = 'non-brand') {
   const observed: URL[] = []
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -2487,7 +2488,7 @@ async function renderPropertyRoute(entry: string) {
     observed.push(url)
     const path = decodeURIComponent(url.pathname)
     if (path.endsWith('/runs')) return jsonResponse([])
-    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2WithMarket())
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2WithMarket(assignedClass))
     if (path.endsWith('/measurement-setup')) {
       return jsonResponse({ state: 'operational', nextAction: 'view_measurement', mode: 'active-v2', activeRevision: 4, activeSchemaVersion: 2, draft: null })
     }
@@ -2536,18 +2537,23 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(await page.findByRole('heading', { level: 1, name: 'Harbor House' })).toBeTruthy()
   // Property reads take no market, so the page states its wider scope instead
   // of implying the carried market filter applies to these numbers.
-  expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}. This page includes every market for this Property.` })).toBeTruthy()
+  expect(page.getByText(/Filters not applied/)).toBeTruthy()
+  expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}, a saved sweep. This page shows the latest measurement for all markets and answer engines.` })).toBeTruthy()
   expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded')
-  const back = page.getByRole('link', { name: 'Back to measurement overview' })
+  const back = page.getByRole('link', { name: 'Back to AI Visibility' })
   expect(hrefOf(back).pathname).toBe(projectPath)
   expect(Object.fromEntries(hrefOf(back).searchParams)).toEqual(Object.fromEntries(reportSearch))
+  // The market section compares markets, so its overview link returns to the whole site.
+  const marketOverview = hrefOf(page.getByRole('link', { name: 'Open measurement overview' }))
+  expect(marketOverview.pathname).toBe(projectPath)
+  expect(Object.fromEntries(marketOverview.searchParams)).toEqual({ measurementScope: 'project', queryClass: 'branded', measurementRunId: 'run-synthetic' })
 
   fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'non-brand' } })
   await waitFor(() => expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand'))
   expect(router.state.location.search).toMatchObject({ ...Object.fromEntries(reportSearch), queryClass: 'non-brand' })
   expect(router.state.location.search.runId).toBeUndefined()
 
-  fireEvent.click(page.getByRole('link', { name: 'Back to measurement overview' }))
+  fireEvent.click(page.getByRole('link', { name: 'Back to AI Visibility' }))
   expect(await page.findByRole('link', { name: 'Property details for Harbor House' })).toBeTruthy()
   const returned = observed.filter(url => url.pathname.endsWith('/visibility-report')).at(-1)!
   expect(Object.fromEntries(returned.searchParams)).toMatchObject({
@@ -2555,14 +2561,20 @@ test('a published Property scope opens the Property page, and every return keeps
   })
 }, 15_000)
 
-test('a clean Property URL opens on non-brand without writing a query type', async () => {
-  const { page, router } = await renderPropertyRoute('/projects/project_citypoint/properties/harbor-house')
+test.each([
+  ['a clean URL', '', 'non-brand'],
+  ['an unclassified URL', '?queryClass=unknown', 'non-brand'],
+  ['a clean URL for a branded-only Property', '', 'branded'],
+] as const)('%s resolves the Property query type from its assignments and records it', async (_label, search, assignedClass) => {
+  const { page, router } = await renderPropertyRoute(`/projects/project_citypoint/properties/harbor-house${search}`, assignedClass)
 
   expect(await page.findByRole('heading', { level: 1, name: 'Harbor House' })).toBeTruthy()
-  expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand')
-  expect(router.state.location.search.queryClass).toBeUndefined()
-  expect(page.queryByText(/All markets/)).toBeNull()
-  expect(page.getByRole('link', { name: 'Back to measurement overview' }).getAttribute('href')).toBe('/projects/project_citypoint')
+  await waitFor(() => {
+    expect(router.state.location.search.queryClass).toBe(assignedClass)
+    expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe(assignedClass)
+    expect(page.getByRole('link', { name: 'Back to AI Visibility' }).getAttribute('href')).toBe(`/projects/project_citypoint?queryClass=${assignedClass}`)
+  })
+  expect(page.queryByText(/Filters not applied/)).toBeNull()
 })
 
 test('Property details is offered only for a published Advanced Property scope outside embeds', async () => {

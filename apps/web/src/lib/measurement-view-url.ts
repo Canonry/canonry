@@ -178,3 +178,11 @@ export function patchVisibilitySelection(
   if ('queryClass' in patch) next.class = undefined
   return next
 }
+
+/**
+ * Carry the shared measurement selection to another project route without
+ * replaying one-shot triggers the destination would act on again.
+ */
+export function carryVisibilitySearch(previous: Record<string, unknown>): Record<string, unknown> {
+  return { ...previous, onboarding: undefined, manageQueries: undefined, siteHealthRunId: undefined, siteScan: undefined, setupProject: undefined }
+}
