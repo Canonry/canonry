@@ -1,0 +1,167 @@
+{
+  "sections": [
+    {
+      "id": "client-summary",
+      "eyebrow": null,
+      "title": null,
+      "intro": null,
+      "items": [
+        {
+          "tile": "AI mentions your name"
+        },
+        {
+          "tile": "AI links to your website"
+        },
+        {
+          "tile": "AI tools tested"
+        },
+        {
+          "note": "Mentions and links are different. A mention is when AI says your name out loud in its answer. A link is when AI lists your website as a source it used. AI can do either, both, or neither — that's why we track both."
+        },
+        {
+          "heading": "Customer queries we tested"
+        },
+        {
+          "note": "These are the 3 queries we asked every AI tool. The numbers above measure how often you came up."
+        },
+        {
+          "heading": "How often each AI tool mentions you"
+        },
+        {
+          "note": "Higher is better. Each bar shows the share of customer queries where the AI named you in the answer."
+        },
+        {
+          "note": "This summary is scoped to the michigan run location."
+        }
+      ]
+    },
+    {
+      "id": "whats-changed",
+      "eyebrow": "Since last check",
+      "title": "What's different since last check",
+      "intro": null,
+      "items": [
+        {
+          "tile": "AI mentions your name"
+        },
+        {
+          "tile": "AI links to your website"
+        },
+        {
+          "tile": "Queries AI mentioned you in"
+        },
+        {
+          "tile": "Visitors from Google"
+        },
+        {
+          "tile": "Visitors from AI tools"
+        },
+        {
+          "heading": "How each AI tool changed"
+        },
+        {
+          "table": [
+            "AI tool",
+            "Was",
+            "Now",
+            "Change"
+          ]
+        },
+        {
+          "heading": "What got better"
+        },
+        {
+          "table": [
+            "What changed",
+            "Customer query",
+            "AI tool"
+          ]
+        },
+        {
+          "heading": "What got worse"
+        },
+        {
+          "table": [
+            "What changed",
+            "Customer query",
+            "AI tool"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "AI engine attention",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs over the last 7 days — the other half of citations.",
+      "items": [
+        {
+          "tile": "AI bot requests observed"
+        },
+        {
+          "tile": "AI user-fetch requests"
+        },
+        {
+          "tile": "AI referral sessions"
+        },
+        {
+          "heading": "By AI tool"
+        },
+        {
+          "table": [
+            "AI tool",
+            "Bot requests (7d)",
+            "User fetches (7d)",
+            "Referral sessions"
+          ]
+        },
+        {
+          "note": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
+        }
+      ]
+    },
+    {
+      "id": "client-action-plan",
+      "eyebrow": "Action plan",
+      "title": "What to do next",
+      "intro": "Approve these in order. They are sorted by what will move the needle fastest.",
+      "items": [
+        {
+          "heading": "Create content for \"best aeo platform\""
+        }
+      ]
+    },
+    {
+      "id": "client-evidence-summary",
+      "eyebrow": "What we based this on",
+      "title": "The signals behind this plan",
+      "intro": "The data behind the recommendations above. Switch to Agency for the full breakdowns.",
+      "items": [
+        {
+          "heading": "Where AI gets its answers"
+        },
+        {
+          "note": "The websites AI tools cited most often when answering customer queries about your industry."
+        },
+        {
+          "heading": "Pages Google can find on your site"
+        },
+        {
+          "note": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
+        },
+        {
+          "heading": "What people search Google for"
+        },
+        {
+          "note": "You appeared in 5.0K Google searches and got 1.0K clicks this period."
+        },
+        {
+          "heading": "Topics where you could improve"
+        },
+        {
+          "note": "Customer queries where better content on your site would help AI cite you."
+        }
+      ]
+    }
+  ]
+}

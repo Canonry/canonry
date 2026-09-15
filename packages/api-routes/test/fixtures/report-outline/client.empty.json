@@ -1,0 +1,57 @@
+{
+  "sections": [
+    {
+      "id": "client-summary",
+      "eyebrow": null,
+      "title": null,
+      "intro": null,
+      "items": [
+        {
+          "tile": "AI mentions your name"
+        },
+        {
+          "tile": "AI links to your website"
+        },
+        {
+          "tile": "AI tools tested"
+        },
+        {
+          "note": "Mentions and links are different. A mention is when AI says your name out loud in its answer. A link is when AI lists your website as a source it used. AI can do either, both, or neither — that's why we track both."
+        }
+      ]
+    },
+    {
+      "id": "whats-changed",
+      "eyebrow": "Since last check",
+      "title": "What's different since last check",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No comparison yet — trends will appear after a few more checks."
+        }
+      ]
+    },
+    {
+      "id": "client-action-plan",
+      "eyebrow": "Action plan",
+      "title": "What to do next",
+      "intro": "Approve these in order. They are sorted by what will move the needle fastest.",
+      "items": [
+        {
+          "empty": "No recommendations yet — run an AI check to populate this."
+        }
+      ]
+    },
+    {
+      "id": "client-evidence-summary",
+      "eyebrow": "What we based this on",
+      "title": "The signals behind this plan",
+      "intro": "The data behind the recommendations above. Switch to Agency for the full breakdowns.",
+      "items": [
+        {
+          "empty": "No supporting evidence yet — this fills in after the first AI check."
+        }
+      ]
+    }
+  ]
+}
