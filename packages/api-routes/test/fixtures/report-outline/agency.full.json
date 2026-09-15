@@ -1,0 +1,530 @@
+{
+  "sections": [
+    {
+      "id": "executive-summary",
+      "eyebrow": "Section 1",
+      "title": "Executive Summary",
+      "intro": "Citation = source list. Mention = answer text. They are independent signals.",
+      "items": [
+        {
+          "tile": "Citation trend"
+        },
+        {
+          "tile": "Mention coverage"
+        },
+        {
+          "tile": "Prioritized actions"
+        },
+        {
+          "tile": "Citation rate"
+        },
+        {
+          "tile": "Mention rate"
+        },
+        {
+          "tile": "Queries tracked"
+        },
+        {
+          "tile": "GSC clicks"
+        },
+        {
+          "tile": "GA sessions"
+        },
+        {
+          "heading": "Market Scope"
+        },
+        {
+          "tile": "Current check"
+        },
+        {
+          "tile": "Not included"
+        },
+        {
+          "tile": "Provider context"
+        },
+        {
+          "note": "Location handling needs review cdp:chatgpt used weak or indirect market handling. Treat provider-level differences cautiously."
+        }
+      ]
+    },
+    {
+      "id": "whats-changed",
+      "eyebrow": "Section 2",
+      "title": "What's Changed",
+      "intro": "Citation coverage rose 15 points across the last 3 checks.",
+      "items": [
+        {
+          "tile": "Citation rate"
+        },
+        {
+          "tile": "Mention rate"
+        },
+        {
+          "tile": "Cited queries"
+        },
+        {
+          "tile": "GSC clicks"
+        },
+        {
+          "tile": "AI referral sessions"
+        },
+        {
+          "heading": "AI engine movements"
+        },
+        {
+          "table": [
+            "Engine",
+            "Prior",
+            "Current",
+            "Change"
+          ]
+        },
+        {
+          "heading": "Wins"
+        },
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider"
+          ]
+        },
+        {
+          "heading": "Regressions"
+        },
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agency-action-plan",
+      "eyebrow": "Agency actions",
+      "title": "Agency Action Plan",
+      "intro": "The highest-leverage work, sorted by urgency and evidence strength.",
+      "items": [
+        {
+          "heading": "Create content for \"best aeo platform\""
+        },
+        {
+          "heading": "Diagnose zero-citation providers"
+        }
+      ]
+    },
+    {
+      "id": "agency-diagnostics",
+      "eyebrow": "Agency diagnostics",
+      "title": "Technical Diagnostics",
+      "intro": "Fast-read operator flags behind the action plan.",
+      "items": [
+        {
+          "heading": "Provider citation coverage"
+        },
+        {
+          "heading": "Search demand mismatch"
+        }
+      ]
+    },
+    {
+      "id": "citation-scorecard",
+      "eyebrow": "Section 3",
+      "title": "Citation Scorecard",
+      "intro": "Per-engine citation and mention coverage from the latest check.",
+      "items": [
+        {
+          "heading": "Provider citation rate"
+        },
+        {
+          "note": "Legend: C/c = cited/not, M/m = mentioned/not, – = no data."
+        },
+        {
+          "table": [
+            "Query",
+            "gemini",
+            "openai"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "competitor-landscape",
+      "eyebrow": "Section 4",
+      "title": "Competitor Landscape",
+      "intro": "Who AI engines cite and mention instead of the client.",
+      "items": [
+        {
+          "heading": "Citations per domain"
+        },
+        {
+          "heading": "Mentions per domain · non-brand queries"
+        },
+        {
+          "table": [
+            "Domain",
+            "Pressure",
+            "Citations",
+            "Mentions (non-brand queries)",
+            "Citation share",
+            "Cited queries"
+          ]
+        },
+        {
+          "note": "Branded queries contain the client's own name. The client is named on nearly all of them and a competitor structurally cannot be, so these are kept out of the competitive figure above. Read them as brand recall: 2 of 2 branded answers named the client."
+        },
+        {
+          "heading": "Mentions per domain · branded queries"
+        }
+      ]
+    },
+    {
+      "id": "ai-source-origin",
+      "eyebrow": "Section 5",
+      "title": "AI Citation Sources",
+      "intro": "External domains AI engines cited most in the latest check.",
+      "items": [
+        {
+          "note": "20% of citations went to tracked competitors (2 of 10)."
+        },
+        {
+          "heading": "Top sources"
+        },
+        {
+          "table": [
+            "Domain",
+            "Citations",
+            "Tag"
+          ]
+        },
+        {
+          "heading": "By source type"
+        }
+      ]
+    },
+    {
+      "id": "gsc",
+      "eyebrow": "Section 6",
+      "title": "GSC Performance",
+      "intro": "Search demand signals to compare against AI visibility for Apr 1, 2026 → Apr 30, 2026.",
+      "items": [
+        {
+          "tile": "Total clicks"
+        },
+        {
+          "tile": "Total impressions"
+        },
+        {
+          "tile": "Avg CTR"
+        },
+        {
+          "tile": "Avg position"
+        },
+        {
+          "heading": "Clicks over time"
+        },
+        {
+          "heading": "Top queries"
+        },
+        {
+          "table": [
+            "Query",
+            "Clicks",
+            "Imp.",
+            "CTR",
+            "Pos.",
+            "Category"
+          ]
+        },
+        {
+          "heading": "Search demand by intent"
+        },
+        {
+          "heading": "AEO queries without search demand"
+        },
+        {
+          "note": "Review whether these still belong in the tracking set."
+        },
+        {
+          "heading": "Search queries you should track"
+        },
+        {
+          "note": "High-impression candidates to add to AEO tracking."
+        }
+      ]
+    },
+    {
+      "id": "ga",
+      "eyebrow": "Section 7",
+      "title": "GA4 Traffic",
+      "intro": "Site traffic from Apr 1, 2026 to Apr 30, 2026.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "tile": "Total users"
+        },
+        {
+          "tile": "Organic sessions"
+        },
+        {
+          "heading": "Top landing pages"
+        },
+        {
+          "table": [
+            "Page",
+            "Sessions",
+            "Organic"
+          ]
+        },
+        {
+          "heading": "Channel mix"
+        }
+      ]
+    },
+    {
+      "id": "social-referrals",
+      "eyebrow": "Section 8",
+      "title": "Social Referrals",
+      "intro": "Social traffic split by channel and campaign.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "tile": "Organic social"
+        },
+        {
+          "tile": "Paid social"
+        },
+        {
+          "heading": "Social channel mix"
+        },
+        {
+          "heading": "Top campaigns"
+        },
+        {
+          "table": [
+            "Source",
+            "Medium",
+            "Sessions"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai-referrals",
+      "eyebrow": "Section 9",
+      "title": "AI Referral Traffic",
+      "intro": "Traffic arriving from AI answer engines.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "heading": "AI referral sessions over time"
+        },
+        {
+          "heading": "AI sessions by source"
+        },
+        {
+          "heading": "Top AI landing pages"
+        },
+        {
+          "table": [
+            "Page",
+            "Sessions"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "Section 10",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).",
+      "items": [
+        {
+          "tile": "Verified crawler hits (7d)"
+        },
+        {
+          "tile": "Unverified crawler hits (7d)"
+        },
+        {
+          "tile": "AI user-fetch hits (7d)"
+        },
+        {
+          "tile": "AI-referral sessions (7d)"
+        },
+        {
+          "heading": "Verified crawler hits over time (last 7 days)"
+        },
+        {
+          "heading": "Per AI operator"
+        },
+        {
+          "note": "Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified."
+        },
+        {
+          "table": [
+            "Operator",
+            "Verified hits",
+            "Unverified",
+            "User fetches",
+            "Referral sessions",
+            "7d delta"
+          ]
+        },
+        {
+          "heading": "Top crawled paths"
+        },
+        {
+          "note": "Pages AI bots fetched most often (verified only, last 7d)."
+        },
+        {
+          "table": [
+            "Path",
+            "Hits",
+            "Verified",
+            "Distinct operators"
+          ]
+        },
+        {
+          "heading": "AI-referral sessions by product"
+        },
+        {
+          "note": "Where humans landed coming from each AI product (chatgpt.com, claude.ai, …)."
+        },
+        {
+          "table": [
+            "Product",
+            "Sessions",
+            "Distinct landing paths"
+          ]
+        },
+        {
+          "heading": "Top AI-referral landing paths"
+        },
+        {
+          "table": [
+            "Path",
+            "Sessions",
+            "Distinct products"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "indexing-health",
+      "eyebrow": "Section 11",
+      "title": "Indexing Health",
+      "intro": "Pages absent from Google are harder for AI engines to retrieve.",
+      "items": [
+        {
+          "tile": "Indexed"
+        },
+        {
+          "tile": "Total inspected"
+        },
+        {
+          "tile": "Indexed share"
+        },
+        {
+          "heading": "Coverage breakdown"
+        }
+      ]
+    },
+    {
+      "id": "citations-trend",
+      "eyebrow": "Section 12",
+      "title": "Citations Over Time",
+      "intro": "Citation coverage across recent checks.",
+      "items": [
+        {
+          "heading": "Overall citation rate"
+        },
+        {
+          "heading": "Check-by-check breakdown"
+        },
+        {
+          "table": [
+            "Check",
+            "Cited queries",
+            "Per-engine rates"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "insights",
+      "eyebrow": "Section 13",
+      "title": "Insights & Alerts",
+      "intro": "Regressions, gains, and recurring alerts ordered by severity.",
+      "items": [
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider",
+            "Recommendation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "content-opportunities",
+      "eyebrow": "Section 14",
+      "title": "Content Opportunities",
+      "intro": "Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger. Winnability flags whether the cited surface is ownable or ceded to aggregators/editorial.",
+      "items": [
+        {
+          "heading": "best aeo platform"
+        },
+        {
+          "heading": "answer engine optimization"
+        },
+        {
+          "table": [
+            "Query",
+            "Action",
+            "Winnability",
+            "Score",
+            "Why",
+            "Our page",
+            "Winning competitor",
+            "Confidence"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "content-gaps",
+      "eyebrow": "Section 15",
+      "title": "Content Gaps",
+      "intro": "Tracked queries where competitors are cited and the client is missing.",
+      "items": [
+        {
+          "table": [
+            "Query",
+            "Competitors cited",
+            "Domains",
+            "Miss rate"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recommended-next-steps",
+      "eyebrow": "Section 16",
+      "title": "Recommended Next Steps",
+      "intro": "Action items bucketed by timing.",
+      "items": []
+    }
+  ]
+}

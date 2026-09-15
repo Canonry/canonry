@@ -1,0 +1,104 @@
+{
+  "sections": [
+    {
+      "id": "client-summary",
+      "eyebrow": null,
+      "title": "AI visibility",
+      "intro": null,
+      "items": [
+        {
+          "table": [
+            "Query type",
+            "Queries measured",
+            "Answers measured",
+            "Mentioned",
+            "Cited"
+          ]
+        },
+        {
+          "table": [
+            "Date",
+            "Query type",
+            "Mentioned",
+            "Cited",
+            "Comparison"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "AI engine attention",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs over the last 7 days — the other half of citations.",
+      "items": [
+        {
+          "tile": "AI bot requests observed"
+        },
+        {
+          "tile": "AI user-fetch requests"
+        },
+        {
+          "tile": "AI referral sessions"
+        },
+        {
+          "heading": "By AI tool"
+        },
+        {
+          "table": [
+            "AI tool",
+            "Bot requests (7d)",
+            "User fetches (7d)",
+            "Referral sessions"
+          ]
+        },
+        {
+          "note": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
+        }
+      ]
+    },
+    {
+      "id": "client-action-plan",
+      "eyebrow": "Action plan",
+      "title": "What to do next",
+      "intro": "Approve these in order. They are sorted by what will move the needle fastest.",
+      "items": [
+        {
+          "heading": "Create content for \"best aeo platform\""
+        }
+      ]
+    },
+    {
+      "id": "client-evidence-summary",
+      "eyebrow": "What we based this on",
+      "title": "The signals behind this plan",
+      "intro": "The data behind the recommendations above. Switch to Agency for the full breakdowns.",
+      "items": [
+        {
+          "heading": "Where AI gets its answers"
+        },
+        {
+          "note": "The websites AI tools cited most often when answering customer queries about your industry."
+        },
+        {
+          "heading": "Pages Google can find on your site"
+        },
+        {
+          "note": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
+        },
+        {
+          "heading": "What people search Google for"
+        },
+        {
+          "note": "You appeared in 5.0K Google searches and got 1.0K clicks this period."
+        },
+        {
+          "heading": "Topics where you could improve"
+        },
+        {
+          "note": "Customer queries where better content on your site would help AI cite you."
+        }
+      ]
+    }
+  ]
+}
