@@ -97,6 +97,7 @@ import type { MetricTone } from '../view-models.js'
 // name again that the imports above already bring in.
 
 // ── report slice S1 imports: agency overview ──
+import { reportExecutiveHeadline, reportMarketScope } from '@ainyc/canonry-contracts'
 // ── end report slice S1 imports ──
 
 // ── report slice S2 imports: competitive evidence ──
@@ -956,19 +957,176 @@ function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; a
 // function name and its `{ report }` props, which ReportSectionSlot renders.
 
 // ── report slice S1: agency overview ──
-function AgencyExecutiveSummary(_props: { report: ProjectReportDto }) {
+/**
+ * The left-border accent of an insight card, by tone. Neutral keeps the base
+ * card's accent. The card carries no full border: a `border` or
+ * `border-default` utility outranks these component rules and would erase the
+ * accent.
+ */
+const OVERVIEW_INSIGHT_TONE_CLASS: Readonly<Record<MetricTone, string>> = {
+  positive: 'insight-card-positive',
+  caution: 'insight-card-caution',
+  negative: 'insight-card-negative',
+  neutral: '',
+}
+
+function overviewInsightCardClass(tone: MetricTone, layout: string): string {
+  return ['insight-card', OVERVIEW_INSIGHT_TONE_CLASS[tone], layout].filter(Boolean).join(' ')
+}
+
+/** The market scope warning: a caution insight card. */
+const EXECUTIVE_SCOPE_WARNING_CLASS = overviewInsightCardClass('caution', 'gap-1 rounded-r-lg bg-caution-950/25 px-3 py-2')
+
+/** The trend label inside the citation rate line takes the trend's color; a flat or unknown trend keeps the line's color. */
+const EXECUTIVE_TREND_LABEL_CLASS: Readonly<Record<MetricTone, string>> = {
+  positive: TONE_TEXT_CLASS.positive,
+  caution: TONE_TEXT_CLASS.caution,
+  negative: TONE_TEXT_CLASS.negative,
+  neutral: '',
+}
+
+/** Metric tile columns: the row stays full whether or not GSC and GA are connected. */
+function executiveMetricColumns(count: number): 3 | 4 | 5 {
+  return count >= 5 ? 5 : count === 4 ? 4 : 3
+}
+
+/** Executive summary: hero, proof tiles, metric tiles, findings, then market scope, in the HTML report's order. */
+function AgencyExecutiveSummary({ report }: { report: ProjectReportDto }) {
+  const summary = report.executiveSummary
   const copy = REPORT_SECTION_COPY['executive-summary']
-  return <ReportSection id={ReportSectionIds['executive-summary']} eyebrow={copy.eyebrow} title={copy.title} />
+  const headline = reportExecutiveHeadline(report)
+  const proofTiles: ReportTile[] = [
+    { label: copy.proofTiles.citationTrend, value: headline.trendLabel, tone: headline.trendTone, subtitle: headline.citedFragment },
+    { label: copy.proofTiles.mentionCoverage, value: `${summary.mentionRate}%`, subtitle: headline.mentionedFragment },
+    { label: copy.proofTiles.prioritizedActions, value: formatNumber(headline.prioritizedActionCount), subtitle: copy.prioritizedActionsCopy },
+  ]
+  const metricTiles: ReportTile[] = [
+    {
+      label: copy.tiles.citationRate,
+      value: `${summary.citationRate}%`,
+      subtitle: (
+        <>
+          <span className={EXECUTIVE_TREND_LABEL_CLASS[headline.trendTone] || undefined}>{headline.trendLabel}</span>
+          {` · ${headline.citedFragment} · ${headline.providerCountLabel}`}
+        </>
+      ),
+    },
+    { label: copy.tiles.mentionRate, value: `${summary.mentionRate}%`, subtitle: headline.mentionedFragment },
+    { label: copy.tiles.queriesTracked, value: formatNumber(summary.queryCount), subtitle: headline.competitorCountLabel },
+  ]
+  if (summary.gsc && headline.gscDelta !== null) {
+    metricTiles.push({ label: copy.tiles.gscClicks, value: formatNumber(summary.gsc.clicks), subtitle: headline.gscDelta })
+  }
+  if (summary.ga && headline.gaDelta !== null) {
+    metricTiles.push({ label: copy.tiles.gaSessions, value: formatNumber(summary.ga.sessions), subtitle: headline.gaDelta })
+  }
+
+  return (
+    <ReportSection id={ReportSectionIds['executive-summary']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="rounded-xl border border-default bg-surface p-5">
+          <p className="eyebrow-soft">{copy.heroKicker}</p>
+          <p className="mt-2 text-xl font-semibold tracking-tight text-heading">{headline.title}</p>
+          <p className="mt-2 text-sm text-secondary">{headline.subtitle}</p>
+        </div>
+        <ReportTiles columns={3} tiles={proofTiles} />
+      </div>
+      <div className="mt-3">
+        <ReportTiles columns={executiveMetricColumns(metricTiles.length)} tiles={metricTiles} />
+      </div>
+      {summary.findings.length > 0 && (
+        <div className="mt-4 grid gap-2">
+          {summary.findings.map((finding, index) => (
+            <div key={`${index}-${finding.title}`} className={overviewInsightCardClass(finding.tone, 'gap-1 rounded-r-lg bg-surface px-4 py-3')}>
+              <strong className="text-sm font-semibold text-heading">{finding.title}</strong>
+              <span className="text-[13px] text-secondary">{finding.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <ExecutiveMarketScope report={report} />
+    </ReportSection>
+  )
 }
 
-function AgencyDiagnostics(_props: { report: ProjectReportDto }) {
+/** The market the check ran in, the configured markets it left out, and how providers received it. Absent with neither a market nor provider location data. */
+function ExecutiveMarketScope({ report }: { report: ProjectReportDto }) {
+  const scope = reportMarketScope(report)
+  if (!scope) return null
+  const copy = REPORT_SECTION_COPY['executive-summary'].marketScope
+  return (
+    <ReportCard title={copy.heading}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ExecutiveMarketScopeTile label={copy.currentLabel} value={scope.currentValue} detail={copy.currentCopy} />
+        <ExecutiveMarketScopeTile label={copy.notIncludedLabel} value={scope.notIncludedValue} detail={scope.notIncludedCopy} />
+        <ExecutiveMarketScopeTile label={copy.providerLabel} value={scope.providerValue} detail={scope.providerCopy} />
+      </div>
+      {scope.weakProviders !== null && (
+        <ReportNote className={EXECUTIVE_SCOPE_WARNING_CLASS}>
+          <strong className="font-semibold text-heading">{copy.warningTitle}</strong>{' '}
+          {scope.weakProviders} {copy.warningDetail}
+        </ReportNote>
+      )}
+    </ReportCard>
+  )
+}
+
+function ExecutiveMarketScopeTile({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-lg border border-default bg-bg/40 px-3 py-2.5">
+      <p className="eyebrow-soft" data-report-tile>{label}</p>
+      <p className="text-lg font-semibold leading-tight text-heading">{value}</p>
+      <p className="mt-1.5 text-[13px] text-secondary">{detail}</p>
+    </div>
+  )
+}
+
+/** Operator flags behind the action plan, one tone card each. The legacy location caveat stays hidden: market scope covers it. */
+function AgencyDiagnostics({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['agency-diagnostics']
-  return <ReportSection id={ReportSectionIds['agency-diagnostics']} eyebrow={copy.eyebrow} title={copy.title} />
+  const diagnostics = report.agencyDiagnostics.diagnostics.filter(diagnostic => diagnostic.title !== copy.hiddenTitle)
+  return (
+    <ReportSection id={ReportSectionIds['agency-diagnostics']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      {diagnostics.length === 0 ? (
+        <EmptyHint message={copy.empty} />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {diagnostics.map((diagnostic, index) => (
+            <article key={`${index}-${diagnostic.title}`} className={overviewInsightCardClass(diagnostic.severity, 'gap-2 rounded-r-lg bg-surface p-4')}>
+              <h3 className="text-sm font-semibold text-heading" data-report-heading>{diagnostic.title}</h3>
+              <p className="text-sm text-secondary">{diagnostic.detail}</p>
+              <ProofChips items={diagnostic.evidence} limit={3} className="mt-1" />
+            </article>
+          ))}
+        </div>
+      )}
+    </ReportSection>
+  )
 }
 
-function AgencyRecommendedNextSteps(_props: { report: ProjectReportDto }) {
+/** Action items bucketed by timing. The horizon badge shows the raw value, as the HTML report does. */
+function AgencyRecommendedNextSteps({ report }: { report: ProjectReportDto }) {
   const copy = REPORT_SECTION_COPY['recommended-next-steps']
-  return <ReportSection id={ReportSectionIds['recommended-next-steps']} eyebrow={copy.eyebrow} title={copy.title} />
+  const steps = report.recommendedNextSteps
+  return (
+    <ReportSection id={ReportSectionIds['recommended-next-steps']} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
+      {steps.length === 0 ? (
+        <EmptyHint message={copy.empty} />
+      ) : (
+        <ol className="grid gap-2">
+          {steps.map((step, index) => (
+            <li key={`${index}-${step.title}`} className="flex items-start gap-3 rounded-lg border border-default bg-surface px-4 py-3">
+              <ToneBadge tone="neutral" className="shrink-0">{step.horizon}</ToneBadge>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-heading">{step.title}</p>
+                <p className="mt-0.5 text-[13px] text-secondary">{step.rationale}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </ReportSection>
+  )
 }
 // ── end report slice S1 ──
 
