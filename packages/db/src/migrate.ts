@@ -4137,6 +4137,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_runtime_logs_ts ON runtime_logs(ts, sequence)`,
     ],
   },
+  {
+    // Liveness gets its own row per project. See siteLivenessState in
+    // schema.ts: a fast "site is up" pass must never overwrite the 6h doctor
+    // state, or it would clear an unrelated outage and send a false recovery.
+    version: 156,
+    name: 'site-liveness-state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_liveness_state (
+        project_id           TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        status               TEXT NOT NULL,
+        code                 TEXT NOT NULL,
+        summary              TEXT NOT NULL,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        checked_at           TEXT NOT NULL,
+        notified_at          TEXT
+      )`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

@@ -712,6 +712,25 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
   notifiedAt: text('notified_at'),
 })
 
+/**
+ * Website liveness, kept apart from doctor_health_state on purpose. The liveness
+ * schedule checks one thing every few minutes; the doctor pass grades everything
+ * every 6h. Sharing one row would let a quick "site is up" pass overwrite a GA
+ * outage the slow pass recorded, and send a false health.recovered.
+ */
+export const siteLivenessState = sqliteTable('site_liveness_state', {
+  projectId: text('project_id').primaryKey(),
+  /** Last graded probe: ok | fail. Skipped probes are not recorded. */
+  status: text('status').notNull(),
+  code: text('code').notNull(),
+  summary: text('summary').notNull(),
+  /** Failed passes in a row. Paging waits for two so one blip never alerts. */
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  checkedAt: text('checked_at').notNull(),
+  /** Set when an outage was actually paged; cleared on recovery. */
+  notifiedAt: text('notified_at'),
+})
+
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

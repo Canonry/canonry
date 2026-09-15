@@ -55,6 +55,8 @@ export interface DoctorContext {
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
+  /** Website probe seam for `site.reachability`. Defaults to the SSRF-guarded live probe. */
+  probeSiteReachability?: (url: string) => Promise<import('../site-reachability.js').SiteReachabilityResult>
   adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /**

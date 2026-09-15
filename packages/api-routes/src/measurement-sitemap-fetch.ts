@@ -185,7 +185,7 @@ export async function resolveMeasurementSitemapTarget(
  * may be running answers from a cache this process cannot inspect, and the
  * whole point of the check is to see the same answer the socket will use.
  */
-async function resolveSitemapAddresses(hostname: string): Promise<MeasurementSitemapAddress[]> {
+export async function resolveSitemapAddresses(hostname: string): Promise<MeasurementSitemapAddress[]> {
   const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)])
   const found = new Map<string, MeasurementSitemapAddress>()
   if (ipv4.status === 'fulfilled') for (const address of ipv4.value) found.set(`4:${address}`, { address, family: 4 })

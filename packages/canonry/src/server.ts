@@ -14,7 +14,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, SITE_REACHABILITY_CHECK_ID } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -230,7 +230,7 @@ import {
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
-import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
+import { Scheduler, ensureDefaultHealthSchedule, ensureDefaultSiteLivenessSchedule } from "./scheduler.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -1701,7 +1701,9 @@ export async function createServer(opts: {
             return;
           }
           await notifier.onHealthChecked(project.id, {
-            checks: report.checks,
+            // The website probe pages through its own faster loop below, with its
+            // own state. Grading it here too would page one outage twice.
+            checks: report.checks.filter((c) => c.id !== SITE_REACHABILITY_CHECK_ID),
             checkedAt: report.generatedAt,
           });
         } catch (err: unknown) {
@@ -1710,6 +1712,25 @@ export async function createServer(opts: {
           // state untouched means the next successful pass still sees the real
           // previous status and transitions correctly.
           app.log.warn({ projectName, err }, "scheduled doctor pass failed");
+        }
+      })();
+    },
+    onSiteLivenessRequested: (projectName) => {
+      void (async () => {
+        try {
+          const report = await schedulerClient.runDoctor({ project: projectName, checkIds: [SITE_REACHABILITY_CHECK_ID] });
+          const check = report.checks.find((c) => c.id === SITE_REACHABILITY_CHECK_ID);
+          const project = opts.db
+            .select()
+            .from(projects)
+            .where(eq(projects.name, projectName))
+            .get();
+          if (!check || !project) return;
+          await notifier.onSiteLivenessChecked(project.id, { check, checkedAt: report.generatedAt });
+        } catch (err: unknown) {
+          // A probe that could not run is not evidence the site is down: leave the
+          // stored state alone so the next real pass still transitions correctly.
+          app.log.warn({ projectName, err }, "scheduled site liveness pass failed");
         }
       })();
     },
@@ -3167,6 +3188,9 @@ export async function createServer(opts: {
     onProjectCreated: (projectId: string) => {
       if (ensureDefaultHealthSchedule(opts.db, projectId)) {
         scheduler.upsert(projectId, SchedulableRunKinds.doctor);
+      }
+      if (ensureDefaultSiteLivenessSchedule(opts.db, projectId)) {
+        scheduler.upsert(projectId, SchedulableRunKinds["site-liveness"]);
       }
     },
     onProjectDeleting: prepareGoogleMarketingCredentialDelete,

@@ -468,6 +468,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
       kind: 'internal-only',
       reason: 'What an insight webhook has already said, so it stops saying it. Alerting bookkeeping in exactly the sense doctorHealthState is: it records the identity of a delivered finding (project, type, subject, and the title with its magnitude neutralised) so a finding that persists across runs notifies once rather than on every run. Nothing here is a measurement, the insights themselves are served by the insights routes, and exposing send-state would invite a reader to mistake \'already alerted\' for \'still true\'.',
     },
+  siteLivenessState: {
+    kind: 'internal-only',
+    reason: 'Last graded website probe per project, plus the consecutive-failure count and whether the current outage was paged. It exists only so site-down alerting can wait for two failed passes and send one recovery for a paged outage. Alerting bookkeeping, not a measurement: the probe result is served live by GET /projects/:name/doctor?check=site.reachability, and exposing a cached copy would invite readers to trust a stale up or down verdict.',
+  },
   doctorHealthState: {
     kind: 'internal-only',
     reason: 'Last observed doctor outcome per project, kept only so health alerting can fire on transitions rather than on every scheduled pass. It is alerting bookkeeping, not a measurement: the report itself is served live by GET /projects/:name/doctor, and exposing a cached copy would invite readers to trust a stale health verdict.',

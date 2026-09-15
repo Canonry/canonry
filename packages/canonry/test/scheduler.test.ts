@@ -7,15 +7,15 @@ import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests 
 import { Scheduler } from '../src/scheduler.js'
 
 /**
- * Count registered cron tasks, ignoring the health schedule the scheduler seeds
- * for every project on start. These tests are about orphan cleanup and per-kind
- * keying; an absolute size assertion would couple them to how many schedules
- * ship by default.
+ * Count registered cron tasks, ignoring the health and site-liveness schedules the
+ * scheduler seeds for every project on start. These tests are about orphan cleanup
+ * and per-kind keying; an absolute size assertion would couple them to how many
+ * schedules ship by default.
  */
 function taskCount(scheduler: unknown, opts: { includeHealth?: boolean } = {}): number {
   const tasks = (scheduler as { tasks: Map<string, unknown> }).tasks
   if (opts.includeHealth) return tasks.size
-  return [...tasks.keys()].filter(key => !key.endsWith('::doctor')).length
+  return [...tasks.keys()].filter(key => !key.endsWith('::doctor') && !key.endsWith('::site-liveness')).length
 }
 
 
