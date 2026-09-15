@@ -8,7 +8,7 @@ import { useState } from 'react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { REPORT_CLASS_NOUN, VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_CLASS_NOUN, VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
@@ -102,7 +102,7 @@ describe('shared production visibility view', () => {
     const requests: URL[] = []
     onTestFinished(mockFetch(url => {
       const request = new URL(url); requests.push(request)
-      if (request.searchParams.get('scope') === 'group') return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'group scope "removed" is not in this frozen definition.' } }, 400)
+      if (request.searchParams.get('scope') === 'group') return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'group scope "removed" is not in this frozen definition.', details: { reason: 'retired-scope', kind: 'group', key: 'removed' } } }, 400)
       return jsonResponse(reportFixture())
     }))
     let currentSearch: Record<string, unknown> = { measurementScope: 'group', measurementScopeKey: 'removed', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' }
@@ -112,13 +112,61 @@ describe('shared production visibility view', () => {
     }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
-    const recovery = await screen.findByRole('button', { name: 'Show whole site' })
+    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })
     expect(screen.getByRole('alert').textContent).not.toContain('VALIDATION_ERROR')
+    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope)
+    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
     fireEvent.click(recovery)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
     expect(currentSearch).toMatchObject({ measurementScope: 'project', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' })
     expect(currentSearch.measurementScopeKey).toBeUndefined()
     expect(requests.at(-1)!.searchParams.get('scope')).toBe('project')
+  })
+
+  it('recovers a retired market by clearing only the market', async () => {
+    const requests: URL[] = []
+    onTestFinished(mockFetch(url => {
+      const request = new URL(url); requests.push(request)
+      if (request.searchParams.get('marketKey') === 'gone-market') return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'Market "gone-market" is not in this frozen definition.', details: { reason: 'retired-market', kind: 'market', key: 'gone-market' } } }, 400)
+      return jsonResponse(reportFixture())
+    }))
+    let currentSearch: Record<string, unknown> = { measurementScope: 'group', measurementScopeKey: 'metro-alpha', measurementMarketKey: 'gone-market', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' }
+    function Workspace() {
+      const [search, setSearch] = useState(currentSearch)
+      return <VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection(search)} onSelectionChange={patch => setSearch(previous => { currentSearch = patchVisibilitySelection(previous, patch); return currentSearch })} />
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
+    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })
+    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket)
+    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+    fireEvent.click(recovery)
+    await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
+    expect(currentSearch).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'metro-alpha', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' })
+    expect(currentSearch.measurementMarketKey).toBeUndefined()
+    expect(Object.fromEntries(requests.at(-1)!.searchParams)).toEqual({ scope: 'group', scopeKey: 'metro-alpha', queryClass: 'non-brand', provider: 'gemini', limit: '25' })
+  })
+
+  it('offers Retry instead of a scope recovery when an error carries no retired-scope details', async () => {
+    onTestFinished(mockFetch(() => jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'group scope "removed" is not in this frozen definition.' } }, 400)))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({ measurementScope: 'group', measurementScopeKey: 'removed', queryClass: 'non-brand' })} onSelectionChange={() => {}} /></QueryClientProvider>)
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
+  })
+
+  it('normalizes a clean URL to the served class without adding a history entry', async () => {
+    onTestFinished(mockFetch(() => {
+      const report = reportFixture()
+      report.selection.queryClass = 'all'
+      return jsonResponse(report)
+    }))
+    const onSelectionChange = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({})} onSelectionChange={onSelectionChange} /></QueryClientProvider>)
+    await waitFor(() => expect(onSelectionChange).toHaveBeenCalled())
+    expect(onSelectionChange.mock.calls).toStrictEqual([[{ queryClass: 'non-brand' }, { replace: true }]])
   })
 
   it.each(['non-brand', 'branded', 'unknown'] as const)('reuses the measured %s population across URL normalization and still refreshes after invalidation', async queryClass => {
@@ -283,8 +331,18 @@ describe('shared production visibility view', () => {
     report.selection.scope = report.scopeOptions.find(scope => scope.id === `${kind}-beta`)!
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     const kindLabel = kind === 'group' ? 'Group' : 'Market'
-    expect(screen.getByText(`Metro Beta · ${kind === 'group' ? '15 properties' : kindLabel}`, { selector: 'summary' })).toBeTruthy()
     expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
+  })
+
+  it('leaves the scope control to the project context row', () => {
+    const report = reportFixture()
+    expect(report.scopeOptions).toHaveLength(2)
+    const { container } = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(container.querySelector('.visibility-scope-trigger')).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: 'Search scopes' })).toBeNull()
+    const filters = screen.getByRole('group', { name: 'Visibility filters' })
+    expect(filters.getAttribute('data-has-scope')).toBe('false')
+    expect(within(filters).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Query type', 'Answer engine', 'Search location'])
   })
 
   it('paginates large property breakdowns and searches all properties without changing server metrics', () => {
@@ -451,43 +509,23 @@ describe('shared production visibility view', () => {
     expect(html).not.toContain('Branded queries')
     expect(html).toContain('Non-brand queries')
     expect(html).not.toContain('Unclassified queries')
-    expect(html).toContain('Search scopes')
+    expect(html).not.toContain('Search scopes')
     expect(html).not.toContain('Pooled')
   })
 
-  it('searches a large scope picker and preserves measurement-only navigation keys', () => {
-    const report = reportFixture()
-    report.scopeOptions.push(...Array.from({ length: 225 }, (_, index) => ({ id: `property-${index}`, label: `Property ${index}`, kind: 'property' as const, targetCount: 1 })))
+  it('opens answers with measurement-only navigation keys', () => {
     const select = vi.fn()
-    render(<VisibilityReportView report={report} onSelectionChange={select} />)
-    fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Property 224' } })
-    expect(screen.queryByRole('button', { name: /Property 223/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Property 224/ }))
-    expect(select).toHaveBeenLastCalledWith({ measurementScope: 'property', measurementScopeKey: 'property-224' })
+    render(<VisibilityReportView report={reportFixture()} onSelectionChange={select} />)
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: /View answers for apartments near transit/ }))
+    expect(select).toHaveBeenCalledTimes(1)
     const answerPatch = select.mock.lastCall?.[0]
     expect(answerPatch).toMatchObject({ measurementQueryKey: 'query-context' })
     expect(answerPatch).not.toHaveProperty('queryClass')
     expect(answerPatch).not.toHaveProperty('measurementProvider')
     expect(answerPatch).not.toHaveProperty('measurementModel')
     expect(answerPatch).not.toHaveProperty('measurementLocation')
-    expect(select.mock.calls.every(([patch]) => !('runId' in patch))).toBe(true)
-  }, 15_000)
-
-  it('labels scope alongside the other filters and returns focus when its search closes', () => {
-    render(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
-    const label = screen.getByText('Measurement scope')
-    const trigger = screen.getByText('Whole site', { selector: 'summary' })
-    expect(trigger.getAttribute('aria-labelledby')).toContain(label.id)
-    const picker = trigger.closest('details')!
-    picker.open = true
-    const search = screen.getByRole('searchbox', { name: 'Search scopes' })
-    search.focus()
-    fireEvent.keyDown(search, { key: 'Escape' })
-    expect(picker.open).toBe(false)
-    expect(document.activeElement).toBe(trigger)
+    expect(answerPatch).not.toHaveProperty('runId')
   })
 
   it('makes legacy classification visible and gives access to the stored query rows', () => {

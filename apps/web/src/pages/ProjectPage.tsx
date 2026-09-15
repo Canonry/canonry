@@ -4,8 +4,18 @@ import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
 import { carryVisibilitySearch, measurementViewSearch, parseMeasurementViewSearch, parseVisibilitySelection, patchVisibilitySelection, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import {
+  canUseResearchWorkspace,
+  effectiveQueryWorkspace,
+  isMeasurementScoped,
+  PROJECT_SCOPE_COPY,
+  projectScopeSlot,
+  selectedScopeOption,
+  unavailableTrackingScope,
+  type QueryWorkspace,
+} from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -31,7 +41,8 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { useVisibilityReportFirstPage, VisibilityTrendSection, VisibilityWorkspace } from '../components/project/VisibilityTrendSection.js'
+import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
 import { QueriesSection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
@@ -74,8 +85,10 @@ import {
   bingRequestIndexing,
   triggerGscSync,
   fetchRunDetail,
+  apiErrorDetails,
   heyClient,
   getEmbedConfig,
+  getViewerResearchConfig,
   isEmbed,
   isDashboardManagedSweeps,
   type ApiBingConnection,
@@ -104,6 +117,7 @@ import {
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesOptions,
+  getApiV1ProjectsByNameQueryTrackingOptions,
   getApiV1ProjectsQueryKey,
   getApiV1ProjectsByNameQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
@@ -1760,20 +1774,30 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { canWrite } = useAccount()
+  const { account, canWrite } = useAccount()
   const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
   const projectName = model.project.name
   const hasInitialProjectDashboard = initialDashboard?.dashboard.projects.some(entry => entry.project.name === projectName) ?? false
+  const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
+    manageQueries?: boolean
+    runId?: string
+    siteHealthRunId?: string
+    scope?: string
+    class?: string
+  }
+  const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  const measurementScoped = isMeasurementScoped(visibilitySelection)
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
     // Readiness drives the page-header sweep control on every project tab.
     // Viewers still need setup state on the three result/configuration tabs
-    // that render Advanced Measurement.
+    // that render Advanced Measurement, and on any scoped URL, where the
+    // context row says whether the tab follows that scope.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || requestedTab === 'portfolio' || requestedTab === 'overview' || requestedTab === 'settings'),
+      && (canWrite || requestedTab === 'portfolio' || requestedTab === 'overview' || requestedTab === 'settings' || measurementScoped),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
@@ -1829,17 +1853,17 @@ function ProjectPageContent({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const appendQueries = useAppendQueries()
-  const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
-    manageQueries?: boolean
-    runId?: string
-    siteHealthRunId?: string
-    scope?: string
-    class?: string
-  }
-  const visibilitySelection = parseVisibilitySelection(projectSearchParams)
-  const updateVisibilitySearch = useCallback((patch: Record<string, unknown>) => {
-    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, patch) })
+  const updateVisibilitySearch = useCallback((patch: Record<string, unknown>, options?: { replace?: boolean }) => {
+    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, patch), replace: options?.replace === true })
   }, [navigate])
+  // Tracked Queries take their scope control from the query-tracking workspace.
+  // Every role loads it, and the Queries body observes this same key.
+  const requestedQueryWorkspace: QueryWorkspace = projectSearchParams.queryWorkspace === 'research' || (tab === 'discovery' && projectSearchParams.queryWorkspace === undefined) ? 'research' : 'tracked'
+  const queryWorkspace = effectiveQueryWorkspace(requestedQueryWorkspace, canUseResearchWorkspace(account?.role, account?.role === 'viewer' ? getViewerResearchConfig() : null))
+  const trackingWorkspaceQuery = useQuery({
+    ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: !isEmbed() && (tab === 'queries' || tab === 'discovery') && queryWorkspace === 'tracked',
+  })
   const manageQueriesRequested = projectSearchParams.manageQueries === true
   const releaseInitialSiteHealthRun = useCallback(() => {
     void navigate({
@@ -2037,6 +2061,20 @@ function ProjectPageContent({
   useEffect(() => {
     if (tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved) onRequestOverview()
   }, [isMeasurementModeUnresolved, isSimpleOverview, onRequestOverview, tab])
+  const scopeSlot = projectScopeSlot({
+    tab,
+    surface: isMeasurementModeUnresolved ? 'unresolved' : advancedMeasurementMode.surface,
+    embedded: isEmbed(),
+    scoped: measurementScoped,
+    queryWorkspace,
+    tracking: trackingWorkspaceQuery.isError
+      ? { state: 'error' }
+      : trackingWorkspaceQuery.data
+        ? { state: 'ready', mode: trackingWorkspaceQuery.data.mode, scopeUnavailable: unavailableTrackingScope(trackingWorkspaceQuery.data, visibilitySelection) }
+        : { state: 'pending' },
+  })
+  // The workspace below reads this exact first page, so the row adds no request.
+  const reportScopeQuery = useVisibilityReportFirstPage(projectName, visibilitySelection, { enabled: scopeSlot.kind === 'report-picker' })
   const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
   const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
   const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
@@ -2653,6 +2691,60 @@ function ProjectPageContent({
     )
   }
 
+  // The context row's measurement scope slot. Each tab owns recovery for a
+  // saved scope that no longer exists; the row only names it.
+  function renderScopeSlot(): React.ReactNode {
+    switch (scopeSlot.kind) {
+      case 'report-picker': {
+        if (reportScopeQuery.error) {
+          // Any other failure belongs to the workspace alert below.
+          return parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportScopeQuery.error))
+            ? <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+            : null
+        }
+        const report = reportScopeQuery.data
+        if (!report) return <div className="skeleton-text h-11 w-56" role="status" aria-label="Loading measurement scope" />
+        if (report.selection.availability.state !== 'available' || report.scopeOptions.length <= 1) return null
+        // The URL owns the choice, so the trigger never snaps back while the
+        // next report loads over the previous one.
+        const selected = selectedScopeOption(report.scopeOptions, visibilitySelection) ?? report.selection.scope
+        return (
+          <VisibilityScopePicker
+            labelVisibility="sr-only"
+            options={report.scopeOptions}
+            selected={selected}
+            marketKey={visibilitySelection.marketKey}
+            onSelect={(scope, marketKey) => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })}
+          />
+        )
+      }
+      case 'tracking-picker': {
+        const options = trackingWorkspaceQuery.data?.scopeOptions ?? []
+        const selected = selectedScopeOption(options, visibilitySelection)
+        // Tracked assignments have no market intersection, so a new scope drops the market.
+        return selected ? (
+          <VisibilityScopePicker
+            labelVisibility="sr-only"
+            options={options}
+            selected={selected}
+            onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
+          />
+        ) : null
+      }
+      case 'scope-unavailable':
+        return <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+      case 'project-wide':
+        return (
+          <span className="flex items-center gap-1">
+            <span className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.projectWide}</span>
+            <InfoTooltip text={PROJECT_SCOPE_COPY.projectWideHelp} />
+          </span>
+        )
+      case 'none':
+        return null
+    }
+  }
+
   // Overview's date range. Simple always shows it; an Advanced portfolio shows
   // only an explicit historical range and renders no element otherwise.
   const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
@@ -2660,6 +2752,7 @@ function ProjectPageContent({
       ? model.dateRangeLabel
       : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
+  const scopeSlotContent = renderScopeSlot()
 
   return (
     <div className="page-container">
@@ -2685,6 +2778,7 @@ function ProjectPageContent({
           {tab !== 'report' ? (
             <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
           ) : null}
+          {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
           {overviewRangeLabel !== null ? <p className="project-context-meta">{overviewRangeLabel}</p> : null}
           <div className="project-context-actions" data-project-actions>
@@ -3200,7 +3294,7 @@ function ProjectPageContent({
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}
-          queryWorkspace={projectSearchParams.queryWorkspace === 'research' || (tab === 'discovery' && projectSearchParams.queryWorkspace === undefined) ? 'research' : 'tracked'}
+          queryWorkspace={requestedQueryWorkspace}
           onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
           researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
           onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}

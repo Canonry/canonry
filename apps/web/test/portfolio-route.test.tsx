@@ -13,7 +13,9 @@ import { AccountProvider } from '../src/contexts/account-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
-import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
+import { VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
+import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
   getApiV1CdpStatusQueryKey,
@@ -269,31 +271,8 @@ async function renderAt(
   }
 }
 
-function visibilityReportQuery(
-  projectName: string,
-  selection: VisibilitySelectionState,
-  pagination: { cursor?: string; search?: string } = {},
-) {
-  return {
-    client: heyClient,
-    path: { name: projectName },
-    query: {
-      scope: selection.measurementScope,
-      scopeKey: selection.measurementScopeKey,
-      queryClass: selection.queryClass,
-      provider: selection.provider,
-      model: selection.model,
-      location: selection.location,
-      from: selection.from,
-      to: selection.to,
-      revision: selection.revision,
-      runId: selection.measurementRunId,
-      queryKey: selection.queryKey,
-      limit: 25,
-      cursor: pagination.cursor,
-      search: pagination.search,
-    },
-  }
+function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
+  return { client: heyClient, path: { name: projectName }, query: visibilityReportFirstPageQuery(selection) }
 }
 
 function visibilityReportResponse(overrides: {
@@ -422,7 +401,7 @@ function visibilityReportResponse(overrides: {
   })
 }
 
-function queryTrackingWorkspaceResponse() {
+function queryTrackingWorkspaceResponse(overrides: Record<string, unknown> = {}) {
   const context = { providers: ['openai'], models: { openai: 'search-model' }, location: null }
   return queryTrackingWorkspaceResponseSchema.parse({
     mode: 'advanced',
@@ -432,6 +411,12 @@ function queryTrackingWorkspaceResponse() {
     targets: [{ stableKey: 'citypoint', label: 'Citypoint Dental' }],
     groups: [{ stableKey: 'north', label: 'North', targetKeys: ['citypoint'] }],
     markets: [],
+    // Server-built, as `planScopeOptions` builds them for tracking: no market links.
+    scopeOptions: [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+      { id: 'north', label: 'North', kind: 'group', targetCount: 1 },
+      { id: 'citypoint', label: 'Citypoint Dental', kind: 'property', targetCount: 1, parentGroupIds: ['north'] },
+    ],
     tracked: [{
       queryId: 'query-citypoint',
       queryText: 'Citypoint dentist',
@@ -444,6 +429,7 @@ function queryTrackingWorkspaceResponse() {
       }],
     }],
     savedSources: { research: [], discovery: [] },
+    ...overrides,
   })
 }
 
@@ -2230,7 +2216,7 @@ test('a scope in the URL selects that group on first paint, with no interaction'
 
   // The server-resolved scope reflects the URL rather than defaulting to site.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector('summary')?.textContent).toBe('North · 1 property')
+  expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('North · 1 property')
 })
 
 test('a market scope reads that group\'s stored competitor landscape', async () => {
@@ -2430,10 +2416,402 @@ test('a stale group key fails closed instead of silently broadening to the whole
   )
 
   expect(await page.findByRole('heading', { name: 'AI visibility unavailable' })).toBeTruthy()
+  // A failure without retired-scope details is the workspace alert's to retry;
+  // the context row adds nothing.
+  expect(page.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  expect(page.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+  expect(page.container.querySelector('.project-context-row')).not.toBeNull()
+  expect(page.container.querySelector('.project-context-row .project-context-scope')).toBeNull()
   const staleRequest = observed.find(path => path.includes('/visibility-report?'))
   expect(staleRequest).toContain('scope=group')
   expect(staleRequest).toContain('scopeKey=deleted-market')
   expect(observed.some(path => path.includes('/visibility-report?scope=project'))).toBe(false)
+})
+
+// ── Measurement scope in the project context row ─────────────────────────────
+
+function contextRow(root: ParentNode): HTMLElement {
+  const row = root.querySelector<HTMLElement>('.project-context-row')
+  if (!row) throw new Error('Missing .project-context-row')
+  return row
+}
+
+async function rowTrigger(root: ParentNode): Promise<HTMLElement> {
+  return waitFor(() => {
+    const trigger = contextRow(root).querySelector<HTMLElement>('.visibility-scope-trigger')
+    expect(trigger).not.toBeNull()
+    return trigger!
+  })
+}
+
+async function renderScopeRoute(
+  entry: string,
+  respond: (url: URL) => Response | Promise<Response> | undefined,
+  options: { accountRole?: 'admin' | 'viewer' } = {},
+) {
+  const observed: URL[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    observed.push(url)
+    const response = await respond(url)
+    if (response) return response
+    // Only the run lists; Site Health's own `/technical-aeo/runs` has another shape.
+    if (/^\/api\/v1\/(?:projects\/[^/]+\/)?runs$/.test(decodeURIComponent(url.pathname))) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [entry] })
+  await router.load()
+  const page = render(
+    <AccountProvider account={options.accountRole ? { name: 'operator', role: options.accountRole } : null}>
+      <QueryClientProvider client={queryClient}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </QueryClientProvider>
+    </AccountProvider>,
+  )
+  return { observed, page, router, queryClient, projectName }
+}
+
+function trackingRoute(
+  workspace = queryTrackingWorkspaceResponse(),
+  measurement: { plan: unknown; setup: unknown } = { plan: measurementPlanV2Response(4), setup: activeMeasurementSetupResponse(4) },
+) {
+  return (url: URL) => {
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurement.plan)
+    if (path.endsWith('/measurement-setup')) return jsonResponse(measurement.setup)
+    if (path.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    if (path.endsWith('/discover/sessions')) return jsonResponse([])
+    return undefined
+  }
+}
+
+function overviewRoute(respond: (url: URL) => Response | Promise<Response>) {
+  return (url: URL) => {
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (path.endsWith('/visibility-report')) return respond(url)
+    return undefined
+  }
+}
+
+test('AI Visibility v2 renders one scope trigger, in the project context row, with its label kept for assistive tech', async () => {
+  const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, {
+    plan: measurementPlanV2Response(4),
+    visibilityReport: visibilityReportResponse({ mode: 'advanced' }),
+  }), 'text/html')
+  const triggers = doc.querySelectorAll('.visibility-scope-trigger')
+  expect(triggers).toHaveLength(1)
+  const trigger = triggers[0]!
+  expect(trigger.closest('.project-context-scope')?.parentElement).toBe(contextRow(doc))
+  expect(trigger.textContent).toBe('Whole site')
+  const label = doc.getElementById(trigger.getAttribute('aria-labelledby')!.split(' ')[0]!)!
+  expect(label.textContent).toBe('Measurement scope')
+  expect(label.className).toBe('sr-only')
+
+  // v1 and Simple overviews offer no scope options, so the row has no slot.
+  for (const html of [
+    await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanResponse(3, true), report: measurementReportResponse(3), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) }),
+    await renderAt('/projects/project_citypoint'),
+  ]) {
+    const other = new DOMParser().parseFromString(html, 'text/html')
+    expect(contextRow(other).querySelector('.project-context-scope')).toBeNull()
+    expect(other.querySelector('.visibility-scope-trigger')).toBeNull()
+  }
+})
+
+test('the row holds a 44px placeholder only while the AI Visibility report loads', async () => {
+  const loading = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4) }, { seedVisibilityReport: false }), 'text/html')
+  const slot = contextRow(loading).querySelector('.project-context-scope')!
+  const placeholder = slot.querySelector('[role="status"]')!
+  expect(placeholder.getAttribute('aria-label')).toBe('Loading measurement scope')
+  expect(placeholder.className.split(' ')).toEqual(['skeleton-text', 'h-11', 'w-56'])
+  expect(slot.querySelector('.visibility-scope-trigger')).toBeNull()
+
+  // Before either plan read lands, the overview's mode is unknown and the row reserves nothing.
+  const unresolved = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, undefined, { seedPlan: false }), 'text/html')
+  expect(contextRow(unresolved).querySelector('.project-context-scope')).toBeNull()
+})
+
+test('a long Group label wraps in the row trigger instead of being clipped', async () => {
+  const longLabel = 'Coastal Maine and New Hampshire waterfront resorts, harbor inns, and seasonal cottages'
+  const report = visibilityReportResponse({ mode: 'advanced', scope: 'group', scopeKey: 'north', scopeLabel: longLabel })
+  report.scopeOptions = report.scopeOptions.map(option => option.id === 'north' ? { ...option, label: longLabel } : option)
+  const doc = new DOMParser().parseFromString(await renderAt(
+    '/projects/project_citypoint?measurementScope=group&measurementScopeKey=north',
+    undefined,
+    { plan: measurementPlanV2Response(4), visibilityReport: report },
+  ), 'text/html')
+  const trigger = contextRow(doc).querySelector('.visibility-scope-trigger')!
+  expect(trigger.textContent).toBe(`${longLabel} · 1 property`)
+  const classes = trigger.className.split(/\s+/)
+  for (const clipping of ['truncate', 'whitespace-nowrap', 'overflow-hidden', 'text-ellipsis']) expect(classes).not.toContain(clipping)
+  expect(trigger.closest('.project-context-scope')!.className).toBe('project-context-scope')
+})
+
+test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Simple tabs say nothing', async () => {
+  const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html')
+  const scoped = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }))
+  const slot = contextRow(scoped).querySelector('.project-context-scope')!
+  expect(slot.textContent).toBe(PROJECT_SCOPE_COPY.projectWide)
+  expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual([PROJECT_SCOPE_COPY.projectWideHelp])
+
+  const unscoped = parse(await renderAt('/projects/project_citypoint/technical-aeo', undefined, { plan: measurementPlanV2Response(4) }))
+  const simple = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north'))
+  for (const doc of [unscoped, simple]) {
+    expect(contextRow(doc).querySelector('.project-context-scope')).toBeNull()
+    expect(doc.body.textContent).not.toContain(PROJECT_SCOPE_COPY.projectWide)
+  }
+  for (const doc of [scoped, unscoped, simple]) expect(doc.querySelector('.visibility-scope-trigger')).toBeNull()
+})
+
+test('a viewer reads setup on a scope-blind tab only when the URL is scoped', async () => {
+  const setupKey = (projectName: string) => getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } })
+  const scoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', trackingRoute(), { accountRole: 'viewer' })
+  await waitFor(() => expect(contextRow(scoped.page.container).querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.projectWide))
+  expect(scoped.observed.filter(url => url.pathname.endsWith('/measurement-setup'))).toHaveLength(1)
+  expect(scoped.observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  scoped.page.unmount()
+
+  const unscoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
+  // Effects have run, so an enabled read would already be fetching.
+  expect(unscoped.queryClient.getQueryState(setupKey(unscoped.projectName))?.fetchStatus ?? 'idle').toBe('idle')
+  expect(unscoped.observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
+  expect(contextRow(unscoped.page.container).querySelector('.project-context-scope')).toBeNull()
+})
+
+test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in the row, without plan or setup reads', async () => {
+  const { observed, page, queryClient, projectName } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(), { accountRole: 'viewer' })
+  const keyOptions = { client: heyClient, path: { name: projectName } }
+  expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementSetupQueryKey(keyOptions))?.fetchStatus ?? 'idle').toBe('idle')
+  expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementPlanQueryKey(keyOptions))?.fetchStatus ?? 'idle').toBe('idle')
+
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  const trigger = await rowTrigger(page.container)
+  expect(trigger.textContent).toBe('Whole site')
+  expect(page.container.querySelectorAll('.visibility-scope-trigger')).toHaveLength(1)
+  expect(page.getByRole('region', { name: 'Tracked queries' }).querySelector('.visibility-scope-trigger')).toBeNull()
+  // The row reads the body's own workspace key, so it adds no request.
+  expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
+  expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
+})
+
+test('a viewer without research access who opens Research gets the tracked table and the row trigger', async () => {
+  const { observed, page } = await renderScopeRoute('/projects/project_citypoint/queries?queryWorkspace=research', trackingRoute(), { accountRole: 'viewer' })
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  expect(page.queryByRole('tab', { name: 'Research' })).toBeNull()
+  expect((await rowTrigger(page.container)).textContent).toBe('Whole site')
+  expect(page.container.querySelectorAll('.visibility-scope-trigger')).toHaveLength(1)
+  expect(observed.some(url => url.pathname.includes('/research'))).toBe(false)
+})
+
+test('a retired tracking scope is named in the row while the body keeps the recovery action', async () => {
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=retired-group', trackingRoute())
+  expect(await page.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
+  const row = contextRow(page.container)
+  await waitFor(() => expect(row.querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.savedScopeUnavailable))
+  expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
+  expect(within(row).queryByRole('button', { name: 'Show whole site' })).toBeNull()
+
+  fireEvent.click(page.getByRole('button', { name: 'Show whole site' }))
+  await waitFor(() => expect(router.state.location.search.measurementScope).toBe('project'))
+  expect((await rowTrigger(page.container)).textContent).toBe('Whole site')
+  expect(row.textContent).not.toContain(PROJECT_SCOPE_COPY.savedScopeUnavailable)
+})
+
+test('Simple tracked Queries have no scope trigger', async () => {
+  const base = queryTrackingWorkspaceResponse()
+  const simple = queryTrackingWorkspaceResponse({
+    mode: 'simple', active: null, targets: [], groups: [], markets: [],
+    scopeOptions: [{ id: 'project', label: 'Project', kind: 'project', targetCount: 1 }],
+    tracked: base.tracked.map(row => ({ ...row, assignments: [] })),
+  })
+  const { page } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(simple, { plan: { active: null }, setup: simpleMeasurementSetupResponse() }))
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
+  expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
+})
+
+test.each([
+  ['the Research workspace', '/projects/project_citypoint/queries?queryWorkspace=research'],
+  ['the legacy Discovery route', '/projects/project_citypoint/discovery'],
+])('%s has no scope trigger and no tracking read', async (_name, entry) => {
+  const { observed, page } = await renderScopeRoute(entry, trackingRoute())
+  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
+  expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
+  expect(observed.some(url => url.pathname.endsWith('/query-tracking'))).toBe(false)
+})
+
+test('the tracked Queries row picker floats over the table, closes on Escape or outside interaction, and keeps focus after a search selection', async () => {
+  const base = queryTrackingWorkspaceResponse()
+  const workspace = queryTrackingWorkspaceResponse({
+    markets: [{ stableKey: 'new-york', label: 'New York', groupKey: 'north', usageEdges: [{ executionNodeKey: 'node-citypoint', targetKey: 'citypoint', queryId: 'query-citypoint' }] }],
+    scopeOptions: [...base.scopeOptions!.slice(0, 2), { id: 'new-york', label: 'New York', kind: 'market', targetCount: 1, parentGroupIds: ['north'] }, base.scopeOptions![2]!],
+  })
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(workspace))
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  const trigger = await rowTrigger(page.container)
+  const details = trigger.closest('details')!
+  expect(details.classList.contains('relative')).toBe(true)
+  fireEvent.click(trigger)
+  expect(details.open).toBe(true)
+  const search = within(details).getByRole('searchbox', { name: 'Search scopes' })
+  expect(search.closest('.visibility-scope-menu')?.parentElement).toBe(details)
+
+  search.focus()
+  fireEvent.keyDown(search, { key: 'Escape' })
+  expect(details.open).toBe(false)
+  expect(document.activeElement).toBe(trigger)
+
+  fireEvent.click(trigger)
+  expect(details.open).toBe(true)
+  fireEvent.pointerDown(search)
+  expect(details.open).toBe(true)
+  const querySearch = page.getByRole('searchbox', { name: 'Filter tracked queries' })
+  querySearch.focus()
+  fireEvent.pointerDown(querySearch)
+  expect(details.open).toBe(false)
+  expect(document.activeElement).toBe(querySearch)
+
+  fireEvent.click(trigger)
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'New York' } })
+  expect(within(details).queryByRole('button', { name: 'Select North' })).toBeNull()
+  const option = within(details).getByRole('button', { name: 'Select New York' })
+  option.focus()
+  fireEvent.click(option)
+  expect(details.open).toBe(false)
+  expect(document.activeElement).toBe(trigger)
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'new-york' }))
+  expect(router.state.location.search.measurementMarketKey).toBeUndefined()
+  await waitFor(() => expect(trigger.textContent).toBe('New York · Market'))
+})
+
+test('the tracked Queries row picker searches a large property list and browses nested Groups', async () => {
+  const properties = Array.from({ length: 225 }, (_, index) => ({ stableKey: `property-${index}`, label: `Property ${index}` }))
+  const workspace = queryTrackingWorkspaceResponse({
+    targets: [{ stableKey: 'citypoint', label: 'Citypoint Dental' }, ...properties],
+    groups: [
+      { stableKey: 'metro', label: 'Metro', targetKeys: ['citypoint'] },
+      { stableKey: 'north-east', label: 'North East', parentGroupKey: 'metro', targetKeys: ['citypoint'] },
+    ],
+    scopeOptions: [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 226 },
+      { id: 'metro', label: 'Metro', kind: 'group', targetCount: 1 },
+      { id: 'north-east', label: 'North East', kind: 'group', targetCount: 1, parentGroupIds: ['metro'] },
+      { id: 'citypoint', label: 'Citypoint Dental', kind: 'property', targetCount: 1, parentGroupIds: ['metro', 'north-east'] },
+      ...properties.map(property => ({ id: property.stableKey, label: property.label, kind: 'property', targetCount: 1, parentGroupIds: [] })),
+    ],
+  })
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(workspace))
+  expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  const trigger = await rowTrigger(page.container)
+  const details = trigger.closest('details')!
+
+  fireEvent.click(trigger)
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Property 224' } })
+  expect(within(details).queryByRole('button', { name: 'Select Property 223' })).toBeNull()
+  fireEvent.click(within(details).getByRole('button', { name: 'Select Property 224' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'property-224' }))
+  await waitFor(() => expect(trigger.textContent).toBe('Property 224 · Property'))
+
+  fireEvent.click(trigger)
+  fireEvent.click(within(details).getByRole('button', { name: 'Back to all groups' }))
+  expect(within(details).getByRole('button', { name: 'Select Metro' })).toBeTruthy()
+  expect(within(details).queryByRole('button', { name: 'Select North East' })).toBeNull()
+  expect(within(details).queryByRole('button', { name: 'Select Citypoint Dental' })).toBeNull()
+  fireEvent.click(within(details).getByRole('button', { name: 'Browse Metro' }))
+  expect(within(details).getByText('All properties in this group')).toBeTruthy()
+  expect(within(details).getByText('Subgroups (1)', { selector: 'summary' }).closest('details')!.open).toBe(true)
+  expect(within(details).getByText('All properties (1)', { selector: 'summary' }).closest('details')!.open).toBe(false)
+  fireEvent.click(within(details).getByRole('button', { name: 'Select North East' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north-east' }))
+  await waitFor(() => expect(trigger.textContent).toBe('North East · 1 property'))
+}, 15_000)
+
+test('AI Visibility makes one first-page request, normalizes without a history entry, and shows a new scope while it loads', async () => {
+  let releaseNorth: (() => void) | undefined
+  const northGate = new Promise<void>(resolve => { releaseNorth = resolve })
+  const { observed, page, router } = await renderScopeRoute('/projects/project_citypoint', overviewRoute(async url => {
+    if (url.searchParams.get('scopeKey') === 'north') {
+      await northGate
+      return jsonResponse(visibilityReportResponse({ mode: 'advanced', scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'North Property' }))
+    }
+    return jsonResponse(visibilityReportResponse({ mode: 'advanced', queryClass: url.searchParams.get('queryClass') === 'all' ? 'all' : 'non-brand' }))
+  }))
+  const historyLength = router.history.length
+
+  expect(await page.findByText('Harbor House')).toBeTruthy()
+  await waitFor(() => expect(router.state.location.search.queryClass).toBe('non-brand'))
+  expect(router.history.length).toBe(historyLength)
+  const trigger = await rowTrigger(page.container)
+  expect(trigger.textContent).toBe('Whole site')
+  const firstPages = observed.filter(url => url.pathname.endsWith('/visibility-report')
+    && url.searchParams.get('limit') === '25' && !url.searchParams.has('cursor') && !url.searchParams.has('search') && !url.searchParams.has('queryKey'))
+  expect(firstPages.map(url => url.searchParams.get('queryClass'))).toEqual(['all'])
+
+  fireEvent.click(trigger)
+  fireEvent.click(within(trigger.closest('details')!).getByRole('button', { name: 'Select North', exact: true }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
+  // The URL owns the trigger, so it does not snap back while the report loads.
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+  expect(page.getByRole('status', { name: 'Loading AI visibility' })).toBeTruthy()
+  expect(router.history.length).toBe(historyLength + 1)
+
+  releaseNorth!()
+  expect(await page.findByText('North Property')).toBeTruthy()
+  expect(trigger.textContent).toBe('North · 1 property')
+  expect(observed.filter(url => url.pathname.endsWith('/visibility-report') && url.searchParams.get('scopeKey') === 'north')).toHaveLength(1)
+})
+
+test.each([
+  {
+    kind: 'market',
+    search: '?measurementScope=group&measurementScopeKey=north&measurementMarketKey=gone-market&queryClass=non-brand',
+    details: { reason: 'retired-market', kind: 'market', key: 'gone-market' },
+    recovery: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets,
+    recovered: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' },
+    trigger: 'North · 1 property',
+  },
+  {
+    kind: 'group',
+    search: '?measurementScope=group&measurementScopeKey=gone-group&queryClass=non-brand',
+    details: { reason: 'retired-scope', kind: 'group', key: 'gone-group' },
+    recovery: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite,
+    recovered: { measurementScope: 'project', queryClass: 'non-brand' },
+    trigger: 'Whole site',
+  },
+] as const)('a retired $kind from the real error envelope is named in the row and recovered in the body', async ({ search, details, recovery, recovered, trigger }) => {
+  const { page, router } = await renderScopeRoute(`/projects/project_citypoint${search}`, overviewRoute(url => {
+    const retiredKey = url.searchParams.get(details.kind === 'market' ? 'marketKey' : 'scopeKey')
+    if (retiredKey === details.key) {
+      return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: `${details.kind} "${details.key}" is not in this frozen definition.`, details } }, 400)
+    }
+    const scopeKey = url.searchParams.get('scopeKey')
+    return jsonResponse(visibilityReportResponse({ mode: 'advanced', ...(scopeKey ? { scope: 'group' as const, scopeKey, scopeLabel: 'North' } : {}) }))
+  }))
+
+  expect(await page.findByRole('heading', { name: 'AI visibility unavailable' })).toBeTruthy()
+  const row = contextRow(page.container)
+  await waitFor(() => expect(row.querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.savedScopeUnavailable))
+  expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
+  expect(page.queryByRole('button', { name: 'Retry' })).toBeNull()
+
+  fireEvent.click(page.getByRole('button', { name: recovery }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject(recovered))
+  expect(router.state.location.search.measurementMarketKey).toBeUndefined()
+  if (details.kind === 'group') expect(router.state.location.search.measurementScopeKey).toBeUndefined()
+  expect((await rowTrigger(page.container)).textContent).toBe(trigger)
+  expect(row.textContent).not.toContain(PROJECT_SCOPE_COPY.savedScopeUnavailable)
 })
 
 const PROPERTY_MARKET = { id: 'north-market', label: 'North Market', kind: 'market' as const, targetCount: 1, parentGroupIds: ['north'] }

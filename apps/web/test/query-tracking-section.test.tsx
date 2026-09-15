@@ -295,7 +295,7 @@ test('opens Property Add with a compact destination and expands assignments only
   expect(screen.getByRole('checkbox', { name: 'Property 223, Property' })).toBeTruthy()
 })
 
-test.each(['group', 'market'] as const)('keeps the selected %s kind visible in the tracking picker and removal caption', async kind => {
+test.each(['group', 'market'] as const)('keeps the selected %s kind in the removal caption and leaves the scope picker to the context row', async kind => {
   const data = workspace()
   data.groups[0]!.label = 'Metro Beta'
   data.markets[0]!.label = 'Metro Beta'
@@ -303,7 +303,7 @@ test.each(['group', 'market'] as const)('keeps the selected %s kind visible in t
   renderWorkspace({ selection: { measurementScope: kind, measurementScopeKey: kind === 'group' ? 'north-east' : 'new-york', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   const kindLabel = kind === 'group' ? 'Group' : 'Market'
-  expect(screen.getByText(kind === 'group' ? 'Metro Beta · 1 property' : 'Metro Beta · Market', { selector: 'summary' })).toBeTruthy()
+  expect(document.querySelector('.visibility-scope-trigger')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
   expect(screen.getByText(`Only assignments in Metro Beta · ${kindLabel} will be removed. Earlier results stay unchanged.`)).toBeTruthy()
 })
@@ -406,7 +406,7 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   expect(screen.getByRole('button', { name: 'Confirm changes' }).hasAttribute('disabled')).toBe(true)
 })
 
-test('renders a searchable tracked table and delegates URL-owned workspace and scope selection', async () => {
+test('renders a searchable tracked table, delegates the URL-owned workspace, and leaves scope to the context row', async () => {
   installWorkspaceApi()
   const props = renderWorkspace()
 
@@ -421,10 +421,8 @@ test('renders a searchable tracked table and delegates URL-owned workspace and s
   expect(screen.getByText('Acme pricing')).toBeTruthy()
   expect(screen.queryByText('Best AEO platform')).toBeNull()
 
-  fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'New York' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Select New York' }))
-  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'market', measurementScopeKey: 'new-york' })
+  expect(document.querySelector('.visibility-scope-trigger')).toBeNull()
+  expect(screen.queryByRole('searchbox', { name: 'Search scopes' })).toBeNull()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research' }))
   expect(props.onQueryWorkspaceChange).toHaveBeenCalledWith('research')
@@ -481,80 +479,7 @@ test('lets measurement and action columns size to their contents inside the scro
   }
 })
 
-test('floats the tracked scope picker above the table and closes on Escape or outside interaction', async () => {
-  installWorkspaceApi()
-  renderWorkspace()
-
-  await screen.findByText('Acme pricing')
-  const trigger = screen.getByText('Whole site', { selector: 'summary' })
-  const details = trigger.closest('details')!
-  fireEvent.click(trigger)
-  expect(details.open).toBe(true)
-
-  const search = screen.getByRole('searchbox', { name: 'Search scopes' })
-  const popup = search.closest('.visibility-scope-menu')
-  expect(details.classList.contains('relative')).toBe(true)
-  expect(popup?.parentElement).toBe(details)
-
-  search.focus()
-  fireEvent.keyDown(search, { key: 'Escape' })
-  expect(details.open).toBe(false)
-  expect(document.activeElement).toBe(trigger)
-
-  fireEvent.click(trigger)
-  expect(details.open).toBe(true)
-  fireEvent.pointerDown(search)
-  expect(details.open).toBe(true)
-  const querySearch = screen.getByRole('searchbox', { name: 'Filter tracked queries' })
-  querySearch.focus()
-  fireEvent.pointerDown(querySearch)
-  expect(details.open).toBe(false)
-  expect(document.activeElement).toBe(querySearch)
-})
-
-test('returns focus to the tracked scope trigger after selecting a filtered scope', async () => {
-  installWorkspaceApi()
-  const props = renderWorkspace()
-
-  await screen.findByText('Acme pricing')
-  const trigger = screen.getByText('Whole site', { selector: 'summary' })
-  const details = trigger.closest('details')!
-  fireEvent.click(trigger)
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'North East' } })
-  expect(screen.queryByRole('button', { name: 'Select New York' })).toBeNull()
-  const option = screen.getByRole('button', { name: 'Select North East' })
-  option.focus()
-  fireEvent.click(option)
-
-  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
-  expect(details.open).toBe(false)
-  expect(document.activeElement).toBe(trigger)
-})
-
-test('browses a nested tracked-query group without first listing every property', async () => {
-  const data = workspace()
-  data.groups = [
-    { stableKey: 'metro', label: 'Metro', targetKeys: ['acme'] },
-    { stableKey: 'north-east', label: 'North East', parentGroupKey: 'metro', targetKeys: ['acme'] },
-  ]
-  installWorkspaceApi(undefined, [], data)
-  const props = renderWorkspace()
-
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
-  expect(screen.getByRole('button', { name: 'Select Metro' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Select North East' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Select Acme' })).toBeNull()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Browse Metro' }))
-  expect(screen.getByText('All properties in this group')).toBeTruthy()
-  expect(screen.getByText('Subgroups (1)', { selector: 'summary' }).closest('details')!.open).toBe(true)
-  expect(screen.getByText('All properties (1)', { selector: 'summary' }).closest('details')!.open).toBe(false)
-  fireEvent.click(screen.getByRole('button', { name: 'Select North East' }))
-  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'group', measurementScopeKey: 'north-east' })
-})
-
-test('searches large scopes and keeps multi-property assignments compact in the table', async () => {
+test('keeps multi-property assignments compact in a large tracked table without a body scope picker', async () => {
   const scaled = workspace()
   scaled.targets = Array.from({ length: 225 }, (_, index) => ({ stableKey: `property-${index}`, label: `Property ${index}` }))
   scaled.groups = [{ stableKey: 'metro-alpha', label: 'Metro Alpha', targetKeys: scaled.targets.slice(0, 15).map(target => target.stableKey) }]
@@ -563,16 +488,12 @@ test('searches large scopes and keeps multi-property assignments compact in the 
     ...scaled.tracked[0]!.assignments[0]!, targetKey: target.stableKey, groupKeys: ['metro-alpha'], marketKeys: [],
   }))
   installWorkspaceApi(undefined, [], scaled)
-  const props = renderWorkspace()
+  renderWorkspace()
 
   await screen.findByText('Acme pricing')
   expect(screen.getByText('15 properties · Group: Metro Alpha')).toBeTruthy()
   expect(screen.queryByRole('combobox', { name: 'Measurement scope' })).toBeNull()
-  fireEvent.click(screen.getByText('Whole site', { selector: 'summary' }))
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Property 224' } })
-  expect(screen.queryByRole('button', { name: 'Select Property 223' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Select Property 224' }))
-  expect(props.onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'property', measurementScopeKey: 'property-224' })
+  expect(document.querySelector('.visibility-scope-trigger')).toBeNull()
 })
 
 test('focuses and scrolls an opened assignment editor without hijacking assignment checkbox focus', async () => {

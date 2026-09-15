@@ -13,7 +13,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
-import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
+import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
@@ -55,26 +55,7 @@ function seedNoMeasurementPlan(queryClient: QueryClient, fixture: ReturnType<typ
 }
 
 function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
-  return {
-    client: heyClient,
-    path: { name: projectName },
-    query: {
-      scope: selection.measurementScope,
-      scopeKey: selection.measurementScopeKey,
-      queryClass: selection.queryClass,
-      provider: selection.provider,
-      model: selection.model,
-      location: selection.location,
-      from: selection.from,
-      to: selection.to,
-      revision: selection.revision,
-      runId: selection.measurementRunId,
-      queryKey: selection.queryKey,
-      limit: 25,
-      cursor: undefined,
-      search: undefined,
-    },
-  }
+  return { client: heyClient, path: { name: projectName }, query: visibilityReportFirstPageQuery(selection) }
 }
 
 function visibilityReportFixture(selection: VisibilitySelectionState): VisibilityReportResponse {
