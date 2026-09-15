@@ -491,13 +491,19 @@ export const VisibilityReportScopeErrorReasons = visibilityReportScopeErrorReaso
 
 /**
  * Typed `error.details` on a report `VALIDATION_ERROR` whose selected scope or
- * market refinement no longer exists. The project scope is never retired.
+ * market refinement no longer exists. The project scope is never retired. A
+ * retired market refinement always names a market; a retired scope may be a
+ * Group, a market, or a Property.
  */
 export const visibilityReportScopeErrorDetailsSchema = z.object({
   reason: visibilityReportScopeErrorReasonSchema,
   kind: visibilityReportScopeKindSchema.exclude(['project']),
   key: nonBlankIdSchema,
-}).strict()
+}).strict().superRefine((details, ctx) => {
+  if (details.reason === VisibilityReportScopeErrorReasons['retired-market'] && details.kind !== 'market') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['kind'], message: 'retired-market details must name a market' })
+  }
+})
 export type VisibilityReportScopeErrorDetails = z.output<typeof visibilityReportScopeErrorDetailsSchema>
 
 /** Reads retired-scope details from an untrusted error body; anything else is `undefined`. */

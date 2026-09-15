@@ -6,6 +6,7 @@ import {
   VisibilityReportRateChangeUnavailableReasons,
   visibilityReportRateChangeSchema,
   visibilityReportResponseSchema,
+  visibilityReportScopeErrorDetailsSchema,
   VisibilityReportScopeErrorReasons,
 } from '../src/visibility-report.js'
 
@@ -409,6 +410,27 @@ describe('visibility report scope error details', () => {
       { reason: 'retired-market', kind: 'market', key: 'north-market' },
     ]) {
       expect(parseVisibilityReportScopeErrorDetails(details)).toEqual(details)
+    }
+  })
+
+  it('pairs a retired market with the market kind, while a retired scope keeps any kind', () => {
+    for (const details of [
+      { reason: 'retired-market', kind: 'market', key: 'north-market' },
+      // A retired market selected as the scope itself is a retired scope of kind market.
+      { reason: 'retired-scope', kind: 'market', key: 'north-market' },
+    ]) {
+      expect(visibilityReportScopeErrorDetailsSchema.safeParse(details).success).toBe(true)
+      expect(parseVisibilityReportScopeErrorDetails(details)).toEqual(details)
+    }
+
+    for (const kind of ['group', 'property']) {
+      const details = { reason: 'retired-market', kind, key: 'north-market' }
+      const parsed = visibilityReportScopeErrorDetailsSchema.safeParse(details)
+      expect(parsed.success).toBe(false)
+      expect(parsed.error?.issues.map(({ code, path, message }) => ({ code, path, message }))).toEqual([
+        { code: 'custom', path: ['kind'], message: 'retired-market details must name a market' },
+      ])
+      expect(parseVisibilityReportScopeErrorDetails(details)).toBeUndefined()
     }
   })
 
