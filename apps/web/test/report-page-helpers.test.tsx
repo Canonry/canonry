@@ -1,10 +1,20 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import { CHART_SERIES_COLORS } from '../src/components/shared/ChartPrimitives.js'
+import {
+  CHART_SERIES_COLORS,
+  CHART_TONE,
+  formatChartDateLabel,
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
+  observedInstant,
+} from '../src/components/shared/ChartPrimitives.js'
 import {
   LandingPageCell,
+  REPORT_CHART_COLORS,
   ReportBarChart,
   ReportCard,
+  reportChartDateFormatters,
+  ReportExternalLink,
   ReportLineChart,
   ReportNote,
   ReportSection,
@@ -140,4 +150,37 @@ test('LandingPageCell shows the path and names the tracking query, with the full
   cleanup()
   render(<LandingPageCell page="" />)
   expect(screen.getByText('/')).toBeTruthy()
+})
+
+// The helpers below exist so no two agency slices import the same name into
+// their own import slots, which would collide once the slices merge.
+
+test('REPORT_CHART_COLORS carries the chart palettes, so sections need no chart imports of their own', () => {
+  expect(REPORT_CHART_COLORS.series).toBe(CHART_SERIES_COLORS)
+  expect(REPORT_CHART_COLORS.tone).toBe(CHART_TONE)
+})
+
+test('ReportExternalLink opens safe links in a new tab and turns unsafe ones into #', () => {
+  render(
+    <>
+      <ReportExternalLink href="https://rival.com/post?a=1&b=2">rival.com</ReportExternalLink>
+      <ReportExternalLink href="javascript:alert(1)">javascript:alert(1)</ReportExternalLink>
+    </>,
+  )
+  const [safe, unsafe] = screen.getAllByRole('link')
+  expect(safe!.getAttribute('href')).toBe('https://rival.com/post?a=1&b=2')
+  expect(safe!.getAttribute('target')).toBe('_blank')
+  expect(safe!.getAttribute('rel')).toBe('noopener noreferrer')
+  expect(unsafe!.getAttribute('href')).toBe('#')
+  expect(unsafe!.textContent).toBe('javascript:alert(1)')
+})
+
+test('reportChartDateFormatters reads calendar dates as written and localizes observed instants', () => {
+  const calendar = reportChartDateFormatters('calendar')
+  expect(calendar.xTickFormatter('2026-04-01')).toBe('4/1')
+  expect(calendar.labelFormatter('2026-04-01')).toBe(formatChartDateLabel('2026-04-01'))
+  const observed = reportChartDateFormatters('observed')
+  const instant = '2026-04-01T00:00:00Z'
+  expect(observed.xTickFormatter(instant)).toBe(formatObservedInstantTick(observedInstant(instant)))
+  expect(observed.labelFormatter(instant)).toBe(formatObservedInstantLabel(observedInstant(instant)))
 })
