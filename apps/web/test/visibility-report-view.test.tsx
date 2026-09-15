@@ -8,7 +8,7 @@ import { useState } from 'react'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_CLASS_NOUN, VisibilityReportView, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL } from '../src/components/project/VisibilityTrendSection.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
@@ -141,13 +141,13 @@ describe('shared production visibility view', () => {
     }
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
     await waitFor(() => expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe(queryClass))
-    await waitFor(() => expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('7'))
+    await waitFor(() => expect(screen.getByText(`7 ${REPORT_CLASS_NOUN[queryClass]} · 3 answers`)).toBeTruthy())
     expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
     expect(requests[0]!.searchParams.get('scopeKey')).toBe('metro-alpha')
     expect(requests[0]!.searchParams.get('provider')).toBe('gemini')
     queryCount = 8
     await client.invalidateQueries()
-    await waitFor(() => expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('8'))
+    await waitFor(() => expect(screen.getByText(`8 ${REPORT_CLASS_NOUN[queryClass]} · 3 answers`)).toBeTruthy())
     expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all', queryClass])
   })
 
@@ -173,7 +173,7 @@ describe('shared production visibility view', () => {
     expect(requests.map(request => request.searchParams.get('queryClass'))).toEqual(['all'])
     expect((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).value).toBe('unknown')
     expect([...((screen.getByRole('combobox', { name: 'Query type' }) as HTMLSelectElement).options)].map(option => option.value)).not.toContain('all')
-    expect(within(population).getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
+    expect(within(population).getByText('1 unclassified query · 3 answers')).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Branded queries', exact: true })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
     fireEvent.click(within(population).getByText('Query results', { selector: 'span' }).closest('summary')!)
@@ -255,7 +255,8 @@ describe('shared production visibility view', () => {
     expect(within(table).getByText('model changed')).toBeTruthy()
     expect(within(table).getAllByText('Not measured')).toHaveLength(4)
     expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
-    expect(screen.queryByRole('list', { name: 'Trend legend' })).toBeNull()
+    expect(screen.getByText('No measured trend for this selection.')).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Trend legend' })).toBeNull()
   })
 
   it.each([
@@ -301,7 +302,7 @@ describe('shared production visibility view', () => {
     expect(within(breakdown).getByRole('button', { name: 'Property 224', exact: true })).toBeTruthy()
     expect(within(breakdown).getAllByRole('row')).toHaveLength(2)
     expect(screen.getAllByText('43%').length).toBeGreaterThan(0)
-    expect(screen.getByText('Queries measured').nextElementSibling?.textContent).toBe('1')
+    expect(screen.getByText('1 non-brand query · 3 answers')).toBeTruthy()
   })
 
   it('requests a bounded page of query results while retaining server cursor paging', async () => {
@@ -674,7 +675,7 @@ describe('shared production visibility view', () => {
     expect(summary.closest('details')!.open).toBe(false)
     // jsdom does not implement native details clipping. The open attribute
     // owns visibility and keyboard access in the browser.
-    expect(screen.getByText('Queries measured')).toBeTruthy()
+    expect(screen.getByText('1 non-brand query · 3 answers')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Metro Alpha' })).toBeTruthy()
     fireEvent.click(summary)
     expect(summary.closest('details')!.open).toBe(true)

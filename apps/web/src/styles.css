@@ -1158,6 +1158,24 @@
     @apply h-64 w-full sm:h-72;
   }
 
+  /* Headline strip: the selected class's rates, denominators, and change lines. */
+  .report-headline {
+    @apply grid grid-cols-1 divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0;
+  }
+
+  .report-headline[data-columns='2'] {
+    @apply sm:grid-cols-2;
+  }
+
+  /* Bounded bar under a breakdown rate. The fill width is the server rate. */
+  .report-rate-bar {
+    @apply mt-1.5 block h-1 w-full max-w-32 overflow-hidden rounded-full bg-mono-800;
+  }
+
+  .report-rate-bar-fill {
+    @apply block h-full rounded-full;
+  }
+
   .visibility-trend-note {
     @apply mt-2 text-[11px] text-secondary;
   }

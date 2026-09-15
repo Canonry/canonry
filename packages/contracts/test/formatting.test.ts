@@ -13,6 +13,7 @@ import {
   formatIsoDateInTimeZone,
   inclusiveDayCount,
   formatNumber,
+  formatPointDelta,
   formatRatio,
   formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
@@ -611,6 +612,36 @@ describe('formatWindowCountDelta', () => {
   test('large count deltas abbreviate via formatNumber', () => {
     expect(formatWindowCountDelta({ deltaAbs: 1500, prior: 20, deltaPct: 7500 }, 'visits', 'vs prior 14 days'))
       .toBe('+1.5K visits vs prior 14 days')
+  })
+})
+
+describe('formatPointDelta', () => {
+  test('formats a signed server delta as one-decimal percentage points', () => {
+    expect(formatPointDelta(0.08333)).toEqual({ direction: 'up', magnitude: '8.3' })
+    expect(formatPointDelta(-0.08333)).toEqual({ direction: 'down', magnitude: '8.3' })
+  })
+
+  test('a change below 0.05 points reads <0.1 and keeps its direction', () => {
+    expect(formatPointDelta(0.0004)).toEqual({ direction: 'up', magnitude: '<0.1' })
+    expect(formatPointDelta(-0.0004)).toEqual({ direction: 'down', magnitude: '<0.1' })
+  })
+
+  test('exactly 0.05 points rounds to 0.1 instead of reading <0.1', () => {
+    expect(formatPointDelta(0.0005)).toEqual({ direction: 'up', magnitude: '0.1' })
+  })
+
+  test('zero, including negative zero, is no change', () => {
+    expect(formatPointDelta(0)).toEqual({ direction: 'none', magnitude: '0' })
+    expect(formatPointDelta(-0)).toEqual({ direction: 'none', magnitude: '0' })
+  })
+
+  test('formats the server delta for 24 of 36 answers against a previous rate of 0.5', () => {
+    expect(formatPointDelta(24 / 36 - 0.5)).toEqual({ direction: 'up', magnitude: '16.7' })
+  })
+
+  test('keeps a trailing .0, matching formatRatio', () => {
+    expect(formatPointDelta(0.1)).toEqual({ direction: 'up', magnitude: '10.0' })
+    expect(formatPointDelta(-1)).toEqual({ direction: 'down', magnitude: '100.0' })
   })
 })
 
