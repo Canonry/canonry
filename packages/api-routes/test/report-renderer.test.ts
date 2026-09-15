@@ -1631,3 +1631,39 @@ test('HTML report keeps unclassified history even when the latest population is 
   expect(history).toContain(reportQueryClassLabel('unknown'))
   expect(history).toContain(date.slice(0, 10))
 })
+
+test('HTML report visibility tables scroll inside their own container on narrow screens', () => {
+  // DESIGN.md: a table may be wider than the page only inside its own
+  // overflow-x: auto container. The visibility summary and history tables sat in
+  // a `table-scroll` div that the stylesheet never defined, so on a phone they
+  // widened the page instead of scrolling, and as bare tables they skipped the
+  // report's cell wrapping. The SPA twin wraps both in overflow-x-auto.
+  const measured = { numerator: 3, denominator: 6, rate: 0.5 }
+  const visibility: ReportVisibility = { selection: {
+    mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Example', kind: 'project', targetCount: 1 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+    run: { id: 'latest', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: null,
+      measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T10:00:00Z' },
+  }, populations: [{ queryClass: 'non-brand', summary: { queryCount: 2, answerCount: 6, mentionCoverage: measured,
+    citationCoverage: measured, propertyReach: measured, outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 1, notMeasured: 0, total: 2 } },
+    trend: [{ runId: 'latest', createdAt: '2026-09-01T10:00:00Z', revision: null, provenance: { kind: 'frozen-simple', definitionRevision: null },
+      queryCount: 2, answerCount: 6, mentionCoverage: measured, citationCoverage: measured,
+      continuity: { state: 'comparable', comparedRunId: null } }],
+  }] }
+
+  const section = renderReportVisibility(visibility)
+  const [summary, history] = section.split('<details>')
+  expect(section.match(/<table\b[^>]*>/g)).toEqual(['<table class="report-table">', '<table class="report-table">'])
+  expect(summary!.match(/<div class="table-scroll"><table class="report-table">/g)).toHaveLength(1)
+  expect(history!.match(/<div class="table-scroll"><table class="report-table">/g)).toHaveLength(1)
+
+  const report = richReport()
+  report.visibility = visibility
+  for (const audience of ['client', 'agency'] as const) {
+    const html = renderReportHtml(report, { audience })
+    const style = html.match(/<style[\s\S]*?<\/style>/)![0]
+    expect(style).toMatch(/\.table-scroll\s*\{\s*overflow-x:\s*auto;\s*\}/)
+    expect(html).toContain(section)
+  }
+})
