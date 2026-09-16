@@ -504,4 +504,25 @@ describe('report slice S5: insights and content copy', () => {
     expect(reportOpportunityActionLine({ action: 'add-schema', actionConfidence: 'low' })).toBe('Add schema · Low confidence')
     expect([0.5, 1, 0, 0.125].map(reportMissRateLabel)).toEqual(['50%', '100%', '0%', '13%'])
   })
+
+  // The producer hands over an unrounded `1 - cited/total`, so the half-percent
+  // boundaries land on values binary floating point puts a hair below the
+  // boundary (0.575 is 57.49999999999999 once multiplied). Rounding that
+  // product directly reported a gap missed on 23 of 40 checks as 57%.
+  test('a half-percent miss rate rounds up, not down', () => {
+    expect(reportMissRateLabel(1 - 17 / 40)).toBe('58%')
+    expect(reportMissRateLabel(1 - 27 / 40)).toBe('33%')
+    expect(reportMissRateLabel(1 - 31 / 40)).toBe('23%')
+    expect(reportMissRateLabel(1 - 37 / 40)).toBe('8%')
+  })
+
+  test('every miss rate a 40-snapshot basket can produce reads as its half-up percent', () => {
+    // The oracle scales BEFORE it divides, so `missed * 100 / 40` lands on an
+    // exact 57.5 where `(missed / 40) * 100` lands on 57.49999999999999. Do not
+    // "simplify" it back: the ratio-first form is the defect under test, and an
+    // oracle written that way agrees with the bug on all ten half-percent
+    // baskets a 40-snapshot query produces.
+    const expected = Array.from({ length: 41 }, (_, cited) => `${Math.round(((40 - cited) * 100) / 40)}%`)
+    expect(Array.from({ length: 41 }, (_, cited) => reportMissRateLabel(1 - cited / 40))).toEqual(expected)
+  })
 })

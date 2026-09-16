@@ -1,6 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, CliError } from '../cli-error.js'
+import { formatWholePercent } from '@ainyc/canonry-contracts'
 import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass } from '@ainyc/canonry-contracts'
 
 const WINNABILITY_COVERAGE_CHECK_ID = 'content.winnability.coverage'
@@ -137,8 +138,8 @@ export async function listContentGaps(project: string, opts: { format?: string }
   console.log(`${response.gaps.length} gap${response.gaps.length === 1 ? '' : 's'} found`)
   console.log('')
   for (const gap of response.gaps) {
-    const missPct = Math.round(gap.missRate * 100)
-    console.log(`${missPct.toString().padStart(3)}%  ${gap.competitorCount} competitor(s)  ${gap.query}`)
+    const missPct = formatWholePercent(gap.missRate)
+    console.log(`${missPct.padStart(4)}  ${gap.competitorCount} competitor(s)  ${gap.query}`)
     console.log(`       competitors: ${gap.competitorDomains.join(', ')}`)
     console.log('')
   }
