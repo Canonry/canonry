@@ -157,9 +157,16 @@ describe('executive summary', () => {
     const report = richReport()
     report.executiveSummary.trend = 'flat'
     renderReportPage(report, { audience: 'agency' })
-    const proof = readTile(getReportSection(ReportSectionIds['executive-summary']), executiveCopy.proofTiles.citationTrend)
+    const section = getReportSection(ReportSectionIds['executive-summary'])
+    const proof = readTile(section, executiveCopy.proofTiles.citationTrend)
     expect(proof.value).toBe('→ Flat')
-    expect(proof.valueElement.className).not.toMatch(/\btext-(positive|negative)/)
+    // `caution` is in the set even though no trend should carry it: leaving it
+    // out lets a neutral trend render in amber and still pass as "not colored".
+    expect(proof.valueElement.className).not.toMatch(/\btext-(positive|caution|negative)/)
+    // The same label rides the citation-rate tile's line as an inline fragment,
+    // toned through a separate map that the tile's own value never touches.
+    const rate = readTile(section, executiveCopy.tiles.citationRate)
+    expect(within(rate.subtitleElement!).getByText('→ Flat').className).toBe('')
   })
 
   test('before any check the hero says so, only the always-on tiles show, and there is no market scope card', () => {

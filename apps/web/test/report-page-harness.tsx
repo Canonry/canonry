@@ -21,7 +21,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { getApiV1ProjectsByNameReportQueryKey } from '@ainyc/canonry-api-client/react-query'
 import {
-  REPORT_DEFAULT_PERIOD_DAYS,
+  REPORT_PERIOD_OPTIONS,
   type ProjectReportDto,
   type ReportAudience,
   type ReportSectionId,
@@ -42,10 +42,16 @@ export function renderReportPage(report: ProjectReportDto, options: RenderReport
   if (options.embed) window.__CANONRY_CONFIG__ = { ...window.__CANONRY_CONFIG__, embed: { enabled: true } }
   const projectName = options.projectName ?? report.meta.project.name
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(
-    getApiV1ProjectsByNameReportQueryKey({ client: heyClient, path: { name: projectName }, query: { period: REPORT_DEFAULT_PERIOD_DAYS } }),
-    report,
-  )
+  // Seed EVERY period the toggle offers, not just the default. With only the
+  // default seeded, pressing another period drops the page into its loading
+  // state, so a test that changes the period asserts nothing about the report —
+  // and one that asserts the download would never notice the period it passes.
+  for (const seeded of REPORT_PERIOD_OPTIONS) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameReportQueryKey({ client: heyClient, path: { name: projectName }, query: { period: seeded } }),
+      report,
+    )
+  }
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ReportPage projectName={projectName} />

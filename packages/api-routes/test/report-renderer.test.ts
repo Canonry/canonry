@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
+import { REPORT_SECTION_COPY, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
 import { formatLandingPageHtml, renderReportHtml, renderReportVisibility } from '../src/report-renderer.js'
-import { emptyReport, reportWithChangeHistory, richReport } from '../../contracts/test/fixtures/report-dto.js'
+import { emptyReport, fullReport, reportWithChangeHistory, richReport } from '../../contracts/test/fixtures/report-dto.js'
 
 describe('renderReportHtml', () => {
   test('returns a string starting with <!DOCTYPE html>', () => {
@@ -475,6 +475,21 @@ describe('renderReportHtml', () => {
     expect(html).toContain('AI Visibility — Server-Side')
     // Section 10 is the agency-numbered eyebrow and must not leak to clients
     expect(html).not.toContain('Section 10')
+  })
+
+  // No fixture renders this state, so `renderWinsLosses`'s empty branch was
+  // never compared against the SPA's: enough history to show the tiles, and
+  // nothing new in either direction.
+  test.each(['client', 'agency'] as const)('%s: history with no new wins or regressions prints the empty note under each heading', (audience) => {
+    const report = fullReport()
+    report.whatsChanged.wins = []
+    report.whatsChanged.regressions = []
+    const html = renderReportHtml(report, { audience })
+    const copy = audience === 'client' ? REPORT_SECTION_COPY['whats-changed'].client : REPORT_SECTION_COPY['whats-changed'].agency
+    expect(html).toContain(`<h3>${copy.winsHeading}</h3>`)
+    expect(html).toContain(copy.winsEmpty)
+    expect(html).toContain(`<h3>${copy.regressionsHeading}</h3>`)
+    expect(html).toContain(copy.regressionsEmpty)
   })
 
   test('handles empty data without throwing', () => {
