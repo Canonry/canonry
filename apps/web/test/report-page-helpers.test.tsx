@@ -84,6 +84,17 @@ test('ReportSection writes the id and heading hooks, and its body reads in docum
   // Tooltips are real buttons named by their words, placed beside the heading and header, never inside the h3.
   expect(screen.getByRole('button', { name: 'Queries ranked by clicks.' }).closest('h3')).toBeNull()
   expect(screen.getByRole('button', { name: 'Clicks in the window.' })).toBeTruthy()
+
+  // A header cell naming its own column: the tooltip trigger sits INSIDE the
+  // `th`, so a browser folds the whole tooltip sentence into the column's
+  // accessible name and announces it on every data cell in that column. An
+  // explicit `aria-label` on the `th` keeps the column named by its label
+  // alone while the button keeps the tooltip as its own name. jsdom's accname
+  // implementation skips a button's aria-label while recursing, so only this
+  // assertion catches a regression here — `getByRole` name matching will not.
+  expect(screen.getByRole('columnheader', { name: /Clicks/ }).getAttribute('aria-label')).toBe('Clicks')
+  // A header with no tooltip names itself from its text and needs no label.
+  expect(screen.getByRole('columnheader', { name: 'Query' }).hasAttribute('aria-label')).toBe(false)
 })
 
 test('ShareBars on the share scale sizes each bar by its share, drops empty rows, and draws nothing when none are left', () => {
