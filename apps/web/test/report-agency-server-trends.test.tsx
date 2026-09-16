@@ -44,7 +44,13 @@ const OUTLINE_FIXTURES: Array<[ReportOutlineFixture, () => ProjectReportDto]> = 
   ['advanced', advancedReport],
 ]
 
-const TONED = /text-(positive|negative)-400/
+/**
+ * Any tone at all. `caution` belongs in the set even though no delta should
+ * ever carry it: excluding it let a neutral delta render in amber — reading as
+ * a warning the HTML report does not show — while every "untoned" assertion
+ * below still passed.
+ */
+const TONED = /text-(positive|caution|negative)-400/
 
 /** A metric tile's value and its optional line underneath, found by the tile's label. */
 function tile(section: HTMLElement, label: string): { value: HTMLElement; subtitle: HTMLElement | undefined } {

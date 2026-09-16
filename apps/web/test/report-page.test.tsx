@@ -4,6 +4,9 @@ import {
   formatDate,
   REPORT_SECTION_COPY,
   ReportSectionIds,
+  reportActionConfidenceBadge,
+  reportActionHorizonBadge,
+  reportMoreChipLabel,
   reportSectionOrder,
   type ProjectReportDto,
 } from '@ainyc/canonry-contracts'
@@ -16,7 +19,6 @@ import {
   reportOutlineGolden,
   reportOutlineSection,
   type ReportOutlineFixture,
-  type ReportOutlineSection,
 } from './report-outline.js'
 
 vi.mock('recharts', () => import('./report-recharts-stub.js'))
@@ -59,6 +61,12 @@ describe('report audience', () => {
     selectReportAudience('agency')
     fireEvent.click(screen.getByRole('button', { name: 'Download report HTML' }))
     await vi.waitFor(() => expect(downloadReportHtml).toHaveBeenCalledWith('rich', 'agency', 30))
+
+    // The period has to MOVE for this to test anything: asserting only the
+    // default passes just as well if the button always asks for 30 days.
+    fireEvent.click(within(screen.getByRole('group', { name: 'Report time period' })).getByRole('button', { name: '7d' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Download report HTML' }))
+    await vi.waitFor(() => expect(downloadReportHtml).toHaveBeenLastCalledWith('rich', 'agency', 7))
   })
 
   test('a read-only embed hides the toggle, shows the client report, and downloads the client report', async () => {
@@ -101,10 +109,12 @@ describe('parity with the HTML report outline', () => {
     expect(readReportOutline(document.body)).toEqual(reportOutlineGolden('client', name))
   })
 
-  test.each(OUTLINE_FIXTURES)('every agency section of the %s report carries the HTML eyebrow and title', (name, build) => {
+  // The whole outline, not just each section's eyebrow and title: comparing
+  // headings alone left every agency heading, tile label, table header, note
+  // and empty state inside those sections unguarded on this surface.
+  test.each(OUTLINE_FIXTURES)('the agency view of the %s report matches the HTML outline', (name, build) => {
     renderReportPage(build(), { audience: 'agency' })
-    const heading = ({ id, eyebrow, title }: ReportOutlineSection) => ({ id, eyebrow, title })
-    expect(readReportOutline(document.body).sections.map(heading)).toEqual(reportOutlineGolden('agency', name).sections.map(heading))
+    expect(readReportOutline(document.body)).toEqual(reportOutlineGolden('agency', name))
   })
 
   test.each([['empty', emptyReport], ['full', fullReport]] as const)("the agency what's changed and action plan of the %s report match the HTML outline", (name, build) => {
@@ -260,5 +270,109 @@ describe('client server activity', () => {
     renderReportPage(noCopy)
     expect(tileSubtitle(getReportSection(ReportSectionIds['server-activity']), copy.client.tiles.userFetches).textContent)
       .toBe(copy.client.userFetchFallback)
+  })
+})
+
+/**
+ * What's Changed, below the outline. The outline records tile LABELS and table
+ * HEADERS but never a value, a body row or a badge, so the numbers each tile is
+ * bound to and the rows each table prints are pinned here instead.
+ */
+describe("what's changed", () => {
+  const { client, agency } = REPORT_SECTION_COPY['whats-changed']
+
+  /** A tile's value and the line under it, by label. */
+  function tile(section: HTMLElement, label: string): { value: string; subtitle: string } {
+    const labelElement = Array.from(section.querySelectorAll<HTMLElement>('[data-report-tile]'))
+      .find(element => element.textContent === label)
+    const [, value, subtitle] = Array.from(labelElement?.parentElement?.children ?? []) as Array<HTMLElement | undefined>
+    if (!value) throw new Error(`No tile labelled "${label}"`)
+    return { value: value.textContent ?? '', subtitle: subtitle?.textContent ?? '' }
+  }
+
+  const tables = (section: HTMLElement) => Array.from(section.querySelectorAll('table'))
+  const rows = (table: HTMLTableElement) =>
+    Array.from(table.querySelectorAll('tbody tr'), row => Array.from(row.querySelectorAll('td'), cell => cell.textContent ?? ''))
+
+  // fullReport() moves citation and mention in OPPOSITE directions — citation
+  // 65% and rising, mention 40% and falling — so a tile bound to the wrong
+  // signal shows up here as a number, not just as a label.
+  test('the agency tiles read the citation and mention deltas the HTML report binds', () => {
+    renderReportPage(fullReport(), { audience: 'agency' })
+    const section = getReportSection(ReportSectionIds['whats-changed'])
+    expect(tile(section, agency.tiles.citationRate)).toEqual({ value: '65% ↑', subtitle: '+15.0% vs 50%' })
+    expect(tile(section, agency.tiles.mentionRate)).toEqual({ value: '40% ↓', subtitle: '-5.0% vs 45%' })
+    expect(tile(section, agency.tiles.citedQueryCount)).toEqual({ value: '3.3 ↑', subtitle: '+0.6 vs 2.7' })
+    expect(tile(section, agency.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
+    expect(tile(section, agency.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
+  })
+
+  test('the client tiles lead with the mention delta, in the client audience’s words', () => {
+    renderReportPage(fullReport())
+    const section = getReportSection(ReportSectionIds['whats-changed'])
+    expect(tile(section, client.tiles.mentionRate)).toEqual({ value: '40% ↓', subtitle: '-5.0% vs 45%' })
+    expect(tile(section, client.tiles.citationRate)).toEqual({ value: '65% ↑', subtitle: '+15.0% vs 50%' })
+    expect(tile(section, client.tiles.mentionedQueryCount)).toEqual({ value: '2 →', subtitle: '0 vs 2' })
+    expect(tile(section, client.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
+    expect(tile(section, client.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
+  })
+
+  test('movement, win and regression rows read like the HTML tables in each audience', () => {
+    renderReportPage(fullReport(), { audience: 'agency' })
+    const [movements, wins, regressions] = tables(getReportSection(ReportSectionIds['whats-changed']))
+    // openai moved one point and counts as flat; the HTML drops flat rows.
+    expect(rows(movements!)).toEqual([['gemini', '50%', '65%', '+15.0% ↑']])
+    expect(rows(wins!)).toEqual([['High', 'Gained citation on answer engine× 2', 'answer engine', 'gemini']])
+    expect(rows(regressions!)).toEqual([['Critical', 'Lost citation on aeo platform', 'aeo platform', 'gemini']])
+
+    cleanupReportPage()
+    renderReportPage(fullReport())
+    const [clientMovements, clientWins, clientRegressions] = tables(getReportSection(ReportSectionIds['whats-changed']))
+    // The client view names the engine and drops the severity column.
+    expect(rows(clientMovements!)).toEqual([['Gemini', '50%', '65%', '+15.0% ↑']])
+    expect(rows(clientWins!)).toEqual([['Gained citation on answer engine× 2', 'answer engine', 'Gemini']])
+    expect(rows(clientRegressions!)).toEqual([['Lost citation on aeo platform', 'aeo platform', 'Gemini']])
+  })
+
+  // No fixture renders this state, so neither renderer's empty branch was ever
+  // compared: enough history to show the tiles, but nothing new either way.
+  test.each(['client', 'agency'] as const)('%s: history with no new wins or regressions prints the HTML note under each heading', (audience) => {
+    const report = fullReport()
+    report.whatsChanged.wins = []
+    report.whatsChanged.regressions = []
+    renderReportPage(report, { audience })
+    const section = getReportSection(ReportSectionIds['whats-changed'])
+    const copy = audience === 'client' ? client : agency
+    for (const text of [copy.winsHeading, copy.winsEmpty, copy.regressionsHeading, copy.regressionsEmpty]) {
+      expect(within(section).getByText(text), text).toBeTruthy()
+    }
+    // Only the engine-movement table is left; the two row tables are gone.
+    expect(tables(section)).toHaveLength(1)
+  })
+})
+
+describe('action plan cards', () => {
+  const actionTitle = 'Create content for "best aeo platform"'
+
+  const cardFor = (audience: 'client' | 'agency') =>
+    within(getReportSection(audience === 'client' ? ReportSectionIds['client-action-plan'] : ReportSectionIds['agency-action-plan']))
+      .getByText(actionTitle).closest('article')!
+
+  test.each(['client', 'agency'] as const)('%s cards carry that audience’s horizon, confidence and success wording', (audience) => {
+    renderReportPage(fullReport(), { audience })
+    const card = cardFor(audience)
+    const copy = audience === 'client' ? REPORT_SECTION_COPY['client-action-plan'] : REPORT_SECTION_COPY['agency-action-plan']
+    expect(within(card).getByText(reportActionHorizonBadge(audience, 'short-term'))).toBeTruthy()
+    expect(within(card).getByText(reportActionConfidenceBadge(audience, 'high'))).toBeTruthy()
+    expect(within(card).getByText(copy.successLabel)).toBeTruthy()
+  })
+
+  test('an action with more evidence than the card shows counts the rest in one chip', () => {
+    const report = fullReport()
+    report.clientSummary.actionItems[0]!.evidence = ['one', 'two', 'three', 'four']
+    renderReportPage(report)
+    const overflow = within(cardFor('client')).getByText(reportMoreChipLabel(1))
+    expect(Array.from(overflow.parentElement!.children, chip => chip.textContent))
+      .toEqual(['one', 'two', 'three', reportMoreChipLabel(1)])
   })
 })
