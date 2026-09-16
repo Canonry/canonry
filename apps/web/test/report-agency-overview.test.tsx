@@ -14,6 +14,7 @@ import { advancedReport, emptyReport, fullReport, richReport } from '../../../pa
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage } from './report-page-harness.js'
 import {
   normalizeOutlineText,
+  pinReportGoldenTimeZone,
   readReportOutline,
   reportOutlineGolden,
   reportOutlineSection,
@@ -22,6 +23,7 @@ import {
 
 vi.mock('recharts', () => import('./report-recharts-stub.js'))
 
+pinReportGoldenTimeZone()
 afterEach(cleanupReportPage)
 
 const OVERVIEW_SECTION_IDS: readonly ReportSectionId[] = [

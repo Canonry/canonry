@@ -18,6 +18,23 @@
         {
           "note": "Mentions and links are different. A mention is when AI says your name out loud in its answer. A link is when AI lists your website as a source it used. AI can do either, both, or neither — that's why we track both."
         }
+      ],
+      "content": [
+        {
+          "text": "Overview — No AI check has been run yet. Run a check to see how AI tools answer customer queries about your business."
+        },
+        {
+          "tile": "AI mentions your name 0% No data yet"
+        },
+        {
+          "tile": "AI links to your website 0% No data yet"
+        },
+        {
+          "tile": "AI tools tested 0 0 queries tested"
+        },
+        {
+          "text": "Mentions and links are different. A mention is when AI says your name out loud in its answer. A link is when AI lists your website as a source it used. AI can do either, both, or neither — that's why we track both."
+        }
       ]
     },
     {
@@ -28,6 +45,11 @@
       "items": [
         {
           "empty": "No comparison yet — trends will appear after a few more checks."
+        }
+      ],
+      "content": [
+        {
+          "text": "No comparison yet — trends will appear after a few more checks."
         }
       ]
     },
@@ -40,6 +62,11 @@
         {
           "empty": "No recommendations yet — run an AI check to populate this."
         }
+      ],
+      "content": [
+        {
+          "text": "No recommendations yet — run an AI check to populate this."
+        }
       ]
     },
     {
@@ -50,6 +77,11 @@
       "items": [
         {
           "empty": "No supporting evidence yet — this fills in after the first AI check."
+        }
+      ],
+      "content": [
+        {
+          "text": "No supporting evidence yet — this fills in after the first AI check."
         }
       ]
     }

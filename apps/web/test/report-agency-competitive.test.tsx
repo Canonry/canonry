@@ -17,6 +17,7 @@ import { CHART_NEUTRAL, CHART_SERIES_COLORS, CHART_TONE } from '../src/component
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage } from './report-page-harness.js'
 import {
   normalizeOutlineText,
+  pinReportGoldenTimeZone,
   readReportOutline,
   reportOutlineGolden,
   reportOutlineSection,
@@ -40,6 +41,7 @@ vi.mock('recharts', async () => {
   }
 })
 
+pinReportGoldenTimeZone()
 afterEach(cleanupReportPage)
 
 const COMPETITIVE_SECTIONS = [
@@ -147,9 +149,10 @@ describe('parity with the HTML report outline', () => {
         title: 'Citation Scorecard',
         intro: 'Per-engine citation and mention coverage from the latest check.',
         items: [{ empty: 'Run a check to populate the citation matrix.' }],
+        content: [{ text: 'Run a check to populate the citation matrix.' }],
       },
-      { id: 'competitor-landscape', eyebrow: 'Section 4', title: 'Competitor Landscape', intro: null, items: [{ empty: 'No competitor data yet. Add competitors and run a check.' }] },
-      { id: 'ai-source-origin', eyebrow: 'Section 5', title: 'AI Citation Sources', intro: null, items: [{ empty: 'No source data yet. Run a check first.' }] },
+      { id: 'competitor-landscape', eyebrow: 'Section 4', title: 'Competitor Landscape', intro: null, items: [{ empty: 'No competitor data yet. Add competitors and run a check.' }], content: [{ text: 'No competitor data yet. Add competitors and run a check.' }] },
+      { id: 'ai-source-origin', eyebrow: 'Section 5', title: 'AI Citation Sources', intro: null, items: [{ empty: 'No source data yet. Run a check first.' }], content: [{ text: 'No source data yet. Run a check first.' }] },
     ])
   })
 })
@@ -223,6 +226,7 @@ describe('citation scorecard', () => {
       title: 'Citation Scorecard',
       intro: 'Per-engine citation and mention coverage from the latest check.',
       items: [{ heading: 'Provider citation rate' }, { empty: 'Run a check to populate the citation matrix.' }],
+      content: [{ text: 'Provider citation rate' }, { text: 'Run a check to populate the citation matrix.' }],
     })
   })
 })
@@ -358,6 +362,12 @@ describe('competitor landscape', () => {
         { note: BRANDED_NOTE },
         { heading: 'Mentions per domain · branded queries' },
       ],
+      content: [
+        { text: 'Mentions per domain · non-brand queries' },
+        { text: 'No competitors configured.' },
+        { text: BRANDED_NOTE },
+        { text: 'Mentions per domain · branded queries' },
+      ],
     })
   })
 
@@ -370,6 +380,7 @@ describe('competitor landscape', () => {
       title: 'Competitor Landscape',
       intro: 'Who AI engines cite and mention instead of the client.',
       items: [{ empty: 'No competitors configured.' }],
+      content: [{ text: 'No competitors configured.' }],
     })
   })
 
@@ -464,6 +475,7 @@ describe('AI citation sources', () => {
       title: 'AI Citation Sources',
       intro: 'External domains AI engines cited most in the latest check.',
       items: [{ note: '0% of citations went to tracked competitors (0 of 0).' }],
+      content: [{ text: '0% of citations went to tracked competitors (0 of 0).' }],
     })
   })
 })

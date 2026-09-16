@@ -19,11 +19,25 @@
  *
  * A note rendered as an InfoTooltip is read from the trigger's accessible
  * name, which is where the tooltip keeps its text.
+ *
+ * `content` — the values, cells, badges, rows, links and summaries a reader
+ * reads — comes from the SAME walker the HTML report uses
+ * (`packages/api-routes/test/report-content.ts`); only the vocabulary below is
+ * the SPA's. See that module for the normalization and for what it excludes by
+ * kind, the SPA's own interactive controls included.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { afterAll, beforeAll } from 'vitest'
 import type { ReportAudience } from '@ainyc/canonry-contracts'
-import type { ReportOutline, ReportOutlineItem, ReportOutlineSection } from '../../../packages/api-routes/test/report-outline.js'
+import {
+  readReportContent,
+  type ReportContentSurface,
+  type ReportContentTone,
+  type ReportOutline,
+  type ReportOutlineItem,
+  type ReportOutlineSection,
+} from '../../../packages/api-routes/test/report-outline.js'
 
 export type { ReportOutline, ReportOutlineItem, ReportOutlineSection }
 
@@ -31,6 +45,27 @@ export type { ReportOutline, ReportOutlineItem, ReportOutlineSection }
 export type ReportOutlineFixture = 'empty' | 'full' | 'advanced'
 
 const GOLDEN_DIR = resolve(import.meta.dirname, '../../../packages/api-routes/test/fixtures/report-outline')
+
+/**
+ * Render in the timezone the goldens were written in. A sweep timestamp is a
+ * real moment, so BOTH renderers localize it for whoever is reading — and the
+ * goldens come from `report-renderer-bytes.test.ts`, which pins UTC for exactly
+ * this reason. Without the same pin here, a trend row stamped at UTC midnight
+ * reads a day earlier on any machine west of Greenwich and the content
+ * comparison fails on the clock rather than on the report. Call from a file
+ * that compares content goldens.
+ */
+export function pinReportGoldenTimeZone(): void {
+  let original: string | undefined
+  beforeAll(() => {
+    original = process.env.TZ
+    process.env.TZ = 'UTC'
+  })
+  afterAll(() => {
+    if (original === undefined) delete process.env.TZ
+    else process.env.TZ = original
+  })
+}
 
 /** The HTML report's outline for one audience and fixture. */
 export function reportOutlineGolden(audience: ReportAudience, fixture: ReportOutlineFixture): ReportOutline {
@@ -75,13 +110,51 @@ function readSection(section: HTMLElement): ReportOutlineSection {
     for (const child of Array.from(element.children)) visit(child)
   }
   for (const child of Array.from(section.children)) visit(child)
+  const scaffold = new Set<Element>(
+    [eyebrow, title, intro].filter((element): element is Element => element !== null),
+  )
   return {
     id: section.dataset.reportSection ?? '',
     eyebrow: eyebrow ? normalizeOutlineText(eyebrow.textContent) : null,
     title: title ? normalizeOutlineText(title.textContent) : null,
     intro: intro ? normalizeOutlineText(intro.textContent) : null,
     items,
+    content: readReportContent(section, scaffold, SPA_SURFACE),
   }
+}
+
+/**
+ * `text-positive-400`, the badge variants' `text-caution`, and the insight
+ * card's `insight-card-negative` all state the same three tones. Neutral
+ * (`text-heading`, `text-neutral`, `insight-card` with no accent) states none —
+ * the HTML report leaves the same things unmarked.
+ */
+const SPA_TONE = /^(?:text|insight-card)-(positive|caution|negative)(?:-\d{2,3})?$/
+
+/** The words an InfoTooltip keeps on its trigger, or null when there is no trigger. */
+function tooltipText(element: Element): string | null {
+  const trigger = element.querySelector('button.info-tooltip-trigger')
+  return trigger ? normalizeOutlineText(trigger.getAttribute('aria-label')) : null
+}
+
+const SPA_SURFACE: ReportContentSurface = {
+  tone(element) {
+    for (const token of Array.from(element.classList)) {
+      const match = SPA_TONE.exec(token)
+      if (match) return match[1] as ReportContentTone
+    }
+    return null
+  },
+  isTile: element => Array.from(element.children).some(child => child.hasAttribute('data-report-tile')),
+  // Every SPA list row is an `li`; only the HTML report writes one as a `div`.
+  isListRow: () => false,
+  isCopyUnit: element =>
+    element.hasAttribute('data-report-heading')
+    || element.hasAttribute('data-report-note')
+    || element.hasAttribute('data-report-empty'),
+  // A note rendered as an InfoTooltip keeps its words on the trigger button,
+  // which the walker skips along with every other interactive control.
+  overrideText: element => (element.hasAttribute('data-report-note') ? tooltipText(element) : null),
 }
 
 function classify(element: Element): ReportOutlineItem | null {
@@ -92,8 +165,7 @@ function classify(element: Element): ReportOutlineItem | null {
   }
   if (element.hasAttribute('data-report-empty')) return { empty: normalizeOutlineText(element.textContent) }
   if (element.hasAttribute('data-report-note')) {
-    const tooltip = element.querySelector('button.info-tooltip-trigger')
-    return { note: normalizeOutlineText(tooltip ? tooltip.getAttribute('aria-label') : element.textContent) }
+    return { note: tooltipText(element) ?? normalizeOutlineText(element.textContent) }
   }
   return null
 }

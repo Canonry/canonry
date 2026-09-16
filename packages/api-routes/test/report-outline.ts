@@ -27,8 +27,24 @@
  * A classified element is read whole; nothing inside it is classified again.
  * Text is whitespace-normalized. Share-of-voice notes sit between sections, so
  * they are not part of any section's outline.
+ *
+ * `content` is the second half of the golden: what a reader READS in the
+ * section — tile values and subtitles, table body cells, badges and their tone,
+ * delta tones, list and step rows, link targets, details summaries. The outline
+ * above is the section's skeleton, and on its own it let the two surfaces
+ * disagree about every number in them. See `report-content.ts` for the
+ * normalization and for what is excluded by kind.
  */
 import { JSDOM } from 'jsdom'
+import {
+  readReportContent,
+  type ReportContentEntry,
+  type ReportContentSurface,
+  type ReportContentTone,
+} from './report-content.js'
+
+export type { ReportContentEntry, ReportContentSurface, ReportContentTone }
+export { readReportContent }
 
 export type ReportOutlineItem =
   | { heading: string }
@@ -43,6 +59,7 @@ export interface ReportOutlineSection {
   title: string | null
   intro: string | null
   items: ReportOutlineItem[]
+  content: ReportContentEntry[]
 }
 
 export interface ReportOutline {
@@ -94,7 +111,46 @@ function readSection(section: Element): ReportOutlineSection {
     title: title ? normalizeOutlineText(title.textContent) : null,
     intro: intro ? normalizeOutlineText(intro.textContent) : null,
     items,
+    content: readReportContent(section, scaffold, HTML_SURFACE),
   }
+}
+
+/**
+ * Every class the downloadable report states a tone with. Most are the shared
+ * `tone-*` modifiers, but two components hard-code a tone colour of their own:
+ * a cited scorecard glyph is drawn in the positive colour (the SPA gives it
+ * `text-positive-400`), and the market-scope warning is a caution card (the SPA
+ * gives it `insight-card-caution`). `tone-neutral` is deliberately absent:
+ * neutral reads as no tone on both surfaces (see `report-content.ts`).
+ */
+const HTML_TONES: Readonly<Record<string, ReportContentTone>> = {
+  'tone-positive': 'positive',
+  'tone-caution': 'caution',
+  'tone-negative': 'negative',
+  'cell-cited': 'positive',
+  'scope-warning': 'caution',
+}
+
+/**
+ * The two lists the downloadable report writes without `li`: the recommended
+ * next steps, and the indexing-coverage legend. The SPA writes both as `li`.
+ */
+const HTML_LIST_ROW = '.step, .legend > span'
+
+const HTML_SURFACE: ReportContentSurface = {
+  tone(element) {
+    for (const token of Array.from(element.classList)) {
+      const tone = HTML_TONES[token]
+      if (tone) return tone
+    }
+    return null
+  },
+  // A tile is whatever holds one of the outline's tile labels, so both readings
+  // of a tile come from one definition.
+  isTile: element => Array.from(element.children).some(child => child.matches(TILE_LABEL)),
+  isListRow: element => element.matches(HTML_LIST_ROW),
+  isCopyUnit: element => element.tagName === 'H3' || element.matches(NOTE) || element.matches('.empty-state'),
+  overrideText: () => null,
 }
 
 function classify(element: Element): ReportOutlineItem | null {

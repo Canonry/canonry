@@ -20,10 +20,11 @@ import {
 import { advancedReport, emptyReport, fullReport, richReport } from '../../../packages/contracts/test/fixtures/report-dto.js'
 import { REPORT_CHART_COLORS } from '../src/pages/ReportPage.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage } from './report-page-harness.js'
-import { readReportOutline, reportOutlineGolden, reportOutlineSection, type ReportOutlineFixture } from './report-outline.js'
+import { pinReportGoldenTimeZone, readReportOutline, reportOutlineGolden, reportOutlineSection, type ReportOutlineFixture } from './report-outline.js'
 
 vi.mock('recharts', () => import('./report-recharts-stub.js'))
 
+pinReportGoldenTimeZone()
 afterEach(cleanupReportPage)
 
 const TRAFFIC_SECTION_IDS: readonly ReportSectionId[] = [
@@ -125,6 +126,7 @@ describe('parity with the HTML report outline', () => {
       title: copy.title,
       intro: null,
       items: [{ empty: message }],
+      content: [{ text: message }],
     })
   })
 })

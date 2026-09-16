@@ -33,6 +33,50 @@
         {
           "note": "This summary is scoped to the michigan run location."
         }
+      ],
+      "content": [
+        {
+          "text": "Overview 40% When customers asked AI 5 queries about your industry, AI mentioned you in 2 of those queries. «negative|↓ Down 5.0 points vs prior 3 checks (avg 45%)»"
+        },
+        {
+          "tile": "AI mentions your name 40% Says your name in 2 of 5 queries"
+        },
+        {
+          "tile": "AI links to your website 65% Cites your site as a source in 3 of 5 queries"
+        },
+        {
+          "tile": "AI tools tested 2 Gemini, ChatGPT"
+        },
+        {
+          "text": "Mentions and links are different. A mention is when AI says your name out loud in its answer. A link is when AI lists your website as a source it used. AI can do either, both, or neither — that's why we track both."
+        },
+        {
+          "text": "Customer queries we tested"
+        },
+        {
+          "text": "These are the 3 queries we asked every AI tool. The numbers above measure how often you came up."
+        },
+        {
+          "item": "01 \"aeo platform\""
+        },
+        {
+          "item": "02 \"answer engine\""
+        },
+        {
+          "item": "03 \"aeo tools\""
+        },
+        {
+          "text": "How often each AI tool mentions you"
+        },
+        {
+          "text": "Higher is better. Each bar shows the share of customer queries where the AI named you in the answer."
+        },
+        {
+          "text": "Gemini 50% (1/2) ChatGPT 50% (1/2)"
+        },
+        {
+          "text": "This summary is scoped to the michigan run location."
+        }
       ]
     },
     {
@@ -87,6 +131,54 @@
             "AI tool"
           ]
         }
+      ],
+      "content": [
+        {
+          "tile": "AI mentions your name «negative|40% ↓» -5.0% vs 45%"
+        },
+        {
+          "tile": "AI links to your website «positive|65% ↑» +15.0% vs 50%"
+        },
+        {
+          "tile": "Queries AI mentioned you in 2 → 0 vs 2"
+        },
+        {
+          "tile": "Visitors from Google «positive|520 ↑» +8% vs prior 14 days"
+        },
+        {
+          "tile": "Visitors from AI tools «positive|110 ↑» +22% vs prior 14 days"
+        },
+        {
+          "text": "How each AI tool changed"
+        },
+        {
+          "row": [
+            "Gemini",
+            "50%",
+            "65%",
+            "«positive|+15.0% ↑»"
+          ]
+        },
+        {
+          "text": "What got better"
+        },
+        {
+          "row": [
+            "Gained citation on answer engine × 2",
+            "answer engine",
+            "Gemini"
+          ]
+        },
+        {
+          "text": "What got worse"
+        },
+        {
+          "row": [
+            "Lost citation on aeo platform",
+            "aeo platform",
+            "Gemini"
+          ]
+        }
       ]
     },
     {
@@ -118,6 +210,55 @@
         {
           "note": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
         }
+      ],
+      "content": [
+        {
+          "tile": "AI bot requests observed 249 234 verified · 15 unverified · «positive|Up 104% vs prior 7 days (122 requests)»"
+        },
+        {
+          "tile": "AI user-fetch requests 42 «positive|Up 133% vs prior 7 days (18 requests)»"
+        },
+        {
+          "tile": "AI referral sessions 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1 · 120 blocked by redirects"
+        },
+        {
+          "text": "By AI tool"
+        },
+        {
+          "row": [
+            "OpenAI",
+            "150",
+            "32",
+            "8"
+          ]
+        },
+        {
+          "row": [
+            "Anthropic",
+            "70",
+            "0",
+            "3"
+          ]
+        },
+        {
+          "row": [
+            "Google AI",
+            "29",
+            "0",
+            "1"
+          ]
+        },
+        {
+          "row": [
+            "Perplexity",
+            "0",
+            "10",
+            "0"
+          ]
+        },
+        {
+          "text": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
+        }
       ]
     },
     {
@@ -128,6 +269,35 @@
       "items": [
         {
           "heading": "Create content for \"best aeo platform\""
+        }
+      ],
+      "content": [
+        {
+          "text": "1 «caution|This month» Strong evidence"
+        },
+        {
+          "text": "Create content for \"best aeo platform\""
+        },
+        {
+          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source"
+        },
+        {
+          "summary": "See the data behind this"
+        },
+        {
+          "text": "Why this matters"
+        },
+        {
+          "item": "AI engines already cite competitors for this query."
+        },
+        {
+          "text": "What we saw"
+        },
+        {
+          "item": "rival.com is the current winning cited source"
+        },
+        {
+          "text": "What success looks like: The client is cited for \"best aeo platform\" in a future sweep."
         }
       ]
     },
@@ -160,6 +330,47 @@
         },
         {
           "note": "Customer queries where better content on your site would help AI cite you."
+        }
+      ],
+      "content": [
+        {
+          "text": "Where AI gets its answers"
+        },
+        {
+          "text": "The websites AI tools cited most often when answering customer queries about your industry."
+        },
+        {
+          "text": "reddit.com 4× rival.com (competitor) 2×"
+        },
+        {
+          "text": "Pages Google can find on your site"
+        },
+        {
+          "text": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
+        },
+        {
+          "text": "«caution|80%» 80 of 100 pages indexed 20 pages are not indexed yet."
+        },
+        {
+          "text": "What people search Google for"
+        },
+        {
+          "text": "You appeared in 5.0K Google searches and got 1.0K clicks this period."
+        },
+        {
+          "text": "rich brand 3.0K searches best aeo 2.0K searches"
+        },
+        {
+          "text": "Topics where you could improve"
+        },
+        {
+          "text": "Customer queries where better content on your site would help AI cite you."
+        },
+        {
+          "item": "best aeo platform Create"
+        },
+        {
+          "item": "answer engine optimization Refresh «caution|Ceded surface»"
         }
       ]
     }

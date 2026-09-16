@@ -14,6 +14,7 @@ import { advancedReport, emptyReport, fullReport, richReport, simpleVisibility }
 import { downloadReportHtml } from '../src/api.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage, selectReportAudience } from './report-page-harness.js'
 import {
+  pinReportGoldenTimeZone,
   readReportOutline,
   readReportSectionIds,
   reportOutlineGolden,
@@ -26,6 +27,8 @@ vi.mock('../src/api.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/api.js')>(),
   downloadReportHtml: vi.fn(async () => undefined),
 }))
+
+pinReportGoldenTimeZone()
 
 afterEach(() => {
   cleanupReportPage()
@@ -168,6 +171,7 @@ describe('shared report shell', () => {
       title: copy.title,
       intro: copy.client.introNoData,
       items: [{ empty: copy.client.empty }],
+      content: [{ text: copy.client.empty }],
     })
   })
 
