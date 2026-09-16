@@ -1007,8 +1007,8 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(observed.some(path => path.includes('cursor=cursor-2'))).toBe(true)
   expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=drawer-run'))).toBe(false)
 
-  const scopePicker = page.getByText('Whole site', { selector: 'summary' }).closest('details')!
-  fireEvent.click(page.getByText('Whole site', { selector: 'summary' }))
+  const scopePicker = page.getByText('Whole site', { selector: 'summary, summary > span' }).closest('details')!
+  fireEvent.click(page.getByText('Whole site', { selector: 'summary, summary > span' }))
   fireEvent.click(within(scopePicker).getByRole('button', { name: 'Select North', exact: true }))
   expect(await page.findByText('North Property')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
@@ -1105,7 +1105,7 @@ test('pinning a market competitor writes only a draft action and refetches that 
   )
 
   expect(calls.some(call => call.path.includes('/analytics/competitors?'))).toBe(false)
-  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
   expect(await page.findByRole('button', { name: 'Pin observed.example' })).toBeTruthy()
   fireEvent.click(page.getByRole('button', { name: 'Pin observed.example' }))
 
@@ -1504,7 +1504,7 @@ test('cached competitor history remains visible when its background refresh fail
     </QueryClientProvider>,
   )
 
-  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
 
   await waitFor(() => expect(queryClient.getQueryState(
     getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
@@ -2372,7 +2372,7 @@ test('collapsed competitor history starts on demand and follows query class', as
 
   expect(observed.some(path => path.includes('/analytics/competitors?'))).toBe(false)
 
-  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary' }))
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
   expect(await page.findByText('All-query rival')).toBeTruthy()
   await waitFor(() => expect(observed.some(path => (
     path.includes('/analytics/competitors?')
@@ -2739,8 +2739,8 @@ test('the tracked Queries row picker searches a large property list and browses 
   expect(within(details).queryByRole('button', { name: 'Select Citypoint Dental' })).toBeNull()
   fireEvent.click(within(details).getByRole('button', { name: 'Browse Metro' }))
   expect(within(details).getByText('All properties in this group')).toBeTruthy()
-  expect(within(details).getByText('Subgroups (1)', { selector: 'summary' }).closest('details')!.open).toBe(true)
-  expect(within(details).getByText('All properties (1)', { selector: 'summary' }).closest('details')!.open).toBe(false)
+  expect(within(details).getByText('Subgroups (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(true)
+  expect(within(details).getByText('All properties (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(false)
   fireEvent.click(within(details).getByRole('button', { name: 'Select North East' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north-east' }))
   await waitFor(() => expect(trigger.textContent).toBe('North East · 1 property'))
