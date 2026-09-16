@@ -116,7 +116,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape.
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
-3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line.
+3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line. A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label (the dashboard's AI Visibility headline strip names the class once in its `h2`), but each figure still carries the class in its own accessible text via an `sr-only` suffix beside the value. A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
 5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum.
 6. `competitorOverlap` is legacy MIXED evidence (answer text, source links, or both). Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher.
