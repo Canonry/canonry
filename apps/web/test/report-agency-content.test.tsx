@@ -12,10 +12,11 @@ import { within } from '@testing-library/react'
 import { ReportSectionIds, type ProjectReportDto, type ReportSectionId } from '@ainyc/canonry-contracts'
 import { advancedReport, emptyReport, fullReport, richReport } from '../../../packages/contracts/test/fixtures/report-dto.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage } from './report-page-harness.js'
-import { readReportOutline, reportOutlineGolden, reportOutlineSection, type ReportOutlineFixture } from './report-outline.js'
+import { pinReportGoldenTimeZone, readReportOutline, reportOutlineGolden, reportOutlineSection, type ReportOutlineFixture } from './report-outline.js'
 
 vi.mock('recharts', () => import('./report-recharts-stub.js'))
 
+pinReportGoldenTimeZone()
 afterEach(cleanupReportPage)
 
 const CONTENT_SECTIONS: readonly ReportSectionId[] = [

@@ -73,6 +73,18 @@ test('ReportSection writes the id and heading hooks, and its body reads in docum
         { heading: 'Search queries you should track' },
         { note: 'High-impression candidates to add to AEO tracking.' },
       ],
+      // What a reader actually reads: the tile VALUES beside their labels, the
+      // toned delta marked where the colour is, and the table's body row.
+      content: [
+        { tile: 'Total clicks 1.0K' },
+        { tile: 'Avg CTR 20.0% «positive|Up 8%»' },
+        { text: 'Top queries' },
+        { text: 'Queries ranked by clicks.' },
+        { row: ['rich brand', '800'] },
+        { text: 'From Search Console.' },
+        { text: 'Search queries you should track' },
+        { text: 'High-impression candidates to add to AEO tracking.' },
+      ],
     }],
   })
   expect(document.getElementById('gsc')?.tagName).toBe('SECTION')

@@ -195,6 +195,19 @@ describe('reportHtmlOutline', () => {
         { note: '20% of citations went elsewhere.' },
         { empty: 'Nothing yet.' },
       ],
+      // The same section read for what it SAYS: the tile's value beside its
+      // label, the table's body row cell by cell, and the runs of copy
+      // between them.
+      content: [
+        { tile: 'Total sessions 12' },
+        { text: 'Top pages' },
+        { text: 'Pages people landed on.' },
+        { row: ['/', '12'] },
+        { text: 'Wins' },
+        { text: 'No new gains.' },
+        { text: '20% of citations went elsewhere.' },
+        { text: 'Nothing yet.' },
+      ],
     }] })
     expect(reportHtmlSectionIds(html)).toEqual(['demo'])
   })
@@ -204,8 +217,40 @@ describe('reportHtmlOutline', () => {
       <div class="client-metric-grid"><div class="client-metric-tile"><div class="label">AI tools tested</div></div></div></section>
       <section id="legend"><div class="eyebrow">Section 3</div><h2>Scorecard</h2><p class="section-intro">Intro.</p><p class="section-intro">Legend: C = cited.</p></section>`
     expect(reportHtmlOutline(html).sections).toEqual([
-      { id: 'bare', eyebrow: null, title: null, intro: null, items: [{ tile: 'AI tools tested' }] },
-      { id: 'legend', eyebrow: 'Section 3', title: 'Scorecard', intro: 'Intro.', items: [{ note: 'Legend: C = cited.' }] },
+      {
+        id: 'bare',
+        eyebrow: null,
+        title: null,
+        intro: null,
+        items: [{ tile: 'AI tools tested' }],
+        content: [{ text: 'Overview' }, { tile: 'AI tools tested' }],
+      },
+      {
+        id: 'legend',
+        eyebrow: 'Section 3',
+        title: 'Scorecard',
+        intro: 'Intro.',
+        items: [{ note: 'Legend: C = cited.' }],
+        content: [{ text: 'Legend: C = cited.' }],
+      },
+    ])
+  })
+
+  test('a badge is read with its tone, a delta with the tone of the value it moved, and neutral reads as no tone at all', () => {
+    const html = `<section id="tones">
+      <div class="metric"><div class="label">Mentions</div><div class="value tone-negative">40% <span>↓</span></div><div class="delta">-5.0% vs 45%</div></div>
+      <table class="report-table"><thead><tr><th>Change</th><th>Query</th></tr></thead>
+        <tbody><tr><td><span class="badge tone-negative">Critical</span></td><td>Lost citation <span class="badge tone-neutral">× 2</span></td></tr></tbody>
+      </table>
+      <div class="step"><span class="horizon">immediate</span><span class="title">Fix it</span><span class="rationale">Because.</span></div>
+      <details><summary>See the data behind this</summary><ul><li><a href="https://rival.com/x">rival.com/x</a></li></ul></details>
+    </section>`
+    expect(reportHtmlOutline(html).sections[0]?.content).toEqual([
+      { tile: 'Mentions «negative|40% ↓» -5.0% vs 45%' },
+      { row: ['«negative|Critical»', 'Lost citation × 2'] },
+      { item: 'immediate Fix it Because.' },
+      { summary: 'See the data behind this' },
+      { item: '«link https://rival.com/x|rival.com/x»' },
     ])
   })
 })

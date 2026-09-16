@@ -24,6 +24,7 @@ import {
 } from '../../../packages/contracts/test/fixtures/report-dto.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage, selectReportAudience } from './report-page-harness.js'
 import {
+  pinReportGoldenTimeZone,
   readReportOutline,
   readReportSectionIds,
   reportOutlineGolden,
@@ -32,6 +33,7 @@ import {
 } from './report-outline.js'
 
 vi.mock('recharts', () => import('./report-recharts-stub.js'))
+pinReportGoldenTimeZone()
 afterEach(cleanupReportPage)
 
 const SERVER_ACTIVITY = ReportSectionIds['server-activity']
@@ -340,6 +342,7 @@ describe('agency server activity', () => {
       title: copy.title,
       intro: copy.agency.intro,
       items: [{ empty: copy.agency.emptyNotConnected }],
+      content: [{ text: copy.agency.emptyNotConnected }],
     })
   })
 
@@ -354,6 +357,7 @@ describe('agency server activity', () => {
       title: copy.title,
       intro: copy.agency.intro,
       items: [{ empty: copy.agency.empty }],
+      content: [{ text: copy.agency.empty }],
     })
   })
 })
@@ -424,6 +428,7 @@ describe('agency citations trend', () => {
       title: REPORT_SECTION_COPY['citations-trend'].title,
       intro: null,
       items: [{ empty: reportCitationsTrendBaseline(points) }],
+      content: [{ text: reportCitationsTrendBaseline(points) }],
     })
     expect(within(getReportSection(CITATIONS_TREND)).queryByRole('img')).toBeNull()
   })
@@ -438,6 +443,7 @@ describe('agency citations trend', () => {
       title: REPORT_SECTION_COPY['citations-trend'].title,
       intro: null,
       items: [{ empty: 'Run multiple checks to see a trend.' }],
+      content: [{ text: 'Run multiple checks to see a trend.' }],
     })
   })
 
