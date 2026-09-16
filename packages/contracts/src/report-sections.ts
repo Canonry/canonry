@@ -4,12 +4,15 @@
  *
  * `packages/api-routes/src/report-renderer.ts` (the downloadable HTML report)
  * and `apps/web/src/pages/ReportPage.tsx` (the in-app SPA report) render the
- * same `ProjectReportDto`. Every visible string they share lives here, moved
+ * same `ProjectReportDto`. The SECTION copy they share lives here, moved
  * verbatim, so the surfaces cannot drift: eyebrows, titles, intros, empty
  * states, card, chart and table titles, table headers, tile labels, notes, and
- * the sentences built from report data. The HTML output is pinned byte for byte
- * by `packages/api-routes/test/report-renderer-bytes.test.ts`, and the SPA is
- * held to the same section outline by `apps/web/test/report-page.test.tsx`.
+ * the sentences built from report data. Two sibling modules hold the rest:
+ * `report-visibility.ts` (the visibility summary) and `share-of-voice.ts`. The
+ * HTML output is pinned byte for byte by
+ * `packages/api-routes/test/report-renderer-bytes.test.ts`, and the SPA is held
+ * to the same section outline, for both audiences, by
+ * `apps/web/test/report-page.test.tsx`.
  *
  * Some copy breaks a current web rule (an em dash, a raw enum badge, a
  * three-sentence intro). It stays word for word here until both renderers

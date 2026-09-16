@@ -747,11 +747,11 @@ tested against the business invariant it claims to represent.
 
 - [ ] Updated SPA section in `apps/web/src/pages/ReportPage.tsx`
 - [ ] Updated HTML section in `packages/api-routes/src/report-renderer.ts`
-- [ ] Copy lives in the shared module `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` and its copy functions) and both renderers read it; neither renderer writes report copy inline
-- [ ] Section order comes from `reportSectionOrder(report, audience)`: the SPA renders it through an exhaustive switch, and `packages/api-routes/test/report-renderer-bytes.test.ts` checks it against the HTML for both audiences and every data shape
+- [ ] Copy lives in the shared modules — `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` and its copy functions) for section copy, `report-visibility.ts` for the visibility summary, `share-of-voice.ts` for share of voice — and both renderers read them; neither renderer writes report copy inline
+- [ ] Section order: `renderReportHtml` assembles its own list, and `reportSectionOrder(report, audience)` encodes that same order for the SPA, which renders it through an exhaustive switch. Adding, removing or re-conditioning a section edits both, and `packages/api-routes/test/report-renderer-bytes.test.ts` checks they agree for both audiences and every data shape
 - [ ] All visible strings (eyebrows, titles, subtitles, labels) match verbatim
 - [ ] Charts/progress bars/heroes have visual equivalents in both surfaces
-- [ ] `apps/web/test/report-page.test.tsx` matches the SPA against the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. Only the api-routes suite writes those goldens and the HTML byte snapshots; a deliberate HTML change updates them in the same commit, never to make a failing test pass
+- [ ] `apps/web/test/report-page.test.tsx` matches the SPA against the outline goldens in `packages/api-routes/test/fixtures/report-outline/`, whole and for both audiences, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones the outline does not record. Only the api-routes suite writes those goldens and the HTML byte snapshots; a deliberate HTML change updates them in the same commit, never to make a failing test pass
 - [ ] `report-renderer.test.ts` updated to assert the new strings
 
 ### Agent & automation design principles
