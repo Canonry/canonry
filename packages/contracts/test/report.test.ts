@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { reportPressureTone, reportSeverityTone, reportSourceCategoryTone } from '../src/report.js'
+import { ReportInsightTypes, reportInsightTone, reportPressureTone, reportSeverityTone, reportSourceCategoryTone } from '../src/report.js'
 import { sourceCategorySchema } from '../src/source-categories.js'
 
 describe('reportPressureTone', () => {
@@ -11,6 +11,22 @@ describe('reportPressureTone', () => {
 describe('reportSeverityTone', () => {
   test('critical and high are negative, medium caution, low neutral', () => {
     expect((['critical', 'high', 'medium', 'low'] as const).map(reportSeverityTone)).toEqual(['negative', 'negative', 'caution', 'neutral'])
+  })
+})
+
+describe('reportInsightTone', () => {
+  // Severity measures how much an insight moved, not whether the move was good
+  // news. Toning a gain by severity alone painted "Gained citation" in the
+  // alarm tone under the Wins heading, identical to a lost citation under
+  // Regressions, on both report surfaces.
+  test('a gain is positive at every severity', () => {
+    expect((['critical', 'high', 'medium', 'low'] as const).map(severity => reportInsightTone({ type: ReportInsightTypes.gain, severity })))
+      .toEqual(['positive', 'positive', 'positive', 'positive'])
+  })
+
+  test('everything else keeps its severity tone', () => {
+    expect((['regression', 'opportunity'] as const).flatMap(type => (['critical', 'medium', 'low'] as const).map(severity => reportInsightTone({ type, severity }))))
+      .toEqual(['negative', 'caution', 'neutral', 'negative', 'caution', 'neutral'])
   })
 })
 

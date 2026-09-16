@@ -28,7 +28,7 @@ import {
   reportActionCategoryLabel,
   reportActionTone,
   reportSeverityLabel,
-  reportSeverityTone,
+  reportInsightTone,
   reportPressureTone,
   reportSourceCategoryTone,
   safeLinkHref,
@@ -1155,7 +1155,7 @@ function renderWinsLosses(
   }
   const isClient = audience === 'client'
   const rows = insights.map(i => {
-    const tone = reportSeverityTone(i.severity)
+    const tone = reportInsightTone(i)
     const countChip = i.instanceCount > 1 ? ` <span class="badge tone-neutral">${reportInstanceCountLabel(i.instanceCount)}</span>` : ''
     const severityCell = isClient ? '' : `<td><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>`
     return `<tr>
@@ -2101,7 +2101,7 @@ function renderInsights(report: ProjectReportDto): string {
   const haveDeduped = list.every((i) => typeof i.instanceCount === 'number')
   const rows = (haveDeduped ? list.map((i) => ({ rep: i, count: i.instanceCount })) : groupInsights(list).map((g) => ({ rep: g.representative, count: g.count })))
     .map(({ rep: i, count }) => {
-      const tone = reportSeverityTone(i.severity)
+      const tone = reportInsightTone(i)
       const countChip = count > 1
         ? ` <span class="badge tone-neutral">${reportInstanceCountLabel(count)}</span>`
         : ''
