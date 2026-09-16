@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { classifySkillFile, coerceSkillManifest, SKILL_MANIFEST_FILENAME } from '../src/skills.js'
+import {
+  classifySkillFile,
+  coerceSkillManifest,
+  formatCanonryPluginUpdateHint,
+  formatCanonryPluginVersionMismatch,
+  SKILL_MANIFEST_FILENAME,
+} from '../src/skills.js'
 
 describe('classifySkillFile', () => {
   it('classifies an absent file as missing regardless of manifest', () => {
@@ -51,5 +57,25 @@ describe('coerceSkillManifest', () => {
     expect(coerceSkillManifest('{"files":{}}')).toBeNull()
     expect(coerceSkillManifest({ skill: 'aero', version: '1' })).toBeNull()
     expect(coerceSkillManifest({ files: null })).toBeNull()
+  })
+})
+
+describe('Canonry plugin version copy', () => {
+  it('names the plugin host without implying the host app version', () => {
+    expect(formatCanonryPluginVersionMismatch({
+      mismatchedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': '4.129.0' },
+      runningVersion: '5.3.1',
+    })).toBe('the Canonry plugin for Claude Code (v4.129.0) does not match this Canonry v5.3.1')
+    expect(formatCanonryPluginUpdateHint(['claude-code'])).toBe('Update or reinstall `canonry@canonry` in Claude Code.')
+  })
+
+  it('joins two stale clients without a trailing Oxford comma', () => {
+    expect(formatCanonryPluginVersionMismatch({
+      mismatchedClients: ['claude-code', 'codex'],
+      verifiedClientVersions: { 'claude-code': '1.0.0', codex: '1.0.1' },
+      runningVersion: '2.0.0',
+    })).toBe('the Canonry plugin for Claude Code (v1.0.0) and the Canonry plugin for Codex (v1.0.1) do not match this Canonry v2.0.0')
+    expect(formatCanonryPluginUpdateHint(['claude-code', 'codex'])).toBe('Update or reinstall `canonry@canonry` in Claude Code and Codex.')
   })
 })

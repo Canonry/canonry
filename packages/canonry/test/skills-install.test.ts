@@ -12,6 +12,7 @@ import {
   getBundledSkills,
   getBundledSkillSnapshots,
   getMissingUserSkillsNudge,
+  shouldPrintServeSkillsNudge,
   installSkills,
   listSkills,
   parseSkillsClient,
@@ -464,8 +465,38 @@ describe('getMissingUserSkillsNudge', () => {
       verifiedClientVersions: { 'claude-code': PACKAGE_VERSION, codex: '0.0.1' },
     })
     expect(nudge).not.toBeNull()
-    expect(nudge!.message).toContain('Codex v0.0.1')
-    expect(nudge!.message).toContain(`Canonry v${PACKAGE_VERSION}`)
+    expect(nudge!.message).toContain('the Canonry plugin for Codex (v0.0.1)')
+    expect(nudge!.message).toContain(`this Canonry v${PACKAGE_VERSION}`)
+    expect(nudge!.message).toContain('in Codex.')
     expect(nudge!.message).not.toContain('Claude Code')
+    expect(nudge!.source).toBe('plugin')
+  })
+
+  it('names every affected client in the plugin update hint', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code', 'codex'],
+      verifiedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': '0.0.1' },
+    })
+    expect(nudge).not.toBeNull()
+    expect(nudge!.message).toContain('the Canonry plugin for Claude Code (v0.0.1)')
+    expect(nudge!.message).toMatch(/in Codex and Claude Code/)
+  })
+
+  it('does not stack a plugin lockstep tip on top of a CLI upgrade notice', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code'],
+      verifiedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': '4.129.0' },
+    })
+    expect(nudge?.source).toBe('plugin')
+    expect(shouldPrintServeSkillsNudge(nudge, { current: '5.2.1', latest: '5.3.1' })).toBe(false)
+    expect(shouldPrintServeSkillsNudge(nudge, null)).toBe(true)
+  })
+
+  it('still prints a missing-skills tip when a CLI upgrade is also available', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir)
+    expect(nudge?.source).toBe('legacy-skills')
+    expect(shouldPrintServeSkillsNudge(nudge, { current: '5.2.1', latest: '5.3.1' })).toBe(true)
   })
 })

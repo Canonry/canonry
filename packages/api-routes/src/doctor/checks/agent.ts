@@ -6,8 +6,12 @@ import {
   CheckScopes,
   CheckStatuses,
   SKILL_MANIFEST_FILENAME,
+  agentPluginClientLabel,
   classifySkillFile,
   coerceSkillManifest,
+  formatCanonryPluginUpdateHint,
+  formatCanonryPluginVersionMismatch,
+  type AgentPluginClient,
   type SkillManifest,
 } from '@ainyc/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
@@ -22,13 +26,13 @@ function pluginStateFor(ctx: Parameters<CheckDefinition['run']>[0]) {
   }
 }
 
-function unverifiedPluginClients(state: ReturnType<typeof pluginStateFor>): string[] {
+function unverifiedPluginClients(state: ReturnType<typeof pluginStateFor>): AgentPluginClient[] {
   if (!state) return []
   return state.configuredClients.filter((client) => !state.verifiedClients.includes(client))
 }
 
-function displayPluginClients(clients: string[]): string {
-  return clients.map((client) => client === 'claude-code' ? 'Claude Code' : 'Codex').join(' + ')
+function displayPluginClients(clients: readonly AgentPluginClient[]): string {
+  return clients.map((client) => agentPluginClientLabel(client)).join(' + ')
 }
 
 const skillsInstalledCheck: CheckDefinition = {
@@ -44,7 +48,7 @@ const skillsInstalledCheck: CheckDefinition = {
         status: CheckStatuses.warn,
         code: 'agent.skills.plugin-unverified',
         summary: `The Canonry plugin is enabled for ${displayPluginClients(unverifiedClients)}, but its cached manifest and skill assets could not be verified.`,
-        remediation: 'Reinstall `canonry@canonry` with the affected client plugin manager, or disable the stale plugin entry.',
+        remediation: `${formatCanonryPluginUpdateHint(unverifiedClients)} Or disable the stale plugin entry.`,
         details: { delivery: 'plugin', ...agentPlugin, unverifiedClients },
       }
     }
@@ -146,7 +150,7 @@ const skillsCurrentCheck: CheckDefinition = {
         status: CheckStatuses.warn,
         code: 'agent.skills.plugin-unverified',
         summary: `The Canonry plugin cache could not be verified for ${displayPluginClients(unverifiedClients)}; freshness cannot be assessed.`,
-        remediation: 'Reinstall `canonry@canonry` with the affected client plugin manager, or disable the stale plugin entry.',
+        remediation: `${formatCanonryPluginUpdateHint(unverifiedClients)} Or disable the stale plugin entry.`,
         details: { delivery: 'plugin', ...agentPlugin, unverifiedClients },
       }
     }
@@ -165,14 +169,15 @@ const skillsCurrentCheck: CheckDefinition = {
       const mismatchedClients = agentPlugin.verifiedClients
         .filter((client) => agentPlugin.verifiedClientVersions?.[client] !== bundledVersion)
       if (mismatchedClients.length > 0) {
-        const versions = mismatchedClients
-          .map((client) => `${client === 'claude-code' ? 'Claude Code' : 'Codex'} v${agentPlugin.verifiedClientVersions?.[client] ?? 'unknown'}`)
-          .join(', ')
         return {
           status: CheckStatuses.warn,
           code: 'agent.skills.plugin-version-mismatch',
-          summary: `${versions} ${mismatchedClients.length === 1 ? 'does' : 'do'} not match the running Canonry v${bundledVersion}; plugin skills may be stale or incompatible.`,
-          remediation: 'Update the Canonry runtime and `canonry@canonry` plugin to the same version with the affected client plugin manager.',
+          summary: `${formatCanonryPluginVersionMismatch({
+            mismatchedClients,
+            verifiedClientVersions: agentPlugin.verifiedClientVersions,
+            runningVersion: bundledVersion,
+          })}; plugin skills may be stale or incompatible.`,
+          remediation: formatCanonryPluginUpdateHint(mismatchedClients),
           details: { delivery: 'plugin', bundledVersion, ...agentPlugin, mismatchedClients },
         }
       }

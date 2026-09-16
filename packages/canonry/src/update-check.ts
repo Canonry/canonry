@@ -224,6 +224,21 @@ export function readCachedUpdateAvailable(): UpdateAvailable | null {
   }
 }
 
+/**
+ * Snapshot of the CLI's pre-dispatch `UPDATE_AVAILABLE` read. Serve must not
+ * re-read the on-disk cache after `checkLatestVersionForCli` may have written
+ * it during startup.
+ */
+let printedUpdateAvailable: UpdateAvailable | null = null
+
+export function notePrintedUpdateAvailable(update: UpdateAvailable | null): void {
+  printedUpdateAvailable = update
+}
+
+export function getPrintedUpdateAvailable(): UpdateAvailable | null {
+  return printedUpdateAvailable
+}
+
 /** Stable code agents can branch on, shared by the CLI notice and doctor. */
 export const UPDATE_AVAILABLE_NOTICE_CODE = 'UPDATE_AVAILABLE'
 

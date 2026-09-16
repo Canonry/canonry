@@ -17,7 +17,7 @@ import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-er
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
-import { checkLatestVersionForCli, formatUpdateNotice, readCachedUpdateAvailable } from './update-check.js'
+import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
@@ -231,6 +231,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // `--format json|jsonl`.
   if (!isHelpRequest && command !== 'telemetry') {
     const update = readCachedUpdateAvailable()
+    notePrintedUpdateAvailable(update)
     if (update) {
       process.stderr.write(formatUpdateNotice(update, { format, interactive: Boolean(process.stderr.isTTY) }))
     }
