@@ -3,6 +3,22 @@ export function formatRatio(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
+/**
+ * A ratio as a whole percent: `0.575` → `58%`.
+ *
+ * `Math.round(ratio * 100)` alone loses every half-percent boundary that binary
+ * floating point puts a hair below it — `0.575 * 100` is `57.49999999999999`,
+ * so a content gap missed on 23 of 40 snapshots printed `57%`. Callers hand in
+ * an unrounded `cited / total`, which lands on those boundaries constantly, so
+ * the error is removed before the rounding decision rather than after it. Six
+ * decimals is far finer than any ratio these reports carry and cannot lift a
+ * value that is genuinely under the boundary over it.
+ */
+export function formatWholePercent(ratio: number): string {
+  if (!Number.isFinite(ratio)) return '0%'
+  return `${Math.round(Number((ratio * 100).toFixed(6)))}%`
+}
+
 export function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`

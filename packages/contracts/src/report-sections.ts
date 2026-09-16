@@ -20,7 +20,7 @@
  */
 import { z } from 'zod'
 import { actionConfidenceLabel, contentActionLabel, type ContentTargetRowDto } from './content.js'
-import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatRatio, type DeltaTone } from './formatting.js'
+import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatRatio, formatWholePercent, type DeltaTone } from './formatting.js'
 import { dedupeReportActions, dedupeReportOpportunities } from './report-dedup.js'
 import {
   reportActionAudienceSchema,
@@ -1036,7 +1036,7 @@ export function reportOpportunityActionLine(opportunity: Pick<ContentTargetRowDt
 
 /** A content gap's miss rate, rounded to a whole percent: `50%`. */
 export function reportMissRateLabel(missRate: number): string {
-  return `${Math.round(missRate * 100)}%`
+  return formatWholePercent(missRate)
 }
 // ── end report slice S5 ──
 
