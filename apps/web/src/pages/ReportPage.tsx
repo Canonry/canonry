@@ -220,6 +220,9 @@ function joinReportParts(parts: readonly ReactNode[]): ReactNode {
   return visible.map((part, index) => <span key={index}>{index > 0 ? ' · ' : null}{part}</span>)
 }
 
+/** No pending dismissals. A module constant so an empty render keeps one identity. */
+const NO_DISMISSALS: ReadonlySet<string> = new Set()
+
 export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
@@ -229,6 +232,62 @@ export function ReportPage({ projectName }: { projectName: string }) {
   // download is the client file too.
   const embedded = isEmbed()
   const audience: ReportAudience = embedded ? 'client' : selectedAudience
+
+  // One optimistic-dismissal set for the whole page. The client and agency
+  // action plans are separate sections, so a set owned by either one is thrown
+  // away the moment the reader switches audience, and a dismissal still waiting
+  // on its POST would reappear in both views as if the click had failed.
+  // Owning the mutation here also keeps its toast and its rollback alive when
+  // the section that started it unmounts.
+  const [dismissals, setDismissals] = useState<{ project: string; refs: ReadonlySet<string> }>(
+    () => ({ project: projectName, refs: NO_DISMISSALS }),
+  )
+  // Adjusting state during render is React's sanctioned reset when a prop
+  // changes: another project's report must not inherit these dismissals.
+  if (dismissals.project !== projectName) setDismissals({ project: projectName, refs: NO_DISMISSALS })
+  const dismissedRefs = dismissals.project === projectName ? dismissals.refs : NO_DISMISSALS
+  const dismissMutation = useDismissContentTarget()
+
+  const handleDismiss = (action: ProjectReportDto['actionPlan'][number]) => {
+    const ref = action.targetRef
+    if (!ref) return
+    const withoutStaleProject = (previous: { project: string; refs: ReadonlySet<string> }) =>
+      new Set(previous.project === projectName ? previous.refs : [])
+    // No `window.confirm` — single-click dismissal with optimistic UI is the
+    // right primitive here. The action is reversible via `DELETE
+    // /content/dismissals/:targetRef` (and a future "Dismissed" panel), so the
+    // friction of a confirm dialog outweighs the misclick risk. The toast
+    // confirms the dismissal landed and is what catches an unintended one.
+    setDismissals(previous => ({ project: projectName, refs: withoutStaleProject(previous).add(ref) }))
+    dismissMutation.mutate(
+      { projectName, body: { targetRef: ref } },
+      {
+        onSuccess: () => {
+          addToast({
+            tone: 'positive',
+            title: `Dismissed "${action.title}"`,
+            detail: 'Will not appear in future reports until un-dismissed.',
+          })
+          // Don't clear the entry here — the mutation invalidates the report
+          // query, the row drops out of the refetched plan, and the filter
+          // becomes a no-op on a row that is no longer there. We clear only on
+          // error, so the user can retry.
+        },
+        onError: (err) => {
+          addToast({
+            tone: 'negative',
+            title: `Couldn't dismiss "${action.title}"`,
+            detail: String(err),
+          })
+          setDismissals(previous => {
+            const refs = withoutStaleProject(previous)
+            refs.delete(ref)
+            return { project: projectName, refs }
+          })
+        },
+      },
+    )
+  }
 
   const reportQuery = useQuery({
     ...getApiV1ProjectsByNameReportOptions({ client: heyClient, path: { name: projectName }, query: { period } }),
@@ -296,7 +355,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
       </div>
 
       {reportSectionOrder(report, audience).map(id => (
-        <ReportSectionSlot key={id} id={id} report={report} audience={audience} projectName={projectName} />
+        <ReportSectionSlot key={id} id={id} report={report} audience={audience} dismissedRefs={dismissedRefs} onDismiss={handleDismiss} />
       ))}
     </div>
   )
@@ -338,12 +397,15 @@ function ReportSectionSlot({
   id,
   report,
   audience,
-  projectName,
+  dismissedRefs,
+  onDismiss,
 }: {
   id: ReportSectionId
   report: ProjectReportDto
   audience: ReportAudience
-  projectName: string
+  /** Actions dismissed on this page and not yet gone from the server's answer. */
+  dismissedRefs: ReadonlySet<string>
+  onDismiss: (action: ProjectReportDto['actionPlan'][number]) => void
 }): JSX.Element {
   switch (id) {
     case ReportSectionIds['client-summary']:
@@ -357,9 +419,9 @@ function ReportSectionSlot({
     case ReportSectionIds['server-activity']:
       return audience === 'client' ? <ServerActivityClientView report={report} /> : <AgencyServerActivity report={report} />
     case ReportSectionIds['client-action-plan']:
-      return <ActionPlanSection report={report} audience="client" projectName={projectName} />
+      return <ActionPlanSection report={report} audience="client" dismissedRefs={dismissedRefs} onDismiss={onDismiss} />
     case ReportSectionIds['agency-action-plan']:
-      return <ActionPlanSection report={report} audience="agency" projectName={projectName} />
+      return <ActionPlanSection report={report} audience="agency" dismissedRefs={dismissedRefs} onDismiss={onDismiss} />
     case ReportSectionIds['agency-diagnostics']:
       return <AgencyDiagnostics report={report} />
     case ReportSectionIds['citation-scorecard']:
@@ -605,69 +667,23 @@ function BigMetricTile({ label, value, subtitle }: { label: string; value: strin
   )
 }
 
-function ActionPlanSection({ report, audience, projectName }: { report: ProjectReportDto; audience: ReportAudience; projectName: string }) {
+function ActionPlanSection({ report, audience, dismissedRefs, onDismiss }: {
+  report: ProjectReportDto
+  audience: ReportAudience
+  dismissedRefs: ReadonlySet<string>
+  onDismiss: (action: ProjectReportDto['actionPlan'][number]) => void
+}) {
   const dedupedActions = reportAudienceActions(report, audience)
   const isClient = audience === 'client'
   const sectionId = isClient ? ReportSectionIds['client-action-plan'] : ReportSectionIds['agency-action-plan']
   const copy = REPORT_SECTION_COPY[sectionId]
-  const dismissMutation = useDismissContentTarget()
-  // Optimistic dismissals: a targetRef in this set is rendered as "gone"
-  // immediately on click, before the server confirms. The mutation
-  // invalidates the report query on success; once the refetch returns
-  // without the row, the natural unmount removes the entry. On error we
-  // remove from the set so the card re-appears with a toast.
-  //
-  // This set is the source of truth for "what the user thinks they
-  // dismissed" — the actual server state is whatever the next report
-  // refetch returns. They converge after a successful round-trip.
-  const [optimisticDismissed, setOptimisticDismissed] = useState<Set<string>>(new Set())
-  // Filter dedupedActions through the optimistic set so the UI updates
-  // instantly. Server-side filter still applies on the next refetch;
-  // this is purely a render-time bypass to remove perceived latency.
-  const actions = optimisticDismissed.size > 0
-    ? dedupedActions.filter(a => !a.targetRef || !optimisticDismissed.has(a.targetRef))
+  // Filter through the page's optimistic set so the card goes on click, before
+  // the server confirms. The set lives on ReportPage because this section is
+  // unmounted by an audience switch. The server-side filter still applies on
+  // the next refetch; this is purely a render-time bypass for the latency.
+  const actions = dismissedRefs.size > 0
+    ? dedupedActions.filter(action => !action.targetRef || !dismissedRefs.has(action.targetRef))
     : dedupedActions
-
-  const handleDismiss = (action: ProjectReportDto['actionPlan'][number]) => {
-    if (!action.targetRef) return
-    const ref = action.targetRef
-    // No `window.confirm` — single-click dismissal with optimistic UI is
-    // the right primitive here. The action is reversible via `DELETE
-    // /content/dismissals/:targetRef` (and a future "Dismissed" panel),
-    // so the friction of a confirm dialog outweighs the misclick risk.
-    // Toast confirms the dismissal landed and gives the user a chance to
-    // notice if it was unintentional.
-    setOptimisticDismissed(prev => new Set(prev).add(ref))
-    dismissMutation.mutate(
-      { projectName, body: { targetRef: ref } },
-      {
-        onSuccess: () => {
-          addToast({
-            tone: 'positive',
-            title: `Dismissed "${action.title}"`,
-            detail: 'Will not appear in future reports until un-dismissed.',
-          })
-          // Don't clear optimisticDismissed here — the mutation
-          // invalidates the report query, the row drops out of
-          // `dedupedActions` on refetch, and the natural unmount makes
-          // the optimistic entry redundant (filter is a no-op on a row
-          // that isn't there). We clear on error so the user can retry.
-        },
-        onError: (err) => {
-          addToast({
-            tone: 'negative',
-            title: `Couldn't dismiss "${action.title}"`,
-            detail: String(err),
-          })
-          setOptimisticDismissed(prev => {
-            const next = new Set(prev)
-            next.delete(ref)
-            return next
-          })
-        },
-      },
-    )
-  }
   return (
     <ReportSection id={sectionId} eyebrow={copy.eyebrow} title={copy.title} intro={copy.intro}>
       {actions.length === 0 ? (
@@ -725,7 +741,7 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => handleDismiss(action)}
+                      onClick={() => onDismiss(action)}
                       className="rounded-md border border-default bg-bg-elevated/50 px-2.5 py-1 text-[11px] font-medium text-neutral hover:border-mono-600 hover:bg-mono-800/70 hover:text-heading"
                       title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
                     >
