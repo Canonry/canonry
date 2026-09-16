@@ -211,11 +211,21 @@ describe('gbp.data.recent-sync', () => {
       expect(result).toMatchObject({ status: 'ok', code: 'gbp.data.fresh' })
     } finally { cleanup() }
   })
-  it('warn when the newest sync is aging (> 7d)', () => {
+  it('warn when the newest sync is aging (> 4d)', () => {
     const { db, cleanup } = dbWithLocations([
       { id: 'a', selected: true, syncedAt: daysAgoIso(40) },
       { id: 'b', selected: true, syncedAt: daysAgoIso(10) },
     ])
+    try {
+      const result = check.run(ctx({ db }))
+      expect(result).toMatchObject({ status: 'warn', code: 'gbp.data.aging' })
+    } finally { cleanup() }
+  })
+  it('warns at 5 days, which the previous 7d threshold reported as fresh', () => {
+    // This is the case that pins the new number. Every other fixture here sits
+    // far enough either side of both thresholds to pass under each, so without
+    // it the constant could drift back to 7 with a green suite.
+    const { db, cleanup } = dbWithLocations([{ id: 'a', selected: true, syncedAt: daysAgoIso(5) }])
     try {
       const result = check.run(ctx({ db }))
       expect(result).toMatchObject({ status: 'warn', code: 'gbp.data.aging' })

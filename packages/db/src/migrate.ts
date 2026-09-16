@@ -4155,6 +4155,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    // A breach opening underneath an existing one never reached anyone: the
+    // trigger keyed on the worst check's code, and a lower-ranked check going
+    // bad does not change it. Existing rows get NULL, which the notifier reads
+    // as "unknown" rather than "changed" so shipping this pages nobody.
+    version: 157,
+    name: 'doctor-health-failing-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN failing_signature TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

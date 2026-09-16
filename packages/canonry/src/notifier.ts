@@ -226,6 +226,10 @@ export class Notifier {
       .where(eq(doctorHealthState.projectId, projectId)).get()
     const previousStatus = (previous?.status ?? null) as 'ok' | 'warn' | 'fail' | null
 
+    // `failing` is already sorted deterministically above, so this is stable
+    // across passes and only moves when the SET of breaches moves.
+    const failingSignature = failing.map(c => `${c.status}:${c.code}`).join(',')
+
     // Transition rules: a first observation only speaks up if it is already
     // bad, so installing this does not announce healthy projects.
     let event: 'health.degraded' | 'health.recovered' | null = null
@@ -235,6 +239,19 @@ export class Notifier {
       event = 'health.recovered'
     } else if (status !== 'ok' && (previousStatus === 'ok' || previous.code !== code)) {
       event = 'health.degraded'
+    } else if (
+      status !== 'ok'
+      && previous.failingSignature !== null
+      && previous.failingSignature !== failingSignature
+    ) {
+      // A second breach opening under an existing one leaves the headline code
+      // untouched, so keying only on that code graded the new outage, listed it
+      // in `failing`, and then dropped it at the trigger. The ranking decides
+      // which breach leads; it must not decide whether anyone is told at all.
+      // Guarded on a non-NULL previous signature: a row predating this column
+      // knows nothing about the old set, and treating unknown as changed would
+      // page every already-degraded project on the first pass after deploy.
+      event = 'health.degraded'
     }
 
     const now = report.checkedAt
@@ -242,7 +259,7 @@ export class Notifier {
     // leave `notifiedAt` alone until something is actually sent — it previously
     // recorded "decided to notify", which read as delivered even when zero
     // webhooks matched.
-    const observation = { projectId, status, code, summary, checkedAt: now }
+    const observation = { projectId, status, code, summary, checkedAt: now, failingSignature }
     if (previous === undefined) {
       this.db.insert(doctorHealthState).values({ ...observation, notifiedAt: null }).run()
     } else {
