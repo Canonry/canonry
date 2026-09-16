@@ -327,16 +327,16 @@ export function richReport(): ProjectReportDto {
         { operator: 'Perplexity', verifiedHits: 0, unverifiedHits: 0, userFetchHits: 10, referralArrivals: 0, deltaPct: null },
       ],
       topCrawledPaths: [
-        { path: '/blog/foo', verifiedHits: 80, distinctOperators: 2 },
-        { path: '/pricing', verifiedHits: 50, distinctOperators: 1 },
+        { path: '/blog/foo', verifiedHits: 80, unverifiedHits: 0, distinctOperators: 2 },
+        { path: '/pricing', verifiedHits: 50, unverifiedHits: 0, distinctOperators: 1 },
       ],
       referralProducts: [
         { product: 'ChatGPT', arrivals: 8, distinctLandingPaths: 3 },
         { product: 'Claude', arrivals: 3, distinctLandingPaths: 1 },
       ],
       dailyTrend: [
-        { date: '2026-04-29', verifiedCrawlerHits: 30, userFetchHits: 4, referralArrivals: 2 },
-        { date: '2026-04-30', verifiedCrawlerHits: 45, userFetchHits: 8, referralArrivals: 3 },
+        { date: '2026-04-29', verifiedCrawlerHits: 30, unverifiedCrawlerHits: 0, userFetchHits: 4, referralArrivals: 2 },
+        { date: '2026-04-30', verifiedCrawlerHits: 45, unverifiedCrawlerHits: 0, userFetchHits: 8, referralArrivals: 3 },
       ],
       topReferralLandingPaths: [
         { path: '/landing', arrivals: 5, distinctProducts: 2 },
