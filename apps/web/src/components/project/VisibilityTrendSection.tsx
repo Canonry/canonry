@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { buildModelChangeNotice, describeError, formatPointDelta, parseVisibilityReportScopeErrorDetails, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
-import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
+import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { apiErrorDetails, heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
@@ -27,8 +27,10 @@ import {
   formatChartDateLabel,
   formatChartDateMonthDay,
   formatObservedInstantLabel,
+  formatObservedInstantMonthDay,
   Line,
   observedInstant,
+  observedInstantYear,
   providerSeriesColor,
   ReferenceLine,
   RechartsTooltip,
@@ -81,24 +83,40 @@ export const VISIBILITY_CLOSE_ANSWERS_LABEL = 'Close answers'
 
 const REPORT_CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded queries', unknown: 'Unclassified queries' }
 export const REPORT_CLASS_NOUN = { 'non-brand': 'non-brand queries', branded: 'branded queries', unknown: 'unclassified queries' } as const
-const REPORT_CLASS_NOUN_SINGULAR = { 'non-brand': 'non-brand query', branded: 'branded query', unknown: 'unclassified query' } as const
 
 /**
- * Headline change lines. Words carry the direction, and every line that prints
- * a figure names its query class; lines without a figure never do.
+ * Headline words. A tile carries its own metric's movement in short words; the
+ * caption names the compared sweep — or the one reason there is nothing to
+ * compare — exactly once for the whole strip.
  */
 export const REPORT_CHANGE_COPY = {
-  up: (magnitude: string, date: string, classNoun: string) => `Up ${magnitude} pts vs ${date} · ${classNoun}`,
-  down: (magnitude: string, date: string, classNoun: string) => `Down ${magnitude} pts vs ${date} · ${classNoun}`,
-  none: (date: string, classNoun: string) => `No change vs ${date} · ${classNoun}`,
+  up: (magnitude: string) => `Up ${magnitude} pts`,
+  down: (magnitude: string) => `Down ${magnitude} pts`,
+  none: 'No change',
+  previousUnavailable: 'No earlier value',
+  comparedWith: (date: string) => `vs ${date} sweep`,
   noPreviousRun: 'No earlier sweep to compare',
   definitionChanged: (date: string | null) => date === null ? 'Not compared: setup changed' : `Not compared: setup changed since ${date}`,
   modelChanged: (date: string | null) => date === null ? 'Not compared: engines or models changed' : `Not compared: engines or models changed since ${date}`,
   legacyUnknown: 'Not compared: older sweep lacks comparison details',
   partialRun: 'Not compared: a sweep was incomplete',
   scopedRun: 'Not compared: this sweep covered part of the project',
-  previousUnavailable: 'No earlier value to compare',
   explanation: 'Change compares this sweep with the sweep before it when both completed and used the same setup, engines and models.',
+} as const
+
+/**
+ * Help for every headline tile label, in every scope. Mention reads the answer
+ * text and Cited reads the source links; the two are never described as one
+ * signal. Property reach states the server's `propertyReach`: eligible selected
+ * Properties named in at least one measured answer, counted once per Property,
+ * and unavailable as a whole while any eligible Property stays unmeasured.
+ */
+export const REPORT_HEADLINE_HELP = {
+  simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
+  simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
+  advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned.',
+  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.',
+  propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
 } as const
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const reportPercent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 })
@@ -127,24 +145,13 @@ type ReportHeadlineMetric = 'mentionCoverage' | 'citationCoverage' | 'propertyRe
 interface ReportChangeLine { text: string; tone: 'text-positive' | 'text-negative' | 'text-secondary' }
 
 /**
- * Words for one headline metric's server comparison. Formats the server delta
- * and computes nothing. An absent field, no selected sweep, and an unavailable
- * or inapplicable current value print no line.
+ * One headline metric's movement, in words beside its value. Formats the server
+ * delta and computes nothing. A population the server could not compare at all,
+ * and a metric whose current value is unavailable or inapplicable, print nothing
+ * here — the caption carries the one population-level reason.
  */
-function reportChangeLine(comparison: VisibilityReportComparison | undefined, metric: ReportHeadlineMetric, queryClass: VisibilityReportPopulationClass): ReportChangeLine | null {
-  if (!comparison) return null
-  if (comparison.state === 'unavailable') {
-    const since = comparison.previousRun ? formatObservedInstantLabel(observedInstant(comparison.previousRun.createdAt)) : null
-    switch (comparison.reason) {
-      case VisibilityReportComparisonUnavailableReasons['no-selected-run']: return null
-      case VisibilityReportComparisonUnavailableReasons['no-previous-run']: return { text: REPORT_CHANGE_COPY.noPreviousRun, tone: 'text-secondary' }
-      case VisibilityReportComparisonUnavailableReasons['definition-changed']: return { text: REPORT_CHANGE_COPY.definitionChanged(since), tone: 'text-secondary' }
-      case VisibilityReportComparisonUnavailableReasons['model-changed']: return { text: REPORT_CHANGE_COPY.modelChanged(since), tone: 'text-secondary' }
-      case VisibilityReportComparisonUnavailableReasons['legacy-unknown']: return { text: REPORT_CHANGE_COPY.legacyUnknown, tone: 'text-secondary' }
-      case VisibilityReportComparisonUnavailableReasons['partial-run']: return { text: REPORT_CHANGE_COPY.partialRun, tone: 'text-secondary' }
-      case VisibilityReportComparisonUnavailableReasons['scoped-run']: return { text: REPORT_CHANGE_COPY.scopedRun, tone: 'text-secondary' }
-    }
-  }
+function reportChangeLine(comparison: VisibilityReportComparison | undefined, metric: ReportHeadlineMetric): ReportChangeLine | null {
+  if (!comparison || comparison.state === 'unavailable') return null
   const change = comparison[metric]
   if (change.state === 'unavailable') {
     switch (change.reason) {
@@ -153,34 +160,82 @@ function reportChangeLine(comparison: VisibilityReportComparison | undefined, me
       case VisibilityReportRateChangeUnavailableReasons['not-applicable']: return null
     }
   }
-  const date = formatObservedInstantLabel(observedInstant(comparison.previousRun.createdAt))
-  const classNoun = REPORT_CLASS_NOUN[queryClass]
   const { direction, magnitude } = formatPointDelta(change.delta)
   switch (direction) {
-    case 'up': return { text: REPORT_CHANGE_COPY.up(magnitude, date, classNoun), tone: 'text-positive' }
-    case 'down': return { text: REPORT_CHANGE_COPY.down(magnitude, date, classNoun), tone: 'text-negative' }
-    case 'none': return { text: REPORT_CHANGE_COPY.none(date, classNoun), tone: 'text-secondary' }
+    case 'up': return { text: REPORT_CHANGE_COPY.up(magnitude), tone: 'text-positive' }
+    case 'down': return { text: REPORT_CHANGE_COPY.down(magnitude), tone: 'text-negative' }
+    case 'none': return { text: REPORT_CHANGE_COPY.none, tone: 'text-secondary' }
   }
 }
 
-function reportHeadlineCaption(summary: VisibilityReportSummary, queryClass: VisibilityReportPopulationClass): string {
-  const queries = summary.queryCount === 1 ? REPORT_CLASS_NOUN_SINGULAR[queryClass] : REPORT_CLASS_NOUN[queryClass]
-  return `${summary.queryCount} ${queries} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
+/**
+ * The compared sweep's date. A sweep time is an OBSERVED INSTANT, so it
+ * localizes to the viewer; the year is dropped only when the viewer reads both
+ * sweeps in the same year, and kept whenever the comparison crosses one.
+ */
+function reportComparedDate(previousCreatedAt: string, displayedAt: string | null): string {
+  const previous = observedInstant(previousCreatedAt)
+  const sameYear = displayedAt !== null && observedInstantYear(previous) === observedInstantYear(observedInstant(displayedAt))
+  return sameYear ? formatObservedInstantMonthDay(previous) : formatObservedInstantLabel(previous)
 }
 
-function ReportHeadlineCell({ label, help, value, unit, change }: {
+/** The sweep the strip describes: the selected run, else the completed measurement, else the newest plotted point. */
+function displayedSweepAt(selection: VisibilityReportResponse['selection'], population: VisibilityReportPopulation): string | null {
+  const selected = selection.run.id === null ? undefined : population.trend.find(point => point.runId === selection.run.id)
+  return selected?.createdAt ?? selection.measurement.completedAt ?? population.trend.at(-1)?.createdAt ?? null
+}
+
+/**
+ * The one place the comparison is named. An available comparison names the
+ * previous sweep; an unavailable one states its reason once, in place of that
+ * date; no selected sweep and an absent comparison name nothing at all.
+ */
+function reportComparisonCaption(comparison: VisibilityReportComparison | undefined, displayedAt: string | null): string | null {
+  if (!comparison) return null
+  if (comparison.state === 'unavailable') {
+    const since = comparison.previousRun ? reportComparedDate(comparison.previousRun.createdAt, displayedAt) : null
+    switch (comparison.reason) {
+      case VisibilityReportComparisonUnavailableReasons['no-selected-run']: return null
+      case VisibilityReportComparisonUnavailableReasons['no-previous-run']: return REPORT_CHANGE_COPY.noPreviousRun
+      case VisibilityReportComparisonUnavailableReasons['definition-changed']: return REPORT_CHANGE_COPY.definitionChanged(since)
+      case VisibilityReportComparisonUnavailableReasons['model-changed']: return REPORT_CHANGE_COPY.modelChanged(since)
+      case VisibilityReportComparisonUnavailableReasons['legacy-unknown']: return REPORT_CHANGE_COPY.legacyUnknown
+      case VisibilityReportComparisonUnavailableReasons['partial-run']: return REPORT_CHANGE_COPY.partialRun
+      case VisibilityReportComparisonUnavailableReasons['scoped-run']: return REPORT_CHANGE_COPY.scopedRun
+    }
+  }
+  return REPORT_CHANGE_COPY.comparedWith(reportComparedDate(comparison.previousRun.createdAt, displayedAt))
+}
+
+/** Population size, then the compared sweep. The class itself is named by the section heading. */
+function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: string | null): string {
+  const counts = `${summary.queryCount} ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
+  return comparison === null ? counts : `${counts} · ${comparison}`
+}
+
+/**
+ * One headline tile: its own quiet surface, a labelled rate with the change
+ * beside it, and one supporting line. The class is visible in the section
+ * heading, so each figure repeats it for assistive tech only.
+ */
+function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
   label: string
-  help?: string
+  help: string
   value: VisibilityReportRate
   unit: 'answers' | 'properties'
+  classNoun: string
   change: ReportChangeLine | null
 }) {
-  return <div className="flex min-w-0 flex-col gap-1 p-4">
-    <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span>{help ? <InfoTooltip text={help} /> : null}</dt>
-    {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}</dd> : <>
-      <dd className="text-3xl font-semibold tabular-nums text-heading">{reportPercent.format(value.rate)}</dd>
+  const queryClassSuffix = <span className="sr-only">{` · ${classNoun}`}</span>
+  return <div className="report-headline-tile">
+    <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
+    {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}{queryClassSuffix}</dd> : <>
+      <dd className="report-headline-value">
+        <span className="text-3xl font-semibold tabular-nums text-heading">{reportPercent.format(value.rate)}</span>
+        {queryClassSuffix}
+        {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
+      </dd>
       <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}</dd>
-      {change ? <dd className={`text-sm ${change.tone}`}>{change.text}</dd> : null}
     </>}
   </div>
 }
@@ -600,15 +655,17 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       const answers = answerPage(population)
       const answerQuestion = answers.items[0]?.query ?? population.queries.items.find(row => row.queryKey === queryKey)?.query
       const aggregateScope = selection.mode === 'advanced' && selection.scope.kind !== 'property'
+      const classNoun = REPORT_CLASS_NOUN[population.queryClass]
+      const comparisonCaption = reportComparisonCaption(population.comparison, displayedSweepAt(selection, population))
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head flex-wrap items-center">
         <div className="flex items-center gap-1"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
-        <div className="flex items-center gap-1 text-sm text-secondary"><span className="tabular-nums">{reportHeadlineCaption(population.summary, population.queryClass)}</span><InfoTooltip text={REPORT_CHANGE_COPY.explanation} /></div>
+        <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={REPORT_CHANGE_COPY.explanation} /></div>
       </div>
       <dl className="report-headline mt-3" data-columns={aggregateScope ? 3 : 2} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} headline results`}>
-        <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a property' : 'Mentioned answers'} help={selection.mode === 'advanced' ? 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned.' : undefined} value={population.summary.mentionCoverage} unit="answers" change={reportChangeLine(population.comparison, 'mentionCoverage', population.queryClass)} />
-        <ReportHeadlineCell label={aggregateScope ? 'Answers citing a property' : 'Cited answers'} help={selection.mode === 'advanced' ? 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.' : undefined} value={population.summary.citationCoverage} unit="answers" change={reportChangeLine(population.comparison, 'citationCoverage', population.queryClass)} />
-        {aggregateScope ? <ReportHeadlineCell label="Properties mentioned" value={population.summary.propertyReach} unit="properties" change={reportChangeLine(population.comparison, 'propertyReach', population.queryClass)} /> : null}
+        <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a property' : 'Mentioned answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedMention : REPORT_HEADLINE_HELP.simpleMention} value={population.summary.mentionCoverage} unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'mentionCoverage')} />
+        <ReportHeadlineCell label={aggregateScope ? 'Answers citing a property' : 'Cited answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedCitation : REPORT_HEADLINE_HELP.simpleCitation} value={population.summary.citationCoverage} unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'citationCoverage')} />
+        {aggregateScope ? <ReportHeadlineCell label="Properties mentioned" help={REPORT_HEADLINE_HELP.propertyReach} value={population.summary.propertyReach} unit="properties" classNoun={classNoun} change={reportChangeLine(population.comparison, 'propertyReach')} /> : null}
       </dl>
       <ReportTrend population={population} />
       {aggregateScope && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}

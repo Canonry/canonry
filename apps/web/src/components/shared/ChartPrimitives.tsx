@@ -219,6 +219,16 @@ export function formatObservedInstantLabel(instant: ObservedInstant): string {
   return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** Format a real instant without its year (e.g. "Jul 19") in the viewer's timezone. */
+export function formatObservedInstantMonthDay(instant: ObservedInstant): string {
+  return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** The viewer's calendar year for a real instant, for deciding whether a date still needs one. */
+export function observedInstantYear(instant: ObservedInstant): number {
+  return new Date(instant).getFullYear()
+}
+
 /** Format a real instant as a compact axis tick in the viewer's timezone (e.g. "7/19"). */
 export function formatObservedInstantTick(instant: ObservedInstant): string {
   const d = new Date(instant)

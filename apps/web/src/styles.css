@@ -1179,13 +1179,28 @@
     @apply h-64 w-full sm:h-72;
   }
 
-  /* Headline strip: the selected class's rates, denominators, and change lines. */
+  /* Headline strip: one quiet tile per rate, separated by a gap. The strip
+     itself carries no shared frame and no dividers. */
   .report-headline {
-    @apply grid grid-cols-1 divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0;
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-3;
   }
 
   .report-headline[data-columns='2'] {
     @apply sm:grid-cols-2;
+  }
+
+  .report-headline-tile {
+    @apply flex min-w-0 flex-col gap-1 rounded-xl border border-default bg-surface px-4 py-4;
+  }
+
+  /* The rate and its change read as one line, wrapping together when narrow. */
+  .report-headline-value {
+    @apply flex flex-wrap items-baseline gap-x-2;
+  }
+
+  /* Population size and the compared sweep, beside the class heading. */
+  .report-headline-caption {
+    @apply flex items-center gap-1 text-sm text-secondary;
   }
 
   /* Bounded bar under a breakdown rate. The fill width is the server rate. */
