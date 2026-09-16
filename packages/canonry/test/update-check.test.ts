@@ -550,6 +550,24 @@ describe('update-check', () => {
     })
   })
 
+  describe('printed update snapshot', () => {
+    it('returns the pre-dispatch snapshot, not a later cache read', async () => {
+      const { notePrintedUpdateAvailable, getPrintedUpdateAvailable } = await import('../src/update-check.js')
+      notePrintedUpdateAvailable(null)
+      expect(getPrintedUpdateAvailable()).toBe(null)
+      const update = {
+        current: '5.1.2',
+        latest: '5.2.0',
+        url: 'https://www.npmjs.com/package/@canonry/canonry',
+        upgradeCommand: 'npm install -g @canonry/canonry',
+        installMethod: 'npm' as const,
+      }
+      notePrintedUpdateAvailable(update)
+      expect(getPrintedUpdateAvailable()).toEqual(update)
+      notePrintedUpdateAvailable(null)
+    })
+  })
+
   describe('formatUpdateNotice', () => {
     const update = { current: '5.1.2', latest: '5.2.0', url: 'https://x', upgradeCommand: 'npm install -g @canonry/canonry', installMethod: 'npm' as const }
 

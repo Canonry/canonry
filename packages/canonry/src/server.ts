@@ -1691,7 +1691,7 @@ export async function createServer(opts: {
       // Run the health checks and notify only on a transition. This is the loop
       // that was missing: the checks existed and nothing executed them, so a
       // degraded instrument kept emitting `run.completed` and looked healthy.
-      return (async () => {
+      void (async () => {
         try {
           const report = await schedulerClient.runDoctor({ project: projectName });
           const project = opts.db
@@ -3646,16 +3646,8 @@ export async function createServer(opts: {
       for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
         dispatchResearchRun(run.id, run.projectId);
       }
-      void scheduler.waitForStartupCatchUp().then(
-        () => {
-          runtimeStartupSettled = true;
-          resolveRuntimeStartup();
-        },
-        (error) => {
-          runtimeStartupSettled = true;
-          rejectRuntimeStartup(error);
-        },
-      );
+      runtimeStartupSettled = true;
+      resolveRuntimeStartup();
     } catch (error) {
       runtimeStartupSettled = true;
       rejectRuntimeStartup(error);

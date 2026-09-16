@@ -14,6 +14,8 @@ vi.mock('../src/update-check.js', async () => {
     formatUpdateNotice: actual.formatUpdateNotice,
     checkLatestVersionForCli: mockCheckLatestVersionForCli,
     readCachedUpdateAvailable: mockReadCachedUpdateAvailable,
+    notePrintedUpdateAvailable: actual.notePrintedUpdateAvailable,
+    getPrintedUpdateAvailable: actual.getPrintedUpdateAvailable,
     checkLatestVersionForServer: vi.fn().mockReturnValue(null),
     getServerUpdateStatus: vi.fn(),
     isUpdateCheckEnabled: vi.fn().mockReturnValue(true),

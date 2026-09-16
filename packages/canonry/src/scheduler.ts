@@ -100,10 +100,9 @@ export interface SchedulerCallbacks {
    * decides whether the outcome is worth notifying. No run row: doctor measures
    * the instrument rather than producing findings, so it has nothing to attach
    * results to and must never displace a real sweep on the dashboard.
-   * Returning a Promise lets startup wait for catch-up passes before printing
-   * the serve URL; later ticks may still be fire-and-forget.
+   * Fire-and-forget.
    */
-  onDoctorRequested?: (projectName: string) => void | Promise<void>
+  onDoctorRequested?: (projectName: string) => void
   /**
    * Fired when a backlinks-sync schedule triggers. The host re-probes Common
    * Crawl for the latest hyperlink-graph release and, when a newer rolling
@@ -143,22 +142,10 @@ export class Scheduler {
   private db: DatabaseClient
   private callbacks: SchedulerCallbacks
   private tasks = new Map<string, SchedulerTask>()
-  /** Doctor catch-up work kicked off by `start()`, awaited before serve reports ready. */
-  private startupCatchUp: Promise<unknown>[] = []
-  private collectingStartupCatchUp = false
 
   constructor(db: DatabaseClient, callbacks: SchedulerCallbacks) {
     this.db = db
     this.callbacks = callbacks
-  }
-
-  /**
-   * Wait for doctor catch-up passes that `start()` already dispatched.
-   * Answer-visibility and other long jobs are not included: they must not
-   * delay the serve-ready banner.
-   */
-  waitForStartupCatchUp(): Promise<void> {
-    return Promise.allSettled(this.startupCatchUp).then(() => undefined)
   }
 
   /**
@@ -228,42 +215,36 @@ export class Scheduler {
 
   /** Load all enabled schedules from DB and register cron jobs. */
   start(): void {
-    this.startupCatchUp = []
-    this.collectingStartupCatchUp = true
-    try {
-      this.ensureHealthSchedules()
-      this.ensureQueryBaskets()
+    this.ensureHealthSchedules()
+    this.ensureQueryBaskets()
 
-      const allSchedules = this.db
-        .select()
-        .from(schedules)
-        .where(eq(schedules.enabled, true))
-        .all()
+    const allSchedules = this.db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.enabled, true))
+      .all()
 
-      for (const schedule of allSchedules) {
-        // Capture nextRunAt before registration so the check uses the stored DB
-        // value, not a value that registerCronTask might have modified.
-        const missedRunAt = schedule.nextRunAt
-        const recurrence = scheduleRecurrence(schedule)
-        const registered = this.registerCronTask(schedule, recurrence ? { preserveNextRunAt: true } : {})
+    for (const schedule of allSchedules) {
+      // Capture nextRunAt before registration so the check uses the stored DB
+      // value, not a value that registerCronTask might have modified.
+      const missedRunAt = schedule.nextRunAt
+      const recurrence = scheduleRecurrence(schedule)
+      const registered = this.registerCronTask(schedule, recurrence ? { preserveNextRunAt: true } : {})
 
-        // Catch-up: if the scheduled slot was set but the server was down when
-        // it was supposed to fire, trigger immediately. Calendar answer runs
-        // claim atomically with admission below; callback-only kinds retain the
-        // cron-era at-most-once pre-dispatch claim (a process crash can skip it).
-        if (registered && missedRunAt && new Date(missedRunAt) < new Date()) {
-          const answerRecurrence = recurrence && schedule.kind === SchedulableRunKinds['answer-visibility']
-          if (!recurrence || answerRecurrence || this.claimCalendarOccurrence(schedule, missedRunAt, new Date())) {
-            log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
-            this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind, answerRecurrence ? missedRunAt : undefined)
-          }
+      // Catch-up: if the scheduled slot was set but the server was down when
+      // it was supposed to fire, trigger immediately. Calendar answer runs
+      // claim atomically with admission below; callback-only kinds retain the
+      // cron-era at-most-once pre-dispatch claim (a process crash can skip it).
+      if (registered && missedRunAt && new Date(missedRunAt) < new Date()) {
+        const answerRecurrence = recurrence && schedule.kind === SchedulableRunKinds['answer-visibility']
+        if (!recurrence || answerRecurrence || this.claimCalendarOccurrence(schedule, missedRunAt, new Date())) {
+          log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
+          this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind, answerRecurrence ? missedRunAt : undefined)
         }
       }
-
-      log.info('started', { scheduleCount: allSchedules.length })
-    } finally {
-      this.collectingStartupCatchUp = false
     }
+
+    log.info('started', { scheduleCount: allSchedules.length })
   }
 
   /** Stop all cron tasks for graceful shutdown. */
@@ -616,8 +597,7 @@ export class Scheduler {
           nextRunAt,
         })
         log.info('doctor.triggered', { projectName: project.name })
-        const work = this.callbacks.onDoctorRequested(project.name)
-        if (this.collectingStartupCatchUp) this.startupCatchUp.push(Promise.resolve(work))
+        this.callbacks.onDoctorRequested(project.name)
         return
       }
 

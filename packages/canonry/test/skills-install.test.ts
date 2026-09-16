@@ -472,6 +472,17 @@ describe('getMissingUserSkillsNudge', () => {
     expect(nudge!.source).toBe('plugin')
   })
 
+  it('names every affected client in the plugin update hint', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code', 'codex'],
+      verifiedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': '0.0.1' },
+    })
+    expect(nudge).not.toBeNull()
+    expect(nudge!.message).toContain('the Canonry plugin for Claude Code (v0.0.1)')
+    expect(nudge!.message).toMatch(/in Codex and Claude Code/)
+  })
+
   it('does not stack a plugin lockstep tip on top of a CLI upgrade notice', () => {
     const nudge = getMissingUserSkillsNudge(homeDir, {
       configuredClients: ['claude-code'],

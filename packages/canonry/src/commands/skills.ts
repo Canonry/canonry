@@ -501,10 +501,7 @@ export function emitInstallSummary(summary: SkillsInstallSummary, format?: strin
 export interface UserSkillsNudge {
   /** One-line message safe to print to stderr at `canonry serve` boot. */
   message: string
-  /**
-   * `plugin` is lockstep against this runtime. `legacy-skills` is the
-   * ~/.claude/skills/ install path used when no native plugin is configured.
-   */
+  /** Native plugin lockstep vs `~/.claude/skills/` when no plugin is configured. */
   source: 'plugin' | 'legacy-skills'
   /** Skills missing from `~/.claude/skills/`. */
   missing: BundledSkillName[]
@@ -512,11 +509,7 @@ export interface UserSkillsNudge {
   installed: BundledSkillName[]
 }
 
-/**
- * Serve prints at most one version story. A plugin-lockstep tip on top of
- * `UPDATE_AVAILABLE` reads as a second CLI upgrade. After the runtime is
- * current, the plugin tip remains the leftover channel to refresh.
- */
+/** Skip plugin-source nudges when an `UPDATE_AVAILABLE` notice already printed. */
 export function shouldPrintServeSkillsNudge(
   nudge: UserSkillsNudge | null,
   updateAvailable: { current: string; latest: string } | null | undefined,
@@ -568,7 +561,7 @@ export function getMissingUserSkillsNudge(
         runningVersion: PACKAGE_VERSION,
       })}.`)
     }
-    const hintClients = unverifiedClients.length > 0 ? unverifiedClients : mismatchedClients
+    const hintClients = [...new Set([...unverifiedClients, ...mismatchedClients])]
     return {
       message: `Tip: ${problems.join(' ')} ${formatCanonryPluginUpdateHint(hintClients)}`,
       source: 'plugin',

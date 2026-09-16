@@ -33,10 +33,7 @@ function joinPluginSubjects(subjects: string[]): string {
   return `${subjects.slice(0, -1).join(', ')}, and ${subjects.at(-1)}`
 }
 
-/**
- * Plugin cache version vs running Canonry runtime. Names the plugin, not the
- * host app, so "Claude Code v4.129.0" is never read as the Claude Code version.
- */
+/** Plugin cache version vs this Canonry runtime; not the host app version. */
 export function formatCanonryPluginVersionMismatch(args: {
   mismatchedClients: readonly AgentPluginClient[]
   verifiedClientVersions?: Partial<Record<AgentPluginClient, string>>

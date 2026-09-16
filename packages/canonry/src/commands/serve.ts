@@ -1,5 +1,5 @@
 import { loadConfig } from '../config.js'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
@@ -7,7 +7,7 @@ import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
-import { readCachedUpdateAvailable } from '../update-check.js'
+import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
@@ -22,6 +22,14 @@ export { resolveServePort } from '../serve-endpoint.js'
 /** First-run password setup is loopback-only for every non-loopback bind. */
 export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
   return !isLoopbackBindHost(host)
+}
+
+function existingProjectCount(db: ReturnType<typeof createClient>): number {
+  try {
+    return db.select({ id: projects.id }).from(projects).all().length
+  } catch {
+    return 0
+  }
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
@@ -91,11 +99,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
 
   try {
     await app.listen({ host, port })
-    await waitForServerRuntimeStartup(app)
-    listening = true
 
-    // Install signal handlers only after bind succeeds. A failed listen must
-    // leave neither a live Fastify app nor process-level listeners behind.
+    // Bind succeeded: Ctrl+C must work even if scheduler startup hangs.
     let shuttingDown = false
     const shutdown = (signal: string): void => {
       if (shuttingDown) return
@@ -114,6 +119,25 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.on('SIGINT', () => shutdown('SIGINT'))
 
     const url = operatorHttpUrl(host, port)
+    if (!isMachineFormat(format)) {
+      console.log(`\nCanonry server running at ${url}`)
+      if (existingProjectCount(db) === 0) {
+        console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
+      } else {
+        console.log(`Open ${url}`)
+      }
+      if (shouldWarnAboutRemoteSetup(host)) {
+        console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
+      }
+      console.log('Press Ctrl+C to stop.\n')
+      const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())
+      if (shouldPrintServeSkillsNudge(nudge, getPrintedUpdateAvailable())) {
+        process.stderr.write(`${nudge.message}\n`)
+      }
+    }
+
+    await waitForServerRuntimeStartup(app)
+    listening = true
 
     if (isMachineFormat(format)) {
       console.log(JSON.stringify({
@@ -122,19 +146,6 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
         port,
         url,
       }, null, 2))
-    } else {
-      // Last operator-facing startup lines, after listen + scheduler + doctor
-      // catch-up logs, so the URL is not buried in the middle of boot output.
-      console.log(`\nCanonry server running at ${url}`)
-      console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
-      if (shouldWarnAboutRemoteSetup(host)) {
-        console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
-      }
-      console.log('Press Ctrl+C to stop.\n')
-      const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())
-      if (shouldPrintServeSkillsNudge(nudge, readCachedUpdateAvailable())) {
-        process.stderr.write(`${nudge.message}\n`)
-      }
     }
 
     // Switch the source for the rest of this process — every event emitted
