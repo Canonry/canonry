@@ -662,9 +662,14 @@ export const citationsTrendPointSchema = z.object({
 
 export type CitationsTrendPoint = z.infer<typeof citationsTrendPointSchema>
 
+/** What an insight says happened: a loss, a gain, or an opening to take. */
+export const reportInsightTypeSchema = z.enum(['regression', 'gain', 'opportunity'])
+export const ReportInsightTypes = reportInsightTypeSchema.enum
+export type ReportInsightType = z.infer<typeof reportInsightTypeSchema>
+
 export const reportInsightSchema = z.object({
   id: z.string(),
-  type: z.enum(['regression', 'gain', 'opportunity']),
+  type: reportInsightTypeSchema,
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   title: z.string(),
   query: z.string(),
@@ -916,6 +921,17 @@ export function reportSeverityTone(severity: ReportInsight['severity']): ReportT
     case 'medium': return 'caution'
     case 'low': return 'neutral'
   }
+}
+
+/**
+ * The tone an insight is badged with. Severity measures how far something
+ * moved, never whether the move was good news, so a gain takes the positive
+ * tone at every severity: toning it by severity alone painted "Gained
+ * citation" in the alarm tone under the Wins heading, indistinguishable from a
+ * lost citation under Regressions. Both report renderers call this.
+ */
+export function reportInsightTone(insight: Pick<ReportInsight, 'type' | 'severity'>): ReportTone {
+  return insight.type === ReportInsightTypes.gain ? 'positive' : reportSeverityTone(insight.severity)
 }
 
 /**

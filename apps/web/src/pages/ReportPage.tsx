@@ -61,7 +61,7 @@ import {
   reportServerActivityClientOperatorHeaders,
   reportServerActivityHeading,
   reportSeverityLabel,
-  reportSeverityTone,
+  reportInsightTone,
   safeLinkHref,
 } from '@ainyc/canonry-contracts'
 
@@ -997,7 +997,7 @@ function WinsLossesTable({
         <tr key={i.id}>
           {!isClient && (
             <td>
-              <ToneBadge tone={reportSeverityTone(i.severity)}>{reportSeverityLabel(i.severity)}</ToneBadge>
+              <ToneBadge tone={reportInsightTone(i)}>{reportSeverityLabel(i.severity)}</ToneBadge>
             </td>
           )}
           <td className="evidence-query-cell">
@@ -2024,7 +2024,7 @@ function AgencyInsights({ report }: { report: ProjectReportDto }) {
         {report.insights.map(insight => (
           <tr key={insight.id}>
             <td className="align-top">
-              <ToneBadge tone={reportSeverityTone(insight.severity)}>{reportSeverityLabel(insight.severity)}</ToneBadge>
+              <ToneBadge tone={reportInsightTone(insight)}>{reportSeverityLabel(insight.severity)}</ToneBadge>
             </td>
             <td className="evidence-query-cell break-words align-top">
               {insight.title}

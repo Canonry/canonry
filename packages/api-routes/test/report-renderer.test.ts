@@ -492,6 +492,19 @@ describe('renderReportHtml', () => {
     expect(html).toContain(copy.regressionsEmpty)
   })
 
+  // Severity says how far something moved, never whether the move was good
+  // news, so toning a gain by severity alone badged "Gained citation" in the
+  // alarm tone under Wins, exactly like a lost citation under Regressions.
+  test('the agency wins table badges a gain by its direction, not its severity', () => {
+    const html = renderReportHtml(fullReport(), { audience: 'agency' })
+    const copy = REPORT_SECTION_COPY['whats-changed'].agency
+    const tableAfter = (heading: string) => html.split(`<h3>${heading}</h3>`)[1]!.split('</table>')[0]!
+    expect(tableAfter(copy.winsHeading)).toContain('<span class="badge tone-positive">')
+    expect(tableAfter(copy.winsHeading)).not.toContain('tone-negative')
+    // A high-severity regression keeps the alarm tone it earned.
+    expect(tableAfter(copy.regressionsHeading)).toContain('<span class="badge tone-negative">')
+  })
+
   test('handles empty data without throwing', () => {
     expect(() => renderReportHtml(emptyReport())).not.toThrow()
   })
