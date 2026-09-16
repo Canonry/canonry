@@ -1,0 +1,1475 @@
+{
+  "sections": [
+    {
+      "id": "executive-summary",
+      "eyebrow": "Section 1",
+      "title": "Executive Summary",
+      "intro": "Citation = source list. Mention = answer text. They are independent signals.",
+      "items": [
+        {
+          "tile": "Citation trend"
+        },
+        {
+          "tile": "Mention coverage"
+        },
+        {
+          "tile": "Prioritized actions"
+        },
+        {
+          "tile": "Citation rate"
+        },
+        {
+          "tile": "Mention rate"
+        },
+        {
+          "tile": "Queries tracked"
+        },
+        {
+          "tile": "GSC clicks"
+        },
+        {
+          "tile": "GA sessions"
+        },
+        {
+          "heading": "Market Scope"
+        },
+        {
+          "tile": "Current check"
+        },
+        {
+          "tile": "Not included"
+        },
+        {
+          "tile": "Provider context"
+        },
+        {
+          "note": "Location handling needs review cdp:chatgpt used weak or indirect market handling. Treat provider-level differences cautiously."
+        }
+      ],
+      "content": [
+        {
+          "text": "Latest AI visibility check 3 of 5 tracked queries cite Rich Project 65% citation coverage and 40% mention coverage across 2 providers."
+        },
+        {
+          "tile": "Citation trend «positive|↑ Up» 3/5 queries cited"
+        },
+        {
+          "tile": "Mention coverage 40%2/5 queries mentioned"
+        },
+        {
+          "tile": "Prioritized actions 2 Sorted for agency follow-up."
+        },
+        {
+          "tile": "Citation rate 65% «positive|↑ Up» · 3/5 queries cited · 2 providers"
+        },
+        {
+          "tile": "Mention rate 40%2/5 queries mentioned"
+        },
+        {
+          "tile": "Queries tracked 5 3 competitors tracked"
+        },
+        {
+          "tile": "GSC clicks 1.0K 5.0K imp · 20.0% CTR · Apr 1, 2026 → Apr 30, 2026"
+        },
+        {
+          "tile": "GA sessions 12.0K 9.0K users · Apr 1, 2026 → Apr 30, 2026"
+        },
+        {
+          "text": "«positive|Citation rate at 65% Up from previous run.» «negative|1 critical regression Lost citation»"
+        },
+        {
+          "text": "Market Scope"
+        },
+        {
+          "tile": "Current check michigan (Detroit, Michigan, US) All findings below are scoped to this run."
+        },
+        {
+          "tile": "Not included florida 1 configured market still needs a matching check before cross-market recommendations."
+        },
+        {
+          "tile": "Provider context 3 1 provider need a closer location check."
+        },
+        {
+          "text": "«caution|Location handling needs review cdp:chatgpt used weak or indirect market handling. Treat provider-level differences cautiously.»"
+        }
+      ]
+    },
+    {
+      "id": "whats-changed",
+      "eyebrow": "Section 2",
+      "title": "What's Changed",
+      "intro": "Citation coverage rose 15 points across the last 3 checks.",
+      "items": [
+        {
+          "tile": "Citation rate"
+        },
+        {
+          "tile": "Mention rate"
+        },
+        {
+          "tile": "Cited queries"
+        },
+        {
+          "tile": "GSC clicks"
+        },
+        {
+          "tile": "AI referral sessions"
+        },
+        {
+          "heading": "AI engine movements"
+        },
+        {
+          "table": [
+            "Engine",
+            "Prior",
+            "Current",
+            "Change"
+          ]
+        },
+        {
+          "heading": "Wins"
+        },
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider"
+          ]
+        },
+        {
+          "heading": "Regressions"
+        },
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "tile": "Citation rate «positive|65% ↑» +15.0% vs 50%"
+        },
+        {
+          "tile": "Mention rate «negative|40% ↓» -5.0% vs 45%"
+        },
+        {
+          "tile": "Cited queries «positive|3.3 ↑» +0.6 vs 2.7"
+        },
+        {
+          "tile": "GSC clicks «positive|520 ↑» +8% vs prior 14 days"
+        },
+        {
+          "tile": "AI referral sessions «positive|110 ↑» +22% vs prior 14 days"
+        },
+        {
+          "text": "AI engine movements"
+        },
+        {
+          "row": [
+            "gemini",
+            "50%",
+            "65%",
+            "«positive|+15.0% ↑»"
+          ]
+        },
+        {
+          "text": "Wins"
+        },
+        {
+          "row": [
+            "«negative|High»",
+            "Gained citation on answer engine × 2",
+            "answer engine",
+            "gemini"
+          ]
+        },
+        {
+          "text": "Regressions"
+        },
+        {
+          "row": [
+            "«negative|Critical»",
+            "Lost citation on aeo platform",
+            "aeo platform",
+            "gemini"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agency-action-plan",
+      "eyebrow": "Agency actions",
+      "title": "Agency Action Plan",
+      "intro": "The highest-leverage work, sorted by urgency and evidence strength.",
+      "items": [
+        {
+          "heading": "Create content for \"best aeo platform\""
+        },
+        {
+          "heading": "Diagnose zero-citation providers"
+        }
+      ],
+      "content": [
+        {
+          "text": "«tip Impact rank — 1 is the highest-leverage action|1» «caution|Short term» Content High confidence"
+        },
+        {
+          "text": "Create content for \"best aeo platform\""
+        },
+        {
+          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source"
+        },
+        {
+          "summary": "Evidence details"
+        },
+        {
+          "text": "Why"
+        },
+        {
+          "item": "AI engines already cite competitors for this query."
+        },
+        {
+          "text": "Evidence"
+        },
+        {
+          "item": "rival.com is the current winning cited source"
+        },
+        {
+          "text": "Win condition: The client is cited for \"best aeo platform\" in a future sweep. «tip Impact rank — 1 is the highest-leverage action|2» «caution|Short term» Provider High confidence"
+        },
+        {
+          "text": "Diagnose zero-citation providers"
+        },
+        {
+          "text": "Inspect provider answers and source lists for model-specific gaps. openai: 0/2 cited query-provider pairs"
+        },
+        {
+          "summary": "Evidence details"
+        },
+        {
+          "text": "Why"
+        },
+        {
+          "item": "Provider-level misses isolate where retrieval differs by model family."
+        },
+        {
+          "text": "Evidence"
+        },
+        {
+          "item": "openai: 0/2 cited query-provider pairs"
+        },
+        {
+          "text": "Win condition: OpenAI cites the client on at least one tracked query."
+        }
+      ]
+    },
+    {
+      "id": "agency-diagnostics",
+      "eyebrow": "Agency diagnostics",
+      "title": "Technical Diagnostics",
+      "intro": "Fast-read operator flags behind the action plan.",
+      "items": [
+        {
+          "heading": "Provider citation coverage"
+        },
+        {
+          "heading": "Search demand mismatch"
+        }
+      ],
+      "content": [
+        {
+          "text": "«negative|Provider citation coverage»"
+        },
+        {
+          "text": "«negative|One provider returned zero client citations. openai: 0/2»"
+        },
+        {
+          "text": "«caution|Search demand mismatch»"
+        },
+        {
+          "text": "«caution|Two tracked queries have no Search Console impressions. answer engine aeo tools aeo platform +1 more»"
+        }
+      ]
+    },
+    {
+      "id": "citation-scorecard",
+      "eyebrow": "Section 3",
+      "title": "Citation Scorecard",
+      "intro": "Per-engine citation and mention coverage from the latest check.",
+      "items": [
+        {
+          "heading": "Provider citation rate"
+        },
+        {
+          "note": "Legend: C/c = cited/not, M/m = mentioned/not, – = no data."
+        },
+        {
+          "table": [
+            "Query",
+            "gemini",
+            "openai"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "text": "Provider citation rate"
+        },
+        {
+          "text": "Legend: «positive|C» / c = cited/not, «positive|M» / m = mentioned/not, – = no data."
+        },
+        {
+          "row": [
+            "aeo platform",
+            "«positive|C» «positive|M»",
+            "c m"
+          ]
+        },
+        {
+          "row": [
+            "answer engine",
+            "c m",
+            "«positive|C» «positive|M»"
+          ]
+        },
+        {
+          "row": [
+            "aeo tools",
+            "«positive|C» –",
+            "— —"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "competitor-landscape",
+      "eyebrow": "Section 4",
+      "title": "Competitor Landscape",
+      "intro": "Who AI engines cite and mention instead of the client.",
+      "items": [
+        {
+          "heading": "Citations per domain"
+        },
+        {
+          "heading": "Mentions per domain · non-brand queries"
+        },
+        {
+          "table": [
+            "Domain",
+            "Pressure",
+            "Citations",
+            "Mentions (non-brand queries)",
+            "Citation share",
+            "Cited queries"
+          ]
+        },
+        {
+          "note": "Branded queries contain the client's own name. The client is named on nearly all of them and a competitor structurally cannot be, so these are kept out of the competitive figure above. Read them as brand recall: 2 of 2 branded answers named the client."
+        },
+        {
+          "heading": "Mentions per domain · branded queries"
+        }
+      ],
+      "content": [
+        {
+          "text": "Citations per domain"
+        },
+        {
+          "text": "Mentions per domain · non-brand queries"
+        },
+        {
+          "row": [
+            "rival.com",
+            "«negative|High»",
+            "3 / 4",
+            "2 / 4",
+            "0%",
+            "best aeo platform, answer engine optimization, aeo tools, ai search visibility, llm citation tracking…1 cited URL «link https://rival.com/best-aeo|https://rival.com/best-aeo» aeo platform, answer engine"
+          ]
+        },
+        {
+          "row": [
+            "other.com",
+            "«positive|Low»",
+            "1 / 4",
+            "1 / 4",
+            "0%",
+            "answer engine"
+          ]
+        },
+        {
+          "text": "Branded queries contain the client's own name. The client is named on nearly all of them and a competitor structurally cannot be, so these are kept out of the competitive figure above. Read them as brand recall: 2 of 2 branded answers named the client."
+        },
+        {
+          "text": "Mentions per domain · branded queries"
+        }
+      ]
+    },
+    {
+      "id": "ai-source-origin",
+      "eyebrow": "Section 5",
+      "title": "AI Citation Sources",
+      "intro": "External domains AI engines cited most in the latest check.",
+      "items": [
+        {
+          "note": "20% of citations went to tracked competitors (2 of 10)."
+        },
+        {
+          "heading": "Top sources"
+        },
+        {
+          "table": [
+            "Domain",
+            "Citations",
+            "Tag"
+          ]
+        },
+        {
+          "heading": "By source type"
+        }
+      ],
+      "content": [
+        {
+          "text": "20% of citations went to tracked competitors (2 of 10)."
+        },
+        {
+          "text": "Top sources"
+        },
+        {
+          "row": [
+            "best-0.com",
+            "9",
+            "«negative|Tracked competitor»"
+          ]
+        },
+        {
+          "row": [
+            "answer-1.com",
+            "8",
+            "External"
+          ]
+        },
+        {
+          "row": [
+            "aeo-2.com",
+            "7",
+            "External"
+          ]
+        },
+        {
+          "row": [
+            "ai-3.com",
+            "6",
+            "«negative|Tracked competitor»"
+          ]
+        },
+        {
+          "row": [
+            "llm-4.com",
+            "5",
+            "External"
+          ]
+        },
+        {
+          "row": [
+            "generative-5.com",
+            "4",
+            "External"
+          ]
+        },
+        {
+          "row": [
+            "brand-6.com",
+            "3",
+            "«negative|Tracked competitor»"
+          ]
+        },
+        {
+          "text": "By source type"
+        },
+        {
+          "text": "Forums & Q&A 5 (50%) News & Media 3 (30%) Tracked competitors 2 (20%)"
+        }
+      ]
+    },
+    {
+      "id": "gsc",
+      "eyebrow": "Section 6",
+      "title": "GSC Performance",
+      "intro": "Search demand signals to compare against AI visibility for Apr 1, 2026 → Apr 30, 2026.",
+      "items": [
+        {
+          "tile": "Total clicks"
+        },
+        {
+          "tile": "Total impressions"
+        },
+        {
+          "tile": "Avg CTR"
+        },
+        {
+          "tile": "Avg position"
+        },
+        {
+          "heading": "Clicks over time"
+        },
+        {
+          "heading": "Top queries"
+        },
+        {
+          "table": [
+            "Query",
+            "Clicks",
+            "Imp.",
+            "CTR",
+            "Pos.",
+            "Category"
+          ]
+        },
+        {
+          "heading": "Search demand by intent"
+        },
+        {
+          "heading": "AEO queries without search demand"
+        },
+        {
+          "note": "Review whether these still belong in the tracking set."
+        },
+        {
+          "heading": "Search queries you should track"
+        },
+        {
+          "note": "High-impression candidates to add to AEO tracking."
+        }
+      ],
+      "content": [
+        {
+          "tile": "Total clicks 1.0K"
+        },
+        {
+          "tile": "Total impressions 5.0K"
+        },
+        {
+          "tile": "Avg CTR 20.0%"
+        },
+        {
+          "tile": "Avg position 4.5"
+        },
+        {
+          "text": "Clicks over time"
+        },
+        {
+          "text": "Top queries"
+        },
+        {
+          "row": [
+            "best aeo platform",
+            "700",
+            "3.0K",
+            "20.0%",
+            "1.5",
+            "brand"
+          ]
+        },
+        {
+          "row": [
+            "answer engine optimization",
+            "650",
+            "2.9K",
+            "20.0%",
+            "2.5",
+            "industry"
+          ]
+        },
+        {
+          "row": [
+            "aeo tools",
+            "600",
+            "2.8K",
+            "20.0%",
+            "3.5",
+            "industry"
+          ]
+        },
+        {
+          "row": [
+            "ai search visibility",
+            "550",
+            "2.7K",
+            "20.0%",
+            "4.5",
+            "industry"
+          ]
+        },
+        {
+          "row": [
+            "llm citation tracking",
+            "500",
+            "2.6K",
+            "20.0%",
+            "5.5",
+            "industry"
+          ]
+        },
+        {
+          "row": [
+            "generative engine optimization",
+            "450",
+            "2.5K",
+            "20.0%",
+            "6.5",
+            "industry"
+          ]
+        },
+        {
+          "row": [
+            "brand mention tracking",
+            "400",
+            "2.4K",
+            "20.0%",
+            "7.5",
+            "industry"
+          ]
+        },
+        {
+          "text": "Search demand by intent"
+        },
+        {
+          "text": "brand 800 clicks · 80% industry 200 clicks · 20%"
+        },
+        {
+          "text": "AEO queries without search demand"
+        },
+        {
+          "text": "Review whether these still belong in the tracking set."
+        },
+        {
+          "text": "answer engine"
+        },
+        {
+          "text": "Search queries you should track"
+        },
+        {
+          "text": "High-impression candidates to add to AEO tracking."
+        },
+        {
+          "text": "aeo software pricing"
+        }
+      ]
+    },
+    {
+      "id": "ga",
+      "eyebrow": "Section 7",
+      "title": "GA4 Traffic",
+      "intro": "Site traffic from Apr 1, 2026 to Apr 30, 2026.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "tile": "Total users"
+        },
+        {
+          "tile": "Organic sessions"
+        },
+        {
+          "heading": "Top landing pages"
+        },
+        {
+          "table": [
+            "Page",
+            "Sessions",
+            "Organic"
+          ]
+        },
+        {
+          "heading": "Channel mix"
+        }
+      ],
+      "content": [
+        {
+          "tile": "Total sessions 12.0K"
+        },
+        {
+          "tile": "Total users 9.0K"
+        },
+        {
+          "tile": "Organic sessions 8.0K"
+        },
+        {
+          "text": "Top landing pages"
+        },
+        {
+          "row": [
+            "/",
+            "6.0K",
+            "4.0K"
+          ]
+        },
+        {
+          "row": [
+            "/pricing «tip /pricing?gclid=abc&utm_source=x|Google Ad · 2 params»",
+            "900",
+            "0"
+          ]
+        },
+        {
+          "text": "Channel mix"
+        },
+        {
+          "text": "Organic Search 8.0K sessions · 67% Direct 4.0K sessions · 33%"
+        }
+      ]
+    },
+    {
+      "id": "social-referrals",
+      "eyebrow": "Section 8",
+      "title": "Social Referrals",
+      "intro": "Social traffic split by channel and campaign.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "tile": "Organic social"
+        },
+        {
+          "tile": "Paid social"
+        },
+        {
+          "heading": "Social channel mix"
+        },
+        {
+          "heading": "Top campaigns"
+        },
+        {
+          "table": [
+            "Source",
+            "Medium",
+            "Sessions"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "tile": "Total sessions 1.5K"
+        },
+        {
+          "tile": "Organic social 1.0K"
+        },
+        {
+          "tile": "Paid social 500"
+        },
+        {
+          "text": "Social channel mix"
+        },
+        {
+          "text": "Organic Social 1.0K sessions · 67% Paid Social 500 sessions · 33%"
+        },
+        {
+          "text": "Top campaigns"
+        },
+        {
+          "row": [
+            "linkedin.com",
+            "referral",
+            "700"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai-referrals",
+      "eyebrow": "Section 9",
+      "title": "AI Referral Traffic",
+      "intro": "Traffic arriving from AI answer engines.",
+      "items": [
+        {
+          "tile": "Total sessions"
+        },
+        {
+          "heading": "AI referral sessions over time"
+        },
+        {
+          "heading": "AI sessions by source"
+        },
+        {
+          "heading": "Top AI landing pages"
+        },
+        {
+          "table": [
+            "Page",
+            "Sessions"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "tile": "Total sessions 200"
+        },
+        {
+          "text": "AI referral sessions over time"
+        },
+        {
+          "text": "AI sessions by source"
+        },
+        {
+          "text": "chatgpt.com 150 sessions · 75% gemini.google.com 50 sessions · 25%"
+        },
+        {
+          "text": "Top AI landing pages"
+        },
+        {
+          "row": [
+            "/",
+            "120"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "Section 10",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).",
+      "items": [
+        {
+          "tile": "Verified crawler hits (7d)"
+        },
+        {
+          "tile": "Unverified crawler hits (7d)"
+        },
+        {
+          "tile": "AI user-fetch hits (7d)"
+        },
+        {
+          "tile": "AI-referral sessions (7d)"
+        },
+        {
+          "heading": "Verified crawler hits over time (last 7 days)"
+        },
+        {
+          "heading": "Per AI operator"
+        },
+        {
+          "note": "Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified."
+        },
+        {
+          "table": [
+            "Operator",
+            "Verified hits",
+            "Unverified",
+            "User fetches",
+            "Referral sessions",
+            "7d delta"
+          ]
+        },
+        {
+          "heading": "Top crawled paths"
+        },
+        {
+          "note": "Pages AI bots fetched most often (verified only, last 7d)."
+        },
+        {
+          "table": [
+            "Path",
+            "Hits",
+            "Verified",
+            "Distinct operators"
+          ]
+        },
+        {
+          "heading": "AI-referral sessions by product"
+        },
+        {
+          "note": "Where humans landed coming from each AI product (chatgpt.com, claude.ai, …)."
+        },
+        {
+          "table": [
+            "Product",
+            "Sessions",
+            "Distinct landing paths"
+          ]
+        },
+        {
+          "heading": "Top AI-referral landing paths"
+        },
+        {
+          "table": [
+            "Path",
+            "Sessions",
+            "Distinct products"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "tile": "Verified crawler hits (7d)234 «positive|Up 100% vs prior 7 days (117 hits)»"
+        },
+        {
+          "tile": "Unverified crawler hits (7d)15 «positive|Up 200% vs prior 7 days (5 hits)»"
+        },
+        {
+          "tile": "AI user-fetch hits (7d)42 «positive|Up 133% vs prior 7 days (18 hits)»"
+        },
+        {
+          "tile": "AI-referral sessions (7d)12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1 · 120 blocked by redirects"
+        },
+        {
+          "text": "Verified crawler hits over time (last 7 days)"
+        },
+        {
+          "text": "Per AI operator"
+        },
+        {
+          "text": "Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified."
+        },
+        {
+          "row": [
+            "Operator best",
+            "140",
+            "0",
+            "30",
+            "8",
+            "«positive|+75%»"
+          ]
+        },
+        {
+          "row": [
+            "Operator answer",
+            "130",
+            "1",
+            "29",
+            "7",
+            "—"
+          ]
+        },
+        {
+          "row": [
+            "Operator aeo",
+            "120",
+            "2",
+            "28",
+            "6",
+            "—"
+          ]
+        },
+        {
+          "row": [
+            "Operator ai",
+            "110",
+            "3",
+            "27",
+            "5",
+            "—"
+          ]
+        },
+        {
+          "row": [
+            "Operator llm",
+            "100",
+            "4",
+            "26",
+            "4",
+            "—"
+          ]
+        },
+        {
+          "row": [
+            "Operator generative",
+            "90",
+            "5",
+            "25",
+            "3",
+            "—"
+          ]
+        },
+        {
+          "row": [
+            "Operator brand",
+            "80",
+            "6",
+            "24",
+            "2",
+            "—"
+          ]
+        },
+        {
+          "text": "Top crawled paths"
+        },
+        {
+          "text": "Pages AI bots fetched most often (verified only, last 7d)."
+        },
+        {
+          "row": [
+            "/blog/foo",
+            "95",
+            "80",
+            "2"
+          ]
+        },
+        {
+          "row": [
+            "/pricing",
+            "50",
+            "50",
+            "1"
+          ]
+        },
+        {
+          "text": "AI-referral sessions by product"
+        },
+        {
+          "text": "Where humans landed coming from each AI product (chatgpt.com, claude.ai, …)."
+        },
+        {
+          "row": [
+            "ChatGPT",
+            "8",
+            "3"
+          ]
+        },
+        {
+          "row": [
+            "Claude",
+            "3",
+            "1"
+          ]
+        },
+        {
+          "text": "Top AI-referral landing paths"
+        },
+        {
+          "row": [
+            "/landing",
+            "5",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "indexing-health",
+      "eyebrow": "Section 11",
+      "title": "Indexing Health",
+      "intro": "Pages absent from Google are harder for AI engines to retrieve.",
+      "items": [
+        {
+          "tile": "Indexed"
+        },
+        {
+          "tile": "Total inspected"
+        },
+        {
+          "tile": "Indexed share"
+        },
+        {
+          "heading": "Coverage breakdown"
+        }
+      ],
+      "content": [
+        {
+          "tile": "Indexed «positive|80»"
+        },
+        {
+          "tile": "Total inspected 100"
+        },
+        {
+          "tile": "Indexed share 80%"
+        },
+        {
+          "text": "Coverage breakdown"
+        },
+        {
+          "item": "Indexed: 80"
+        },
+        {
+          "item": "Not indexed: 20"
+        }
+      ]
+    },
+    {
+      "id": "citations-trend",
+      "eyebrow": "Section 12",
+      "title": "Citations Over Time",
+      "intro": "Citation coverage across recent checks.",
+      "items": [
+        {
+          "heading": "Overall citation rate"
+        },
+        {
+          "heading": "Check-by-check breakdown"
+        },
+        {
+          "table": [
+            "Check",
+            "Cited queries",
+            "Per-engine rates"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "text": "Overall citation rate"
+        },
+        {
+          "text": "Check-by-check breakdown"
+        },
+        {
+          "row": [
+            "Apr 1, 2026",
+            "50% (2/4)",
+            "gemini: 50% · openai: 25%"
+          ]
+        },
+        {
+          "row": [
+            "Apr 8, 2026",
+            "55% (2/4)",
+            "gemini: 55% · openai: 30%"
+          ]
+        },
+        {
+          "row": [
+            "Apr 15, 2026",
+            "60% (3/5)",
+            "gemini: 60% · openai: 40%"
+          ]
+        },
+        {
+          "row": [
+            "Apr 22, 2026",
+            "65% (3/5)",
+            "gemini: 65% · openai: 50%"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "insights",
+      "eyebrow": "Section 13",
+      "title": "Insights & Alerts",
+      "intro": "Regressions, gains, and recurring alerts ordered by severity.",
+      "items": [
+        {
+          "table": [
+            "Severity",
+            "Title",
+            "Query",
+            "Provider",
+            "Recommendation"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "row": [
+            "«negative|Critical»",
+            "Lost citation on aeo platform × 3",
+            "aeo platform",
+            "gemini",
+            "review-content — /landing — rival outranking"
+          ]
+        },
+        {
+          "row": [
+            "«caution|Medium»",
+            "Opportunity on best aeo platform",
+            "best aeo platform",
+            "openai",
+            "—"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "content-opportunities",
+      "eyebrow": "Section 14",
+      "title": "Content Opportunities",
+      "intro": "Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger. Winnability flags whether the cited surface is ownable or ceded to aggregators/editorial.",
+      "items": [
+        {
+          "heading": "best aeo platform"
+        },
+        {
+          "heading": "answer engine optimization"
+        },
+        {
+          "heading": "aeo tools"
+        },
+        {
+          "table": [
+            "Query",
+            "Action",
+            "Winnability",
+            "Score",
+            "Why",
+            "Our page",
+            "Winning competitor",
+            "Confidence"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "text": "«tip Opportunity score (0–100, higher = stronger)|90/100»"
+        },
+        {
+          "text": "best aeo platform"
+        },
+        {
+          "text": "Create · High confidence high competitor density no own page «tip Opportunity score (0–100, higher = stronger)|89/100»"
+        },
+        {
+          "text": "answer engine optimization"
+        },
+        {
+          "text": "Create · High confidence high competitor density no own page «tip Opportunity score (0–100, higher = stronger)|88/100»"
+        },
+        {
+          "text": "aeo tools"
+        },
+        {
+          "text": "Create · High confidence high competitor density no own page"
+        },
+        {
+          "row": [
+            "best aeo platform",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|90»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "answer engine optimization",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|89»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "aeo tools",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|88»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "ai search visibility",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|87»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "llm citation tracking",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|86»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "generative engine optimization",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|85»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "brand mention tracking",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|84»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "ai answer monitoring",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|83»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "chatgpt seo",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|82»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        },
+        {
+          "row": [
+            "perplexity ranking",
+            "Create",
+            "Ownable",
+            "«tip Opportunity score (0–100)|81»",
+            "high competitor density no own page",
+            "No page yet",
+            "«link https://rival.com/best-aeo|rival.com»",
+            "High"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "content-gaps",
+      "eyebrow": "Section 15",
+      "title": "Content Gaps",
+      "intro": "Tracked queries where competitors are cited and the client is missing.",
+      "items": [
+        {
+          "table": [
+            "Query",
+            "Competitors cited",
+            "Domains",
+            "Miss rate"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "row": [
+            "best aeo platform",
+            "1",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "answer engine optimization",
+            "2",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "aeo tools",
+            "3",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "ai search visibility",
+            "4",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "llm citation tracking",
+            "5",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "generative engine optimization",
+            "6",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "brand mention tracking",
+            "7",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "ai answer monitoring",
+            "8",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "chatgpt seo",
+            "9",
+            "rival.com",
+            "100%"
+          ]
+        },
+        {
+          "row": [
+            "perplexity ranking",
+            "10",
+            "rival.com",
+            "100%"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recommended-next-steps",
+      "eyebrow": "Section 16",
+      "title": "Recommended Next Steps",
+      "intro": "Action items bucketed by timing.",
+      "items": [],
+      "content": [
+        {
+          "item": "immediate Resolve 1 critical regression Lost citation on aeo platform."
+        },
+        {
+          "item": "short-term Refresh the answer engine optimization page The existing page ranks weakly for a query competitors own."
+        }
+      ]
+    }
+  ]
+}

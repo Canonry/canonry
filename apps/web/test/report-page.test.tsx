@@ -10,7 +10,7 @@ import {
   reportSectionOrder,
   type ProjectReportDto,
 } from '@ainyc/canonry-contracts'
-import { advancedReport, emptyReport, fullReport, richReport, simpleVisibility } from '../../../packages/contracts/test/fixtures/report-dto.js'
+import { advancedReport, emptyReport, fullReport, richReport, simpleVisibility, truncatedReport } from '../../../packages/contracts/test/fixtures/report-dto.js'
 import { downloadReportHtml } from '../src/api.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage, selectReportAudience } from './report-page-harness.js'
 import {
@@ -39,6 +39,9 @@ const OUTLINE_FIXTURES: Array<[ReportOutlineFixture, () => ProjectReportDto]> = 
   ['empty', emptyReport],
   ['full', fullReport],
   ['advanced', advancedReport],
+  // Every list long enough to reach a renderer cap. The caps are paired across
+  // the two surfaces and no other fixture exercises one.
+  ['truncated', truncatedReport],
 ]
 
 describe('report audience', () => {

@@ -19,6 +19,8 @@
  *   category, weak market handling, redirect-blocked referrals, unverified
  *   crawled-path hits, a repeated insight, a wide content gap).
  * - `advancedReport()`: `richReport()` with an Advanced visibility selection.
+ * - `truncatedReport()`: `fullReport()` with every list long enough to reach
+ *   the renderers' caps, which no other fixture does.
  */
 import type { ProjectReportDto, ReportVisibility } from '../../src/index.js'
 import { MIN_TREND_POINTS } from '../../src/trend-stability.js'
@@ -648,3 +650,78 @@ export function advancedReport(): ProjectReportDto {
   report.visibility = advancedVisibility()
   return report
 }
+
+/**
+ * fullReport() with every list long enough to reach the renderers' caps.
+ *
+ * No other fixture reaches one. `fullReport()` carries two content
+ * opportunities, two content gaps and one cited query per competitor, so
+ * changing the opportunity table's `slice(0, 10)` to 5, or the cited-query
+ * cell's `reportTruncatedList(…, 5)` to 2, leaves BOTH renderers' output
+ * identical — the byte snapshots included — and no guard at any level can see
+ * it. Every cap here is PAIRED with one in `ReportPage.tsx`, so an unexercised
+ * one is a divergence waiting to happen: eight opportunities in the app and
+ * five in the downloaded file, with CI green.
+ *
+ * It is a fixture of its own rather than a larger `fullReport()` because
+ * growing a shared fixture rewrites every byte snapshot taken from it.
+ */
+export function truncatedReport(): ProjectReportDto {
+  const report = fullReport()
+  const opportunity = report.contentOpportunities[0]!
+  const gap = report.contentGaps[0]!
+
+  // Past the opportunity table's 10, the opportunity cards' 3, and the client
+  // summary's deduped 5. Distinct queries, because the client summary dedupes
+  // by query before it truncates.
+  report.contentOpportunities = CAPPED_QUERIES.map((query, index) => ({
+    ...opportunity,
+    targetRef: `rich:create:${query.replace(/\s+/g, '-')}`,
+    query,
+    score: 90 - index,
+  }))
+  // Past the content-gap table's 10.
+  report.contentGaps = CAPPED_QUERIES.map((query, index) => ({
+    ...gap,
+    query,
+    competitorCount: index + 1,
+    missRate: 1,
+  }))
+  // Past the cited-query cell's 5, so its `+N more` suffix is in the golden.
+  report.competitorLandscape.competitors[0]!.citedQueries = CAPPED_QUERIES.slice(0, 7)
+  // Past the client AI-source and GSC top-query lists' 5.
+  report.aiSourceOrigin.topDomains = CAPPED_QUERIES.slice(0, 7).map((query, index) => ({
+    domain: `${query.split(' ')[0]}-${index}.com`,
+    count: 9 - index,
+    isCompetitor: index % 3 === 0,
+  }))
+  if (report.gsc) {
+    report.gsc.topQueries = CAPPED_QUERIES.slice(0, 7).map((query, index) => ({
+      query,
+      clicks: 700 - index * 50,
+      impressions: 3000 - index * 100,
+      ctr: 0.2,
+      avgPosition: 1.5 + index,
+      category: index === 0 ? 'brand' : 'industry',
+    }))
+  }
+  // Past the client operator table's 5.
+  if (report.serverActivity) {
+    report.serverActivity.byOperator = CAPPED_QUERIES.slice(0, 7).map((query, index) => ({
+      operator: `Operator ${query.split(' ')[0]}`,
+      verifiedHits: 140 - index * 10,
+      unverifiedHits: index,
+      userFetchHits: 30 - index,
+      referralArrivals: 8 - index,
+      deltaPct: index === 0 ? 75 : null,
+    }))
+  }
+  return report
+}
+
+/** Twelve distinct queries: two more than the largest cap either renderer applies. */
+const CAPPED_QUERIES = [
+  'best aeo platform', 'answer engine optimization', 'aeo tools', 'ai search visibility',
+  'llm citation tracking', 'generative engine optimization', 'brand mention tracking',
+  'ai answer monitoring', 'chatgpt seo', 'perplexity ranking', 'gemini citations', 'ai visibility audit',
+]
