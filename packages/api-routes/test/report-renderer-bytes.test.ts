@@ -332,6 +332,8 @@ describe('reportHtmlOutline', () => {
       <p class="meta"><span>$</span>1,200 raised</p>
       <p class="meta"><strong>Cited</strong>
         <span>in 3 answers</span></p>
+      <p class="meta"><span>33.3%</span><span>2 of 6 answers</span></p>
+      <p class="meta"><span>01</span><span>"aeo platform"</span></p>
       <p class="meta"><span>C</span>/<span>c</span></p>
       <p class="meta"><span>C</span> / <span>c</span></p>
     </section>`
@@ -343,6 +345,11 @@ describe('reportHtmlOutline', () => {
       // The HTML report's indentation is its own formatting, so the boundary it
       // wraps still reads as the one space a reader sees.
       { text: 'Cited in 3 answers' },
+      // Only a UNIT glues. A percentage beside a count, and a rank beside its
+      // query, are two things a reader reads apart, and gluing any punctuation
+      // to a number ran both of them together.
+      { text: '33.3% 2 of 6 answers' },
+      { text: '01 "aeo platform"' },
       // The deliberate blindness: away from a number a boundary reads as a
       // space, so a surface rendering `C/c` cannot be told from one rendering
       // `C / c`. See `glues` for why that is the safer of the two mistakes.

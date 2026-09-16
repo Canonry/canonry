@@ -18,15 +18,15 @@
  * A reader sees one line either way. So the normalizer is deliberately
  * insensitive to nesting:
  *
- * - **An element boundary reads as a space, except inside a number.** Entering
- *   and leaving any element records a boundary, and a run of boundaries and
- *   whitespace collapses to one space — unless the run is pure boundary AND it
- *   sits beside a number, which keeps the number and the character next to it
- *   together (see `glues`). So a JSX split like
- *   `<span>{n}</span><span>%</span>` reads `65%`, exactly as the HTML's single
- *   `65%` does, while `<span>high competitor density</span><span>no own
- *   page</span>` — two spans this codebase separates with CSS, not with text —
- *   still reads `high competitor density no own page`.
+ * - **An element boundary reads as a space, except between a number and its
+ *   unit.** Entering and leaving any element records a boundary, and a run of
+ *   boundaries and whitespace collapses to one space — unless the run is pure
+ *   boundary AND it separates a number from a unit or sign glyph (see `glues`).
+ *   So a JSX split like `<span>{n}</span><span>%</span>` reads `65%`, exactly
+ *   as the HTML's single `65%` does, while `<span>high competitor
+ *   density</span><span>no own page</span>` — two spans this codebase separates
+ *   with CSS, not with text — still reads `high competitor density no own
+ *   page`.
  * - **Indentation is a boundary, not a space.** Whitespace carrying a NEWLINE
  *   is the HTML report's template-literal indentation, which JSX never emits
  *   (see `readText`); whitespace without one is a space the surface means,
@@ -129,7 +129,6 @@ const ELEMENT_NODE = 1
  */
 const BREAK = '\u0000'
 
-const WORD = /[\p{L}\p{N}_]/u
 const DIGIT = /\p{N}/u
 const WHITESPACE = /\s/
 
@@ -141,22 +140,34 @@ function isSeparator(char: string): boolean {
 /** The characters this module writes markers with, which no report copy contains. */
 const MARKER = /[«»|]/
 
+/** A unit or ratio glyph that belongs to the number in front of it: `65%`, `88/100`. */
+const UNIT_AFTER_NUMBER = /[%‰°×/]/
+/** A sign or currency glyph that belongs to the number after it: `$1,200`, `+15`. */
+const SIGN_BEFORE_NUMBER = /[$€£¥#+\-±]/
+
 /**
- * A number and the character beside it are ONE token, whichever way a surface
- * splits them across elements: `<span>{n}</span><span>%</span>` reads `65%`,
- * `88` beside `/100` reads `88/100`, `$` beside `1,200` reads `$1,200`. Only a
- * boundary glues — real whitespace is the surface spacing something on purpose
- * — and only around a number, so two words are never run together.
+ * A number and its unit are ONE token, whichever way a surface splits them
+ * across elements: `<span>{n}</span><span>%</span>` reads `65%`, exactly as the
+ * other surface's single `65%` does. Only an element BOUNDARY glues — real
+ * whitespace is the surface spacing something on purpose — and only a number
+ * against a listed unit or sign glyph, so this can never run two words, or two
+ * numbers, together.
  *
- * This is the one place the reading is deliberately blind: a surface that
- * renders `88 / 100` compares equal to one rendering `88/100`. That is a
- * typographic difference, not a difference in what the report SAYS, and the
- * alternative — spacing every boundary — fails a one-surface refactor that
- * sizes a percent sign apart from its number.
+ * The rule is this narrow on purpose. Gluing a number to ANY neighbouring
+ * punctuation also ran a rank into its query (`01"aeo platform"`) and a
+ * percentage into the count beside it (`33.3%2 of 6 answers`), which is a
+ * worse reading with no extra guarding to show for it. Spacing every boundary
+ * instead is the other failure: it fails a one-surface refactor that sizes a
+ * percent sign apart from its number, changing nothing a reader sees.
+ *
+ * What it costs: away from a number, `C/c` and `C / c` read alike, because
+ * every boundary there reads as a space. That is a typographic difference, not
+ * a difference in what the report says.
  */
 function glues(left: string, right: string): boolean {
   if (MARKER.test(left) || MARKER.test(right)) return false
-  return (DIGIT.test(left) && !WORD.test(right)) || (!WORD.test(left) && DIGIT.test(right))
+  return (DIGIT.test(left) && UNIT_AFTER_NUMBER.test(right))
+    || (SIGN_BEFORE_NUMBER.test(left) && DIGIT.test(right))
 }
 
 /**
