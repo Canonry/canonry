@@ -1922,7 +1922,7 @@ function IndexingCoverageBar({ label, segments }: { label: string; segments: rea
   return (
     <div role="img" aria-label={label}>
       <ResponsiveContainer width="100%" height={28}>
-        <BarChart data={[row]} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }} barCategoryGap={0}>
+        <BarChart data={[row]} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }} barCategoryGap={0} accessibilityLayer={false}>
           <XAxis type="number" domain={[0, 'dataMax']} hide />
           <YAxis type="category" hide />
           {segments.map(segment => (
@@ -2283,7 +2283,10 @@ export function ReportTableBlock({
                 const cell = typeof header === 'string' ? { label: header } : header
                 const className = [cell.numeric ? 'text-right' : '', cell.className ?? ''].filter(Boolean).join(' ')
                 return (
-                  <th key={`${index}-${cell.label}`} className={className || undefined}>
+                  // The tooltip trigger sits inside the cell, so without an
+                  // explicit name the column would be announced as its label
+                  // PLUS the whole tooltip sentence — on every data cell in it.
+                  <th key={`${index}-${cell.label}`} className={className || undefined} aria-label={cell.tooltip ? cell.label : undefined}>
                     {cell.tooltip ? (
                       <span className="inline-flex items-center gap-1">{cell.label}<InfoTooltip text={cell.tooltip} /></span>
                     ) : cell.label}
@@ -2460,6 +2463,9 @@ export function ReportLineChart({
           height={height}
           xTickFormatter={formatters?.xTickFormatter}
           labelFormatter={formatters?.labelFormatter}
+          // The `role="img"` wrapper above names this chart, so the chart's own
+          // focusable role="application" surface would nest one inside it.
+          accessibilityLayer={false}
         />
       </div>
     </ReportCard>
@@ -2503,7 +2509,10 @@ export function ReportBarChart({
     <ReportCard title={title}>
       <div role="img" aria-label={reportBarChartLabel(title)}>
         <ResponsiveContainer width="100%" height={height}>
-          <BarChart data={[...rows]} layout="vertical" margin={{ top: 4, right: 72, bottom: 4, left: 0 }}>
+          {/* The card's `role="img"` wrapper already names this chart; recharts'
+              accessibility layer would nest a focusable role="application" svg
+              inside it, and this chart has no tooltip to reach. */}
+          <BarChart data={[...rows]} layout="vertical" margin={{ top: 4, right: 72, bottom: 4, left: 0 }} accessibilityLayer={false}>
             <XAxis type="number" domain={[0, max]} hide />
             <YAxis type="category" dataKey="label" width={labelWidth} tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} tickLine={false} axisLine={false} />
             <Bar dataKey="value" radius={3} isAnimationActive={false} background={track ? { fill: CHART_NEUTRAL.surface } : false}>
