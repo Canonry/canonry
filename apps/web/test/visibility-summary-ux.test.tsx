@@ -48,7 +48,7 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(within(legend).getAllByRole('checkbox')).toHaveLength(2)
   expect((within(legend).getByRole('checkbox', { name: 'Mentioned' }) as HTMLInputElement).checked).toBe(true)
   expect((within(legend).getByRole('checkbox', { name: 'Cited' }) as HTMLInputElement).checked).toBe(true)
-  const outcomes = screen.getByText('Property outcomes', { selector: 'summary' }).closest('details')!
+  const outcomes = screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!
   expect(outcomes.open).toBe(false)
   expect(screen.queryByText('Trend data and comparability')).toBeNull()
   const data = screen.getByRole('table', { name: 'Non-brand queries trend data' })
@@ -59,6 +59,50 @@ test('labels aggregate answer coverage separately from property reach and explai
   const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
   expect(trend.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   expect(breakdown.compareDocumentPosition(outcomes) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+})
+
+/**
+ * The whole explanation, asserted verbatim. It is the accessible name of the
+ * trigger, so a screen reader user and a sighted user read the same sentence.
+ */
+const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source and still recommended somebody else. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+
+function outcomesDisclosure() {
+  return screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!
+}
+
+test('Property outcomes counts properties from the server total and keeps its explanation out of the summary', () => {
+  const report = fixture()
+  // These buckets deliberately do not sum to the total. The response schema
+  // forbids that, which is the point: the count must be the server's own
+  // `total`, never a sum the UI computed for itself.
+  report.populations[0]!.summary.outcomes = { bothSignals: 3, mentionedOnly: 2, citedOnly: 1, neither: 1, notMeasured: 1, total: 12 }
+  render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+  const outcomes = outcomesDisclosure()
+  const summary = outcomes.querySelector('summary')!
+  expect(within(summary).getByText('12 properties')).toBeTruthy()
+
+  // Every bucket keeps its label, its order, and its own server count.
+  expect([...outcomes.querySelectorAll('strong')].map(count => [count.textContent, count.nextElementSibling?.textContent])).toEqual([
+    ['3', 'mentioned and cited'],
+    ['2', 'mentioned only'],
+    ['1', 'cited only'],
+    ['1', 'neither signal'],
+    ['1', 'not measured'],
+  ])
+
+  // A button inside a <summary> toggles the disclosure when clicked and joins
+  // the summary's accessible name, so the explanation lives in the panel.
+  const help = within(outcomes).getByRole('button', { name: OUTCOMES_HELP, hidden: true })
+  expect(help.closest('summary')).toBeNull()
+  expect(summary.querySelector('button')).toBeNull()
+})
+
+test('a single property reads as one property', () => {
+  const report = fixture()
+  report.populations[0]!.summary.outcomes = { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 }
+  render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+  expect(within(outcomesDisclosure().querySelector('summary')!).getByText('1 property')).toBeTruthy()
 })
 
 test('a group opens its properties while a property avoids a redundant group summary', () => {

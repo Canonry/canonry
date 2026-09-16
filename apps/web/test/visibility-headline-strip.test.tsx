@@ -402,7 +402,7 @@ describe('headline strip', () => {
       strip(),
       screen.getByRole('img', { name: 'Non-brand queries mention and citation trend' }),
       screen.getByRole('region', { name: 'Scope breakdown' }),
-      screen.getByText('Property outcomes', { selector: 'summary' }).closest('details')!,
+      screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!,
       document.querySelector<HTMLElement>('details[data-query-results="non-brand"]')!,
     ]
     for (const [index, element] of ordered.slice(1).entries()) {
