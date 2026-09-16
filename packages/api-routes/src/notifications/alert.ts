@@ -104,11 +104,18 @@ function healthView(payload: HealthWebhookPayload): AlertView {
     })
   }
 
+  // A website outage and a degraded measurement are different news, and the
+  // liveness loop sends both through this payload. Titling a site-down alert
+  // "measurement degraded", or its recovery as the whole project recovering,
+  // is the one thing the separate liveness state exists to prevent.
+  const website = health.code.startsWith('site.reachability.')
   return {
     severity,
-    title: recovered
-      ? `${project.name} recovered`
-      : `${project.name} — measurement degraded`,
+    title: website
+      ? (recovered ? `${project.name} website is back up` : `${project.name} website is down`)
+      : recovered
+        ? `${project.name} recovered`
+        : `${project.name} — measurement degraded`,
     body: health.summary,
     fields,
     url: payload.dashboardUrl,

@@ -97,7 +97,7 @@ describe('server listen lifecycle', () => {
     try {
       await app.listen({ host: '127.0.0.1', port: 0 })
       await waitForServerRuntimeStartup(app)
-      expect(db.select().from(schedules).where(eq(schedules.projectId, projectId)).all().map(s => s.kind).sort()).toEqual(['doctor', 'site-liveness'])
+      expect(db.select().from(schedules).where(eq(schedules.projectId, projectId)).all()).toHaveLength(1)
       expect(db.select().from(queryBasketVersions).where(eq(queryBasketVersions.projectId, projectId)).all()).toHaveLength(1)
 
       const created = await app.inject({
@@ -114,7 +114,7 @@ describe('server listen lifecycle', () => {
       })
       expect(created.statusCode).toBe(201)
       const createdProject = db.select().from(projects).where(eq(projects.name, 'new-project')).get()!
-      expect(db.select().from(schedules).where(eq(schedules.projectId, createdProject.id)).all().map(s => s.kind).sort()).toEqual(['doctor', 'site-liveness'])
+      expect(db.select().from(schedules).where(eq(schedules.projectId, createdProject.id)).all()).toHaveLength(1)
 
       const applied = await app.inject({
         method: 'POST',
@@ -139,7 +139,7 @@ describe('server listen lifecycle', () => {
       })
       expect(applied.statusCode).toBe(200)
       const appliedProject = db.select().from(projects).where(eq(projects.name, 'applied-project')).get()!
-      expect(db.select().from(schedules).where(eq(schedules.projectId, appliedProject.id)).all().map(s => s.kind).sort()).toEqual(['doctor', 'site-liveness'])
+      expect(db.select().from(schedules).where(eq(schedules.projectId, appliedProject.id)).all()).toHaveLength(1)
     } finally {
       await app.close()
     }

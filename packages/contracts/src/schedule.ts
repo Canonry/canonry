@@ -25,7 +25,7 @@ import { providerNameSchema } from './provider.js'
  * reports `run.completed`. Without a scheduled health kind the checks that
  * detect those conditions only run when a human types `canonry doctor`.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor', 'site-liveness'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 

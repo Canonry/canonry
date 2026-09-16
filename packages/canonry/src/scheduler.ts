@@ -23,12 +23,6 @@ const log = createLogger('Scheduler')
 /** Default cadence for the health schedule seeded for each project. */
 export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
 
-/**
- * Default cadence for the website liveness schedule. Ten minutes, with paging
- * after two failed passes, keeps time-to-page near twenty minutes without
- * probing a client's homepage more than 144 times a day.
- */
-export const DEFAULT_SITE_LIVENESS_CRON = '*/10 * * * *'
 
 /**
  * Ensure one default doctor schedule exists for a project.
@@ -52,27 +46,6 @@ export function ensureDefaultHealthSchedule(
     enabled: true,
     providers: [],
     nextRunAt: nextRunFromCron(DEFAULT_HEALTH_CRON, 'UTC'),
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoNothing().run()
-  return result.changes === 1
-}
-
-/** Ensure one default site-liveness schedule exists for a project. Idempotent, like the health schedule. */
-export function ensureDefaultSiteLivenessSchedule(
-  db: DatabaseClient,
-  projectId: string,
-  now = new Date().toISOString(),
-): boolean {
-  const result = db.insert(schedules).values({
-    id: crypto.randomUUID(),
-    projectId,
-    kind: SchedulableRunKinds['site-liveness'],
-    cronExpr: DEFAULT_SITE_LIVENESS_CRON,
-    timezone: 'UTC',
-    enabled: true,
-    providers: [],
-    nextRunAt: nextRunFromCron(DEFAULT_SITE_LIVENESS_CRON, 'UTC'),
     createdAt: now,
     updatedAt: now,
   }).onConflictDoNothing().run()
@@ -130,8 +103,6 @@ export interface SchedulerCallbacks {
    * Fire-and-forget.
    */
   onDoctorRequested?: (projectName: string) => void
-  /** Fired when a site-liveness schedule triggers. The host probes only the website and notifies on a confirmed change. */
-  onSiteLivenessRequested?: (projectName: string) => void
   /**
    * Fired when a backlinks-sync schedule triggers. The host re-probes Common
    * Crawl for the latest hyperlink-graph release and, when a newer rolling
@@ -193,29 +164,6 @@ export class Scheduler {
    * it guards. A Vercel source begins discarding traffic once it is 24h behind,
    * so a daily pass could only ever observe the loss after it started.
    */
-  /** Seed a site-liveness schedule for every project that has none, the same way health schedules are seeded. */
-  private ensureSiteLivenessSchedules(): void {
-    const projectsWithoutLiveness = this.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(notExists(
-        this.db.select({ one: sql`1` }).from(schedules).where(and(
-          eq(schedules.projectId, projects.id),
-          eq(schedules.kind, SchedulableRunKinds['site-liveness']),
-        )),
-      ))
-      .all()
-    if (projectsWithoutLiveness.length === 0) return
-    const now = new Date().toISOString()
-    let seeded = 0
-    for (const project of projectsWithoutLiveness) {
-      if (ensureDefaultSiteLivenessSchedule(this.db, project.id, now)) seeded += 1
-    }
-    if (seeded > 0) {
-      log.info('site-liveness-schedule.seeded', { projectCount: seeded, cron: DEFAULT_SITE_LIVENESS_CRON })
-    }
-  }
-
   private ensureHealthSchedules(): void {
     const projectsWithoutHealth = this.db
       .select({ id: projects.id })
@@ -268,7 +216,6 @@ export class Scheduler {
   /** Load all enabled schedules from DB and register cron jobs. */
   start(): void {
     this.ensureHealthSchedules()
-    this.ensureSiteLivenessSchedules()
     this.ensureQueryBaskets()
 
     const allSchedules = this.db
@@ -651,22 +598,6 @@ export class Scheduler {
         })
         log.info('doctor.triggered', { projectName: project.name })
         this.callbacks.onDoctorRequested(project.name)
-        return
-      }
-
-      if (kind === SchedulableRunKinds['site-liveness']) {
-        // One network probe of the project's homepage. Like doctor, it creates no
-        // run row; the host decides whether a confirmed change is worth a page.
-        if (!this.callbacks.onSiteLivenessRequested) {
-          log.warn('site-liveness.no-callback', { scheduleId, projectId, msg: 'host did not register onSiteLivenessRequested' })
-          return
-        }
-        this.updateScheduleTiming(currentSchedule.id, {
-          lastRunAt: now,
-          nextRunAt,
-        })
-        log.info('site-liveness.triggered', { projectName: project.name })
-        this.callbacks.onSiteLivenessRequested(project.name)
         return
       }
 

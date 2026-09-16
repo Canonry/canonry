@@ -48,6 +48,17 @@ function insightNotifyKey(projectId: string, insight: Insight): string {
 
 /** Failed liveness passes in a row before a site-down page. */
 export const SITE_LIVENESS_FAILURES_TO_PAGE = 2
+/**
+ * A second failure only counts when it is this long after the one before it.
+ * A boot catch-up pass and the cron tick seconds later are one observation of
+ * one moment, not two passes spread over an interval.
+ */
+export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
+/**
+ * A failure older than this starts the count again. A failure stored before a
+ * week-long shutdown plus one failed pass at boot is not a confirmed outage.
+ */
+export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
 export class Notifier {
   private db: DatabaseClient
@@ -274,8 +285,7 @@ export class Notifier {
     for (const notif of notifs) {
       const config = notif.config as { url: string; events?: string[] }
       if (!config.url) continue
-      await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)
-      delivered += 1
+      if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (delivered > 0) {
       this.db.update(doctorHealthState).set({ notifiedAt: now })
@@ -316,7 +326,15 @@ export class Notifier {
 
     const previous = this.db.select().from(siteLivenessState)
       .where(eq(siteLivenessState.projectId, projectId)).get()
-    const failures = check.status === 'fail' ? (previous?.consecutiveFailures ?? 0) + 1 : 0
+    const sincePrevious = previous ? Date.parse(checkedAt) - Date.parse(previous.checkedAt) : Number.NaN
+    // A repeat too close to the previous pass, or after a long gap, restarts the
+    // count rather than confirming an outage.
+    const countsAsRepeat = Number.isFinite(sincePrevious)
+      && sincePrevious >= SITE_LIVENESS_MIN_PASS_GAP_MS
+      && sincePrevious <= SITE_LIVENESS_MAX_PASS_GAP_MS
+    const failures = check.status === 'fail'
+      ? (countsAsRepeat ? (previous?.consecutiveFailures ?? 0) + 1 : 1)
+      : 0
     const outagePaged = previous?.status === 'fail' && Boolean(previous.notifiedAt)
 
     let event: 'health.degraded' | 'health.recovered' | null = null
@@ -338,10 +356,9 @@ export class Notifier {
       this.db.update(siteLivenessState).set(observation).where(eq(siteLivenessState.projectId, projectId)).run()
     }
 
-    if (!event) {
-      log.info('site-liveness.unchanged', { projectId, status: check.status, code: check.code, failures })
-      return null
-    }
+    // No log on a quiet pass: every project, every few minutes, would evict a
+    // night of real diagnostics from the operational log buffer.
+    if (!event) return null
 
     const notifs = this.db.select().from(notifications)
       .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
@@ -355,7 +372,10 @@ export class Notifier {
         summary: check.summary,
         remediation: check.remediation ?? null,
         checkedAt,
-        previousStatus: (previous?.status ?? null) as 'ok' | 'warn' | 'fail' | null,
+        // The counter resets on every ok, so a page always follows a site that was
+        // answering. Echoing the row the first failed pass wrote would report
+        // "fail -> fail" and show the operator no transition at all.
+        previousStatus: event === 'health.degraded' ? 'ok' : 'fail',
         failing: event === 'health.degraded'
           ? [{ id: check.id, status: check.status, code: check.code, summary: check.summary }]
           : [],
@@ -368,8 +388,7 @@ export class Notifier {
     for (const notif of notifs) {
       const config = notif.config as { url: string; events?: string[] }
       if (!config.url) continue
-      await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)
-      delivered += 1
+      if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (event === 'health.degraded' && delivered > 0) {
       this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
@@ -675,7 +694,8 @@ export class Notifier {
     return transitions
   }
 
-  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
+  /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
+  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
     // A chat webhook IS a webhook whose body has to look a particular way, so
     // the destination is resolved from the URL rather than declared on the
     // stored notification. Discord and Slack both reject arbitrary JSON;
@@ -688,7 +708,7 @@ export class Notifier {
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
-      return
+      return false
     }
 
     log.info('webhook.send', { event: payload.event, url: targetLabel })
@@ -703,7 +723,7 @@ export class Notifier {
         if (response.status >= 200 && response.status < 300) {
           log.info('webhook.delivered', { event: payload.event, url: targetLabel, httpStatus: response.status })
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
-          return
+          return true
         }
 
         const errorDetail = response.error ?? `HTTP ${response.status}`
@@ -723,6 +743,7 @@ export class Notifier {
         await new Promise(resolve => setTimeout(resolve, delays[attempt]!))
       }
     }
+    return false
   }
 
   private logDelivery(projectId: string, notificationId: string, event: string, status: string, error: string | null): void {

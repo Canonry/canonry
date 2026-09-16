@@ -149,6 +149,12 @@ export interface CheckDefinition {
   category: CheckCategory
   scope: CheckScope
   title: string
+  /**
+   * Run only when a filter names this check. For probes that reach the network:
+   * an unfiltered `canonry doctor --project` would otherwise exit 1 on one bad
+   * response, with none of the debounce the scheduled loop applies.
+   */
+  optIn?: boolean
   /** When true and the project is missing for a project-scoped run, the runner emits a `skipped` result. */
   run: (ctx: DoctorContext) => Promise<CheckOutput> | CheckOutput
 }

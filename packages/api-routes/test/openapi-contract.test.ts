@@ -161,7 +161,7 @@ describe('openapi contract', () => {
     // union isn't repeated across every schedule param, body, and the DTO.
     const KIND_REF = '#/components/schemas/SchedulableRunKind'
     expect(body.components?.schemas?.SchedulableRunKind?.enum).toEqual(
-      ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor', 'site-liveness'],
+      ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor'],
     )
 
     const schedulePath = body.paths['/api/v1/projects/{name}/schedule']!

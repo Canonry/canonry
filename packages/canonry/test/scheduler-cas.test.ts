@@ -35,7 +35,6 @@ function harness() {
     onAdsSyncRequested: vi.fn(),
     onDataRefreshRequested: vi.fn(),
     onDoctorRequested: vi.fn(),
-    onSiteLivenessRequested: () => {},
     onBacklinksSyncRequested: vi.fn(),
     onSiteAuditRequested: vi.fn(),
   })
