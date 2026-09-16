@@ -79,6 +79,24 @@ test('scope picker panels compile outside document flow with an opaque surface',
   expect(panel).toContain('background-color: var(--color-bg)')
 })
 
+// The headline strip's frame lives in the stylesheet, not in a className, so a
+// component test cannot see it: `.report-headline` reads the same whether the
+// rule draws one bordered box with dividers or nothing at all. The tiles carry
+// their own surface, and a partial revert that put the shared frame back would
+// otherwise pass every suite.
+test('the headline strip separates its tiles instead of sharing one frame', async () => {
+  const css = await compileAppStyles([])
+  const strip = ruleFor(css, '.report-headline')
+  expect(strip).toContain('display: grid')
+  expect(strip).toMatch(/gap:/)
+  expect(strip).not.toMatch(/border|divide/)
+  // `divide-*` compiles to a child rule, which never appears in the block above.
+  expect(css).not.toMatch(/\.report-headline\s*>/)
+  const tile = ruleFor(css, '.report-headline-tile')
+  expect(tile).toContain('border-color: var(--color-border)')
+  expect(tile).toContain('background-color: var(--color-surface)')
+})
+
 test('measurement table actions stay visible on an opaque surface while columns scroll', async () => {
   const css = await compileAppStyles([])
   const actions = ruleFor(css, '.measurement-table-actions')
