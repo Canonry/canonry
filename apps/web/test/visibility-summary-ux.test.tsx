@@ -126,6 +126,8 @@ test('the report detail rows share one disclosure row pattern', () => {
     // where the compiled-rule test in design-tokens.test.ts can see it.
     expect(row.querySelector('summary')!.className).toBe('visibility-disclosure-summary')
     expect(row.querySelector('summary > .visibility-disclosure-meta')).toBeTruthy()
+    // Every opened panel pays its bottom space through the same class.
+    expect(row.querySelector('summary + .visibility-disclosure-panel')).toBeTruthy()
   }
 })
 

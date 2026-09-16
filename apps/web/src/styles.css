@@ -1223,6 +1223,13 @@
     @apply ml-3 text-sm font-normal text-secondary;
   }
 
+  /* An opened panel pays its own bottom space and nothing else: the row above
+     already draws the divider, so page-section rhythm in here opens the panel
+     on a margin, a second divider and a block of padding. */
+  .visibility-disclosure-panel {
+    @apply pb-5;
+  }
+
   /* Bounded bar under a breakdown rate. The fill width is the server rate. */
   .report-rate-bar {
     @apply mt-1.5 block h-1 w-full max-w-32 overflow-hidden rounded-full bg-mono-800;

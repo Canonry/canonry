@@ -110,6 +110,12 @@ test('every visibility detail row resolves to one collapsed row style', async ()
   expect(summary).toContain('--tw-ring-color: var(--color-mono-400)')
   expect(ruleFor(css, '.visibility-disclosure')).toMatch(/border-top/)
   expect(ruleFor(css, '.visibility-disclosure-meta')).toContain('color: var(--color-text-secondary)')
+  // An opened panel pays its own bottom space and nothing else. The signals
+  // panel used page-section rhythm in here, which opened the row on 32px of
+  // margin, a stray divider and 24px of padding before its first line.
+  const panel = ruleFor(css, '.visibility-disclosure-panel')
+  expect(panel).toMatch(/padding-bottom:/)
+  expect(panel).not.toMatch(/margin-top|border-top/)
 })
 
 test('measurement table actions stay visible on an opaque surface while columns scroll', async () => {

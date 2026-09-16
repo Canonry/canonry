@@ -1385,11 +1385,11 @@ function OverviewSignals({
   )
 
   const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
-    <div key={suggestion.query} className="flex items-center justify-between gap-4 py-3">
+    <div key={suggestion.query} className="flex items-start justify-between gap-4 py-3">
       <div className="min-w-0">
         <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
         <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
-        <p className="mt-0.5 text-sm text-secondary">{suggestion.reason}</p>
+        <p className="mt-1 text-sm text-secondary">{suggestion.reason}</p>
       </div>
       {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
     </div>
@@ -1402,7 +1402,7 @@ function OverviewSignals({
   const remainingCount = remainingInsights.length + remainingSuggestions.length
 
   return (
-    <section className="page-section-divider" aria-labelledby="overview-signals-title">
+    <section className="visibility-disclosure-panel" aria-labelledby="overview-signals-title">
       <div className="section-head">
         <h2 id="overview-signals-title">Latest signals</h2>
       </div>
