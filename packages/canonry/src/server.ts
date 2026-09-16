@@ -14,7 +14,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -231,6 +231,7 @@ import {
 import { ProviderRegistry } from "./provider-registry.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
+import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -1646,6 +1647,8 @@ export async function createServer(opts: {
         AD_GROUP_IN_PROGRESS_INSIGHT_FIELDS,
       )),
   };
+
+  let stopSiteLiveness: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -3622,6 +3625,18 @@ export async function createServer(opts: {
     if (runtimeStartupSettled) return;
     try {
       scheduler.start();
+      stopSiteLiveness = startSiteLivenessLoop({
+        db: opts.db,
+        // In-process, so a pass writes no HTTP request logs, and the check is
+        // named explicitly because it is opt-in and never runs in a default pass.
+        probe: async (project) => {
+          const report = await runChecks({ db: opts.db, project }, SITE_REACHABILITY_CHECKS, {
+            checkIds: [SITE_REACHABILITY_CHECK_ID],
+          });
+          return report.checks[0] ?? null;
+        },
+        notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
+      });
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -3646,6 +3661,8 @@ export async function createServer(opts: {
   // Graceful shutdown
   app.addHook("onClose", async () => {
     stopLogCapture();
+    stopSiteLiveness?.();
+    stopSiteLiveness = null;
     scheduler.stop();
   });
 

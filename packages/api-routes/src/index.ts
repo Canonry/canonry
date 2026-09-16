@@ -114,6 +114,8 @@ export {
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
+export { runChecks } from './doctor/runner.js'
 export * from './notifications/alert.js'
 export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'

@@ -4,6 +4,8 @@ import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
 import { CONTENT_CHECKS } from './checks/content.js'
 import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
+import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
+import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
 import { GOOGLE_AUTH_CHECKS } from './checks/google-auth.js'
@@ -26,6 +28,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BING_AUTH_CHECKS,
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,
+  ...DATA_FRESHNESS_CHECKS,
   ...ADS_CHECKS,
   ...GOOGLE_MARKETING_DOCTOR_CHECKS,
   ...PROVIDERS_CHECKS,
@@ -33,4 +36,6 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BACKLINKS_CHECKS,
   ...CONTENT_CHECKS,
   ...AGENT_CHECKS,
+  // Network probe last, so a slow or unreachable site never delays the local checks.
+  ...SITE_REACHABILITY_CHECKS,
 ]

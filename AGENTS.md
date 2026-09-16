@@ -159,7 +159,7 @@ canonry traffic connect cloudflare <project> --delivery-mode queue-pull --zone-i
 canonry traffic activate <project> --source <id> # explicit cutover: pause the old source and move/remove traffic-sync scheduling for the target mode
 canonry traffic events <project> --source <id> --format json                    # smoke-check forwarded edge events
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit, ads-sync, doctor}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --every-days 14 --start-date 2026-09-23 --at 00:00 --timezone America/New_York  # calendar recurrence, anchored to the local date/time
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
@@ -167,7 +167,7 @@ canonry schedule set <project> --kind gbp-sync --preset daily                   
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
 canonry schedule set <project> --kind backlinks-sync --preset weekly                         # backlinks-sync (re-probe Common Crawl; sync only when a newer rolling window is published; no source/providers)
 canonry schedule set <project> --kind site-audit --preset weekly                             # site-audit / Technical AEO (bounded full-site crawl; no source/providers)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit] # default kind is answer-visibility
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|doctor] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
@@ -396,6 +396,9 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `gbp.account.access` | project | The tracked GBP account is still listable for the authorized user (maps 0-QPM access-form-pending → warn) |
 | auth | `gbp.places.api-key` | project | Google Places API readiness for the listing cross-reference (#648): warns when GBP is connected but no Places key is set, or when no selected location carries a Maps place id; skipped when Places is disabled (`tier: off`) or GBP isn't connected |
 | integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 7d (warn) or 30d (fail); warns when never synced |
+| integrations | `ga.data.recent-data` | project | Newest stored GA4 daily row is no older than 3d (`ga.data.aging`) or 5d (`ga.data.stale`), both **warn** so a failing auth check keeps the headline. Catches a sync that keeps succeeding with zero rows, for example a GA4 tag removed from the site. Reports `ga.data.not-syncing` instead when no sync has completed recently; skipped when GA4 is not connected |
+| integrations | `gsc.data.recent-data` | project | Same for Search Console at 5d and 7d, graded from the monotonic `gsc_data_watermarks` date (which advances even on zero-impression days) against Google's Pacific reporting date; skipped when GSC is not connected |
+| integrations | `site.reachability` | project | **Opt-in** (`optIn: true`): runs only when a filter names it, so an unfiltered doctor pass never reaches the network. The project homepage answers below HTTP 500, retried once, trying every approved address. Each hop is resolved and checked against private, reserved and link-local ranges before dialing. A 403 or 429 counts as up; a name that resolves only to refused addresses fails as `site.reachability.refused-address`; this host's own resolver failing is `skipped`, never an outage |
 | auth | `ads.auth.connection` | project | OpenAI ads connection row has a matching SDK key in the local config (skipped when not connected) |
 | integrations | `ads.data.recent-sync` | project | Connected ad account synced in the last 7d (warn) or 30d (fail); warns when never synced (skipped when not connected) |
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
@@ -412,6 +415,13 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are available through a verified native plugin cache or present under `~/.claude/skills/`; an enabled entry with missing/corrupt assets warns instead of reporting a false success |
 | agent | `agent.skills.trigger-surface` | global | The bundled skills' `description` frontmatter, which is their ENTIRE trigger surface: a skill is model-decided, so nothing forces it to load and the description is the only text a request is matched against. Fails on a missing description or one over the 1024-char spec cap; warns when one is too thin to match or never names the CLI binary the operator actually types. Reports total listing cost, which competes for the host's per-session skill budget. Measures the surface, never the outcome. |
 | agent | `agent.skills.current` | global | Native plugin manifest versions must match the running Canonry bundle; version mismatches warn. Legacy `~/.claude/skills/` trees are compared file-by-file and warn when new or upstream-updated files have not been picked up (local edits do not count as "behind") |
+
+### Scheduled health alerts
+
+Two schedules feed `health.degraded` and `health.recovered`, which reach every enabled webhook whether or not it subscribes to them:
+
+- `doctor` (every 6h, seeded per project) grades every check and notifies when the worst `(status, code)` changes. `site.reachability` is `optIn`, so it never runs in that pass.
+- The website loop (every 10 min, in-process, started with the server) runs only `site.reachability` and keeps its own `site_liveness_state` row. It pages after two failed passes that are genuinely an interval apart, and sends `health.recovered` only for an outage it actually delivered a page for. It never writes `doctor_health_state`, so a quick "site is up" pass cannot clear a GA outage. It is deliberately not a schedule row: an older build would not recognize the kind and would run the row as a paid answer-visibility sweep after a rollback.
 
 ### Adding a new check
 
