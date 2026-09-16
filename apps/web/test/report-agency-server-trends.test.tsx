@@ -264,8 +264,8 @@ describe('agency server activity', () => {
     expect(bodyRows(landings!)).toEqual([['/landing', '5', '2']])
   })
 
-  test('a crawled path stored without unverified hits counts its verified hits alone', () => {
-    // richReport() stores its crawled paths without the later unverifiedHits field.
+  test('a crawled path with no unverified hits counts its verified hits alone', () => {
+    // richReport() records zero unverified hits on both of its crawled paths.
     renderReportPage(richReport(), { audience: 'agency' })
     const serverTables = tables(getReportSection(SERVER_ACTIVITY))
     expect(serverTables).toHaveLength(4)

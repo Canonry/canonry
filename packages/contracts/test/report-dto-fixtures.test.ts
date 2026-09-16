@@ -28,6 +28,11 @@ describe('shared report DTO fixtures', () => {
   test.each(builders)('%s satisfies the report contract', (_name, build) => {
     const parsed = projectReportDtoSchema.safeParse(build())
     expect(parsed.success ? [] : parsed.error.issues).toEqual([])
+    // Parsing alone is too weak: `safeParse` FILLS IN every field the schema
+    // defaults, so a fixture missing one still passes while the renderers, the
+    // byte snapshots and the SPA parity suite all read the raw object, where
+    // that field is undefined — a state no server-built DTO is ever in.
+    expect(parsed.success ? parsed.data : null).toEqual(build())
   })
 
   test.each(builders)('%s returns a fresh object on every call', (_name, build) => {

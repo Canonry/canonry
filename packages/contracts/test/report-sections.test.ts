@@ -483,9 +483,10 @@ describe('report slice S4: server-side, indexing and trend copy', () => {
   })
 
   test('a crawled path counts its unverified hits with its verified hits, and adds none when they were never recorded', () => {
+    // `unverifiedHits` is schema-defaulted, so every parsed DTO carries it and
+    // the helper never has to invent a number for a path that omitted it.
     expect(reportServerActivityPathHits({ verifiedHits: 80, unverifiedHits: 15 })).toBe(95)
     expect(reportServerActivityPathHits({ verifiedHits: 50, unverifiedHits: 0 })).toBe(50)
-    expect(reportServerActivityPathHits({ verifiedHits: 50 })).toBe(50)
     expect(reportServerActivityPathHits({ verifiedHits: 0, unverifiedHits: 0 })).toBe(0)
   })
 

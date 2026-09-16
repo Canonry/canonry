@@ -977,8 +977,8 @@ export function reportServerActivityOperatorDelta(deltaPct: number | null): stri
  * A crawled path's total hits: verified plus unverified. A path stored before
  * unverified hits were recorded has no count for them, and that adds nothing.
  */
-export function reportServerActivityPathHits(path: { verifiedHits: number; unverifiedHits?: number }): number {
-  return path.verifiedHits + (path.unverifiedHits ?? 0)
+export function reportServerActivityPathHits(path: { verifiedHits: number; unverifiedHits: number }): number {
+  return path.verifiedHits + path.unverifiedHits
 }
 
 /** `234 verified · 15 unverified`. */
