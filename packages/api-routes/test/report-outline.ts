@@ -32,7 +32,7 @@
  * section — tile values and subtitles, table body cells, badges and their tone,
  * delta tones, list and step rows, link targets, details summaries. The outline
  * above is the section's skeleton, and on its own it let the two surfaces
- * disagree about every number in them. See `report-content.ts` for the
+ * disagree about every number in them. See `report-reading.ts` for the
  * normalization and for what is excluded by kind.
  */
 import { JSDOM } from 'jsdom'
@@ -41,7 +41,7 @@ import {
   type ReportContentEntry,
   type ReportContentSurface,
   type ReportContentTone,
-} from './report-content.js'
+} from './report-reading.js'
 
 export type { ReportContentEntry, ReportContentSurface, ReportContentTone }
 export { readReportContent }
@@ -121,7 +121,7 @@ function readSection(section: Element): ReportOutlineSection {
  * a cited scorecard glyph is drawn in the positive colour (the SPA gives it
  * `text-positive-400`), and the market-scope warning is a caution card (the SPA
  * gives it `insight-card-caution`). `tone-neutral` is deliberately absent:
- * neutral reads as no tone on both surfaces (see `report-content.ts`).
+ * neutral reads as no tone on both surfaces (see `report-reading.ts`).
  */
 const HTML_TONES: Readonly<Record<string, ReportContentTone>> = {
   'tone-positive': 'positive',

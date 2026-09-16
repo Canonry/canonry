@@ -22,7 +22,7 @@
  *
  * `content` — the values, cells, badges, rows, links and summaries a reader
  * reads — comes from the SAME walker the HTML report uses
- * (`packages/api-routes/test/report-content.ts`); only the vocabulary below is
+ * (`packages/api-routes/test/report-reading.ts`); only the vocabulary below is
  * the SPA's. See that module for the normalization and for what it excludes by
  * kind, the SPA's own interactive controls included.
  */
