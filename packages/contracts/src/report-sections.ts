@@ -198,6 +198,17 @@ export function reportTruncatedList(items: readonly string[], limit: number): st
   return `${items.slice(0, limit).join(', ')}${items.length > limit ? '…' : ''}`
 }
 
+/**
+ * The chip that stands in for the proof items a card did not show: `+2 more`.
+ *
+ * Both renderers draw that chip, and neither outline golden records chip text,
+ * so an inline copy on each side could be reworded on one surface and stay
+ * unnoticed on the other.
+ */
+export function reportMoreChipLabel(count: number): string {
+  return `+${count} more`
+}
+
 /** The chip beside a row that fired more than once: `× 3`. */
 export function reportInstanceCountLabel(count: number): string {
   return `× ${count}`

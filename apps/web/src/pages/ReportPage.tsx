@@ -48,6 +48,7 @@ import {
   reportHeaderPeriodLabel,
   reportInstanceCountLabel,
   reportLineChartLabel,
+  reportMoreChipLabel,
   reportMovementChangeCopy,
   reportPriorWindowLabel,
   reportProviderDisplayName,
@@ -2522,7 +2523,7 @@ export function ProofChips({ items, limit = 3, className }: { items: readonly st
       ))}
       {more > 0 && (
         <span className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[13px] text-secondary">
-          +{more} more
+          {reportMoreChipLabel(more)}
         </span>
       )}
     </div>

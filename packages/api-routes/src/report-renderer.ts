@@ -74,6 +74,7 @@ import {
   reportLineChartLabel,
   reportMarketScope,
   reportMissRateLabel,
+  reportMoreChipLabel,
   reportMovementChangeCopy,
   reportOpportunityActionLine,
   reportPriorWindowLabel,
@@ -148,7 +149,7 @@ function renderProofChips(items: readonly string[], limit = 3): string {
   const visible = items.slice(0, limit)
   const more = items.length - visible.length
   const chips = visible.map(item => `<span class="proof-chip">${escapeHtml(item)}</span>`)
-  if (more > 0) chips.push(`<span class="proof-chip">+${more} more</span>`)
+  if (more > 0) chips.push(`<span class="proof-chip">${reportMoreChipLabel(more)}</span>`)
   return `<div class="proof-chips">${chips.join('')}</div>`
 }
 
