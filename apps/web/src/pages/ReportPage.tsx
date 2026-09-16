@@ -4,6 +4,7 @@ import { useState, type JSX, type ReactNode } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import type {
+  DeltaWindow,
   ProjectReportDto,
   ReportAudience,
   ReportInsight,
@@ -14,6 +15,7 @@ import {
   contentActionLabel,
   dedupeReportOpportunities,
   deltaPercent,
+  deltaTone,
   describeLandingPage,
   formatDate,
   formatDeltaCopy,
@@ -122,7 +124,6 @@ import { formatRatio, reportGaIntro, reportGscIntro, reportShareBarShareLabel } 
 
 // ── report slice S4 imports: server-side, indexing and trend ──
 import {
-  deltaTone,
   isTrendBaseline,
   reportCitationsTrendBaseline,
   reportIndexingIntro,
@@ -135,7 +136,6 @@ import {
   reportServerActivityTrendTitle,
   reportTrendProviderRates,
 } from '@ainyc/canonry-contracts'
-import type { DeltaWindow } from '@ainyc/canonry-contracts'
 // ── end report slice S4 imports ──
 
 // ── report slice S5 imports: insights and content ──
@@ -195,6 +195,29 @@ const TONE_INLINE_TEXT_CLASS: Readonly<Record<MetricTone, string>> = {
   caution: TONE_TEXT_CLASS.caution,
   negative: TONE_TEXT_CLASS.negative,
   neutral: '',
+}
+
+/**
+ * A prior-window delta in the HTML report's words and tone, or nothing when
+ * there is no copy to show. Both audiences render it: the HTML report wraps
+ * every one of these in `<span class="tone-…">`, so a client reading the in-app
+ * report sees the same colour as a client reading the downloaded one.
+ */
+function serverActivityDelta(delta: DeltaWindow, noun: string, priorWindowLabel: string): ReactNode {
+  const text = formatDeltaCopy(delta, noun, priorWindowLabel)
+  if (!text) return null
+  return <span className={TONE_INLINE_TEXT_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
+}
+
+/**
+ * Supporting-copy fragments joined with the HTML report's ` · `, dropping the
+ * ones with nothing to say so a missing fragment leaves no stray separator.
+ * Nothing at all renders no line.
+ */
+function joinReportParts(parts: readonly ReactNode[]): ReactNode {
+  const visible = parts.filter(Boolean)
+  if (visible.length === 0) return undefined
+  return visible.map((part, index) => <span key={index}>{index > 0 ? ' · ' : null}{part}</span>)
 }
 
 export function ReportPage({ projectName }: { projectName: string }) {
@@ -436,16 +459,17 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
   }
   const priorWindowLabel = reportPriorWindowLabel(windowDays)
   const crawlerTrust = reportCrawlerTrustSummary(sa.verifiedCrawlerHits.current, sa.unverifiedCrawlerHits.current)
-  const crawlerDelta = formatDeltaCopy(crawlerRequests, copy.countNouns.requests, priorWindowLabel)
-  const userFetchDelta = formatDeltaCopy(sa.aiUserFetchHits, copy.countNouns.requests, priorWindowLabel)
+  const crawlerDelta = serverActivityDelta(crawlerRequests, copy.countNouns.requests, priorWindowLabel)
+  const userFetchDelta = serverActivityDelta(sa.aiUserFetchHits, copy.countNouns.requests, priorWindowLabel)
   // Referral arrivals mix paid and organic clicks, so the API's class summary
   // rides beside the total, and arrivals lost to redirects are named rather
-  // than hidden. Same fragments, in the same order, as the HTML report.
-  const referralSubtitle = [
-    formatDeltaCopy(sa.referralArrivals, copy.countNouns.sessions, priorWindowLabel),
+  // than hidden. Same fragments, in the same order, as the HTML report, and
+  // only the delta carries a tone.
+  const referralSubtitle = joinReportParts([
+    serverActivityDelta(sa.referralArrivals, copy.countNouns.sessions, priorWindowLabel),
     sa.referralArrivalsClassSummary,
     reportReferralRedirectNote(sa.referralRedirects),
-  ].filter(Boolean).join(' · ')
+  ])
   // The client view caps the operator table at five; the agency view lists every operator.
   const topOperators = sa.byOperator
     .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
@@ -457,8 +481,8 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       <ReportTiles
         columns={3}
         tiles={[
-          { label: copy.client.tiles.botRequests, value: formatNumber(crawlerRequests.current), subtitle: crawlerDelta ? `${crawlerTrust} · ${crawlerDelta}` : crawlerTrust },
-          { label: copy.client.tiles.userFetches, value: formatNumber(sa.aiUserFetchHits.current), subtitle: userFetchDelta || copy.client.userFetchFallback },
+          { label: copy.client.tiles.botRequests, value: formatNumber(crawlerRequests.current), subtitle: crawlerDelta ? <>{crawlerTrust} · {crawlerDelta}</> : crawlerTrust },
+          { label: copy.client.tiles.userFetches, value: formatNumber(sa.aiUserFetchHits.current), subtitle: userFetchDelta ?? copy.client.userFetchFallback },
           { label: copy.client.tiles.referralSessions, value: formatNumber(sa.referralArrivals.current), subtitle: referralSubtitle },
         ]}
       />
@@ -524,7 +548,10 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 
       {sc.queries.length > 0 && (
         <div className="mt-5 rounded-xl border border-default bg-surface p-5">
-          <h3 className="text-sm font-semibold text-heading" data-report-heading>{copy.queriesHeading}</h3>
+          {/* The HTML report has no section heading above these cards, so a
+              real h3 here would sit two levels under the page title with
+              nothing between. The outline hook is what parity reads. */}
+          <p className="text-sm font-semibold text-heading" data-report-heading>{copy.queriesHeading}</p>
           <p className="mt-1 text-[13px] text-secondary" data-report-note>{reportClientQueriesSubtitle(sc.queries.length)}</p>
           <ol className="mt-4 grid gap-2 sm:grid-cols-2">
             {sc.queries.map((q, i) => (
@@ -539,7 +566,7 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 
       {sc.providerRates.length > 0 && (
         <div className="mt-5 rounded-xl border border-default bg-surface p-5">
-          <h3 className="text-sm font-semibold text-heading" data-report-heading>{copy.providerBarsHeading}</h3>
+          <p className="text-sm font-semibold text-heading" data-report-heading>{copy.providerBarsHeading}</p>
           <p className="mt-1 text-[13px] text-secondary" data-report-note>{copy.providerBarsSubtitle}</p>
           <div className="mt-4 space-y-3">
             {sc.providerRates.map(r => (
@@ -1735,7 +1762,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
     serverActivityDelta(sa.referralArrivals, copy.countNouns.sessions, priorWindowLabel),
     sa.referralArrivalsClassSummary,
     reportReferralRedirectNote(sa.referralRedirects),
-  ].filter(Boolean)
+  ]
 
   return (
     <ReportSection {...reportServerActivityHeading('agency', true, windowDays)}>
@@ -1748,9 +1775,7 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
           {
             label: tiles.referralSessions,
             value: formatNumber(sa.referralArrivals.current),
-            subtitle: referralParts.length > 0
-              ? referralParts.map((part, index) => <span key={index}>{index > 0 ? ' · ' : null}{part}</span>)
-              : undefined,
+            subtitle: joinReportParts(referralParts),
           },
         ]}
       />
@@ -1837,13 +1862,6 @@ function AgencyServerActivity({ report }: { report: ProjectReportDto }) {
       )}
     </ReportSection>
   )
-}
-
-/** A prior-window delta in the HTML report's words and tone, or nothing when there is no copy to show. */
-function serverActivityDelta(delta: DeltaWindow, noun: string, priorWindowLabel: string): ReactNode {
-  const text = formatDeltaCopy(delta, noun, priorWindowLabel)
-  if (!text) return null
-  return <span className={TONE_INLINE_TEXT_CLASS[deltaTone(delta.deltaPct)] || undefined}>{text}</span>
 }
 
 interface IndexingCoverageSegment {
