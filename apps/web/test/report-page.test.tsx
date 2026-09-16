@@ -167,6 +167,17 @@ describe('shared report shell', () => {
     expect(rates.map(rate => rate.tagName)).toEqual(['STRONG', 'STRONG', 'STRONG', 'STRONG'])
   })
 
+  // A heading two levels below the one before it leaves a gap in the document
+  // outline: a screen reader's heading list shows a level-3 heading under the
+  // level-1 title with no section heading between them, and heading-level
+  // navigation skips straight past the section.
+  test.each(['client', 'agency'] as const)('the %s report never skips a heading level', (audience) => {
+    renderReportPage(fullReport(), { audience })
+    const levels = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'), heading => Number(heading.tagName.slice(1)))
+    const skips = levels.flatMap((level, index) => index > 0 && level > levels[index - 1]! + 1 ? [`h${levels[index - 1]} → h${level}`] : [])
+    expect(skips).toEqual([])
+  })
+
   // A browser logs an invalid-nesting error for a block element inside a
   // paragraph, and parsing the same markup as HTML would move the element out.
   test.each(['client', 'agency'] as const)('the %s report never nests a block element inside a paragraph', (audience) => {
@@ -174,5 +185,80 @@ describe('shared report shell', () => {
     const nested = Array.from(document.querySelectorAll('p div, p p, p ul, p ol, p li, p table, p section, p article, p h2, p h3'))
       .map(element => `${element.closest('[data-report-section]')?.getAttribute('data-report-section') ?? 'header'}: <${element.tagName.toLowerCase()}> in <p>`)
     expect(nested).toEqual([])
+  })
+})
+
+/**
+ * The client server-activity summary. The HTML report tones each prior-window
+ * delta (`<span class="tone-positive">`) and the agency view tones the same
+ * copy, so a client reading the in-app report must see the same colour as the
+ * client reading the downloaded one. Tile subtitles are not part of the outline,
+ * so nothing else holds these lines to the HTML.
+ */
+describe('client server activity', () => {
+  const copy = REPORT_SECTION_COPY['server-activity']
+
+  /** The line under a tile's value, found by the tile's label. */
+  function tileSubtitle(section: HTMLElement, label: string): HTMLElement {
+    const labelElement = Array.from(section.querySelectorAll<HTMLElement>('[data-report-tile]'))
+      .find(element => element.textContent === label)
+    const subtitle = labelElement?.parentElement?.children[2]
+    if (!(subtitle instanceof HTMLElement)) throw new Error(`Tile "${label}" has no line under its value`)
+    return subtitle
+  }
+
+  test('a rising delta carries the positive tone, beside the untoned crawler trust summary', () => {
+    renderReportPage(richReport())
+    const section = getReportSection(ReportSectionIds['server-activity'])
+    const crawler = tileSubtitle(section, copy.client.tiles.botRequests)
+    expect(crawler.textContent).toBe('234 verified · 15 unverified · Up 104% vs prior 7 days (122 requests)')
+    expect(within(crawler).getByText('Up 104% vs prior 7 days (122 requests)').className).toContain('text-positive-400')
+    // Only the delta is toned; the crawler trust summary rides beside it plain.
+    expect(crawler.querySelectorAll('[class*="text-positive"], [class*="text-caution"], [class*="text-negative"]')).toHaveLength(1)
+
+    // The referral line joins the delta, the paid/organic split and the
+    // redirect note in the HTML report's order; only the delta is toned.
+    const referral = tileSubtitle(section, copy.client.tiles.referralSessions)
+    expect(referral.textContent).toBe('Up 100% vs prior 7 days (6 sessions) · Paid 9 · Organic 2 · Unclassified 1')
+    expect(within(referral).getByText('Up 100% vs prior 7 days (6 sessions)').className).toContain('text-positive-400')
+    expect(within(referral).getByText(/Paid 9 · Organic 2 · Unclassified 1/).className).not.toMatch(/text-(positive|caution|negative)/)
+  })
+
+  test('a falling delta reads negative, a flat one stays untoned, and a delta with no copy falls back', () => {
+    const report = richReport()
+    report.serverActivity = {
+      ...report.serverActivity!,
+      verifiedCrawlerHits: { current: 100, prior: 200, deltaPct: -50 },
+      unverifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
+      aiUserFetchHits: { current: 42, prior: 42, deltaPct: 0 },
+    }
+    renderReportPage(report)
+    const section = getReportSection(ReportSectionIds['server-activity'])
+
+    const crawler = tileSubtitle(section, copy.client.tiles.botRequests)
+    expect(crawler.textContent).toBe('100 verified · 0 unverified · Down 50% vs prior 7 days (200 requests)')
+    expect(within(crawler).getByText('Down 50% vs prior 7 days (200 requests)').className).toContain('text-negative-400')
+
+    const fetches = tileSubtitle(section, copy.client.tiles.userFetches)
+    expect(fetches.textContent).toBe('Flat vs prior 7 days (42 requests)')
+    expect(within(fetches).getByText('Flat vs prior 7 days (42 requests)').className).not.toMatch(/text-(positive|caution|negative)/)
+  })
+
+  test('a first baseline says so, and a delta with no copy at all falls back to the HTML line', () => {
+    // A zero prior window is a first baseline and names itself as one.
+    const baseline = richReport()
+    baseline.serverActivity = { ...baseline.serverActivity!, aiUserFetchHits: { current: 42, prior: 0, deltaPct: null } }
+    renderReportPage(baseline)
+    expect(tileSubtitle(getReportSection(ReportSectionIds['server-activity']), copy.client.tiles.userFetches).textContent)
+      .toBe('First baseline week')
+
+    cleanupReportPage()
+    // A prior window with no computable percentage produces no delta copy, so
+    // the tile falls back to naming the fetchers it counts, as the HTML does.
+    const noCopy = richReport()
+    noCopy.serverActivity = { ...noCopy.serverActivity!, aiUserFetchHits: { current: 42, prior: 3, deltaPct: null } }
+    renderReportPage(noCopy)
+    expect(tileSubtitle(getReportSection(ReportSectionIds['server-activity']), copy.client.tiles.userFetches).textContent)
+      .toBe(copy.client.userFetchFallback)
   })
 })
