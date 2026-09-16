@@ -60,6 +60,37 @@ describe.each(AUDIENCES)('%s report HTML', (audience) => {
     const outline = reportHtmlOutline(renderReportHtml(FIXTURES[fixture](), { audience }))
     await expect(`${JSON.stringify(outline, null, 2)}\n`).toMatchFileSnapshot(`./fixtures/report-outline/${audience}.${fixture}.json`)
   })
+
+  // A section whose content reads empty is guarded on its skeleton alone: its
+  // numbers, cells and badges could differ between the two surfaces with every
+  // parity test green. If a section legitimately renders nothing, say so here
+  // with the reason rather than letting the golden go quiet.
+  test('every section of the goldens carries content', () => {
+    for (const fixture of OUTLINE_FIXTURES) {
+      for (const section of reportHtmlOutline(renderReportHtml(FIXTURES[fixture](), { audience })).sections) {
+        expect(section.content.length, `${audience}.${fixture} ${section.id}`).toBeGreaterThan(0)
+      }
+    }
+  })
+})
+
+/**
+ * The reader degrading to plain text would still produce a full-looking golden
+ * — every kind below would silently fold into `{ text }` runs and stop guarding
+ * what it names. One fixture set proves each kind is still being read.
+ */
+test('the goldens carry every content kind the outline cannot see', () => {
+  const entries = OUTLINE_FIXTURES
+    .flatMap(fixture => reportHtmlOutline(renderReportHtml(FIXTURES[fixture](), { audience: 'agency' })).sections)
+    .flatMap(section => section.content)
+  expect(entries.some(entry => 'tile' in entry && /\d/.test(entry.tile)), 'a tile value').toBe(true)
+  expect(entries.some(entry => 'row' in entry && entry.row.length > 1), 'a table body row').toBe(true)
+  expect(entries.some(entry => 'item' in entry), 'a list or step row').toBe(true)
+  expect(entries.some(entry => 'summary' in entry), 'a details summary').toBe(true)
+  const text = JSON.stringify(entries)
+  expect(text, 'a badge tone').toContain('«negative|')
+  expect(text, 'a delta tone').toContain('«positive|')
+  expect(text, 'a link target').toContain('«link https://')
 })
 
 test('the render timezone is pinned, so dated cells match CI on any machine', () => {

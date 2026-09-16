@@ -114,7 +114,11 @@ describe('parity with the HTML report outline', () => {
 
   // The whole outline, not just each section's eyebrow and title: comparing
   // headings alone left every agency heading, tile label, table header, note
-  // and empty state inside those sections unguarded on this surface.
+  // and empty state inside those sections unguarded on this surface. The
+  // outline's `content` carries the rest of what a reader reads — tile values
+  // and subtitles, table body cells, badges and deltas with their tone, list
+  // rows, link targets and details summaries — so this one assertion is what
+  // stops the two surfaces disagreeing about the numbers in them.
   test.each(OUTLINE_FIXTURES)('the agency view of the %s report matches the HTML outline', (name, build) => {
     renderReportPage(build(), { audience: 'agency' })
     expect(readReportOutline(document.body)).toEqual(reportOutlineGolden('agency', name))
