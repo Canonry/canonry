@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
 
-Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
+Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform with a comprehensive web UI.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after you or your agent acts.
 
-**Self-hosted, using SQLite, with your own (BYOK) provider keys.** Your dashboard and agent review the same project evidence.
+**Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent use the same project evidence.
 
 [Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
