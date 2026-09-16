@@ -716,6 +716,58 @@ export function truncatedReport(): ProjectReportDto {
       deltaPct: index === 0 ? 75 : null,
     }))
   }
+
+  // A second `why` and a second `evidence` row on every action. Every other
+  // fixture carries exactly one of each, so the renderers' caps on those lists
+  // are no-ops and a dropped row is invisible. The action objects are shared
+  // with `clientSummary.actionItems` and `agencyDiagnostics.priorities`, so
+  // mutating them in place reaches every surface that lists them.
+  for (const action of report.actionPlan) {
+    action.why = [...action.why, 'Competitors publish a dedicated page and the client does not.']
+    action.evidence = [...action.evidence, 'gemini cited rival.com on 3 of 4 answers']
+  }
+
+  // The client hero's POSITIVE trend, which no other fixture produces: every
+  // golden that has a hero trend has a falling mention rate, so the branch the
+  // renderers paint green is untested. The rate itself is unchanged, so the
+  // tiles beside it still agree with `executiveSummary`.
+  report.whatsChanged.mentionRate = { current: 40, prior: 33, deltaAbs: 7, deltaPct: 21, direction: 'up', window: 3 }
+
+  // The share-of-voice band, which renders in NO other fixture. The HTML report
+  // writes it as loose notes between sections and the SPA as a band of its own,
+  // so without a fixture that produces one the goldens record nothing and a
+  // one-surface rewrite of the copy passes. Both query classes, so the measured
+  // figure and the not-measured reason line are each covered.
+  report.mentionLandscape.nonBrand = {
+    ...report.mentionLandscape.nonBrand!,
+    shareOfVoice: {
+      queryClass: 'non-brand',
+      percent: 60,
+      competitorCount: 2,
+      projectMentions: 3,
+      competitorMentions: 2,
+      snapshotsWithAnswerText: 4,
+      perCompetitor: [{ domain: 'rival.com', mentions: 2 }],
+      basis: 'tracked',
+      availability: 'measured',
+      reason: null,
+    },
+  }
+  report.mentionLandscape.branded = {
+    ...report.mentionLandscape.branded!,
+    shareOfVoice: {
+      queryClass: 'branded',
+      percent: null,
+      competitorCount: 0,
+      projectMentions: 2,
+      competitorMentions: 0,
+      snapshotsWithAnswerText: 2,
+      perCompetitor: [],
+      basis: 'tracked',
+      availability: 'not-measured',
+      reason: 'no-competitors',
+    },
+  }
   return report
 }
 

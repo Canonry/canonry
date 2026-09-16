@@ -67,10 +67,25 @@ describe.each(AUDIENCES)('%s report HTML', (audience) => {
   // numbers, cells and badges could differ between the two surfaces with every
   // parity test green. If a section legitimately renders nothing, say so here
   // with the reason rather than letting the golden go quiet.
-  test('every section of the goldens carries content', () => {
+  //
+  // Length alone is a weak floor — a section passes on one row — so a section
+  // whose SKELETON names a table or a tile must also carry the matching kind.
+  // That is what catches a table collapsing to a header, or a tile row losing
+  // its values, which reads as a full-looking golden either way.
+  test('every section of the goldens carries content, of the kinds its skeleton names', () => {
     for (const fixture of OUTLINE_FIXTURES) {
       for (const section of reportHtmlOutline(renderReportHtml(FIXTURES[fixture](), { audience })).sections) {
-        expect(section.content.length, `${audience}.${fixture} ${section.id}`).toBeGreaterThan(0)
+        const where = `${audience}.${fixture} ${section.id}`
+        expect(section.content.length, where).toBeGreaterThan(0)
+        // An empty state is a section saying it has nothing to tabulate; its
+        // header may still be rendered above the notice.
+        if (section.items.some(item => 'empty' in item)) continue
+        if (section.items.some(item => 'table' in item)) {
+          expect(section.content.some(entry => 'row' in entry), `${where}: a table with no body row`).toBe(true)
+        }
+        if (section.items.some(item => 'tile' in item)) {
+          expect(section.content.some(entry => 'tile' in entry), `${where}: a tile label with no tile`).toBe(true)
+        }
       }
     }
   })

@@ -36,7 +36,7 @@
       ],
       "content": [
         {
-          "text": "Overview 40% When customers asked AI 5 queries about your industry, AI mentioned you in 2 of those queries. «negative|↓ Down 5.0 points vs prior 3 checks (avg 45%)»"
+          "text": "Overview 40% When customers asked AI 5 queries about your industry, AI mentioned you in 2 of those queries. «positive|↑ Up 7.0 points vs prior 3 checks (avg 33%)»"
         },
         {
           "tile": "AI mentions your name 40% Says your name in 2 of 5 queries"
@@ -76,6 +76,18 @@
         },
         {
           "text": "This summary is scoped to the michigan run location."
+        }
+      ]
+    },
+    {
+      "id": "share-of-voice",
+      "eyebrow": null,
+      "title": null,
+      "intro": null,
+      "items": [],
+      "content": [
+        {
+          "text": "Share of voice · non-brand queries: 60.0% · tracked competitors Share of voice · branded queries: Not measured · tracked competitors No competitors configured."
         }
       ]
     },
@@ -134,7 +146,7 @@
       ],
       "content": [
         {
-          "tile": "AI mentions your name «negative|40% ↓» -5.0% vs 45%"
+          "tile": "AI mentions your name «positive|40% ↑» +7.0% vs 33%"
         },
         {
           "tile": "AI links to your website «positive|65% ↑» +15.0% vs 50%"
@@ -287,7 +299,7 @@
           "text": "Create content for \"best aeo platform\""
         },
         {
-          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source"
+          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source gemini cited rival.com on 3 of 4 answers"
         },
         {
           "summary": "See the data behind this"
@@ -299,10 +311,16 @@
           "item": "AI engines already cite competitors for this query."
         },
         {
+          "item": "Competitors publish a dedicated page and the client does not."
+        },
+        {
           "text": "What we saw"
         },
         {
           "item": "rival.com is the current winning cited source"
+        },
+        {
+          "item": "gemini cited rival.com on 3 of 4 answers"
         },
         {
           "text": "What success looks like: The client is cited for \"best aeo platform\" in a future sweep."

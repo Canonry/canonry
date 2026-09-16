@@ -95,6 +95,18 @@
       ]
     },
     {
+      "id": "share-of-voice",
+      "eyebrow": null,
+      "title": null,
+      "intro": null,
+      "items": [],
+      "content": [
+        {
+          "text": "Share of voice · non-brand queries: 60.0% · tracked competitors Share of voice · branded queries: Not measured · tracked competitors No competitors configured."
+        }
+      ]
+    },
+    {
       "id": "whats-changed",
       "eyebrow": "Section 2",
       "title": "What's Changed",
@@ -154,7 +166,7 @@
           "tile": "Citation rate «positive|65% ↑» +15.0% vs 50%"
         },
         {
-          "tile": "Mention rate «negative|40% ↓» -5.0% vs 45%"
+          "tile": "Mention rate «positive|40% ↑» +7.0% vs 33%"
         },
         {
           "tile": "Cited queries «positive|3.3 ↑» +0.6 vs 2.7"
@@ -221,7 +233,7 @@
           "text": "Create content for \"best aeo platform\""
         },
         {
-          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source"
+          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source gemini cited rival.com on 3 of 4 answers"
         },
         {
           "summary": "Evidence details"
@@ -233,10 +245,16 @@
           "item": "AI engines already cite competitors for this query."
         },
         {
+          "item": "Competitors publish a dedicated page and the client does not."
+        },
+        {
           "text": "Evidence"
         },
         {
           "item": "rival.com is the current winning cited source"
+        },
+        {
+          "item": "gemini cited rival.com on 3 of 4 answers"
         },
         {
           "text": "Win condition: The client is cited for \"best aeo platform\" in a future sweep. «tip Impact rank — 1 is the highest-leverage action|2» «caution|Short term» Provider High confidence"
@@ -245,7 +263,7 @@
           "text": "Diagnose zero-citation providers"
         },
         {
-          "text": "Inspect provider answers and source lists for model-specific gaps. openai: 0/2 cited query-provider pairs"
+          "text": "Inspect provider answers and source lists for model-specific gaps. openai: 0/2 cited query-provider pairs gemini cited rival.com on 3 of 4 answers"
         },
         {
           "summary": "Evidence details"
@@ -257,10 +275,16 @@
           "item": "Provider-level misses isolate where retrieval differs by model family."
         },
         {
+          "item": "Competitors publish a dedicated page and the client does not."
+        },
+        {
           "text": "Evidence"
         },
         {
           "item": "openai: 0/2 cited query-provider pairs"
+        },
+        {
+          "item": "gemini cited rival.com on 3 of 4 answers"
         },
         {
           "text": "Win condition: OpenAI cites the client on at least one tracked query."
