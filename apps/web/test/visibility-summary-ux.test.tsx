@@ -65,7 +65,7 @@ test('labels aggregate answer coverage separately from property reach and explai
  * The whole explanation, asserted verbatim. It is the accessible name of the
  * trigger, so a screen reader user and a sighted user read the same sentence.
  */
-const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source and still recommended somebody else. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 
 function outcomesDisclosure() {
   return screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!
@@ -73,10 +73,11 @@ function outcomesDisclosure() {
 
 test('Property outcomes counts properties from the server total and keeps its explanation out of the summary', () => {
   const report = fixture()
-  // These buckets deliberately do not sum to the total. The response schema
-  // forbids that, which is the point: the count must be the server's own
-  // `total`, never a sum the UI computed for itself.
-  report.populations[0]!.summary.outcomes = { bothSignals: 3, mentionedOnly: 2, citedOnly: 1, neither: 1, notMeasured: 1, total: 12 }
+  // Five distinct counts, so each label is pinned to its own server key and a
+  // rotated tuple list cannot pass. They deliberately do not sum to the total:
+  // the response schema forbids that drift, which is the point — the count must
+  // be the server's own `total`, never a sum the UI computed for itself.
+  report.populations[0]!.summary.outcomes = { bothSignals: 5, mentionedOnly: 4, citedOnly: 3, neither: 2, notMeasured: 1, total: 12 }
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
   const outcomes = outcomesDisclosure()
   const summary = outcomes.querySelector('summary')!
@@ -84,10 +85,10 @@ test('Property outcomes counts properties from the server total and keeps its ex
 
   // Every bucket keeps its label, its order, and its own server count.
   expect([...outcomes.querySelectorAll('strong')].map(count => [count.textContent, count.nextElementSibling?.textContent])).toEqual([
-    ['3', 'mentioned and cited'],
-    ['2', 'mentioned only'],
-    ['1', 'cited only'],
-    ['1', 'neither signal'],
+    ['5', 'mentioned and cited'],
+    ['4', 'mentioned only'],
+    ['3', 'cited only'],
+    ['2', 'neither signal'],
     ['1', 'not measured'],
   ])
 
@@ -96,6 +97,18 @@ test('Property outcomes counts properties from the server total and keeps its ex
   const help = within(outcomes).getByRole('button', { name: OUTCOMES_HELP, hidden: true })
   expect(help.closest('summary')).toBeNull()
   expect(summary.querySelector('button')).toBeNull()
+})
+
+/**
+ * `citedOnly` is reached only on `mention === false && citation === true`, and
+ * neither `targetPresence` nor `outcomeCounts` reads a competitor signal. The
+ * copy may therefore say the property was cited and not named; it must not say
+ * a rival was recommended instead, because this partition measured no rival.
+ */
+test('the outcomes explanation claims no competitor finding the buckets never measure', () => {
+  render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
+  const help = within(outcomesDisclosure()).getByRole('button', { name: OUTCOMES_HELP, hidden: true })
+  expect(help.getAttribute('aria-label')).not.toMatch(/recommend|somebody else|competitor|rival/i)
 })
 
 test('a single property reads as one property', () => {

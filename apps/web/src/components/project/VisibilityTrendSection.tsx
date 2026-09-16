@@ -124,8 +124,12 @@ export const REPORT_HEADLINE_HELP = {
  * than "mentioned but not cited", and that a verified signal survives a later
  * uncertain answer. Both come from the server (`outcomeCounts` / `targetPresence`
  * in `visibility-report-reader.ts`), so the copy states them, never re-derives them.
+ *
+ * `citedOnly` is cited and not named, and stops there: the partition reads only
+ * this property's own two signals, never a competitor's, so the copy cannot say
+ * a rival was recommended instead without asserting a finding nothing measured.
  */
-const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source and still recommended somebody else. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const reportPercent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 })
 
