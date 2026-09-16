@@ -91,18 +91,25 @@ export function readReportSectionIds(root: ParentNode): string[] {
 /**
  * The SPA's outline, comparable with `reportOutlineGolden`.
  *
- * Share of voice is a band, not a `<section>`, in the HTML report: it is two
- * loose notes between sections, which the HTML reader collects into a
- * pseudo-section of the same id. It renders NOTHING on either surface when the
- * report has no share figure — the SPA still emits the empty slot, the HTML
- * emits no notes — so an empty band is dropped here, exactly as the HTML has
- * nothing to collect. A band one surface fills and the other does not still
- * fails.
+ * A section that reads COMPLETELY empty — no eyebrow, no title, no intro, no
+ * items, no content — is a slot the SPA emits whether or not it has anything to
+ * put in it, and the HTML report emits nothing at all for. Share of voice is
+ * the live case: it is a band rather than a `<section>` in the HTML report, two
+ * loose notes between sections that its reader collects into a pseudo-section,
+ * and with no share figure there are no notes to collect. Dropping an empty
+ * slot by SHAPE rather than by name means nothing has to be listed here; every
+ * real section carries at least its eyebrow and title, so this can only ever
+ * drop a slot. A band one surface fills and the other does not still fails.
  */
 export function readReportOutline(root: ParentNode): ReportOutline {
   const sections = Array.from(root.querySelectorAll<HTMLElement>('[data-report-section]'), readSection)
-    .filter(section => section.id !== 'share-of-voice' || section.items.length > 0 || section.content.length > 0)
+    .filter(section => !isEmptySlot(section))
   return { sections }
+}
+
+function isEmptySlot(section: ReportOutlineSection): boolean {
+  return section.eyebrow === null && section.title === null && section.intro === null
+    && section.items.length === 0 && section.content.length === 0
 }
 
 function readSection(section: HTMLElement): ReportOutlineSection {
