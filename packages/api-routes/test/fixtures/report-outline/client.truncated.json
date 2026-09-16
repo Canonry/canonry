@@ -57,13 +57,13 @@
           "text": "These are the 3 queries we asked every AI tool. The numbers above measure how often you came up."
         },
         {
-          "item": "01\"aeo platform\""
+          "item": "01 \"aeo platform\""
         },
         {
-          "item": "02\"answer engine\""
+          "item": "02 \"answer engine\""
         },
         {
-          "item": "03\"aeo tools\""
+          "item": "03 \"aeo tools\""
         },
         {
           "text": "How often each AI tool mentions you"
@@ -152,7 +152,7 @@
           "tile": "AI links to your website «positive|65% ↑» +15.0% vs 50%"
         },
         {
-          "tile": "Queries AI mentioned you in 2 →0 vs 2"
+          "tile": "Queries AI mentioned you in 2 → 0 vs 2"
         },
         {
           "tile": "Visitors from Google «positive|520 ↑» +8% vs prior 14 days"
@@ -366,7 +366,7 @@
           "text": "The websites AI tools cited most often when answering customer queries about your industry."
         },
         {
-          "text": "best-0.com (competitor)9× answer-1.com 8× aeo-2.com 7× ai-3.com (competitor)6× llm-4.com 5×"
+          "text": "best-0.com (competitor) 9× answer-1.com 8× aeo-2.com 7× ai-3.com (competitor) 6× llm-4.com 5×"
         },
         {
           "text": "Pages Google can find on your site"
