@@ -111,6 +111,24 @@ test('the outcomes explanation claims no competitor finding the buckets never me
   expect(help.getAttribute('aria-label')).not.toMatch(/recommend|somebody else|competitor|rival/i)
 })
 
+/**
+ * The collapsed rows at the foot of the tab came from two components and read
+ * as two designs: bold labels with counts in 64px rows here, small quiet labels
+ * in 44px rows on the project page, a gap in the middle of the stack, and a
+ * focus ring on only some of them. One shared row keeps them one list.
+ */
+test('the report detail rows share one disclosure row pattern', () => {
+  render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
+  const rows = [...document.querySelectorAll('details.visibility-disclosure')]
+  expect(rows.map(row => row.querySelector('.visibility-disclosure-label')?.textContent)).toEqual(['Property outcomes', 'Query results', 'Competitors'])
+  for (const row of rows) {
+    // The row carries no utilities of its own: drift lands in the stylesheet,
+    // where the compiled-rule test in design-tokens.test.ts can see it.
+    expect(row.querySelector('summary')!.className).toBe('visibility-disclosure-summary')
+    expect(row.querySelector('summary > .visibility-disclosure-meta')).toBeTruthy()
+  }
+})
+
 test('a single property reads as one property', () => {
   const report = fixture()
   report.populations[0]!.summary.outcomes = { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 }

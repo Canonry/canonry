@@ -1203,6 +1203,26 @@
     @apply flex items-center gap-1 text-sm text-secondary;
   }
 
+  /* The collapsed rows that end the AI Visibility tab. Three come from the
+     report section and two from the project page, so the row lives here rather
+     than in either component: one label, one count, one rhythm, one divider and
+     one focus ring, or the stack reads as two unrelated designs. */
+  .visibility-disclosure {
+    @apply border-t border-default;
+  }
+
+  .visibility-disclosure-summary {
+    @apply min-h-11 cursor-pointer py-4 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .visibility-disclosure-label {
+    @apply font-semibold;
+  }
+
+  .visibility-disclosure-meta {
+    @apply ml-3 text-sm font-normal text-secondary;
+  }
+
   /* Bounded bar under a breakdown rate. The fill width is the server rate. */
   .report-rate-bar {
     @apply mt-1.5 block h-1 w-full max-w-32 overflow-hidden rounded-full bg-mono-800;

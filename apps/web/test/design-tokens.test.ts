@@ -97,6 +97,21 @@ test('the headline strip separates its tiles instead of sharing one frame', asyn
   expect(tile).toContain('background-color: var(--color-surface)')
 })
 
+// Five collapsed rows end the AI Visibility tab, and they come from two
+// components. They only read as one list while they resolve to one row style,
+// which no component test can see.
+test('every visibility detail row resolves to one collapsed row style', async () => {
+  const css = await compileAppStyles([])
+  const summary = ruleFor(css, '.visibility-disclosure-summary')
+  expect(summary).toContain('cursor: pointer')
+  expect(summary).toMatch(/min-height:/)
+  expect(summary).toMatch(/padding/)
+  expect(summary).toContain('&:focus-visible')
+  expect(summary).toContain('--tw-ring-color: var(--color-mono-400)')
+  expect(ruleFor(css, '.visibility-disclosure')).toMatch(/border-top/)
+  expect(ruleFor(css, '.visibility-disclosure-meta')).toContain('color: var(--color-text-secondary)')
+})
+
 test('measurement table actions stay visible on an opaque surface while columns scroll', async () => {
   const css = await compileAppStyles([])
   const actions = ruleFor(css, '.measurement-table-actions')

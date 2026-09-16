@@ -3163,10 +3163,10 @@ function ProjectPageContent({
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
           />)}
-          {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details key={projectName} className="page-section-divider" onToggle={event => {
+          {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details key={projectName} className="visibility-disclosure" onToggle={event => {
             if (event.currentTarget.open) onRequestOverview()
           }}>
-            <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Project signals</summary>
+            <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Project signals</span></summary>
             {!overviewRequested || overviewLoading ? (
               <p role="status" className="text-sm text-secondary">Loading project signals…</p>
             ) : overviewError ? (
@@ -3183,8 +3183,11 @@ function ProjectPageContent({
             )}
           </details> : null}
           {competitorLandscapeAvailable ? (
-            <details className="page-section-divider" open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
-              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Competitor history</summary>
+            // The Simple overview keeps its own section rhythm, where this row
+            // sits among page sections rather than in the Advanced stack of
+            // collapsed detail rows.
+            <details className={isSimpleOverview ? 'page-section-divider' : 'visibility-disclosure'} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+              <summary className={isSimpleOverview ? 'min-h-11 cursor-pointer py-3 text-sm font-medium text-heading' : 'visibility-disclosure-summary'}>{isSimpleOverview ? 'Competitor history' : <span className="visibility-disclosure-label">Competitor history</span>}</summary>
               <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
               <CompetitorLandscape
                 window={competitorLandscapeWindow}
