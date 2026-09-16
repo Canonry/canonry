@@ -11,7 +11,10 @@ import { GBP_SCOPE, listAccounts, GbpApiError } from '@ainyc/canonry-integration
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 import type { GoogleConnectionRecord } from '../../google.js'
 
-const RECENT_SYNC_WARN_DAYS = 7
+// 4 days rather than 7. GBP metrics land daily, so a week of silence is
+// already a long outage, and the shell alerting this check replaces paged at
+// 4. Consolidating an alarm into the product must not quietly loosen it.
+const RECENT_SYNC_WARN_DAYS = 4
 const RECENT_SYNC_FAIL_DAYS = 30
 
 function skippedNoProject(): CheckOutput {

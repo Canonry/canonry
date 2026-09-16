@@ -710,6 +710,16 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
   checkedAt: text('checked_at').notNull(),
   /** When we last emitted for this (status, code). Null until first emit. */
   notifiedAt: text('notified_at'),
+  /**
+   * Every failing check from the last pass as sorted `status:code` pairs. The
+   * headline code alone cannot see a second breach arriving UNDER an existing
+   * one: a GBP outage opening beneath a standing GA warning left the worst code
+   * unchanged, so it was graded, listed in the payload, and then never sent.
+   * NULL on rows written before this column existed — unknown is not the same
+   * as changed, so the trigger falls back to the code rule for one pass rather
+   * than paging every already-degraded project the moment this ships.
+   */
+  failingSignature: text('failing_signature'),
 })
 
 /**
