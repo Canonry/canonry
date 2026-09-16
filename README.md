@@ -21,12 +21,6 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 ### Start with your agent
 
-Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
-
-Or use [Aero](skills/aero/SKILL.md), Canonry's optional built-in agent. Aero works without an external agent. When enabled, Aero wakes after completed runs to review the evidence.
-
-For a new installation, give your agent this setup request:
-
 <details>
 <summary>Copy the first-time setup request</summary>
 
@@ -51,9 +45,13 @@ If a Canonry installation or connected plugin/MCP is available, use it. Do not c
 
 </details>
 
+### Or Use Official Claude and Codex Plugins
+
+Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
+
 <a id="get-a-page-health-baseline"></a>
 
-### Start locally
+### Or start it locally yourself
 
 1. Install Canonry.
 
