@@ -9,6 +9,9 @@ import {
   SKILL_MANIFEST_FILENAME,
   classifySkillFile,
   coerceSkillManifest,
+  agentPluginClientLabel,
+  formatCanonryPluginUpdateHint,
+  formatCanonryPluginVersionMismatch,
   skillsClientSchema,
   type BundledSkillSnapshot,
   type CodingAgent,
@@ -498,10 +501,29 @@ export function emitInstallSummary(summary: SkillsInstallSummary, format?: strin
 export interface UserSkillsNudge {
   /** One-line message safe to print to stderr at `canonry serve` boot. */
   message: string
+  /**
+   * `plugin` is lockstep against this runtime. `legacy-skills` is the
+   * ~/.claude/skills/ install path used when no native plugin is configured.
+   */
+  source: 'plugin' | 'legacy-skills'
   /** Skills missing from `~/.claude/skills/`. */
   missing: BundledSkillName[]
   /** Skills already installed there. */
   installed: BundledSkillName[]
+}
+
+/**
+ * Serve prints at most one version story. A plugin-lockstep tip on top of
+ * `UPDATE_AVAILABLE` reads as a second CLI upgrade. After the runtime is
+ * current, the plugin tip remains the leftover channel to refresh.
+ */
+export function shouldPrintServeSkillsNudge(
+  nudge: UserSkillsNudge | null,
+  updateAvailable: { current: string; latest: string } | null | undefined,
+): nudge is UserSkillsNudge {
+  if (!nudge) return false
+  if (nudge.source === 'plugin' && updateAvailable) return false
+  return true
 }
 
 /**
@@ -533,20 +555,23 @@ export function getMissingUserSkillsNudge(
       .filter((client) => agentPlugin.verifiedClientVersions?.[client] !== PACKAGE_VERSION)
     if (unverifiedClients.length === 0 && mismatchedClients.length === 0) return null
     const displayClients = (clients: AgentPluginState['configuredClients']) => clients
-      .map((client) => client === 'claude-code' ? 'Claude Code' : 'Codex')
+      .map((client) => agentPluginClientLabel(client))
       .join(' + ')
     const problems: string[] = []
     if (unverifiedClients.length > 0) {
       problems.push(`The Canonry plugin is enabled for ${displayClients(unverifiedClients)}, but its cached manifest and skill assets could not be verified.`)
     }
     if (mismatchedClients.length > 0) {
-      const versions = mismatchedClients
-        .map((client) => `${client === 'claude-code' ? 'Claude Code' : 'Codex'} v${agentPlugin.verifiedClientVersions?.[client] ?? 'unknown'}`)
-        .join(', ')
-      problems.push(`${versions} ${mismatchedClients.length === 1 ? 'does' : 'do'} not match the running Canonry v${PACKAGE_VERSION}.`)
+      problems.push(`${formatCanonryPluginVersionMismatch({
+        mismatchedClients,
+        verifiedClientVersions: agentPlugin.verifiedClientVersions,
+        runningVersion: PACKAGE_VERSION,
+      })}.`)
     }
+    const hintClients = unverifiedClients.length > 0 ? unverifiedClients : mismatchedClients
     return {
-      message: `Tip: ${problems.join(' ')} Update or reinstall \`canonry@canonry\` with the affected client plugin manager.`,
+      message: `Tip: ${problems.join(' ')} ${formatCanonryPluginUpdateHint(hintClients)}`,
+      source: 'plugin',
       missing,
       installed,
     }
@@ -559,6 +584,7 @@ export function getMissingUserSkillsNudge(
     : `canonry skills install ${missing.join(' ')} --user`
   return {
     message: `Tip: ${missing.join(' + ')} skill${missing.length === 1 ? '' : 's'} not installed in ~/.claude/skills/. Run \`${fix}\` so Claude/Codex sessions on this host auto-load the canonry reference docs.`,
+    source: 'legacy-skills',
     missing,
     installed,
   }

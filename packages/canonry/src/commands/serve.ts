@@ -6,7 +6,8 @@ import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
-import { getMissingUserSkillsNudge } from './skills.js'
+import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
+import { readCachedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
@@ -122,6 +123,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
         url,
       }, null, 2))
     } else {
+      // Last operator-facing startup lines, after listen + scheduler + doctor
+      // catch-up logs, so the URL is not buried in the middle of boot output.
       console.log(`\nCanonry server running at ${url}`)
       console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
       if (shouldWarnAboutRemoteSetup(host)) {
@@ -129,7 +132,9 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       }
       console.log('Press Ctrl+C to stop.\n')
       const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())
-      if (nudge) process.stderr.write(`${nudge.message}\n`)
+      if (shouldPrintServeSkillsNudge(nudge, readCachedUpdateAvailable())) {
+        process.stderr.write(`${nudge.message}\n`)
+      }
     }
 
     // Switch the source for the rest of this process — every event emitted

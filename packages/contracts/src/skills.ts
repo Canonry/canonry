@@ -22,6 +22,42 @@ export interface AgentPluginState {
   verifiedClientVersions?: Partial<Record<AgentPluginClient, string>>
 }
 
+/** Human label for a native plugin host. Not the host application's own version. */
+export function agentPluginClientLabel(client: AgentPluginClient): string {
+  return client === 'claude-code' ? 'Claude Code' : 'Codex'
+}
+
+function joinPluginSubjects(subjects: string[]): string {
+  if (subjects.length <= 1) return subjects[0] ?? ''
+  if (subjects.length === 2) return `${subjects[0]} and ${subjects[1]}`
+  return `${subjects.slice(0, -1).join(', ')}, and ${subjects.at(-1)}`
+}
+
+/**
+ * Plugin cache version vs running Canonry runtime. Names the plugin, not the
+ * host app, so "Claude Code v4.129.0" is never read as the Claude Code version.
+ */
+export function formatCanonryPluginVersionMismatch(args: {
+  mismatchedClients: readonly AgentPluginClient[]
+  verifiedClientVersions?: Partial<Record<AgentPluginClient, string>>
+  runningVersion: string
+}): string {
+  const subjects = args.mismatchedClients.map((client) => {
+    const version = args.verifiedClientVersions?.[client] ?? 'unknown'
+    return `the Canonry plugin for ${agentPluginClientLabel(client)} (v${version})`
+  })
+  const verb = args.mismatchedClients.length === 1 ? 'does' : 'do'
+  return `${joinPluginSubjects(subjects)} ${verb} not match this Canonry v${args.runningVersion}`
+}
+
+/** How to bring a stale or unverified `canonry@canonry` plugin cache current. */
+export function formatCanonryPluginUpdateHint(clients: readonly AgentPluginClient[]): string {
+  const names = [...new Set(clients.map(agentPluginClientLabel))]
+  if (names.length === 0) return 'Update or reinstall `canonry@canonry` in the affected client.'
+  if (names.length === 1) return `Update or reinstall \`canonry@canonry\` in ${names[0]}.`
+  return `Update or reinstall \`canonry@canonry\` in ${joinPluginSubjects(names)}.`
+}
+
 /**
  * Scope accepted by the `canonry skills install --client` flag: a specific
  * coding agent or `all` to target every supported agent. Use the
