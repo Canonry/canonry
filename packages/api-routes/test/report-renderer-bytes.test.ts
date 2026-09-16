@@ -7,6 +7,7 @@ import {
   reportWithChangeHistory,
   richReport,
   simpleVisibility,
+  truncatedReport,
 } from '../../contracts/test/fixtures/report-dto.js'
 import { renderReportHtml } from '../src/report-renderer.js'
 import { reportHtmlOutline, reportHtmlSectionIds } from './report-outline.js'
@@ -33,9 +34,10 @@ const FIXTURES = {
   'change-history': reportWithChangeHistory,
   full: fullReport,
   advanced: advancedReport,
+  truncated: truncatedReport,
 } as const satisfies Record<string, () => ProjectReportDto>
 
-const OUTLINE_FIXTURES = ['empty', 'full', 'advanced'] as const
+const OUTLINE_FIXTURES = ['empty', 'full', 'advanced', 'truncated'] as const
 const AUDIENCES = ['client', 'agency'] as const satisfies readonly ReportAudience[]
 
 let originalTimeZone: string | undefined

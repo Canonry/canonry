@@ -43,7 +43,7 @@ import type { ReportOutline, ReportOutlineItem, ReportOutlineSection } from '../
 export type { ReportOutline, ReportOutlineItem, ReportOutlineSection }
 
 /** The fixtures with a committed outline golden per audience. */
-export type ReportOutlineFixture = 'empty' | 'full' | 'advanced'
+export type ReportOutlineFixture = 'empty' | 'full' | 'advanced' | 'truncated'
 
 const GOLDEN_DIR = resolve(import.meta.dirname, '../../../packages/api-routes/test/fixtures/report-outline')
 
