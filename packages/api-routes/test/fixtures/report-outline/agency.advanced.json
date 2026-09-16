@@ -34,8 +34,8 @@
             "Non-brand",
             "2",
             "6",
-            "33.3% 2 of 6 answers",
-            "16.7% 1 of 6 answers"
+            "33.3%2 of 6 answers",
+            "16.7%1 of 6 answers"
           ]
         },
         {
@@ -44,7 +44,7 @@
             "1",
             "3",
             "Not measured Property identity unverified",
-            "0% 0 of 3 answers"
+            "0%0 of 3 answers"
           ]
         },
         {
@@ -67,7 +67,7 @@
       ],
       "content": [
         {
-          "text": "1 «caution|Short term» Content High confidence"
+          "text": "«tip Impact rank — 1 is the highest-leverage action|1» «caution|Short term» Content High confidence"
         },
         {
           "text": "Create content for \"best aeo platform\""
@@ -91,7 +91,7 @@
           "item": "rival.com is the current winning cited source"
         },
         {
-          "text": "Win condition: The client is cited for \"best aeo platform\" in a future sweep. 2 «caution|Short term» Provider High confidence"
+          "text": "Win condition: The client is cited for \"best aeo platform\" in a future sweep. «tip Impact rank — 1 is the highest-leverage action|2» «caution|Short term» Provider High confidence"
         },
         {
           "text": "Diagnose zero-citation providers"
@@ -490,16 +490,16 @@
       ],
       "content": [
         {
-          "tile": "Verified crawler hits (7d) 234 «positive|Up 100% vs prior 7 days (117 hits)»"
+          "tile": "Verified crawler hits (7d)234 «positive|Up 100% vs prior 7 days (117 hits)»"
         },
         {
-          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200% vs prior 7 days (5 hits)»"
+          "tile": "Unverified crawler hits (7d)15 «positive|Up 200% vs prior 7 days (5 hits)»"
         },
         {
-          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133% vs prior 7 days (18 hits)»"
+          "tile": "AI user-fetch hits (7d)42 «positive|Up 133% vs prior 7 days (18 hits)»"
         },
         {
-          "tile": "AI-referral sessions (7d) 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1"
+          "tile": "AI-referral sessions (7d)12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1"
         },
         {
           "text": "Verified crawler hits over time (last 7 days)"
@@ -699,13 +699,13 @@
       ],
       "content": [
         {
-          "text": "88 /100"
+          "text": "«tip Opportunity score (0–100, higher = stronger)|88/100»"
         },
         {
           "text": "best aeo platform"
         },
         {
-          "text": "Create · High confidence high competitor density no own page 62 /100"
+          "text": "Create · High confidence high competitor density no own page «tip Opportunity score (0–100, higher = stronger)|62/100»"
         },
         {
           "text": "answer engine optimization"
@@ -718,7 +718,7 @@
             "best aeo platform",
             "Create",
             "Ownable",
-            "88",
+            "«tip Opportunity score (0–100)|88»",
             "high competitor density no own page",
             "No page yet",
             "«link https://rival.com/best-aeo|rival.com»",
@@ -730,7 +730,7 @@
             "answer engine optimization",
             "Refresh",
             "«caution|Ceded»",
-            "62",
+            "«tip Opportunity score (0–100)|62»",
             "existing page ranks weakly",
             "«link https://rich.example.com/blog/answer-engine-optimization|/blog/answer-engine-optimization»",
             "—",

@@ -211,7 +211,7 @@ describe('reportHtmlOutline', () => {
       <div class="empty-state">Nothing yet.</div>
     </section>
     <div class="chart-note"><p>Share of voice between sections</p></div>`
-    expect(reportHtmlOutline(html)).toEqual({ sections: [{
+    expect(reportHtmlOutline(html).sections[0]).toEqual({
       id: 'demo',
       eyebrow: 'Section 9',
       title: 'Demo & Co',
@@ -239,8 +239,31 @@ describe('reportHtmlOutline', () => {
         { text: '20% of citations went elsewhere.' },
         { text: 'Nothing yet.' },
       ],
-    }] })
+    })
     expect(reportHtmlSectionIds(html)).toEqual(['demo'])
+  })
+
+  test('share-of-voice notes between sections are read as a band of their own', () => {
+    const html = `<section id="one"><h2>One</h2><p class="chart-note">A note INSIDE a section stays there.</p></section>
+      <div class="chart-note"><p>Share of voice · non-brand queries: 25.0%</p><p>No competitors configured.</p></div>
+      <div class="chart-note"><p>Share of voice · branded queries: Not measured</p></div>
+      <section id="two"><h2>Two</h2></section>`
+    // One band, in document order, holding both query classes: the SPA wraps
+    // the same paragraphs in a single [data-report-section="share-of-voice"].
+    expect(reportHtmlOutline(html).sections.map(section => section.id)).toEqual(['one', 'share-of-voice', 'two'])
+    expect(reportHtmlOutline(html).sections[1]).toEqual({
+      id: 'share-of-voice',
+      eyebrow: null,
+      title: null,
+      intro: null,
+      items: [],
+      content: [
+        { text: 'Share of voice · non-brand queries: 25.0% No competitors configured. Share of voice · branded queries: Not measured' },
+      ],
+    })
+    // Still not a <section>: the order assertions compare against these ids.
+    expect(reportHtmlSectionIds(html)).toEqual(['one', 'two'])
+    expect(reportHtmlOutline(html).sections[0]?.items).toEqual([{ note: 'A note INSIDE a section stays there.' }])
   })
 
   test('a section with no scaffold keeps null eyebrow, title and intro, and a legend after the intro stays a note', () => {
@@ -282,6 +305,61 @@ describe('reportHtmlOutline', () => {
       { item: 'immediate Fix it Because.' },
       { summary: 'See the data behind this' },
       { item: '«link https://rival.com/x|rival.com/x»' },
+    ])
+  })
+
+  test('an element boundary separates two words but never a number from its unit', () => {
+    const html = `<section id="spacing">
+      <p class="meta"><span>65</span><span>%</span> of <span>answers</span><span>cite you</span></p>
+      <p class="meta">88<span>/100</span></p>
+      <p class="meta"><span>$</span>1,200 raised</p>
+      <p class="meta"><strong>Cited</strong>
+        <span>in 3 answers</span></p>
+      <p class="meta"><span>C</span>/<span>c</span></p>
+      <p class="meta"><span>C</span> / <span>c</span></p>
+    </section>`
+    expect(reportHtmlOutline(html).sections[0]?.content).toEqual([
+      // A split number reads as one token, and two words still read as two.
+      { text: '65% of answers cite you' },
+      { text: '88/100' },
+      { text: '$1,200 raised' },
+      // The HTML report's indentation is its own formatting, so the boundary it
+      // wraps still reads as the one space a reader sees.
+      { text: 'Cited in 3 answers' },
+      // The deliberate blindness: away from a number a boundary reads as a
+      // space, so a surface rendering `C/c` cannot be told from one rendering
+      // `C / c`. See `glues` for why that is the safer of the two mistakes.
+      { text: 'C / c' },
+      { text: 'C / c' },
+    ])
+  })
+
+  test('copy a reader hovers for is read, and a title that only repeats the words is not', () => {
+    const html = `<section id="tips">
+      <table class="report-table"><thead><tr><th>Score</th></tr></thead>
+        <tbody><tr><td title="Opportunity score (0–100)">88</td></tr></tbody></table>
+      <p class="meta"><span title="/pricing?gclid=abc">Google Ad · 2 params</span></p>
+      <p class="meta"><span title="Truncated label">Truncated label</span></p>
+    </section>`
+    expect(reportHtmlOutline(html).sections[0]?.content).toEqual([
+      { row: ['«tip Opportunity score (0–100)|88»'] },
+      { text: '«tip /pricing?gclid=abc|Google Ad · 2 params»' },
+      { text: 'Truncated label' },
+    ])
+  })
+
+  test('a tone on a card that holds units marks each of them, instead of being swallowed', () => {
+    // The shape of a diagnostics card: the accent IS the card's severity, and
+    // it sits on a wrapper the walk would otherwise pass straight through.
+    const html = `<section id="cards">
+      <div class="diagnostic-card tone-negative"><h3>Provider citation coverage</h3><p>One provider returned zero.</p>
+        <div class="proof-chips"><span class="proof-chip">openai: 0/2</span></div></div>
+      <table class="report-table"><tbody><tr class="tone-caution"><td>Weak market</td><td>michigan</td></tr></tbody></table>
+    </section>`
+    expect(reportHtmlOutline(html).sections[0]?.content).toEqual([
+      { text: '«negative|Provider citation coverage»' },
+      { text: '«negative|One provider returned zero. openai: 0/2»' },
+      { row: ['«caution|Weak market»', '«caution|michigan»'] },
     ])
   })
 })
