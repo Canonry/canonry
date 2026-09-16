@@ -57,13 +57,13 @@
           "text": "These are the 3 queries we asked every AI tool. The numbers above measure how often you came up."
         },
         {
-          "item": "01 \"aeo platform\""
+          "item": "01\"aeo platform\""
         },
         {
-          "item": "02 \"answer engine\""
+          "item": "02\"answer engine\""
         },
         {
-          "item": "03 \"aeo tools\""
+          "item": "03\"aeo tools\""
         },
         {
           "text": "How often each AI tool mentions you"
@@ -140,7 +140,7 @@
           "tile": "AI links to your website «positive|65% ↑» +15.0% vs 50%"
         },
         {
-          "tile": "Queries AI mentioned you in 2 → 0 vs 2"
+          "tile": "Queries AI mentioned you in 2 →0 vs 2"
         },
         {
           "tile": "Visitors from Google «positive|520 ↑» +8% vs prior 14 days"
@@ -273,7 +273,7 @@
       ],
       "content": [
         {
-          "text": "1 «caution|This month» Strong evidence"
+          "text": "«tip Priority — 1 will move the needle fastest|1» «caution|This month» Strong evidence"
         },
         {
           "text": "Create content for \"best aeo platform\""
@@ -340,7 +340,7 @@
           "text": "The websites AI tools cited most often when answering customer queries about your industry."
         },
         {
-          "text": "reddit.com 4× rival.com (competitor) 2×"
+          "text": "reddit.com 4× rival.com (competitor)2×"
         },
         {
           "text": "Pages Google can find on your site"

@@ -25,8 +25,10 @@
  *   `.scope-warning`, and any `p.section-intro` that is not the section intro).
  *
  * A classified element is read whole; nothing inside it is classified again.
- * Text is whitespace-normalized. Share-of-voice notes sit between sections, so
- * they are not part of any section's outline.
+ * Text is whitespace-normalized. Share-of-voice notes sit between sections
+ * rather than inside one, so they are collected into a pseudo-section of their
+ * own (see `shareOfVoiceSection`); the page header and footer are the only
+ * rendered copy deliberately left out, for the reasons on `reportHtmlOutline`.
  *
  * `content` is the second half of the golden: what a reader READS in the
  * section — tile values and subtitles, table body cells, badges and their tone,
@@ -78,13 +80,61 @@ function parseReportHtml(html: string): Document {
   return new JSDOM(html).window.document
 }
 
-/** Section ids in document order. Share of voice is not a section in the HTML report. */
+/** Section ids in document order. Share of voice is not a `<section>` in the HTML report. */
 export function reportHtmlSectionIds(html: string): string[] {
   return Array.from(parseReportHtml(html).querySelectorAll('section[id]'), section => section.id)
 }
 
+/**
+ * The share-of-voice band: percentage and reason, which the HTML report writes
+ * as loose `.chart-note` siblings BETWEEN sections rather than as a section of
+ * its own. Scoping the outline to `section[id]` left it in no section at all,
+ * so a one-surface rewrite of the copy passed. Consecutive notes become one
+ * pseudo-section, because the SPA wraps the same paragraphs in a single
+ * `[data-report-section="share-of-voice"]`.
+ */
+const SHARE_OF_VOICE_NOTE = '.chart-note'
+
+function shareOfVoiceSection(notes: readonly Element[]): ReportOutlineSection {
+  const band = notes[0]!.ownerDocument.createElement('div')
+  // The paragraphs, not the note wrappers: the SPA has one wrapper, the HTML
+  // one per query class, and a reader reads the same lines either way.
+  for (const note of notes) for (const child of Array.from(note.children)) band.append(child.cloneNode(true))
+  return {
+    id: 'share-of-voice',
+    eyebrow: null,
+    title: null,
+    intro: null,
+    items: [],
+    content: readReportContent(band, new Set(), HTML_SURFACE),
+  }
+}
+
+/**
+ * Every rendered band in document order. The page `<header>` and `<footer>`
+ * stay out on purpose: the footer is the downloadable file's own attribution
+ * with no SPA counterpart (the byte snapshots pin it), and the header's line
+ * has its own parity test in `apps/web/test/report-page.test.tsx`.
+ */
 export function reportHtmlOutline(html: string): ReportOutline {
-  return { sections: Array.from(parseReportHtml(html).querySelectorAll('section[id]'), readSection) }
+  const sections: ReportOutlineSection[] = []
+  let notes: Element[] = []
+  const flushNotes = () => {
+    if (notes.length > 0) sections.push(shareOfVoiceSection(notes))
+    notes = []
+  }
+  for (const element of Array.from(parseReportHtml(html).querySelectorAll(`section[id], ${SHARE_OF_VOICE_NOTE}`))) {
+    if (element.matches(SHARE_OF_VOICE_NOTE)) {
+      // Only the loose ones. A `.chart-note` inside a section is that section's
+      // note, and the outline already reads it there.
+      if (!element.closest('section[id]')) notes.push(element)
+      continue
+    }
+    flushNotes()
+    sections.push(readSection(element))
+  }
+  flushNotes()
+  return { sections }
 }
 
 function readSection(section: Element): ReportOutlineSection {
@@ -145,6 +195,9 @@ const HTML_SURFACE: ReportContentSurface = {
     }
     return null
   },
+  // The downloadable report has no scripting, so every hover explanation is a
+  // `title`. The SPA states the same words through an InfoTooltip.
+  tip: element => normalizeOutlineText(element.getAttribute('title')) || null,
   // A tile is whatever holds one of the outline's tile labels, so both readings
   // of a tile come from one definition.
   isTile: element => Array.from(element.children).some(child => child.matches(TILE_LABEL)),

@@ -8,8 +8,8 @@
  *
  * The SPA marks with `data-report-*` hooks what the HTML marks with classes:
  * - a section is `[data-report-section="<id>"]`. Share of voice carries
- *   `share-of-voice`, but it is not a section in the HTML report, so outlines
- *   leave it out while `readReportSectionIds` keeps it.
+ *   `share-of-voice`; the HTML report writes the same band as loose notes
+ *   between sections, which its reader collects under the same id.
  * - the scaffold is `[data-report-eyebrow]`, the first `h2`, and
  *   `[data-report-intro]`.
  * - then, in document order: `[data-report-heading]`, `[data-report-tile]`,
@@ -30,14 +30,15 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll } from 'vitest'
 import type { ReportAudience } from '@ainyc/canonry-contracts'
+// The walker itself, not the HTML reader around it: `report-reading.ts` works
+// on any `Element` and imports nothing, while `report-outline.ts` pulls in
+// jsdom at module scope, which no SPA suite has any use for.
 import {
   readReportContent,
   type ReportContentSurface,
   type ReportContentTone,
-  type ReportOutline,
-  type ReportOutlineItem,
-  type ReportOutlineSection,
-} from '../../../packages/api-routes/test/report-outline.js'
+} from '../../../packages/api-routes/test/report-reading.js'
+import type { ReportOutline, ReportOutlineItem, ReportOutlineSection } from '../../../packages/api-routes/test/report-outline.js'
 
 export type { ReportOutline, ReportOutlineItem, ReportOutlineSection }
 
@@ -87,11 +88,21 @@ export function readReportSectionIds(root: ParentNode): string[] {
   return Array.from(root.querySelectorAll<HTMLElement>('[data-report-section]'), element => element.dataset.reportSection ?? '')
 }
 
-/** The SPA's outline, comparable with `reportOutlineGolden`. */
+/**
+ * The SPA's outline, comparable with `reportOutlineGolden`.
+ *
+ * Share of voice is a band, not a `<section>`, in the HTML report: it is two
+ * loose notes between sections, which the HTML reader collects into a
+ * pseudo-section of the same id. It renders NOTHING on either surface when the
+ * report has no share figure — the SPA still emits the empty slot, the HTML
+ * emits no notes — so an empty band is dropped here, exactly as the HTML has
+ * nothing to collect. A band one surface fills and the other does not still
+ * fails.
+ */
 export function readReportOutline(root: ParentNode): ReportOutline {
-  const sections = Array.from(root.querySelectorAll<HTMLElement>('[data-report-section]'))
-    .filter(section => section.dataset.reportSection !== 'share-of-voice')
-  return { sections: sections.map(readSection) }
+  const sections = Array.from(root.querySelectorAll<HTMLElement>('[data-report-section]'), readSection)
+    .filter(section => section.id !== 'share-of-voice' || section.items.length > 0 || section.content.length > 0)
+  return { sections }
 }
 
 function readSection(section: HTMLElement): ReportOutlineSection {
@@ -131,10 +142,17 @@ function readSection(section: HTMLElement): ReportOutlineSection {
  */
 const SPA_TONE = /^(?:text|insight-card)-(positive|caution|negative)(?:-\d{2,3})?$/
 
-/** The words an InfoTooltip keeps on its trigger, or null when there is no trigger. */
+/**
+ * The words an InfoTooltip beside this element keeps on its trigger, or null.
+ *
+ * `:scope >` on purpose: a note that carries prose AND a tooltip for one term
+ * inside it would otherwise report the sub-term's explanation as the whole
+ * note. An empty accessible name is null rather than `''`, so every caller's
+ * `??` falls through to the element's own words instead of reading nothing.
+ */
 function tooltipText(element: Element): string | null {
-  const trigger = element.querySelector('button.info-tooltip-trigger')
-  return trigger ? normalizeOutlineText(trigger.getAttribute('aria-label')) : null
+  const trigger = element.querySelector(':scope > .info-tooltip-wrapper > button.info-tooltip-trigger')
+  return normalizeOutlineText(trigger?.getAttribute('aria-label')) || null
 }
 
 const SPA_SURFACE: ReportContentSurface = {
@@ -145,6 +163,12 @@ const SPA_SURFACE: ReportContentSurface = {
     }
     return null
   },
+  // `title` where the HTML report uses `title`, and the InfoTooltip beside a
+  // value where it uses one — the same words either way. A note is excluded:
+  // there the tooltip IS the note's words, read through `overrideText`.
+  tip: element => (element.hasAttribute('data-report-note')
+    ? null
+    : normalizeOutlineText(element.getAttribute('title')) || tooltipText(element)),
   isTile: element => Array.from(element.children).some(child => child.hasAttribute('data-report-tile')),
   // Every SPA list row is an `li`; only the HTML report writes one as a `div`.
   isListRow: () => false,
@@ -153,8 +177,20 @@ const SPA_SURFACE: ReportContentSurface = {
     || element.hasAttribute('data-report-note')
     || element.hasAttribute('data-report-empty'),
   // A note rendered as an InfoTooltip keeps its words on the trigger button,
-  // which the walker skips along with every other interactive control.
-  overrideText: element => (element.hasAttribute('data-report-note') ? tooltipText(element) : null),
+  // which the walker skips along with every other interactive control. A note
+  // that has words of its own keeps them: overriding on the mere PRESENCE of a
+  // trigger would drop the sentence the reader sees.
+  overrideText: element => (element.hasAttribute('data-report-note') && noteText(element) === ''
+    ? tooltipText(element)
+    : null),
+}
+
+/** A note's own visible words, ignoring any tooltip trigger inside it. */
+function noteText(element: Element): string {
+  return normalizeOutlineText(Array.from(element.childNodes)
+    .filter(node => !(node instanceof Element && node.classList.contains('info-tooltip-wrapper')))
+    .map(node => node.textContent ?? '')
+    .join(''))
 }
 
 function classify(element: Element): ReportOutlineItem | null {
@@ -165,7 +201,7 @@ function classify(element: Element): ReportOutlineItem | null {
   }
   if (element.hasAttribute('data-report-empty')) return { empty: normalizeOutlineText(element.textContent) }
   if (element.hasAttribute('data-report-note')) {
-    return { note: tooltipText(element) ?? normalizeOutlineText(element.textContent) }
+    return { note: noteText(element) || tooltipText(element) || '' }
   }
   return null
 }
