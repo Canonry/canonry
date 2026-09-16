@@ -43,6 +43,7 @@ import {
   reportMarketScope,
   reportMentionScopeLabel,
   reportMissRateLabel,
+  reportMoreChipLabel,
   reportMovementChangeCopy,
   reportOpportunityActionLine,
   reportProviderDisplayName,
@@ -164,6 +165,10 @@ describe('shared report helpers', () => {
     expect(reportTruncatedList(['a', 'b', 'c', 'd', 'e', 'f'], 5)).toBe('a, b, c, d, e…')
     expect(reportTruncatedList(['a', 'b', 'c', 'd', 'e'], 5)).toBe('a, b, c, d, e')
     expect(reportInstanceCountLabel(2)).toBe('× 2')
+    // The chip that stands in for the proof items a card did not show. Both
+    // renderers read it from here, so a reword cannot land on one surface only.
+    expect(reportMoreChipLabel(1)).toBe('+1 more')
+    expect(reportMoreChipLabel(12)).toBe('+12 more')
     expect(reportBarChartLabel('Provider citation rate')).toBe('Provider citation rate bar chart')
     expect(reportLineChartLabel('Clicks over time')).toBe('Clicks over time line chart')
   })
