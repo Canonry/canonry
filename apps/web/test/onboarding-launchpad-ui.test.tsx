@@ -691,6 +691,7 @@ test('gives an agent a copyable setup request', async () => {
   expect(AGENT_SETUP_REQUEST).toContain('If configuration is missing, tell me to run `cnry bootstrap`')
   expect(AGENT_SETUP_REQUEST).toContain('Never ask me to paste passwords, API keys, OAuth credentials, or command output')
   expect(AGENT_SETUP_REQUEST).toContain('Read the crawl termination reason')
+  expect(AGENT_SETUP_REQUEST).toContain('If a reused project already has a completed or partial Site Health scan, read that scan instead of proposing a new one')
   expect(AGENT_SETUP_REQUEST).toContain('Never present a bounded first scan as a full-site result')
   expect(screen.getByRole('button', { name: 'Copied setup request' })).toBeTruthy()
 })
