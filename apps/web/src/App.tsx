@@ -500,14 +500,10 @@ export function RootLayout() {
     if (path === '/traffic') return 'Traffic sources'
     if (path.startsWith('/traffic/')) return 'Traffic sources'
     if (path.startsWith('/projects/')) {
-      // Try to find project name
-      const segments = path.split('/').filter(Boolean)
-      const projectId = segments[1]
-      if (projectId && safeDashboard) {
-        const projectVm = safeDashboard.projects.find(p => p.project.id === projectId)
-        if (projectVm) return projectVm.project.name
-      }
-      return 'Project'
+      // `currentProjectName` already decodes the segment and resolves a name or
+      // an id to the project name. Label the project the way the sidebar does.
+      const projectVm = safeDashboard?.projects.find(p => p.project.name === currentProjectName)
+      return projectVm?.project.displayName || projectVm?.project.name || currentProjectName || 'Projects'
     }
     return 'Not found'
   })()

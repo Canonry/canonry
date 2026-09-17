@@ -3,7 +3,6 @@ import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contract
 import type {
   AiSourceCategoryBucket,
   CitationsTrendPoint,
-  CompetitorRow,
   GscQueryRow,
   ProjectReportDto,
   ReportActionPlanItem,
@@ -16,13 +15,11 @@ import {
   CitationStates,
   contentActionLabel,
   winnabilityClassLabel,
-  dedupeReportActions,
   dedupeReportOpportunities,
   deltaPercent,
   deltaTone,
-  formatAverageDelta,
+  describeLandingPage,
   formatDate,
-  formatDateRange,
   formatDeltaCopy,
   formatIsoDate,
   formatNumber,
@@ -30,14 +27,78 @@ import {
   formatWindowCountDelta,
   reportActionCategoryLabel,
   reportActionTone,
-  reportConfidenceLabel,
-  reportHorizonLabel,
   reportSeverityLabel,
+  reportInsightTone,
+  reportPressureTone,
+  reportSourceCategoryTone,
+  safeLinkHref,
+} from '@ainyc/canonry-contracts'
+// Every visible string the SPA report shares comes from the contracts copy
+// module (report parity). Byte snapshots in test/report-renderer-bytes.test.ts
+// pin the output, so moving copy there changes nothing a reader downloads.
+import {
+  REPORT_HEADER_COPY,
+  REPORT_SECTION_COPY,
+  ReportSectionIds,
+  reportActionConfidenceBadge,
+  reportActionHorizonBadge,
+  reportAudienceActions,
+  reportBarChartLabel,
+  reportCitationsTrendBaseline,
+  reportCitedUrlCount,
+  reportClientCitedSubtitle,
+  reportClientClicksNoun,
+  reportClientHeroSentence,
+  reportClientIndexedPages,
+  reportClientIndexingTone,
+  reportClientMentionedSubtitle,
+  reportClientNotIndexedTail,
+  reportClientProvidersSubtitle,
+  reportClientQueriesSubtitle,
+  reportClientSearchCount,
+  reportClientSourceCount,
+  reportClientTrendCopy,
+  reportCompactList,
+  reportCompetitorMentionCopy,
+  reportCrawlerTrustSummary,
+  reportDeltaArrow,
+  reportDirectionTone,
+  reportExecutiveHeadline,
+  reportGaIntro,
+  reportGscIntro,
+  reportHeaderMarketLabel,
+  reportHeaderPeriodLabel,
+  reportIndexingIntro,
+  reportIndexingLegendLabel,
+  reportInstanceCountLabel,
+  reportLineChartLabel,
+  reportMarketScope,
+  reportMissRateLabel,
+  reportMoreChipLabel,
+  reportMovementChangeCopy,
+  reportOpportunityActionLine,
+  reportPriorWindowLabel,
+  reportProviderDisplayName,
+  reportProviderRateLabel,
+  reportRateDeltaCopy,
+  reportReferralRedirectNote,
+  reportServerActivityAgencyOperatorHeaders,
+  reportServerActivityAgencyTiles,
+  reportServerActivityClientOperatorHeaders,
+  reportServerActivityCrawledPathsNote,
+  reportServerActivityHeading,
+  reportServerActivityOperatorDelta,
+  reportServerActivityPathHits,
+  reportServerActivityTrendTitle,
+  reportShareBarShareLabel,
+  reportSourceCategoryShareLabel,
+  reportSourceOriginHeadline,
+  reportTrendProviderRates,
+  reportTruncatedList,
 } from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
-  MIN_TREND_POINTS,
 } from '@ainyc/canonry-intelligence'
 
 const COLORS = {
@@ -65,136 +126,22 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Safe `href` value for anchor tags. Citation and competitor URLs in the
- * report come from LLM grounding sources — attackers who plant `javascript:`
- * or `data:` URIs in cited content (or on their own pages) would otherwise
- * smuggle them through `escapeHtml` (which only escapes HTML metacharacters,
- * not URL schemes) and detonate when an operator clicks the link in the
- * downloaded file. Returns `#` for any non-http(s)/mailto value.
+ * Safe, escaped `href` value for anchor tags. Citation and competitor URLs in
+ * the report come from LLM grounding sources, and `escapeHtml` only escapes HTML
+ * metacharacters, not URL schemes. `safeLinkHref` turns a planted `javascript:`
+ * or `data:` URI into `#` first, so it cannot detonate when an operator clicks
+ * the link in the downloaded file.
  */
 function safeHref(value: string | null | undefined): string {
-  const trimmed = (value ?? '').trim()
-  if (!trimmed) return '#'
-  // Permit absolute paths so HTML the SPA also emits stays usable; the
-  // renderer's other sites still resolve relative URLs upstream.
-  if (trimmed.startsWith('/')) return escapeHtml(trimmed)
-  if (/^https?:\/\//i.test(trimmed)) return escapeHtml(trimmed)
-  if (/^mailto:/i.test(trimmed)) return escapeHtml(trimmed)
-  return '#'
+  return escapeHtml(safeLinkHref(value))
 }
 
-function summarizeQueryParams(params: URLSearchParams): string {
-  const keys = Array.from(params.keys())
-  const total = keys.length
-  if (total === 0) return ''
-  const noun = total === 1 ? 'param' : 'params'
-  const tag = inferAdSource(params)
-  return tag ? `${tag} · ${total} ${noun}` : `${total} tracking ${noun}`
-}
-
-function inferAdSource(params: URLSearchParams): string | null {
-  if (params.has('fbclid')) return 'Facebook Ad'
-  if (params.has('gclid') || params.has('gbraid') || params.has('wbraid')) return 'Google Ad'
-  if (params.has('msclkid')) return 'Microsoft Ad'
-  if (params.has('ttclid')) return 'TikTok Ad'
-  if (params.has('li_fat_id')) return 'LinkedIn Ad'
-  if (params.has('twclid')) return 'X / Twitter Ad'
-  if (params.has('epik')) return 'Pinterest Ad'
-  for (const k of params.keys()) {
-    if (k.startsWith('hsa_')) return 'Search Ad'
-  }
-  const src = params.get('utm_source')
-  const med = params.get('utm_medium')
-  if (src && med) return `${src} / ${med}`
-  if (src) return `Source: ${src}`
-  if (med) return `Medium: ${med}`
-  return null
-}
-
+/** A landing page cell: the path, plus the tracking-query summary with the full URL as its title. */
 export function formatLandingPageHtml(raw: string): string {
-  const value = raw ?? ''
-  const queryIdx = value.indexOf('?')
-  const path = queryIdx === -1 ? value : value.slice(0, queryIdx)
-  const query = queryIdx === -1 ? '' : value.slice(queryIdx + 1)
-  const pathHtml = `<span class="page-path">${escapeHtml(path || '/')}</span>`
-  if (!query) return pathHtml
-  let summary = ''
-  try {
-    summary = summarizeQueryParams(new URLSearchParams(query))
-  } catch {
-    summary = 'tracking params'
-  }
-  if (!summary) return pathHtml
-  return `${pathHtml}<span class="page-query" title="${escapeHtml(value)}">${escapeHtml(summary)}</span>`
-}
-
-function gscDateRange(report: ProjectReportDto): string {
-  const summary = report.executiveSummary.gsc
-  const gsc = report.gsc
-  const start = summary?.periodStart || gsc?.periodStart || gsc?.trend[0]?.date || ''
-  const end = summary?.periodEnd || gsc?.periodEnd || gsc?.trend.at(-1)?.date || ''
-  return formatDateRange(start, end)
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return count === 1 ? singular : plural
-}
-
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  gemini: 'Gemini',
-  openai: 'ChatGPT',
-  claude: 'Claude',
-  perplexity: 'Perplexity',
-  local: 'Local model',
-  'cdp:chatgpt': 'ChatGPT (browser)',
-}
-
-function providerDisplayName(name: string): string {
-  return PROVIDER_DISPLAY_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
-}
-
-function clientHorizonLabel(horizon: ReportActionPlanItem['horizon']): string {
-  switch (horizon) {
-    case 'immediate': return 'Do now'
-    case 'short-term': return 'This month'
-    case 'medium-term': return 'Next quarter'
-  }
-}
-
-function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): string {
-  switch (confidence) {
-    case 'high': return 'Strong evidence'
-    case 'medium': return 'Some evidence'
-    case 'low': return 'Worth trying'
-  }
-}
-
-function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']): { text: string; tone: 'positive' | 'negative' | 'neutral'; arrow: string } | null {
-  if (!delta) return null
-  if (delta.direction === 'up') {
-    return { text: `Up ${delta.deltaAbs.toFixed(1)} points ${compareCopy(delta)}`, tone: 'positive', arrow: '↑' }
-  }
-  if (delta.direction === 'down') {
-    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points ${compareCopy(delta)}`, tone: 'negative', arrow: '↓' }
-  }
-  return { text: `Holding steady ${compareCopy(delta)}`, tone: 'neutral', arrow: '→' }
-}
-
-/** When `window` is ≥ 2 the prior/current values are rolling averages
- *  — label them as such so a reader doesn't misread an averaged number
- *  as a single-check snapshot. Mirrored verbatim in the SPA renderer
- *  per the "Report parity" rule. */
-function compareCopy(delta: { prior: number; window?: number }): string {
-  const window = delta.window ?? 1
-  return window >= 2
-    ? `vs prior ${window} checks (avg ${delta.prior}%)`
-    : `since last check (was ${delta.prior}%)`
-}
-
-function compactInlineList(items: readonly string[], limit = 3): string {
-  const visible = items.slice(0, limit)
-  const more = items.length - visible.length
-  return `${visible.join(', ')}${more > 0 ? `, +${more} more` : ''}`
+  const page = describeLandingPage(raw)
+  const pathHtml = `<span class="page-path">${escapeHtml(page.path)}</span>`
+  if (!page.querySummary) return pathHtml
+  return `${pathHtml}<span class="page-query" title="${escapeHtml(page.raw)}">${escapeHtml(page.querySummary)}</span>`
 }
 
 function renderProofChips(items: readonly string[], limit = 3): string {
@@ -202,24 +149,8 @@ function renderProofChips(items: readonly string[], limit = 3): string {
   const visible = items.slice(0, limit)
   const more = items.length - visible.length
   const chips = visible.map(item => `<span class="proof-chip">${escapeHtml(item)}</span>`)
-  if (more > 0) chips.push(`<span class="proof-chip">+${more} more</span>`)
+  if (more > 0) chips.push(`<span class="proof-chip">${reportMoreChipLabel(more)}</span>`)
   return `<div class="proof-chips">${chips.join('')}</div>`
-}
-
-function pressureTone(label: CompetitorRow['pressureLabel']): 'positive' | 'caution' | 'negative' | 'neutral' {
-  if (label === 'High') return 'negative'
-  if (label === 'Moderate') return 'caution'
-  if (label === 'Low') return 'positive'
-  return 'neutral'
-}
-
-function severityTone(severity: ReportInsight['severity']): 'positive' | 'caution' | 'negative' | 'neutral' {
-  switch (severity) {
-    case 'critical': return 'negative'
-    case 'high': return 'negative'
-    case 'medium': return 'caution'
-    case 'low': return 'neutral'
-  }
 }
 
 const STYLE = `
@@ -439,6 +370,7 @@ section.report-section .section-intro {
 .source-bar-pct { color: ${COLORS.textFaint}; font-size: 11px; }
 .driver-list { margin: 0; padding-left: 16px; font-size: 12px; color: ${COLORS.textMuted}; }
 .driver-list li { margin: 2px 0; }
+.table-scroll { overflow-x: auto; }
 table.report-table {
   width: 100%;
   border-collapse: collapse;
@@ -461,7 +393,7 @@ table.report-table th {
 }
 table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.report-table td.page-cell { max-width: 0; }
-table.insights-table { table-layout: fixed; }
+table.insights-table { table-layout: fixed; min-width: 680px; }
 table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }
 table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }
 table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }
@@ -492,6 +424,7 @@ table.report-table td .badge {
   font-weight: 600;
   border: 1px solid;
 }
+table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; color: ${COLORS.textMuted}; }
 .cell-cited { color: ${COLORS.positive}; font-weight: 600; }
 .cell-not-cited { color: ${COLORS.textFaint}; }
 .cell-pending { color: ${COLORS.textFaint}; font-style: italic; }
@@ -517,7 +450,7 @@ table.report-table td .badge {
 }
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   gap: 16px;
 }
 .mention-branded-block {
@@ -871,7 +804,7 @@ table.report-table td .badge {
 .client-progress-fill.tone-negative { background: ${COLORS.negative}b3; }
 .client-evidence-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   gap: 16px;
 }
 .client-opportunity-list {
@@ -965,6 +898,7 @@ table.report-table td .badge {
     print-color-adjust: exact;
   }
   .container { max-width: none; padding: 0; }
+  .table-scroll { overflow: visible; }
   section.report-section,
   .executive-hero,
   .headline-card,
@@ -1006,66 +940,40 @@ function renderEmpty(message: string): string {
   return `<div class="empty-state">${escapeHtml(message)}</div>`
 }
 
-function locationDisplay(location: ProjectReportDto['meta']['location']): string {
-  if (!location) return ''
-  const place = [location.city, location.region, location.country].filter(Boolean).join(', ')
-  return place ? `${location.label} (${place})` : location.label
-}
-
 function renderHeaderLocationFragment(location: ProjectReportDto['meta']['location']): string {
-  if (!location) return ' · No market set'
-  return ` · Market: ${escapeHtml(locationDisplay(location))}`
+  return ` · ${escapeHtml(reportHeaderMarketLabel(location))}`
 }
 
 
 function renderLocationCard(report: ProjectReportDto): string {
-  const location = report.meta.location
-  const handling = report.meta.providerLocationHandling
-  if (!location && handling.length === 0) return ''
+  const scope = reportMarketScope(report)
+  if (!scope) return ''
+  const copy = REPORT_SECTION_COPY['executive-summary'].marketScope
 
-  const otherLocations = location?.otherConfiguredLabels ?? []
-  const weakLocationProviders = handling
-    .filter(h => h.treatment === 'ignored' || h.treatment === 'browser-geo')
-    .map(h => h.provider)
-
-  const marketValue = location ? locationDisplay(location) : 'No market set'
-  const notIncluded = otherLocations.length > 0 ? compactInlineList(otherLocations, 4) : 'None'
-  const interpretation = location
-    ? otherLocations.length > 0
-      ? `${otherLocations.length} configured ${pluralize(otherLocations.length, 'market')} still ${otherLocations.length === 1 ? 'needs' : 'need'} a matching check before cross-market recommendations.`
-      : 'Single-market report; findings can be read as the current market view.'
-    : 'No geographic hint was attached to this check; read findings as default-market or national results.'
-
-  const providerCopy = handling.length > 0
-    ? weakLocationProviders.length > 0
-      ? `${weakLocationProviders.length} ${pluralize(weakLocationProviders.length, 'provider')} need a closer location check.`
-      : `${handling.length} ${pluralize(handling.length, 'provider')} received the market context.`
-    : 'No provider-level location metadata is available for this report.'
-
-  const warning = weakLocationProviders.length > 0
+  const warning = scope.weakProviders !== null
     ? `<div class="scope-warning">
-        <strong>Location handling needs review</strong>
-        ${escapeHtml(compactInlineList(weakLocationProviders, 4))} used weak or indirect market handling. Treat provider-level differences cautiously.
+        <strong>${copy.warningTitle}</strong>
+        ${escapeHtml(scope.weakProviders)} ${copy.warningDetail}
       </div>`
     : ''
 
   return `<div class="chart-card market-scope-card">
-    <h3>Market Scope</h3>
+    <h3>${copy.heading}</h3>
     <div class="market-scope-grid">
       <div class="scope-tile">
-        <div class="scope-label">Current check</div>
-        <div class="scope-value">${escapeHtml(marketValue)}</div>
-        <div class="scope-copy">All findings below are scoped to this run.</div>
+        <div class="scope-label">${copy.currentLabel}</div>
+        <div class="scope-value">${escapeHtml(scope.currentValue)}</div>
+        <div class="scope-copy">${copy.currentCopy}</div>
       </div>
       <div class="scope-tile">
-        <div class="scope-label">Not included</div>
-        <div class="scope-value">${escapeHtml(notIncluded)}</div>
-        <div class="scope-copy">${escapeHtml(interpretation)}</div>
+        <div class="scope-label">${copy.notIncludedLabel}</div>
+        <div class="scope-value">${escapeHtml(scope.notIncludedValue)}</div>
+        <div class="scope-copy">${escapeHtml(scope.notIncludedCopy)}</div>
       </div>
       <div class="scope-tile">
-        <div class="scope-label">Provider context</div>
-        <div class="scope-value">${handling.length > 0 ? formatNumber(handling.length) : '—'}</div>
-        <div class="scope-copy">${escapeHtml(providerCopy)}</div>
+        <div class="scope-label">${copy.providerLabel}</div>
+        <div class="scope-value">${scope.providerValue}</div>
+        <div class="scope-copy">${escapeHtml(scope.providerCopy)}</div>
       </div>
     </div>
     ${warning}
@@ -1074,82 +982,65 @@ function renderLocationCard(report: ProjectReportDto): string {
 
 function renderExecutiveSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
-  const trendLabel = s.trend === 'up' ? '↑ Up' : s.trend === 'down' ? '↓ Down' : s.trend === 'flat' ? '→ Flat' : '—'
-  const trendTone = s.trend === 'up' ? 'positive' : s.trend === 'down' ? 'negative' : 'neutral'
-
-  const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
-  const citedFragment = (s.totalQueryCount ?? 0) > 0
-    ? `${s.citedQueryCount}/${s.totalQueryCount} ${queryNoun} cited`
-    : 'no queries'
-  const mentionedFragment = (s.totalQueryCount ?? 0) > 0
-    ? `${s.mentionedQueryCount}/${s.totalQueryCount} ${queryNoun} mentioned`
-    : 'no queries'
-  const headlineTitle = (s.totalQueryCount ?? 0) > 0
-    ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} cite ${report.meta.project.displayName}`
-    : 'No AI citation data yet'
-  const headlineSubtitle = (s.totalQueryCount ?? 0) > 0
-    ? `${s.citationRate}% citation coverage and ${s.mentionRate}% mention coverage across ${s.providerCount} ${pluralize(s.providerCount, 'provider')}.`
-    : 'Run a check to populate the first citation and mention baseline.'
-  const priorityActions = report.agencyDiagnostics.priorities.length > 0
-    ? report.agencyDiagnostics.priorities
-    : report.actionPlan
-  const actionCount = dedupeReportActions(report, priorityActions).length
+  const copy = REPORT_SECTION_COPY['executive-summary']
+  const headline = reportExecutiveHeadline(report)
   const heroHtml = `<div class="executive-hero">
     <div class="headline-card">
       <div>
-        <div class="hero-kicker">Latest AI visibility check</div>
-        <div class="hero-title">${escapeHtml(headlineTitle)}</div>
+        <div class="hero-kicker">${copy.heroKicker}</div>
+        <div class="hero-title">${escapeHtml(headline.title)}</div>
       </div>
-      <div class="hero-subtitle">${escapeHtml(headlineSubtitle)}</div>
+      <div class="hero-subtitle">${escapeHtml(headline.subtitle)}</div>
     </div>
     <div class="hero-proof-grid">
       <div class="hero-proof">
-        <div class="mini-label">Citation trend</div>
-        <div class="mini-value tone-${trendTone}">${escapeHtml(trendLabel)}</div>
-        <div class="mini-copy">${escapeHtml(citedFragment)}</div>
+        <div class="mini-label">${copy.proofTiles.citationTrend}</div>
+        <div class="mini-value tone-${headline.trendTone}">${escapeHtml(headline.trendLabel)}</div>
+        <div class="mini-copy">${escapeHtml(headline.citedFragment)}</div>
       </div>
       <div class="hero-proof">
-        <div class="mini-label">Mention coverage</div>
+        <div class="mini-label">${copy.proofTiles.mentionCoverage}</div>
         <div class="mini-value">${s.mentionRate}%</div>
-        <div class="mini-copy">${escapeHtml(mentionedFragment)}</div>
+        <div class="mini-copy">${escapeHtml(headline.mentionedFragment)}</div>
       </div>
       <div class="hero-proof">
-        <div class="mini-label">Prioritized actions</div>
-        <div class="mini-value">${formatNumber(actionCount)}</div>
-        <div class="mini-copy">Sorted for agency follow-up.</div>
+        <div class="mini-label">${copy.proofTiles.prioritizedActions}</div>
+        <div class="mini-value">${formatNumber(headline.prioritizedActionCount)}</div>
+        <div class="mini-copy">${copy.prioritizedActionsCopy}</div>
       </div>
     </div>
   </div>`
-  const metrics = [
+  const metrics: Array<{ label: string; value: string; delta: string }> = [
     {
-      label: 'Citation rate',
+      label: copy.tiles.citationRate,
       value: `${s.citationRate}%`,
-      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${citedFragment} · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+      delta: `<span class="tone-${headline.trendTone}">${headline.trendLabel}</span> · ${headline.citedFragment} · ${headline.providerCountLabel}`,
     },
     {
-      label: 'Mention rate',
+      label: copy.tiles.mentionRate,
       value: `${s.mentionRate}%`,
-      delta: mentionedFragment,
+      delta: headline.mentionedFragment,
     },
     {
-      label: 'Queries tracked',
+      label: copy.tiles.queriesTracked,
       value: formatNumber(s.queryCount),
-      delta: `${s.competitorCount} competitor${s.competitorCount === 1 ? '' : 's'} tracked`,
+      delta: headline.competitorCountLabel,
     },
   ]
-  if (s.gsc) {
-    const dateRange = gscDateRange(report)
+  if (s.gsc && headline.gscDelta !== null) {
     metrics.push({
-      label: 'GSC clicks',
+      label: copy.tiles.gscClicks,
       value: formatNumber(s.gsc.clicks),
-      delta: `${formatNumber(s.gsc.impressions)} imp · ${formatRatio(s.gsc.ctr)} CTR${dateRange ? ` · ${escapeHtml(dateRange)}` : ''}`,
+      // Only the date range can hold markup; the counts and separators cannot,
+      // so escaping the whole line matches escaping the range alone.
+      delta: escapeHtml(headline.gscDelta),
     })
   }
-  if (s.ga) {
+  if (s.ga && headline.gaDelta !== null) {
     metrics.push({
-      label: 'GA sessions',
+      label: copy.tiles.gaSessions,
       value: formatNumber(s.ga.sessions),
-      delta: `${formatNumber(s.ga.users)} users · ${formatDate(s.ga.periodStart)} → ${formatDate(s.ga.periodEnd)}`,
+      delta: headline.gaDelta,
     })
   }
 
@@ -1173,25 +1064,18 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
 
   return section(
     {
-      id: 'executive-summary',
-      eyebrow: 'Section 1',
-      title: 'Executive Summary',
-      intro: 'Citation = source list. Mention = answer text. They are independent signals.',
+      id: ReportSectionIds['executive-summary'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
     heroHtml + metricsHtml + findingsHtml + locationHtml,
   )
 }
 
 function deltaToneClass(direction: 'up' | 'down' | 'flat'): string {
-  if (direction === 'up') return 'tone-positive'
-  if (direction === 'down') return 'tone-negative'
-  return ''
-}
-
-function deltaArrow(direction: 'up' | 'down' | 'flat'): string {
-  if (direction === 'up') return '↑'
-  if (direction === 'down') return '↓'
-  return '→'
+  const tone = reportDirectionTone(direction)
+  return tone === 'neutral' ? '' : `tone-${tone}`
 }
 
 function renderRateDeltaTile(
@@ -1200,18 +1084,16 @@ function renderRateDeltaTile(
   unit: '%' | 'count',
 ): string {
   if (!delta) {
-    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">No prior data</div></div>`
+    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">${REPORT_SECTION_COPY['whats-changed'].rateTileEmpty}</div></div>`
   }
   const valueSuffix = unit === '%' ? '%' : ''
   // unit='%' keeps its percentage-point copy; unit='count' routes through the
-  // shared "smart %" formatter (big base → %, small base → rounded raw delta)
-  // so the SPA and HTML stay byte-identical per the report-parity rule.
-  const deltaText = unit === '%'
-    ? `${delta.deltaAbs > 0 ? '+' : ''}${delta.deltaAbs.toFixed(1)}% vs ${delta.prior}%`
-    : formatAverageDelta(delta)
+  // shared "smart %" formatter (big base → %, small base → rounded raw delta).
+  // The SPA calls the same helper, so both surfaces print the same words.
+  const deltaText = reportRateDeltaCopy(delta, unit)
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
-    <div class="value ${deltaToneClass(delta.direction)}">${delta.current}${valueSuffix} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
+    <div class="value ${deltaToneClass(delta.direction)}">${delta.current}${valueSuffix} <span style="font-size:14px;font-weight:500;">${reportDeltaArrow(delta.direction)}</span></div>
     <div class="delta">${deltaText}</div>
   </div>`
 }
@@ -1223,14 +1105,14 @@ function renderTrafficDeltaTile(
   comparisonWindowDays: number,
 ): string {
   if (!delta) {
-    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">Not enough trend data</div></div>`
+    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">${REPORT_SECTION_COPY['whats-changed'].trafficTileEmpty}</div></div>`
   }
   // Shared "smart %" formatter: big prior base → signed %, small base →
   // rounded absolute delta with the count label. Same helper the SPA calls.
-  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${comparisonWindowDays} days`)
+  const deltaText = formatWindowCountDelta(delta, countLabel, reportPriorWindowLabel(comparisonWindowDays))
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
-    <div class="value ${deltaToneClass(delta.direction)}">${formatNumber(delta.current)} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
+    <div class="value ${deltaToneClass(delta.direction)}">${formatNumber(delta.current)} <span style="font-size:14px;font-weight:500;">${reportDeltaArrow(delta.direction)}</span></div>
     <div class="delta">${deltaText}</div>
   </div>`
 }
@@ -1242,24 +1124,21 @@ function renderProviderMovements(
   const meaningful = movements.filter(m => m.direction !== 'flat')
   if (meaningful.length === 0) return ''
   const isClient = audience === 'client'
+  const copy = isClient ? REPORT_SECTION_COPY['whats-changed'].client : REPORT_SECTION_COPY['whats-changed'].agency
   const rows = meaningful.map(m => {
-    const sign = m.deltaAbs > 0 ? '+' : ''
     return `<tr>
-      <td>${escapeHtml(isClient ? providerDisplayName(m.provider) : m.provider)}</td>
+      <td>${escapeHtml(isClient ? reportProviderDisplayName(m.provider) : m.provider)}</td>
       <td class="numeric">${m.prior}%</td>
       <td class="numeric">${m.current}%</td>
-      <td class="numeric ${deltaToneClass(m.direction)}">${sign}${m.deltaAbs.toFixed(1)}% ${deltaArrow(m.direction)}</td>
+      <td class="numeric ${deltaToneClass(m.direction)}">${reportMovementChangeCopy(m)}</td>
     </tr>`
   }).join('')
-  const heading = isClient ? 'How each AI tool changed' : 'AI engine movements'
-  const colA = isClient ? 'AI tool' : 'Engine'
-  const colB = isClient ? 'Was' : 'Prior'
-  const colC = isClient ? 'Now' : 'Current'
-  return `<div class="chart-card"><h3>${heading}</h3>
-    <table class="report-table">
-      <thead><tr><th>${colA}</th><th class="numeric">${colB}</th><th class="numeric">${colC}</th><th class="numeric">Change</th></tr></thead>
+  const [engineHeader, priorHeader, currentHeader, changeHeader] = copy.movementHeaders
+  return `<div class="chart-card"><h3>${copy.movementsHeading}</h3>
+    <div class="table-scroll"><table class="report-table">
+      <thead><tr><th>${engineHeader}</th><th class="numeric">${priorHeader}</th><th class="numeric">${currentHeader}</th><th class="numeric">${changeHeader}</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   </div>`
 }
 
@@ -1276,55 +1155,46 @@ function renderWinsLosses(
   }
   const isClient = audience === 'client'
   const rows = insights.map(i => {
-    const tone = severityTone(i.severity)
-    const countChip = i.instanceCount > 1 ? ` <span class="badge tone-neutral">× ${i.instanceCount}</span>` : ''
+    const tone = reportInsightTone(i)
+    const countChip = i.instanceCount > 1 ? ` <span class="badge tone-neutral">${reportInstanceCountLabel(i.instanceCount)}</span>` : ''
     const severityCell = isClient ? '' : `<td><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>`
     return `<tr>
       ${severityCell}
       <td>${escapeHtml(i.title)}${countChip}</td>
       <td>${escapeHtml(i.query)}</td>
-      <td>${escapeHtml(isClient ? providerDisplayName(i.provider) : i.provider)}</td>
+      <td>${escapeHtml(isClient ? reportProviderDisplayName(i.provider) : i.provider)}</td>
     </tr>`
   }).join('')
-  const headers = isClient
-    ? `<tr><th>What changed</th><th>Customer query</th><th>AI tool</th></tr>`
-    : `<tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th></tr>`
+  const headerCells = (isClient ? REPORT_SECTION_COPY['whats-changed'].client : REPORT_SECTION_COPY['whats-changed'].agency).insightHeaders
+  const headers = `<tr>${headerCells.map(header => `<th>${header}</th>`).join('')}</tr>`
   return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
-    <table class="report-table">
+    <div class="table-scroll"><table class="report-table">
       <thead>${headers}</thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   </div>`
 }
 
 function renderWhatsChanged(report: ProjectReportDto, audience: ReportAudience): string {
   const w = report.whatsChanged
   const isClient = audience === 'client'
-  const eyebrow = isClient ? 'Since last check' : 'Section 2'
-  const title = isClient ? "What's different since last check" : "What's Changed"
-  const intro = isClient ? '' : w.headline
+  const { client, agency } = REPORT_SECTION_COPY['whats-changed']
+  const copy = isClient ? client : agency
+  const heading = { id: ReportSectionIds['whats-changed'], eyebrow: copy.eyebrow, title: copy.title, intro: isClient ? '' : w.headline }
   if (!w.enoughHistory && !w.gscClicksDelta && !w.aiReferralsDelta && w.wins.length === 0 && w.regressions.length === 0) {
-    return section(
-      { id: 'whats-changed', eyebrow, title, intro },
-      renderEmpty(isClient ? 'No comparison yet — trends will appear after a few more checks.' : 'Trends will appear after a few more checks.'),
-    )
+    return section(heading, renderEmpty(copy.empty))
   }
   const rateTiles = `<div class="metric-grid">
-    ${renderRateDeltaTile(isClient ? 'AI mentions your name' : 'Citation rate', isClient ? w.mentionRate : w.citationRate, '%')}
-    ${renderRateDeltaTile(isClient ? 'AI links to your website' : 'Mention rate', isClient ? w.citationRate : w.mentionRate, '%')}
-    ${renderRateDeltaTile(isClient ? 'Queries AI mentioned you in' : 'Cited queries', isClient ? w.mentionedQueryCount : w.citedQueryCount, 'count')}
-    ${renderTrafficDeltaTile(isClient ? 'Visitors from Google' : 'GSC clicks', w.gscClicksDelta, isClient ? 'visits' : 'clicks', w.comparisonWindowDays)}
-    ${renderTrafficDeltaTile(isClient ? 'Visitors from AI tools' : 'AI referral sessions', w.aiReferralsDelta, isClient ? 'visits' : 'sessions', w.comparisonWindowDays)}
+    ${renderRateDeltaTile(isClient ? client.tiles.mentionRate : agency.tiles.citationRate, isClient ? w.mentionRate : w.citationRate, '%')}
+    ${renderRateDeltaTile(isClient ? client.tiles.citationRate : agency.tiles.mentionRate, isClient ? w.citationRate : w.mentionRate, '%')}
+    ${renderRateDeltaTile(isClient ? client.tiles.mentionedQueryCount : agency.tiles.citedQueryCount, isClient ? w.mentionedQueryCount : w.citedQueryCount, 'count')}
+    ${renderTrafficDeltaTile(copy.tiles.gscClicks, w.gscClicksDelta, copy.gscCountLabel, w.comparisonWindowDays)}
+    ${renderTrafficDeltaTile(copy.tiles.aiReferrals, w.aiReferralsDelta, copy.aiReferralsCountLabel, w.comparisonWindowDays)}
   </div>`
   const movements = renderProviderMovements(w.providerMovements, audience)
-  const winsHeading = isClient ? 'What got better' : 'Wins'
-  const lossesHeading = isClient ? 'What got worse' : 'Regressions'
-  const wins = renderWinsLosses(w.wins, winsHeading, isClient ? 'No new wins this period.' : 'No new gains in the latest check.', audience)
-  const regressions = renderWinsLosses(w.regressions, lossesHeading, isClient ? 'Nothing got worse this period.' : 'No new regressions in the latest check.', audience)
-  return section(
-    { id: 'whats-changed', eyebrow, title, intro },
-    `${rateTiles}${movements}${wins}${regressions}`,
-  )
+  const wins = renderWinsLosses(w.wins, copy.winsHeading, copy.winsEmpty, audience)
+  const regressions = renderWinsLosses(w.regressions, copy.regressionsHeading, copy.regressionsEmpty, audience)
+  return section(heading, `${rateTiles}${movements}${wins}${regressions}`)
 }
 
 function renderProviderBars(rates: ProjectReportDto['citationScorecard']['providerRates']): string {
@@ -1345,50 +1215,54 @@ function renderProviderBars(rates: ProjectReportDto['citationScorecard']['provid
       <text x="${labelWidth - 8}" y="${y + 16}" fill="${COLORS.textMuted}" font-size="11" text-anchor="end">${escapeHtml(r.provider)}</text>
       <rect x="${labelWidth}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${COLORS.border}" opacity="0.4" rx="3" />
       <rect x="${labelWidth}" y="${y}" width="${w}" height="${barHeight}" fill="${color}" rx="3" />
-      <text x="${labelWidth + w + 6}" y="${y + 16}" fill="${COLORS.text}" font-size="11">${r.citationRate}% (${r.citedCount}/${r.totalCount})</text>`
+      <text x="${labelWidth + w + 6}" y="${y + 16}" fill="${COLORS.text}" font-size="11">${reportProviderRateLabel(r)}</text>`
   }).join('')
 
+  const title = REPORT_SECTION_COPY['citation-scorecard'].providerChartTitle
   return `<div class="chart-card">
-    <h3>Provider citation rate</h3>
-    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Provider citation rate bar chart">
+    <h3>${title}</h3>
+    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${reportBarChartLabel(title)}">
       ${bars}
     </svg>
   </div>`
 }
 
 function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']): string {
+  const copy = REPORT_SECTION_COPY['citation-scorecard']
+  const glyphs = copy.glyphs
   if (scorecard.queries.length === 0 || scorecard.providers.length === 0) {
-    return renderEmpty('Run a check to populate the citation matrix.')
+    return renderEmpty(copy.empty)
   }
   const headers = scorecard.providers.map(p => `<th>${escapeHtml(p)}</th>`).join('')
   const rows = scorecard.queries.map((q, qi) => {
     const cells = scorecard.providers.map((_, pi) => {
       const cell = scorecard.matrix[qi]?.[pi]
       if (!cell) {
-        return '<td><span class="cell-pending">— —</span></td>'
+        return `<td><span class="cell-pending">${glyphs.missingCell}</span></td>`
       }
       // Two-glyph cell — citation flag then mention flag — per the AGENTS.md
       // vocabulary rules. A query can be cited without being mentioned and
       // vice versa, so a single label would conflate independent signals.
       const citedGlyph = cell.citationState === CitationStates.cited
-        ? '<span class="cell-cited">C</span>'
-        : '<span class="cell-not-cited">c</span>'
+        ? `<span class="cell-cited">${glyphs.cited}</span>`
+        : `<span class="cell-not-cited">${glyphs.notCited}</span>`
       const mentionedGlyph = cell.answerMentioned === true
-        ? '<span class="cell-cited">M</span>'
+        ? `<span class="cell-cited">${glyphs.mentioned}</span>`
         : cell.answerMentioned === false
-          ? '<span class="cell-not-cited">m</span>'
-          : '<span class="cell-pending">–</span>'
+          ? `<span class="cell-not-cited">${glyphs.notMentioned}</span>`
+          : `<span class="cell-pending">${glyphs.pending}</span>`
       return `<td>${citedGlyph} ${mentionedGlyph}</td>`
     }).join('')
     return `<tr><td>${escapeHtml(q)}</td>${cells}</tr>`
   }).join('')
 
-  const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Legend: <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited/not, <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned/not, <span class="cell-pending">–</span> = no data.</p>'
+  const legendCopy = copy.legend
+  const legend = `<p class="section-intro" style="margin-top:0;font-size:11px;">${legendCopy.lead} <span class="cell-cited">${glyphs.cited}</span>/<span class="cell-not-cited">${glyphs.notCited}</span> ${legendCopy.citedMeaning} <span class="cell-cited">${glyphs.mentioned}</span>/<span class="cell-not-cited">${glyphs.notMentioned}</span> ${legendCopy.mentionedMeaning} <span class="cell-pending">${glyphs.pending}</span> ${legendCopy.pendingMeaning}</p>`
 
-  return `${legend}<table class="report-table">
-    <thead><tr><th>Query</th>${headers}</tr></thead>
+  return `${legend}<div class="table-scroll"><table class="report-table">
+    <thead><tr><th>${copy.queryHeader}</th>${headers}</tr></thead>
     <tbody>${rows}</tbody>
-  </table>`
+  </table></div>`
 }
 
 function renderCitationScorecard(report: ProjectReportDto): string {
@@ -1396,8 +1270,9 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderProviderBars(report.citationScorecard.providerRates)}
     ${renderCitationMatrix(report.citationScorecard)}
   `
+  const copy = REPORT_SECTION_COPY['citation-scorecard']
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 3', title: 'Citation Scorecard', intro: 'Per-engine citation and mention coverage from the latest check.' },
+    { id: ReportSectionIds['citation-scorecard'], eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
     body,
   )
 }
@@ -1439,7 +1314,8 @@ function renderCompetitorBars(landscape: ProjectReportDto['competitorLandscape']
     { label: canonical, count: landscape.projectCitationCount, isProject: true },
     ...landscape.competitors.map(c => ({ label: c.domain, count: c.citationCount, isProject: false })),
   ]
-  return renderLandscapeBars(data, 'Citations per domain', 'Citations per domain bar chart')
+  const title = REPORT_SECTION_COPY['competitor-landscape'].citationsChartTitle
+  return renderLandscapeBars(data, title, reportBarChartLabel(title))
 }
 
 function renderMentionBars(
@@ -1451,13 +1327,7 @@ function renderMentionBars(
     { label: canonical, count: section.projectMentionCount, isProject: true },
     ...section.competitors.map(c => ({ label: c.domain, count: c.mentionCount, isProject: false })),
   ]
-  return renderLandscapeBars(data, title, `${title} bar chart`)
-}
-
-/** The label a mention figure must carry so a reader can tell a category number from a brand-recall one. */
-const MENTION_SCOPE_LABEL: Record<ProjectReportDto['mentionLandscape']['scope'], string> = {
-  'non-brand': 'non-brand queries',
-  pooled: 'pooled queries · classification unavailable',
+  return renderLandscapeBars(data, title, reportBarChartLabel(title))
 }
 
 function renderReportShareOfVoice(report: ProjectReportDto): string {
@@ -1478,21 +1348,22 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   const noMentionData = mentionLandscape.competitors.length === 0
     && mentionLandscape.projectMentionCount === 0
     && !hasBrandedMentions
+  const copy = REPORT_SECTION_COPY['competitor-landscape']
   if (noCitationData && noMentionData) {
     return section(
-      { id: 'competitor-landscape', eyebrow: 'Section 4', title: 'Competitor Landscape' },
-      renderEmpty('No competitor data yet. Add competitors and run a check.'),
+      { id: ReportSectionIds['competitor-landscape'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
   const mentionByDomain = new Map(mentionLandscape.competitors.map(m => [m.domain, m]))
   const rows = competitors.map(c => {
-    const tone = pressureTone(c.pressureLabel)
+    const tone = reportPressureTone(c.pressureLabel)
     const mention = mentionByDomain.get(c.domain)
     const mentionCount = mention?.mentionCount ?? 0
     const mentionTotal = mention?.totalCount ?? mentionLandscape.totalAnswerSnapshots
     const pagesDisclosure = c.theirCitedPages.length > 0
-      ? `<details class="cited-pages"><summary>${c.theirCitedPages.length} cited URL${c.theirCitedPages.length > 1 ? 's' : ''}</summary>
+      ? `<details class="cited-pages"><summary>${reportCitedUrlCount(c.theirCitedPages.length)}</summary>
           <ul>${c.theirCitedPages.map(p => `<li><a href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.url)}</a> <span class="cited-for">${escapeHtml(p.citedFor.join(', '))}</span></li>`).join('')}</ul>
         </details>`
       : ''
@@ -1502,26 +1373,24 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
       <td class="numeric">${c.citationCount} / ${c.totalCount}</td>
       <td class="numeric">${mentionCount} / ${mentionTotal}</td>
       <td class="numeric">${c.sharePct}%</td>
-      <td>${escapeHtml(c.citedQueries.slice(0, 5).join(', '))}${c.citedQueries.length > 5 ? '…' : ''}${pagesDisclosure}</td>
+      <td>${escapeHtml(reportTruncatedList(c.citedQueries, 5))}${pagesDisclosure}</td>
     </tr>`
   }).join('')
 
-  const scopeLabel = MENTION_SCOPE_LABEL[mentionLandscape.scope] ?? MENTION_SCOPE_LABEL.pooled
-  const mentionScopeTooltip = mentionLandscape.scope === 'non-brand'
-    ? `Mentions on ${scopeLabel}. Branded queries are counted separately — the client is named on nearly all of them and a competitor cannot be, so pooling the two would rank the client on its own brand recall.`
-    : `Mentions on ${scopeLabel}. The project has no usable brand identity for a branded/non-brand split, so all tracked queries remain pooled and this is not a competitive category read.`
+  const mentionCopy = reportCompetitorMentionCopy(mentionLandscape)
+  const headers = copy.headers
   const table = competitors.length > 0
-    ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric" title="${escapeHtml(mentionScopeTooltip)}">Mentions (${escapeHtml(scopeLabel)})</th><th class="numeric" title="Citation share — % of cited-source slots that went to this competitor across tracked queries. Distinct from Mention Share.">Citation share</th><th>Cited queries</th></tr></thead>
+    ? `<div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${headers.domain}</th><th>${headers.pressure}</th><th>${headers.citations}</th><th class="numeric" title="${escapeHtml(mentionCopy.mentionsTooltip)}">${escapeHtml(mentionCopy.mentionsHeader)}</th><th class="numeric" title="${copy.citationShareTooltip}">${headers.citationShare}</th><th>${headers.citedQueries}</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`
-    : renderEmpty('No competitors configured.')
+      </table></div>`
+    : renderEmpty(copy.noCompetitors)
 
   const citationBars = renderCompetitorBars(report.competitorLandscape, report.meta.project.canonicalDomain)
   const mentionBars = renderMentionBars(
     mentionLandscape,
     report.meta.project.canonicalDomain,
-    `Mentions per domain · ${scopeLabel}`,
+    mentionCopy.mentionsChartTitle,
   )
   const charts = citationBars && mentionBars
     ? `<div class="chart-grid">${citationBars}${mentionBars}</div>`
@@ -1531,45 +1400,31 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
     && mentionLandscape.competitors.length > 0
     && mentionLandscape.competitors.every(row => row.sharePct === null)
   const mentionShareNote = mentionShareUnavailable
-    ? `<p class="chart-note">Mention share unavailable for ${escapeHtml(scopeLabel)}: no tracked brand was named, so the denominator is 0.</p>`
+    ? `<p class="chart-note">${escapeHtml(mentionCopy.mentionShareUnavailable)}</p>`
     : ''
 
   // Branded is shown, never dropped and never merged in. Two labelled charts
   // answer two different questions: "where do I place in my category?" and
   // "when someone asks about me by name, does AI know me?"
   const brandedBars = hasBrandedMentions && brandedMentions
-    ? renderMentionBars(brandedMentions, report.meta.project.canonicalDomain, 'Mentions per domain · branded queries')
+    ? renderMentionBars(brandedMentions, report.meta.project.canonicalDomain, copy.brandedChartTitle)
     : ''
   const brandedBlock = brandedBars
     ? `<div class="mention-branded-block">
-        <p class="chart-note">Branded queries contain the client's own name. The client is named on nearly all of them and a competitor structurally cannot be, so these are kept out of the competitive figure above. Read them as brand recall: ${brandedMentions?.projectMentionCount ?? 0} of ${brandedMentions?.totalAnswerSnapshots ?? 0} branded answers named the client.</p>
+        <p class="chart-note">${mentionCopy.brandedNote}</p>
         ${brandedBars}
       </div>`
     : ''
 
   return section(
     {
-      id: 'competitor-landscape',
-      eyebrow: 'Section 4',
-      title: 'Competitor Landscape',
-      intro: 'Who AI engines cite and mention instead of the client.',
+      id: ReportSectionIds['competitor-landscape'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
     `${mentionShareNote}${charts}${table}${brandedBlock}`,
   )
-}
-
-const SOURCE_CATEGORY_TONE: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
-  competitor: 'negative',
-  directory: 'caution',
-  forum: 'caution',
-  news: 'neutral',
-  reference: 'neutral',
-  blog: 'neutral',
-  social: 'neutral',
-  video: 'neutral',
-  ecommerce: 'neutral',
-  academic: 'neutral',
-  other: 'neutral',
 }
 
 function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
@@ -1580,7 +1435,7 @@ function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
 
   const rows = buckets.map((b) => {
     const pct = (b.count / max) * 100
-    const tone = SOURCE_CATEGORY_TONE[b.category] ?? 'neutral'
+    const tone = reportSourceCategoryTone(b.category)
     const color = tone === 'negative' ? COLORS.negative
       : tone === 'caution' ? COLORS.caution
       : COLORS.accent
@@ -1590,12 +1445,12 @@ function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
         <div class="source-bar-track">
           <div class="source-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
         </div>
-        <div class="source-bar-value">${b.count} <span class="source-bar-pct">(${b.sharePct}%)</span></div>
+        <div class="source-bar-value">${b.count} <span class="source-bar-pct">${reportSourceCategoryShareLabel(b.sharePct)}</span></div>
       </div>`
   }).join('')
 
   return `<div class="chart-card">
-    <h3>By source type</h3>
+    <h3>${REPORT_SECTION_COPY['ai-source-origin'].categoriesHeading}</h3>
     <div class="source-bars">${rows}</div>
   </div>`
 }
@@ -1616,7 +1471,7 @@ function renderShareBars(
         <div class="source-bar-track">
           <div class="source-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
         </div>
-        <div class="source-bar-value">${formatNumber(r.count)} <span class="source-bar-pct">${escapeHtml(countLabel)} · ${r.sharePct}%</span></div>
+        <div class="source-bar-value">${formatNumber(r.count)} <span class="source-bar-pct">${escapeHtml(reportShareBarShareLabel(countLabel, r.sharePct))}</span></div>
       </div>`
   }).join('')
 
@@ -1628,40 +1483,42 @@ function renderShareBars(
 
 function renderAiSourceOrigin(report: ProjectReportDto): string {
   const origin = report.aiSourceOrigin
+  const copy = REPORT_SECTION_COPY['ai-source-origin']
   if (origin.categories.length === 0 && origin.topDomains.length === 0) {
     return section(
-      { id: 'ai-source-origin', eyebrow: 'Section 5', title: 'AI Citation Sources' },
-      renderEmpty('No source data yet. Run a check first.'),
+      { id: ReportSectionIds['ai-source-origin'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
-  const competitorBucket = origin.categories.find(c => c.category === 'competitor')
-  const headlineFragment = competitorBucket
-    ? `<p class="source-origin-headline"><strong>${competitorBucket.sharePct}%</strong> of citations went to tracked competitors (${competitorBucket.count} of ${origin.categories.reduce((s, c) => s + c.count, 0)}).</p>`
+  const headline = reportSourceOriginHeadline(origin.categories)
+  const headlineFragment = headline
+    ? `<p class="source-origin-headline"><strong>${headline.share}</strong> ${headline.detail}</p>`
     : ''
 
   const rows = origin.topDomains.map(d => `
     <tr>
       <td>${escapeHtml(d.domain)}</td>
       <td class="numeric">${d.count}</td>
-      <td>${d.isCompetitor ? '<span class="badge tone-negative">Tracked competitor</span>' : '<span class="badge tone-neutral">External</span>'}</td>
+      <td>${d.isCompetitor ? `<span class="badge tone-negative">${copy.trackedCompetitorTag}</span>` : `<span class="badge tone-neutral">${copy.externalTag}</span>`}</td>
     </tr>`).join('')
 
+  const [domainHeader, citationsHeader, tagHeader] = copy.topSourceHeaders
   const table = origin.topDomains.length > 0
-    ? `<div class="chart-card"><h3>Top sources</h3>
-        <table class="report-table">
-          <thead><tr><th>Domain</th><th class="numeric">Citations</th><th>Tag</th></tr></thead>
+    ? `<div class="chart-card"><h3>${copy.topSourcesHeading}</h3>
+        <div class="table-scroll"><table class="report-table">
+          <thead><tr><th>${domainHeader}</th><th class="numeric">${citationsHeader}</th><th>${tagHeader}</th></tr></thead>
           <tbody>${rows}</tbody>
-        </table>
+        </table></div>
       </div>`
     : ''
 
   return section(
     {
-      id: 'ai-source-origin',
-      eyebrow: 'Section 5',
-      title: 'AI Citation Sources',
-      intro: 'External domains AI engines cited most in the latest check.',
+      id: ReportSectionIds['ai-source-origin'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
     `${headlineFragment}${table}${renderCategoryBars(origin.categories)}`,
   )
@@ -1692,7 +1549,7 @@ function renderLineChart(points: Array<{ x: string; y: number; label?: string }>
 
   return `<div class="chart-card">
     <h3>${escapeHtml(title)}</h3>
-    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${escapeHtml(title)} line chart">
+    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${escapeHtml(reportLineChartLabel(title))}">
       <line x1="${padX}" y1="${padY + usableH}" x2="${padX + usableW}" y2="${padY + usableH}" stroke="${COLORS.border}" stroke-width="1" />
       <text x="${padX - 6}" y="${(padY + 4).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">${formatNumber(max)}</text>
       <text x="${padX - 6}" y="${(padY + usableH).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">0</text>
@@ -1705,10 +1562,11 @@ function renderLineChart(points: Array<{ x: string; y: number; label?: string }>
 
 function renderGsc(report: ProjectReportDto): string {
   const gsc = report.gsc
+  const copy = REPORT_SECTION_COPY.gsc
   if (!gsc) {
     return section(
-      { id: 'gsc', eyebrow: 'Section 6', title: 'GSC Performance' },
-      renderEmpty('Connect Google Search Console to populate this section.'),
+      { id: ReportSectionIds.gsc, eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
@@ -1723,52 +1581,52 @@ function renderGsc(report: ProjectReportDto): string {
     </tr>`).join('')
 
   const categoryBars = renderShareBars(
-    'Search demand by intent',
+    copy.intentHeading,
     gsc.categoryBreakdown.map((c, index) => ({
       label: c.category,
       count: c.clicks,
       sharePct: c.sharePct,
       color: COLORS.series[index % COLORS.series.length],
     })),
-    'clicks',
+    copy.intentCountLabel,
   )
 
   const trendChart = renderLineChart(
     gsc.trend.map(t => ({ x: t.date, y: t.clicks, label: t.date.slice(5) })),
     COLORS.accent,
-    'Clicks over time',
+    copy.trendTitle,
   )
 
   const crossoverBlocks: string[] = []
   if (gsc.trackedButNoGsc.length > 0) {
-    crossoverBlocks.push(`<div class="chart-card"><h3>AEO queries without search demand</h3>
-      <p class="section-intro">Review whether these still belong in the tracking set.</p>
+    crossoverBlocks.push(`<div class="chart-card"><h3>${copy.untrackedDemand.heading}</h3>
+      <p class="section-intro">${copy.untrackedDemand.subtitle}</p>
       ${renderProofChips(gsc.trackedButNoGsc, 6)}
     </div>`)
   }
   if (gsc.gscButNotTracked.length > 0) {
-    crossoverBlocks.push(`<div class="chart-card"><h3>Search queries you should track</h3>
-      <p class="section-intro">High-impression candidates to add to AEO tracking.</p>
+    crossoverBlocks.push(`<div class="chart-card"><h3>${copy.suggestedQueries.heading}</h3>
+      <p class="section-intro">${copy.suggestedQueries.subtitle}</p>
       ${renderProofChips(gsc.gscButNotTracked, 6)}
     </div>`)
   }
 
-  const dateRange = gscDateRange(report)
+  const [queryHeader, clicksHeader, impressionsHeader, ctrHeader, positionHeader, categoryHeader] = copy.topQueryHeaders
 
   return section(
-    { id: 'gsc', eyebrow: 'Section 6', title: 'GSC Performance', intro: `Search demand signals to compare against AI visibility${dateRange ? ` for ${dateRange}` : ''}.` },
+    { id: ReportSectionIds.gsc, eyebrow: copy.eyebrow, title: copy.title, intro: reportGscIntro(report) },
     `<div class="metric-grid">
-      <div class="metric"><div class="label">Total clicks</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
-      <div class="metric"><div class="label">Total impressions</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
-      <div class="metric"><div class="label">Avg CTR</div><div class="value">${formatRatio(gsc.ctr)}</div></div>
-      <div class="metric"><div class="label">Avg position</div><div class="value">${gsc.avgPosition.toFixed(1)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.clicks}</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.impressions}</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.ctr}</div><div class="value">${formatRatio(gsc.ctr)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.position}</div><div class="value">${gsc.avgPosition.toFixed(1)}</div></div>
     </div>
     ${trendChart}
-    <div class="chart-card"><h3>Top queries</h3>
-      <table class="report-table">
-        <thead><tr><th>Query</th><th class="numeric">Clicks</th><th class="numeric">Imp.</th><th class="numeric">CTR</th><th class="numeric">Pos.</th><th>Category</th></tr></thead>
+    <div class="chart-card"><h3>${copy.topQueriesHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${queryHeader}</th><th class="numeric">${clicksHeader}</th><th class="numeric">${impressionsHeader}</th><th class="numeric">${ctrHeader}</th><th class="numeric">${positionHeader}</th><th>${categoryHeader}</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
     </div>
     ${categoryBars}
     ${crossoverBlocks.join('\n')}`,
@@ -1777,10 +1635,11 @@ function renderGsc(report: ProjectReportDto): string {
 
 function renderGa(report: ProjectReportDto): string {
   const ga = report.ga
+  const copy = REPORT_SECTION_COPY.ga
   if (!ga) {
     return section(
-      { id: 'ga', eyebrow: 'Section 7', title: 'GA4 Traffic' },
-      renderEmpty('Connect Google Analytics 4 to populate this section.'),
+      { id: ReportSectionIds.ga, eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
@@ -1792,28 +1651,30 @@ function renderGa(report: ProjectReportDto): string {
     </tr>`).join('')
 
   const channelBars = renderShareBars(
-    'Channel mix',
+    copy.channelsHeading,
     ga.channelBreakdown.map((c, index) => ({
       label: c.channel,
       count: c.sessions,
       sharePct: c.sharePct,
       color: COLORS.series[index % COLORS.series.length],
     })),
-    'sessions',
+    copy.channelsCountLabel,
   )
 
+  const [pageHeader, sessionsHeader, organicHeader] = copy.topPageHeaders
+
   return section(
-    { id: 'ga', eyebrow: 'Section 7', title: 'GA4 Traffic', intro: `Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.` },
+    { id: ReportSectionIds.ga, eyebrow: copy.eyebrow, title: copy.title, intro: reportGaIntro(ga) },
     `<div class="metric-grid">
-      <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ga.totalSessions)}</div></div>
-      <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ga.totalUsers)}</div></div>
-      <div class="metric"><div class="label">Organic sessions</div><div class="value">${formatNumber(ga.totalOrganicSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.sessions}</div><div class="value">${formatNumber(ga.totalSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.users}</div><div class="value">${formatNumber(ga.totalUsers)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.organicSessions}</div><div class="value">${formatNumber(ga.totalOrganicSessions)}</div></div>
     </div>
-    <div class="chart-card"><h3>Top landing pages</h3>
-      <table class="report-table">
-        <thead><tr><th>Page</th><th class="numeric">Sessions</th><th class="numeric">Organic</th></tr></thead>
+    <div class="chart-card"><h3>${copy.topPagesHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${pageHeader}</th><th class="numeric">${sessionsHeader}</th><th class="numeric">${organicHeader}</th></tr></thead>
         <tbody>${pageRows}</tbody>
-      </table>
+      </table></div>
     </div>
     ${channelBars}`,
   )
@@ -1821,22 +1682,23 @@ function renderGa(report: ProjectReportDto): string {
 
 function renderSocial(report: ProjectReportDto): string {
   const social = report.socialReferrals
+  const copy = REPORT_SECTION_COPY['social-referrals']
   if (!social) {
     return section(
-      { id: 'social-referrals', eyebrow: 'Section 8', title: 'Social Referrals' },
-      renderEmpty('No social referral data yet.'),
+      { id: ReportSectionIds['social-referrals'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
   const channelBars = renderShareBars(
-    'Social channel mix',
+    copy.channelsHeading,
     social.channels.map((c, index) => ({
       label: c.channelGroup,
       count: c.sessions,
       sharePct: c.sharePct,
       color: COLORS.series[index % COLORS.series.length],
     })),
-    'sessions',
+    copy.channelsCountLabel,
   )
 
   const campaignRows = social.topCampaigns.map(c => `
@@ -1846,41 +1708,44 @@ function renderSocial(report: ProjectReportDto): string {
       <td class="numeric">${formatNumber(c.sessions)}</td>
     </tr>`).join('')
 
+  const [sourceHeader, mediumHeader, sessionsHeader] = copy.campaignHeaders
+
   return section(
-    { id: 'social-referrals', eyebrow: 'Section 8', title: 'Social Referrals', intro: 'Social traffic split by channel and campaign.' },
+    { id: ReportSectionIds['social-referrals'], eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
     `<div class="metric-grid">
-      <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(social.totalSessions)}</div></div>
-      <div class="metric"><div class="label">Organic social</div><div class="value">${formatNumber(social.organicSessions)}</div></div>
-      <div class="metric"><div class="label">Paid social</div><div class="value">${formatNumber(social.paidSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.sessions}</div><div class="value">${formatNumber(social.totalSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.organic}</div><div class="value">${formatNumber(social.organicSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.paid}</div><div class="value">${formatNumber(social.paidSessions)}</div></div>
     </div>
     ${channelBars}
-    <div class="chart-card"><h3>Top campaigns</h3>
-      <table class="report-table">
-        <thead><tr><th>Source</th><th>Medium</th><th class="numeric">Sessions</th></tr></thead>
+    <div class="chart-card"><h3>${copy.campaignsHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${sourceHeader}</th><th>${mediumHeader}</th><th class="numeric">${sessionsHeader}</th></tr></thead>
         <tbody>${campaignRows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
 }
 
 function renderAiReferrals(report: ProjectReportDto): string {
   const ai = report.aiReferrals
+  const copy = REPORT_SECTION_COPY['ai-referrals']
   if (!ai) {
     return section(
-      { id: 'ai-referrals', eyebrow: 'Section 9', title: 'AI Referral Traffic' },
-      renderEmpty('No AI referral traffic detected yet.'),
+      { id: ReportSectionIds['ai-referrals'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
   const sourceBars = renderShareBars(
-    'AI sessions by source',
+    copy.sourcesHeading,
     ai.bySource.map((s, index) => ({
       label: s.source,
       count: s.sessions,
       sharePct: s.sharePct,
       color: COLORS.series[(index + 2) % COLORS.series.length],
     })),
-    'sessions',
+    copy.sourcesCountLabel,
   )
 
   const pageRows = ai.topLandingPages.map(p => `
@@ -1892,45 +1757,25 @@ function renderAiReferrals(report: ProjectReportDto): string {
   const trendChart = renderLineChart(
     ai.trend.map(t => ({ x: t.date, y: t.sessions, label: t.date.slice(5) })),
     COLORS.series[2]!,
-    'AI referral sessions over time',
+    copy.trendTitle,
   )
 
+  const [pageHeader, sessionsHeader] = copy.topPageHeaders
+
   return section(
-    { id: 'ai-referrals', eyebrow: 'Section 9', title: 'AI Referral Traffic', intro: 'Traffic arriving from AI answer engines.' },
+    { id: ReportSectionIds['ai-referrals'], eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
     `<div class="metric-grid">
-      <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.sessions}</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
     </div>
     ${trendChart}
     ${sourceBars}
-    <div class="chart-card"><h3>Top AI landing pages</h3>
-      <table class="report-table">
-        <thead><tr><th>Page</th><th class="numeric">Sessions</th></tr></thead>
+    <div class="chart-card"><h3>${copy.topPagesHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${pageHeader}</th><th class="numeric">${sessionsHeader}</th></tr></thead>
         <tbody>${pageRows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
-}
-
-// Section heading metadata for "AI Visibility — Server-Side". The SPA and
-// HTML must render the SAME eyebrow/title/intro per audience — see the
-// report-parity rule in `AGENTS.md`.
-function serverActivityHeading(audience: ReportAudience, hasData: boolean, windowDays: number): {
-  id: string
-  eyebrow: string
-  title: string
-  intro: string
-} {
-  const isClient = audience === 'client'
-  return {
-    id: 'server-activity',
-    eyebrow: isClient ? 'AI engine attention' : 'Section 10',
-    title: 'AI Visibility — Server-Side',
-    intro: isClient
-      ? hasData
-        ? `What AI engines actually do in your server logs over the last ${windowDays} days — the other half of citations.`
-        : 'Live telemetry from your server logs.'
-      : 'What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).',
-  }
 }
 
 function renderServerActivity(report: ProjectReportDto, audience: ReportAudience): string {
@@ -1939,8 +1784,10 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   // The server-activity headline + daily trend span the report window, and the
   // prior comparison covers the equal-length window before it.
   const windowDays = report.meta.periodDays
-  const windowLabel = `${windowDays}d`
-  const priorWindowLabel = `vs prior ${windowDays} days`
+  // Heading copy comes from contracts so the SPA renders the same eyebrow,
+  // title and intro per audience (report parity).
+  const copy = REPORT_SECTION_COPY['server-activity']
+  const priorWindowLabel = reportPriorWindowLabel(windowDays)
   // Client view stays silent when no source is connected — surfacing a
   // "connect a Cloud Run source" call-to-action to a client who has no
   // technical access produces noise. Agency view shows the prompt because
@@ -1948,16 +1795,14 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   if (!sa) {
     if (isClient) return ''
     return section(
-      serverActivityHeading('agency', false, windowDays),
-      renderEmpty('Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
+      reportServerActivityHeading('agency', false, windowDays),
+      renderEmpty(copy.agency.emptyNotConnected),
     )
   }
   if (!sa.hasData) {
     return section(
-      serverActivityHeading(audience, false, windowDays),
-      renderEmpty(isClient
-        ? 'Your server-side traffic source is connected. Numbers will appear after the next sync.'
-        : 'Source connected — collecting your first data. Numbers will appear after the next sync.'),
+      reportServerActivityHeading(audience, false, windowDays),
+      renderEmpty(isClient ? copy.client.empty : copy.agency.empty),
     )
   }
 
@@ -1973,10 +1818,8 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   // Same fragment verbatim in ReportPage.tsx (report parity). Without it an
   // all-redirect site reads as having no AI traffic instead of naming the one
   // thing to fix.
-  const referralRedirectNote = sa.referralRedirects > 0
-    ? `${formatNumber(sa.referralRedirects)} blocked by redirects`
-    : ''
-  const referralSubtitle = [formatDelta(sa.referralArrivals, 'sessions'), escapeHtml(sa.referralArrivalsClassSummary), referralRedirectNote]
+  const referralRedirectNote = reportReferralRedirectNote(sa.referralRedirects)
+  const referralSubtitle = [formatDelta(sa.referralArrivals, copy.countNouns.sessions), escapeHtml(sa.referralArrivalsClassSummary), referralRedirectNote]
     .filter(Boolean)
     .join(' · ')
 
@@ -1990,14 +1833,14 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
       ),
     }
-    const crawlerTrustSummary = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified`
-    const crawlerDelta = formatDelta(crawlerRequests, 'requests')
+    const crawlerTrustSummary = reportCrawlerTrustSummary(sa.verifiedCrawlerHits.current, sa.unverifiedCrawlerHits.current)
+    const crawlerDelta = formatDelta(crawlerRequests, copy.countNouns.requests)
     const crawlerSubtitle = crawlerDelta
       ? `${escapeHtml(crawlerTrustSummary)} · ${crawlerDelta}`
       : escapeHtml(crawlerTrustSummary)
-    const userFetchDelta = formatDelta(sa.aiUserFetchHits, 'requests')
+    const userFetchDelta = formatDelta(sa.aiUserFetchHits, copy.countNouns.requests)
     const userFetchSubtitle = userFetchDelta
-      || escapeHtml('ChatGPT-User, Perplexity-User, MistralAI-User')
+      || escapeHtml(copy.client.userFetchFallback)
     const clientOperators = sa.byOperator
       .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
       .slice(0, 5)
@@ -2009,40 +1852,40 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       <td class="numeric">${formatNumber(o.referralArrivals)}</td>
     </tr>`).join('')
 
+    const [toolHeader, botRequestsHeader, userFetchesHeader, referralSessionsHeader] = reportServerActivityClientOperatorHeaders(windowDays)
+
     return section(
-      serverActivityHeading('client', true, windowDays),
+      reportServerActivityHeading('client', true, windowDays),
       `<div class="metric-grid">
         <div class="metric">
-          <div class="label">AI bot requests observed</div>
+          <div class="label">${copy.client.tiles.botRequests}</div>
           <div class="value">${formatNumber(crawlerRequests.current)}</div>
           <div class="subtitle">${crawlerSubtitle}</div>
         </div>
         <div class="metric">
-          <div class="label">AI user-fetch requests</div>
+          <div class="label">${copy.client.tiles.userFetches}</div>
           <div class="value">${formatNumber(sa.aiUserFetchHits.current)}</div>
           <div class="subtitle">${userFetchSubtitle}</div>
         </div>
         <div class="metric">
-          <div class="label">AI referral sessions</div>
+          <div class="label">${copy.client.tiles.referralSessions}</div>
           <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
           <div class="subtitle">${referralSubtitle}</div>
         </div>
       </div>
-      ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
-        <table class="report-table">
-          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (${windowLabel})</th><th class="numeric">User fetches (${windowLabel})</th><th class="numeric">Referral sessions</th></tr></thead>
+      ${clientOperatorRows ? `<div class="chart-card"><h3>${copy.client.operatorsHeading}</h3>
+        <div class="table-scroll"><table class="report-table">
+          <thead><tr><th>${toolHeader}</th><th class="numeric">${botRequestsHeader}</th><th class="numeric">${userFetchesHeader}</th><th class="numeric">${referralSessionsHeader}</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
-        </table>
-        <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.</p>
+        </table></div>
+        <p class="meta">${copy.client.operatorsFootnote}</p>
       </div>` : ''}`,
     )
   }
 
   // ── Agency view (full forensic detail) ──
   const operatorRows = sa.byOperator.map(o => {
-    const deltaText = o.deltaPct === null
-      ? '—'
-      : `${o.deltaPct > 0 ? '+' : ''}${o.deltaPct}%`
+    const deltaText = reportServerActivityOperatorDelta(o.deltaPct)
     const toneClass = o.deltaPct === null ? '' : `tone-${deltaTone(o.deltaPct)}`
     return `
     <tr>
@@ -2062,7 +1905,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   const pathRows = sa.topCrawledPaths.map(p => `
     <tr>
       <td class="page-cell">${formatLandingPageHtml(p.path)}</td>
-      <td class="numeric">${formatNumber(p.verifiedHits + (p.unverifiedHits ?? 0))}</td>
+      <td class="numeric">${formatNumber(reportServerActivityPathHits(p))}</td>
       <td class="numeric meta">${formatNumber(p.verifiedHits)}</td>
       <td class="numeric">${p.distinctOperators}</td>
     </tr>`).join('')
@@ -2085,79 +1928,87 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     ? renderLineChart(
         sa.dailyTrend.map(d => ({ x: d.date, y: d.verifiedCrawlerHits, label: d.date.slice(5) })),
         COLORS.series[1]!,
-        `Verified crawler hits over time (last ${windowDays} days)`,
+        reportServerActivityTrendTitle(windowDays),
       )
     : ''
 
+  const agency = copy.agency
+  const tiles = reportServerActivityAgencyTiles(windowDays)
+  const [operatorHeader, verifiedHeader, unverifiedHeader, userFetchesHeader, referralSessionsHeader, deltaHeader] = reportServerActivityAgencyOperatorHeaders(windowDays)
+  const [crawledPathHeader, hitsHeader, verifiedHitsHeader, operatorCountHeader] = agency.crawledPathHeaders
+  const [productHeader, productSessionsHeader, landingPathCountHeader] = agency.referralProductHeaders
+  const [landingPathHeader, landingSessionsHeader, productCountHeader] = agency.referralLandingHeaders
+
   return section(
-    serverActivityHeading('agency', true, windowDays),
+    reportServerActivityHeading('agency', true, windowDays),
     `<div class="metric-grid">
       <div class="metric">
-        <div class="label">Verified crawler hits (${windowLabel})</div>
+        <div class="label">${tiles.verified}</div>
         <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
-        <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'hits')}</div>
+        <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, copy.countNouns.hits)}</div>
       </div>
       <div class="metric">
-        <div class="label">Unverified crawler hits (${windowLabel})</div>
+        <div class="label">${tiles.unverified}</div>
         <div class="value">${formatNumber(sa.unverifiedCrawlerHits.current)}</div>
-        <div class="subtitle">${formatDelta(sa.unverifiedCrawlerHits, 'hits')}</div>
+        <div class="subtitle">${formatDelta(sa.unverifiedCrawlerHits, copy.countNouns.hits)}</div>
       </div>
       <div class="metric">
-        <div class="label">AI user-fetch hits (${windowLabel})</div>
+        <div class="label">${tiles.userFetches}</div>
         <div class="value">${formatNumber(sa.aiUserFetchHits.current)}</div>
-        <div class="subtitle">${formatDelta(sa.aiUserFetchHits, 'hits')}</div>
+        <div class="subtitle">${formatDelta(sa.aiUserFetchHits, copy.countNouns.hits)}</div>
       </div>
       <div class="metric">
-        <div class="label">AI-referral sessions (${windowLabel})</div>
+        <div class="label">${tiles.referralSessions}</div>
         <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
         <div class="subtitle">${referralSubtitle}</div>
       </div>
     </div>
     ${trendChart}
-    ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
-      <p class="meta">Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified.</p>
-      <table class="report-table">
-        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">${windowLabel} delta</th></tr></thead>
+    ${operatorRows ? `<div class="chart-card"><h3>${agency.operatorsHeading}</h3>
+      <p class="meta">${agency.operatorsNote}</p>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${operatorHeader}</th><th class="numeric">${verifiedHeader}</th><th class="numeric">${unverifiedHeader}</th><th class="numeric">${userFetchesHeader}</th><th class="numeric">${referralSessionsHeader}</th><th class="numeric">${deltaHeader}</th></tr></thead>
         <tbody>${operatorRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
-    ${pathRows ? `<div class="chart-card"><h3>Top crawled paths</h3>
-      <p class="meta">Pages AI bots fetched most often (verified only, last ${windowLabel}).</p>
-      <table class="report-table">
-        <thead><tr><th>Path</th><th class="numeric">Hits</th><th class="numeric">Verified</th><th class="numeric">Distinct operators</th></tr></thead>
+    ${pathRows ? `<div class="chart-card"><h3>${agency.crawledPathsHeading}</h3>
+      <p class="meta">${reportServerActivityCrawledPathsNote(windowDays)}</p>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${crawledPathHeader}</th><th class="numeric">${hitsHeader}</th><th class="numeric">${verifiedHitsHeader}</th><th class="numeric">${operatorCountHeader}</th></tr></thead>
         <tbody>${pathRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
-    ${referralProductRows ? `<div class="chart-card"><h3>AI-referral sessions by product</h3>
-      <p class="meta">Where humans landed coming from each AI product (chatgpt.com, claude.ai, …).</p>
-      <table class="report-table">
-        <thead><tr><th>Product</th><th class="numeric">Sessions</th><th class="numeric">Distinct landing paths</th></tr></thead>
+    ${referralProductRows ? `<div class="chart-card"><h3>${agency.referralProductsHeading}</h3>
+      <p class="meta">${agency.referralProductsNote}</p>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${productHeader}</th><th class="numeric">${productSessionsHeader}</th><th class="numeric">${landingPathCountHeader}</th></tr></thead>
         <tbody>${referralProductRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}
-    ${referralLandingRows ? `<div class="chart-card"><h3>Top AI-referral landing paths</h3>
-      <table class="report-table">
-        <thead><tr><th>Path</th><th class="numeric">Sessions</th><th class="numeric">Distinct products</th></tr></thead>
+    ${referralLandingRows ? `<div class="chart-card"><h3>${agency.referralLandingHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${landingPathHeader}</th><th class="numeric">${landingSessionsHeader}</th><th class="numeric">${productCountHeader}</th></tr></thead>
         <tbody>${referralLandingRows}</tbody>
-      </table>
+      </table></div>
     </div>` : ''}`,
   )
 }
 
 function renderIndexingHealth(report: ProjectReportDto): string {
   const ih = report.indexingHealth
+  const copy = REPORT_SECTION_COPY['indexing-health']
   if (!ih) {
     return section(
-      { id: 'indexing-health', eyebrow: 'Section 11', title: 'Indexing Health' },
-      renderEmpty('Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection.'),
+      { id: ReportSectionIds['indexing-health'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
   const segments = [
-    { label: 'Indexed', count: ih.indexed, color: COLORS.positive },
-    { label: 'Not indexed', count: ih.notIndexed, color: COLORS.caution },
-    { label: 'Deindexed', count: ih.deindexed, color: COLORS.negative },
-    { label: 'Unknown', count: ih.unknown, color: COLORS.neutral },
+    { label: copy.segments.indexed, count: ih.indexed, color: COLORS.positive },
+    { label: copy.segments.notIndexed, count: ih.notIndexed, color: COLORS.caution },
+    { label: copy.segments.deindexed, count: ih.deindexed, color: COLORS.negative },
+    { label: copy.segments.unknown, count: ih.unknown, color: COLORS.neutral },
   ].filter(s => s.count > 0)
 
   const total = segments.reduce((s, x) => s + x.count, 0) || 1
@@ -2172,18 +2023,18 @@ function renderIndexingHealth(report: ProjectReportDto): string {
     return `<rect x="${x}" y="0" width="${w}" height="${height}" fill="${s.color}" />`
   }).join('')
 
-  const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}: ${s.count}</span>`).join('')
+  const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(reportIndexingLegendLabel(s.label, s.count))}</span>`).join('')
 
   return section(
-    { id: 'indexing-health', eyebrow: 'Section 11', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
+    { id: ReportSectionIds['indexing-health'], eyebrow: copy.eyebrow, title: copy.title, intro: reportIndexingIntro(ih.provider) },
     `<div class="metric-grid">
-      <div class="metric"><div class="label">Indexed</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
-      <div class="metric"><div class="label">Total inspected</div><div class="value">${formatNumber(ih.total)}</div></div>
-      <div class="metric"><div class="label">Indexed share</div><div class="value">${ih.indexedPct}%</div></div>
+      <div class="metric"><div class="label">${copy.tiles.indexed}</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.total}</div><div class="value">${formatNumber(ih.total)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.share}</div><div class="value">${ih.indexedPct}%</div></div>
     </div>
     <div class="chart-card">
-      <h3>Coverage breakdown</h3>
-      <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Coverage stacked bar">${bars}</svg>
+      <h3>${copy.coverageHeading}</h3>
+      <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${copy.coverageLabel}">${bars}</svg>
       <div class="legend">${legend}</div>
     </div>`,
   )
@@ -2191,24 +2042,25 @@ function renderIndexingHealth(report: ProjectReportDto): string {
 
 function renderCitationsTrend(report: ProjectReportDto): string {
   const trend = report.citationsTrend
+  const copy = REPORT_SECTION_COPY['citations-trend']
   if (trend.length === 0) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time' },
-      renderEmpty('Run multiple checks to see a trend.'),
+      { id: ReportSectionIds['citations-trend'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
   if (isTrendBaseline(trend)) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time' },
-      renderEmpty(`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`),
+      { id: ReportSectionIds['citations-trend'], eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(reportCitationsTrendBaseline(trend.length)),
     )
   }
 
   const chart = renderLineChart(
     trend.map(t => ({ x: t.date, y: t.citationRate, label: formatDate(t.date) })),
     COLORS.positive,
-    'Overall citation rate',
+    copy.chartTitle,
     220,
   )
 
@@ -2216,27 +2068,30 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     <tr>
       <td>${formatDate(t.date)}</td>
       <td class="numeric">${t.citationRate}% <span class="cell-pending">(${t.citedQueryCount}/${t.totalQueryCount})</span></td>
-      <td>${t.providerRates.map(r => `${escapeHtml(r.provider)}: ${r.citationRate}%`).join(' · ')}</td>
+      <td>${escapeHtml(reportTrendProviderRates(t.providerRates))}</td>
     </tr>`).join('')
 
+  const [checkHeader, citedQueriesHeader, engineRatesHeader] = copy.breakdownHeaders
+
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time', intro: 'Citation coverage across recent checks.' },
+    { id: ReportSectionIds['citations-trend'], eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
     `${chart}
-    <div class="chart-card"><h3>Check-by-check breakdown</h3>
-      <table class="report-table">
-        <thead><tr><th>Check</th><th class="numeric">Cited queries</th><th>Per-engine rates</th></tr></thead>
+    <div class="chart-card"><h3>${copy.breakdownHeading}</h3>
+      <div class="table-scroll"><table class="report-table">
+        <thead><tr><th>${checkHeader}</th><th class="numeric">${citedQueriesHeader}</th><th>${engineRatesHeader}</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
     </div>`,
   )
 }
 
 function renderInsights(report: ProjectReportDto): string {
   const list = report.insights
+  const copy = REPORT_SECTION_COPY.insights
   if (list.length === 0) {
     return section(
-      { id: 'insights', eyebrow: 'Section 13', title: 'Insights & Alerts' },
-      renderEmpty('No insights yet — run a check to generate alerts.'),
+      { id: ReportSectionIds.insights, eyebrow: copy.eyebrow, title: copy.title },
+      renderEmpty(copy.empty),
     )
   }
 
@@ -2246,31 +2101,33 @@ function renderInsights(report: ProjectReportDto): string {
   const haveDeduped = list.every((i) => typeof i.instanceCount === 'number')
   const rows = (haveDeduped ? list.map((i) => ({ rep: i, count: i.instanceCount })) : groupInsights(list).map((g) => ({ rep: g.representative, count: g.count })))
     .map(({ rep: i, count }) => {
-      const tone = severityTone(i.severity)
+      const tone = reportInsightTone(i)
       const countChip = count > 1
-        ? ` <span class="badge tone-neutral">× ${count}</span>`
+        ? ` <span class="badge tone-neutral">${reportInstanceCountLabel(count)}</span>`
         : ''
       return `<tr>
         <td class="col-severity"><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>
         <td class="col-title">${escapeHtml(i.title)}${countChip}</td>
         <td class="col-query">${escapeHtml(i.query)}</td>
         <td class="col-provider">${escapeHtml(i.provider)}</td>
-        <td class="col-recommendation">${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
+        <td class="col-recommendation">${i.recommendation ? escapeHtml(i.recommendation) : `<span class="cell-pending">${copy.noRecommendation}</span>`}</td>
       </tr>`
     }).join('')
 
+  const [severityHeader, titleHeader, queryHeader, providerHeader, recommendationHeader] = copy.headers
+
   return section(
-    { id: 'insights', eyebrow: 'Section 13', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
-    `<table class="report-table insights-table">
+    { id: ReportSectionIds.insights, eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
+    `<div class="table-scroll"><table class="report-table insights-table">
       <thead><tr>
-        <th class="col-severity">Severity</th>
-        <th class="col-title">Title</th>
-        <th class="col-query">Query</th>
-        <th class="col-provider">Provider</th>
-        <th class="col-recommendation">Recommendation</th>
+        <th class="col-severity">${severityHeader}</th>
+        <th class="col-title">${titleHeader}</th>
+        <th class="col-query">${queryHeader}</th>
+        <th class="col-provider">${providerHeader}</th>
+        <th class="col-recommendation">${recommendationHeader}</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
@@ -2279,30 +2136,31 @@ function renderOpportunities(report: ProjectReportDto): string {
   if (opps.length === 0) return ''
 
   const canonical = report.meta.project.canonicalDomain
+  const copy = REPORT_SECTION_COPY['content-opportunities']
   const highlights = `<div class="opportunity-grid">
     ${opps.slice(0, 3).map(o => `<article class="opportunity-card">
-      <div class="opportunity-score" title="Opportunity score (0–100, higher = stronger)">${Math.round(o.score)}<span class="opportunity-score-suffix">/100</span></div>
+      <div class="opportunity-score" title="${copy.scoreCardTooltip}">${Math.round(o.score)}<span class="opportunity-score-suffix">${copy.scoreSuffix}</span></div>
       <h3>${escapeHtml(o.query)}</h3>
-      <p>${escapeHtml(contentActionLabel(o.action))} · ${escapeHtml(actionConfidenceLabel(o.actionConfidence))} confidence</p>
+      <p>${escapeHtml(reportOpportunityActionLine(o))}</p>
       ${renderProofChips(o.drivers, 2)}
     </article>`).join('')}
   </div>`
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
       ? `<a href="${safeHref(absolutizeProjectUrl(o.ourBestPage.url, canonical))}" target="_blank" rel="noopener noreferrer">${escapeHtml(o.ourBestPage.url)}</a>`
-      : '<span class="cell-not-cited">No page yet</span>'
+      : `<span class="cell-not-cited">${copy.noPage}</span>`
     const winning = o.winningCompetitor
       ? `<a href="${safeHref(o.winningCompetitor.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(o.winningCompetitor.domain)}</a>`
-      : '<span class="cell-not-cited">—</span>'
+      : `<span class="cell-not-cited">${copy.noWinningCompetitor}</span>`
     const drivers = o.drivers.length > 0
       ? `<ul class="driver-list">${o.drivers.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
-      : '<span class="cell-not-cited">No driver signal yet</span>'
+      : `<span class="cell-not-cited">${copy.noDriverSignal}</span>`
     const surfaceTone = o.winnabilityClass === 'ceded' ? 'tone-caution' : 'tone-neutral'
     return `<tr>
       <td>${escapeHtml(o.query)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(contentActionLabel(o.action))}</span></td>
       <td><span class="badge ${surfaceTone}">${escapeHtml(winnabilityClassLabel(o.winnabilityClass))}</span></td>
-      <td class="numeric" title="Opportunity score (0–100)">${Math.round(o.score)}</td>
+      <td class="numeric" title="${copy.scoreHeaderTooltip}">${Math.round(o.score)}</td>
       <td>${drivers}</td>
       <td>${ourPage}</td>
       <td>${winning}</td>
@@ -2310,44 +2168,46 @@ function renderOpportunities(report: ProjectReportDto): string {
     </tr>`
   }).join('')
 
+  const [queryHeader, actionHeader, winnabilityHeader, scoreHeader, whyHeader, ourPageHeader, winningHeader, confidenceHeader] = copy.headers
+
   return section(
     {
-      id: 'content-opportunities',
-      eyebrow: 'Section 14',
-      title: 'Content Opportunities',
-      intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger. Winnability flags whether the cited surface is ownable or ceded to aggregators/editorial.',
+      id: ReportSectionIds['content-opportunities'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
-    `${highlights}<table class="report-table">
-      <thead><tr><th>Query</th><th>Action</th><th>Winnability</th><th class="numeric" title="Opportunity score (0–100)">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
+    `${highlights}<div class="table-scroll"><table class="report-table">
+      <thead><tr><th>${queryHeader}</th><th>${actionHeader}</th><th>${winnabilityHeader}</th><th class="numeric" title="${copy.scoreHeaderTooltip}">${scoreHeader}</th><th>${whyHeader}</th><th>${ourPageHeader}</th><th>${winningHeader}</th><th>${confidenceHeader}</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
 function renderContentGaps(report: ProjectReportDto): string {
   const gaps = report.contentGaps
   if (gaps.length === 0) return ''
+  const copy = REPORT_SECTION_COPY['content-gaps']
   const rows = gaps.slice(0, 10).map(g => {
-    const competitorList = g.competitorDomains.slice(0, 5).map(escapeHtml).join(', ')
-    const more = g.competitorDomains.length > 5 ? `, +${g.competitorDomains.length - 5} more` : ''
     return `<tr>
       <td>${escapeHtml(g.query)}</td>
       <td class="numeric">${g.competitorCount}</td>
-      <td>${competitorList}${more}</td>
-      <td class="numeric">${Math.round(g.missRate * 100)}%</td>
+      <td>${escapeHtml(reportCompactList(g.competitorDomains, 5))}</td>
+      <td class="numeric">${reportMissRateLabel(g.missRate)}</td>
     </tr>`
   }).join('')
+  const [queryHeader, competitorsHeader, domainsHeader, missRateHeader] = copy.headers
   return section(
     {
-      id: 'content-gaps',
-      eyebrow: 'Section 15',
-      title: 'Content Gaps',
-      intro: 'Tracked queries where competitors are cited and the client is missing.',
+      id: ReportSectionIds['content-gaps'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
-    `<table class="report-table">
-      <thead><tr><th>Query</th><th class="numeric">Competitors cited</th><th>Domains</th><th class="numeric">Miss rate</th></tr></thead>
+    `<div class="table-scroll"><table class="report-table">
+      <thead><tr><th>${queryHeader}</th><th class="numeric">${competitorsHeader}</th><th>${domainsHeader}</th><th class="numeric">${missRateHeader}</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`,
+    </table></div>`,
   )
 }
 
@@ -2356,11 +2216,10 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   // `mapOpportunitiesToNextSteps`; consume the result directly per the
   // UI/CLI parity rule (no UI-only calculations).
   const steps = report.recommendedNextSteps
+  const copy = REPORT_SECTION_COPY['recommended-next-steps']
+  const heading = { id: ReportSectionIds['recommended-next-steps'], eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro }
   if (steps.length === 0) {
-    return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 16', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
-      renderEmpty('No outstanding actions.'),
-    )
+    return section(heading, renderEmpty(copy.empty))
   }
 
   const items = steps.map(s => `
@@ -2370,19 +2229,13 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
       <span class="rationale">${escapeHtml(s.rationale)}</span>
     </div>`).join('')
 
-  return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 16', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
-    `<div class="steps">${items}</div>`,
-  )
-}
-
-function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
-  return action.audience === 'both' || action.audience === audience
+  return section(heading, `<div class="steps">${items}</div>`)
 }
 
 function renderActionCards(actions: readonly ReportActionPlanItem[], audience: ReportAudience): string {
   const isClient = audience === 'client'
-  if (actions.length === 0) return renderEmpty(isClient ? 'No recommendations yet — run an AI check to populate this.' : 'No prioritized actions yet.')
+  const copy = isClient ? REPORT_SECTION_COPY['client-action-plan'] : REPORT_SECTION_COPY['agency-action-plan']
+  if (actions.length === 0) return renderEmpty(copy.empty)
   return `<div class="action-card-grid">
     ${actions.map((action, idx) => {
       const tone = reportActionTone(action)
@@ -2395,18 +2248,18 @@ function renderActionCards(actions: readonly ReportActionPlanItem[], audience: R
       const proof = renderProofChips(action.evidence.length > 0 ? action.evidence : action.why, 3)
       const details = why || evidence
         ? `<details class="action-details">
-            <summary>${isClient ? 'See the data behind this' : 'Evidence details'}</summary>
-            ${why ? `<div><strong>${isClient ? 'Why this matters' : 'Why'}</strong>${why}</div>` : ''}
-            ${evidence ? `<div><strong>${isClient ? 'What we saw' : 'Evidence'}</strong>${evidence}</div>` : ''}
+            <summary>${copy.detailsSummary}</summary>
+            ${why ? `<div><strong>${copy.whyLabel}</strong>${why}</div>` : ''}
+            ${evidence ? `<div><strong>${copy.evidenceLabel}</strong>${evidence}</div>` : ''}
           </details>`
         : ''
-      const horizonLabel = isClient ? clientHorizonLabel(action.horizon) : reportHorizonLabel(action.horizon)
-      const confidenceLabel = isClient ? clientConfidenceLabel(action.confidence) : `${reportConfidenceLabel(action.confidence)} confidence`
+      const horizonLabel = reportActionHorizonBadge(audience, action.horizon)
+      const confidenceLabel = reportActionConfidenceBadge(audience, action.confidence)
       const categoryBadge = isClient ? '' : `<span class="badge tone-neutral">${escapeHtml(reportActionCategoryLabel(action.category))}</span>`
-      const successLabel = isClient ? 'What success looks like:' : 'Win condition:'
+      const successLabel = copy.successLabel
       return `<article class="action-card">
         <div class="action-head">
-          <div class="action-rank" title="${isClient ? 'Priority — 1 will move the needle fastest' : 'Impact rank — 1 is the highest-leverage action'}">${idx + 1}</div>
+          <div class="action-rank" title="${copy.rankTitle}">${idx + 1}</div>
           <div>
             <div class="action-meta">
               <span class="badge tone-${tone}">${escapeHtml(horizonLabel)}</span>
@@ -2426,77 +2279,64 @@ function renderActionCards(actions: readonly ReportActionPlanItem[], audience: R
 }
 
 function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudience): string {
-  const rawActions = audience === 'client'
-    ? report.clientSummary.actionItems
-    : report.agencyDiagnostics.priorities.length > 0
-      ? report.agencyDiagnostics.priorities
-      : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
-  const actions = dedupeReportActions(report, rawActions)
+  const id = audience === 'client' ? ReportSectionIds['client-action-plan'] : ReportSectionIds['agency-action-plan']
+  const copy = REPORT_SECTION_COPY[id]
   return section(
-    {
-      id: audience === 'client' ? 'client-action-plan' : 'agency-action-plan',
-      eyebrow: audience === 'client' ? 'Action plan' : 'Agency actions',
-      title: audience === 'client' ? 'What to do next' : 'Agency Action Plan',
-      intro: audience === 'client'
-        ? 'Approve these in order. They are sorted by what will move the needle fastest.'
-        : 'The highest-leverage work, sorted by urgency and evidence strength.',
-    },
-    renderActionCards(actions, audience),
+    { id, eyebrow: copy.eyebrow, title: copy.title, intro: copy.intro },
+    renderActionCards(reportAudienceActions(report, audience), audience),
   )
 }
 
 function renderClientSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
   const sc = report.citationScorecard
+  const copy = REPORT_SECTION_COPY['client-summary']
   const totalQ = s.totalQueryCount ?? 0
   const heroNumber = totalQ > 0 ? `${s.mentionRate}%` : '—'
-  const heroSentence = totalQ > 0
-    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'query', 'queries')} about your industry, AI mentioned you in ${s.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those queries'}.`
-    : 'No AI check has been run yet. Run a check to see how AI tools answer customer queries about your business.'
-  const trend = clientTrendCopy(report.whatsChanged.mentionRate)
+  const heroSentence = reportClientHeroSentence(totalQ, s.mentionedQueryCount)
+  const trend = reportClientTrendCopy(report.whatsChanged.mentionRate)
   const heroTrend = trend
     ? `<p class="client-hero-trend tone-${trend.tone}"><span style="margin-right:6px;">${trend.arrow}</span>${escapeHtml(trend.text)}</p>`
     : ''
   const hero = `<div class="client-hero">
-    <div class="client-hero-eyebrow">Overview</div>
+    <div class="client-hero-eyebrow">${copy.heroEyebrow}</div>
     <div class="client-hero-number">${heroNumber}</div>
     <p class="client-hero-sentence">${escapeHtml(heroSentence)}</p>
     ${heroTrend}
   </div>`
 
-  const providerSubtitle = sc.providers.length > 0
-    ? sc.providers.map(providerDisplayName).join(', ')
-    : `${formatNumber(s.queryCount)} ${pluralize(s.queryCount, 'query', 'queries')} tested`
+  const providerSubtitle = reportClientProvidersSubtitle(sc.providers, s.queryCount)
 
   const tiles = `<div class="client-metric-grid">
     <div class="client-metric-tile">
-      <div class="label">AI mentions your name</div>
+      <div class="label">${copy.tiles.mentioned}</div>
       <div class="value">${s.mentionRate}%</div>
-      <div class="subtitle">${totalQ > 0 ? `Says your name in ${s.mentionedQueryCount} of ${totalQ} ${pluralize(totalQ, 'query', 'queries')}` : 'No data yet'}</div>
+      <div class="subtitle">${reportClientMentionedSubtitle(s.mentionedQueryCount, totalQ)}</div>
     </div>
     <div class="client-metric-tile">
-      <div class="label">AI links to your website</div>
+      <div class="label">${copy.tiles.cited}</div>
       <div class="value">${s.citationRate}%</div>
-      <div class="subtitle">${totalQ > 0 ? `Cites your site as a source in ${s.citedQueryCount} of ${totalQ} ${pluralize(totalQ, 'query', 'queries')}` : 'No data yet'}</div>
+      <div class="subtitle">${reportClientCitedSubtitle(s.citedQueryCount, totalQ)}</div>
     </div>
     <div class="client-metric-tile">
-      <div class="label">AI tools tested</div>
+      <div class="label">${copy.tiles.providers}</div>
       <div class="value">${formatNumber(s.providerCount)}</div>
       <div class="subtitle">${escapeHtml(providerSubtitle)}</div>
     </div>
   </div>`
 
+  const { lead, mention, link, closing } = copy.explainer
   const explainer = `<div class="client-explainer">
-    <strong>Mentions and links are different.</strong>
-    A <span class="term">mention</span> is when AI says your name out loud in its answer.
-    A <span class="term">link</span> is when AI lists your website as a source it used.
-    AI can do either, both, or neither — that's why we track both.
+    <strong>${lead}</strong>
+    ${mention.article} <span class="term">${mention.term}</span> ${mention.definition}
+    ${link.article} <span class="term">${link.term}</span> ${link.definition}
+    ${closing}
   </div>`
 
   const questions = sc.queries.length > 0
     ? `<div class="client-card">
-        <h3>Customer queries we tested</h3>
-        <p class="card-subtitle">These are the ${sc.queries.length} ${pluralize(sc.queries.length, 'query we asked', 'queries we asked')} every AI tool. The numbers above measure how often you came up.</p>
+        <h3>${copy.queriesHeading}</h3>
+        <p class="card-subtitle">${reportClientQueriesSubtitle(sc.queries.length)}</p>
         <ol class="client-questions-list">
           ${sc.queries.map((q, i) => `<li><span class="qnum">${String(i + 1).padStart(2, '0')}</span><span>"${escapeHtml(q)}"</span></li>`).join('')}
         </ol>
@@ -2505,13 +2345,13 @@ function renderClientSummary(report: ProjectReportDto): string {
 
   const providerBars = sc.providerRates.length > 0
     ? `<div class="client-card">
-        <h3>How often each AI tool mentions you</h3>
-        <p class="card-subtitle">Higher is better. Each bar shows the share of customer queries where the AI named you in the answer.</p>
+        <h3>${copy.providerBarsHeading}</h3>
+        <p class="card-subtitle">${copy.providerBarsSubtitle}</p>
         <div class="client-bar-list">
           ${sc.providerRates.map(r => {
             const pct = Math.max(r.mentionRate, 1.5)
             return `<div class="client-bar-row">
-              <span class="bar-label">${escapeHtml(providerDisplayName(r.provider))}</span>
+              <span class="bar-label">${escapeHtml(reportProviderDisplayName(r.provider))}</span>
               <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
               <span class="bar-value">${r.mentionRate}% <span class="bar-value-sub">(${r.mentionedCount}/${r.totalCount})</span></span>
             </div>`
@@ -2536,20 +2376,21 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
   const aiMax = ai.length > 0 ? Math.max(...ai.map(d => d.count)) : 0
   const gscMax = gsc ? Math.max(...gsc.topQueries.slice(0, 5).map(q => q.impressions), 1) : 0
 
+  const copy = REPORT_SECTION_COPY['client-evidence-summary']
   const cards: string[] = []
 
   if (ai.length > 0) {
     cards.push(`<div class="client-card">
-      <h3>Where AI gets its answers</h3>
-      <p class="card-subtitle">The websites AI tools cited most often when answering customer queries about your industry.</p>
+      <h3>${copy.sources.heading}</h3>
+      <p class="card-subtitle">${copy.sources.subtitle}</p>
       <div class="client-bar-list">
         ${ai.map(d => {
           const pct = aiMax > 0 ? Math.max((d.count / aiMax) * 100, 1.5) : 0
-          const label = escapeHtml(d.domain) + (d.isCompetitor ? ' <span style="color:'+COLORS.textFaint+';font-size:11px;">(competitor)</span>' : '')
+          const label = escapeHtml(d.domain) + (d.isCompetitor ? ` <span style="color:${COLORS.textFaint};font-size:11px;">${copy.sources.competitorTag}</span>` : '')
           return `<div class="client-bar-row">
             <span class="bar-label">${label}</span>
             <div class="bar-track"><div class="bar-fill bar-fill-neutral" style="width:${pct}%"></div></div>
-            <span class="bar-value">${formatNumber(d.count)}×</span>
+            <span class="bar-value">${reportClientSourceCount(d.count)}</span>
           </div>`
         }).join('')}
       </div>
@@ -2557,15 +2398,15 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
   }
 
   if (indexing) {
-    const tone = indexing.indexedPct >= 90 ? 'positive' : indexing.indexedPct >= 70 ? 'caution' : 'negative'
+    const tone = reportClientIndexingTone(indexing.indexedPct)
     const fillPct = Math.max(indexing.indexedPct, 1.5)
     cards.push(`<div class="client-card">
-      <h3>Pages Google can find on your site</h3>
-      <p class="card-subtitle">Google indexing your site increases the chances of it appearing in AI search (especially Gemini).</p>
+      <h3>${copy.indexing.heading}</h3>
+      <p class="card-subtitle">${copy.indexing.subtitle}</p>
       <div class="client-progress-number tone-${tone}">${indexing.indexedPct}%</div>
-      <div style="font-size:12px;color:${COLORS.textMuted};">${formatNumber(indexing.indexed)} of ${formatNumber(indexing.total)} pages indexed</div>
+      <div style="font-size:12px;color:${COLORS.textMuted};">${reportClientIndexedPages(indexing.indexed, indexing.total)}</div>
       <div class="client-progress-bar"><div class="client-progress-fill tone-${tone}" style="width:${fillPct}%"></div></div>
-      <p style="margin:0;font-size:12px;color:${COLORS.textMuted};"><strong style="color:${COLORS.text};">${formatNumber(indexing.notIndexed)}</strong> ${pluralize(indexing.notIndexed, 'page is', 'pages are')} not indexed yet.</p>
+      <p style="margin:0;font-size:12px;color:${COLORS.textMuted};"><strong style="color:${COLORS.text};">${formatNumber(indexing.notIndexed)}</strong> ${reportClientNotIndexedTail(indexing.notIndexed)}</p>
     </div>`)
   }
 
@@ -2578,26 +2419,26 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
             return `<div class="client-bar-row">
               <span class="bar-label">${escapeHtml(q.query)}</span>
               <div class="bar-track"><div class="bar-fill bar-fill-sky" style="width:${pct}%"></div></div>
-              <span class="bar-value">${formatNumber(q.impressions)} ${pluralize(q.impressions, 'search', 'searches')}</span>
+              <span class="bar-value">${reportClientSearchCount(q.impressions)}</span>
             </div>`
           }).join('')}
         </div>`
       : ''
     cards.push(`<div class="client-card">
-      <h3>What people search Google for</h3>
-      <p class="card-subtitle">You appeared in <strong style="color:${COLORS.text};">${formatNumber(gsc.totalImpressions)}</strong> Google searches and got <strong style="color:${COLORS.text};">${formatNumber(gsc.totalClicks)}</strong> ${pluralize(gsc.totalClicks, 'click')} this period.</p>
+      <h3>${copy.search.heading}</h3>
+      <p class="card-subtitle">${copy.search.subtitleLead} <strong style="color:${COLORS.text};">${formatNumber(gsc.totalImpressions)}</strong> ${copy.search.subtitleMiddle} <strong style="color:${COLORS.text};">${formatNumber(gsc.totalClicks)}</strong> ${reportClientClicksNoun(gsc.totalClicks)} ${copy.search.subtitleTail}</p>
       ${queryRows}
     </div>`)
   }
 
   if (opportunities.length > 0) {
     cards.push(`<div class="client-card">
-      <h3>Topics where you could improve</h3>
-      <p class="card-subtitle">Customer queries where better content on your site would help AI cite you.</p>
+      <h3>${copy.opportunities.heading}</h3>
+      <p class="card-subtitle">${copy.opportunities.subtitle}</p>
       <ul class="client-opportunity-list">
         ${opportunities.map(o => `<li>
           <div class="op-query">${escapeHtml(o.query)}</div>
-          <div class="op-action">${escapeHtml(contentActionLabel(o.action))}${o.winnabilityClass === 'ceded' ? ' <span class="badge tone-caution">Ceded surface</span>' : ''}</div>
+          <div class="op-action">${escapeHtml(contentActionLabel(o.action))}${o.winnabilityClass === 'ceded' ? ` <span class="badge tone-caution">${copy.opportunities.cededTag}</span>` : ''}</div>
         </li>`).join('')}
       </ul>
     </div>`)
@@ -2605,20 +2446,21 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
 
   return section(
     {
-      id: 'client-evidence-summary',
-      eyebrow: 'What we based this on',
-      title: 'The signals behind this plan',
-      intro: 'The data behind the recommendations above. Switch to Agency for the full breakdowns.',
+      id: ReportSectionIds['client-evidence-summary'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
     cards.length > 0
       ? `<div class="client-evidence-grid">${cards.join('')}</div>`
-      : renderEmpty('No supporting evidence yet — this fills in after the first AI check.'),
+      : renderEmpty(copy.empty),
   )
 }
 
 function renderAgencyDiagnostics(report: ProjectReportDto): string {
+  const copy = REPORT_SECTION_COPY['agency-diagnostics']
   const diagnostics = report.agencyDiagnostics.diagnostics
-    .filter(d => d.title !== 'Location caveat')
+    .filter(d => d.title !== copy.hiddenTitle)
   const body = diagnostics.length > 0
     ? `<div class="diagnostics-grid">
         ${diagnostics.map(d => `<div class="diagnostic-card tone-${d.severity}">
@@ -2627,13 +2469,13 @@ function renderAgencyDiagnostics(report: ProjectReportDto): string {
           ${renderProofChips(d.evidence, 3)}
         </div>`).join('')}
       </div>`
-    : renderEmpty('No agency diagnostics available yet.')
+    : renderEmpty(copy.empty)
   return section(
     {
-      id: 'agency-diagnostics',
-      eyebrow: 'Agency diagnostics',
-      title: 'Technical Diagnostics',
-      intro: 'Fast-read operator flags behind the action plan.',
+      id: ReportSectionIds['agency-diagnostics'],
+      eyebrow: copy.eyebrow,
+      title: copy.title,
+      intro: copy.intro,
     },
     body,
   )
@@ -2725,9 +2567,9 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 <body>
 <div class="container">
   <header class="header">
-    <div class="eyebrow">AI Visibility Report</div>
+    <div class="eyebrow">${REPORT_HEADER_COPY.eyebrow}</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
-    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${report.visibility?.selection.mode === 'advanced' ? ` · ${escapeHtml(reportVisibilityLocationLabel(report.visibility))}` : renderHeaderLocationFragment(report.meta.location)} · Last ${report.meta.periodDays} days · Generated ${formatDate(report.meta.generatedAt)}</div>
+    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${report.visibility?.selection.mode === 'advanced' ? ` · ${escapeHtml(reportVisibilityLocationLabel(report.visibility))}` : renderHeaderLocationFragment(report.meta.location)} · ${reportHeaderPeriodLabel(report.meta.periodDays)} · ${REPORT_HEADER_COPY.generated} ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
   <footer class="footer">Generated by <a href="https://canonry.ai">canonry</a> · ${escapeHtml(formatIsoDate(report.meta.generatedAt))}</footer>
@@ -2743,7 +2585,7 @@ export function renderReportVisibility(visibility: ReportVisibility): string {
   const historyPopulations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.trend.some(point => point.answerCount > 0))
   const rateCell = (rate: ReportVisibility['populations'][number]['summary']['mentionCoverage']) => `<td><strong>${escapeHtml(reportVisibilityRate(rate))}</strong><p class="muted">${escapeHtml(reportVisibilityEvidence(rate))}</p></td>`
   const headers = (labels: string[]) => `<thead><tr>${labels.map(label => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>`
-  const summary = `<table>${headers([visibilityCopy.queryType, visibilityCopy.queries, visibilityCopy.answers, visibilityCopy.mentioned, visibilityCopy.cited])}<tbody>${populations.map(population => `<tr><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td><td>${population.summary.queryCount}</td><td>${population.summary.answerCount}</td>${rateCell(population.summary.mentionCoverage)}${rateCell(population.summary.citationCoverage)}</tr>`).join('')}</tbody></table>`
-  const trend = `<details><summary>${escapeHtml(reportVisibilityHistoryLabel(visibility))}</summary><div class="table-scroll"><table>${headers([visibilityCopy.date, visibilityCopy.queryType, visibilityCopy.mentioned, visibilityCopy.cited, visibilityCopy.comparison])}<tbody>${historyPopulations.flatMap(population => population.trend.map(point => `<tr><td><time datetime="${escapeHtml(point.createdAt)}">${escapeHtml(point.createdAt.slice(0, 10))}</time></td><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td>${rateCell(point.mentionCoverage)}${rateCell(point.citationCoverage)}<td>${escapeHtml(reportVisibilityComparison(point.continuity.state, point.continuity.comparedRunId !== null && !population.trend.some(previous => previous.runId === point.continuity.comparedRunId)))}</td></tr>`)).join('')}</tbody></table></div></details>`
+  const summary = `<table class="report-table">${headers([visibilityCopy.queryType, visibilityCopy.queries, visibilityCopy.answers, visibilityCopy.mentioned, visibilityCopy.cited])}<tbody>${populations.map(population => `<tr><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td><td>${population.summary.queryCount}</td><td>${population.summary.answerCount}</td>${rateCell(population.summary.mentionCoverage)}${rateCell(population.summary.citationCoverage)}</tr>`).join('')}</tbody></table>`
+  const trend = `<details><summary>${escapeHtml(reportVisibilityHistoryLabel(visibility))}</summary><div class="table-scroll"><table class="report-table">${headers([visibilityCopy.date, visibilityCopy.queryType, visibilityCopy.mentioned, visibilityCopy.cited, visibilityCopy.comparison])}<tbody>${historyPopulations.flatMap(population => population.trend.map(point => `<tr><td><time datetime="${escapeHtml(point.createdAt)}">${escapeHtml(point.createdAt.slice(0, 10))}</time></td><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td>${rateCell(point.mentionCoverage)}${rateCell(point.citationCoverage)}<td>${escapeHtml(reportVisibilityComparison(point.continuity.state, point.continuity.comparedRunId !== null && !population.trend.some(previous => previous.runId === point.continuity.comparedRunId)))}</td></tr>`)).join('')}</tbody></table></div></details>`
   return `<section id="client-summary" class="report-section" aria-label="${escapeHtml(visibilityCopy.title)}"><h2>${escapeHtml(visibilityCopy.title)}</h2><p>${escapeHtml(visibility.selection.mode === 'advanced' ? visibilityCopy.description : visibilityCopy.simpleDescription)}</p><p>${escapeHtml(reportVisibilityMeasurementLabel(visibility))}</p><div class="table-scroll">${summary}</div>${trend}</section>`
 }

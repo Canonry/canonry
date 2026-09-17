@@ -17,6 +17,7 @@ import {
   contentGapRowDtoSchema,
 } from './content.js'
 import { validationError } from './errors.js'
+import { SourceCategories } from './source-categories.js'
 
 /**
  * Selectable report time windows, in days. Every time-windowed section of the
@@ -661,9 +662,14 @@ export const citationsTrendPointSchema = z.object({
 
 export type CitationsTrendPoint = z.infer<typeof citationsTrendPointSchema>
 
+/** What an insight says happened: a loss, a gain, or an opening to take. */
+export const reportInsightTypeSchema = z.enum(['regression', 'gain', 'opportunity'])
+export const ReportInsightTypes = reportInsightTypeSchema.enum
+export type ReportInsightType = z.infer<typeof reportInsightTypeSchema>
+
 export const reportInsightSchema = z.object({
   id: z.string(),
-  type: z.enum(['regression', 'gain', 'opportunity']),
+  type: reportInsightTypeSchema,
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   title: z.string(),
   query: z.string(),
@@ -894,6 +900,52 @@ export function reportActionTone(
   if (action.confidence === 'high') return 'caution'
   if (action.confidence === 'low') return 'neutral'
   return 'caution'
+}
+
+/**
+ * Badge tone for a competitor's citation pressure. High pressure is bad news
+ * for the client, so it reads negative; an unrecognized label stays neutral.
+ */
+export function reportPressureTone(label: CompetitorRow['pressureLabel']): ReportTone {
+  if (label === 'High') return 'negative'
+  if (label === 'Moderate') return 'caution'
+  if (label === 'Low') return 'positive'
+  return 'neutral'
+}
+
+/** Badge tone for an insight's severity. */
+export function reportSeverityTone(severity: ReportInsight['severity']): ReportTone {
+  switch (severity) {
+    case 'critical': return 'negative'
+    case 'high': return 'negative'
+    case 'medium': return 'caution'
+    case 'low': return 'neutral'
+  }
+}
+
+/**
+ * The tone an insight is badged with. Severity measures how far something
+ * moved, never whether the move was good news, so a gain takes the positive
+ * tone at every severity: toning it by severity alone painted "Gained
+ * citation" in the alarm tone under the Wins heading, indistinguishable from a
+ * lost citation under Regressions. Both report renderers call this.
+ */
+export function reportInsightTone(insight: Pick<ReportInsight, 'type' | 'severity'>): ReportTone {
+  return insight.type === ReportInsightTypes.gain ? 'positive' : reportSeverityTone(insight.severity)
+}
+
+/**
+ * Tone for an AI citation source category: citations that went to a tracked
+ * competitor are negative, directories and forums are caution, and every other
+ * category (including one this build does not know) is neutral.
+ */
+export function reportSourceCategoryTone(category: AiSourceCategoryBucket['category']): ReportTone {
+  switch (category) {
+    case SourceCategories.competitor: return 'negative'
+    case SourceCategories.directory:
+    case SourceCategories.forum: return 'caution'
+    default: return 'neutral'
+  }
 }
 
 /**

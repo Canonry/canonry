@@ -152,6 +152,29 @@ export function parseVisibilitySelection(search: Record<string, unknown>): Visib
   return result
 }
 
+/**
+ * The visibility report's first page for one URL selection: every aggregate
+ * filter, and no answer, cursor, or search. The project context row, the
+ * results workspace, and class normalization all read this one key, so a
+ * mounted page issues one first-page request.
+ */
+export function visibilityReportFirstPageQuery(selection: VisibilitySelectionState) {
+  return {
+    scope: selection.measurementScope,
+    scopeKey: selection.measurementScopeKey,
+    marketKey: selection.marketKey,
+    queryClass: selection.queryClass,
+    provider: selection.provider,
+    model: selection.model,
+    location: selection.location,
+    from: selection.from,
+    to: selection.to,
+    revision: selection.revision,
+    runId: selection.measurementRunId,
+    limit: 25,
+  }
+}
+
 export function patchVisibilitySelection(
   previous: Record<string, unknown>,
   patch: Record<string, unknown>,

@@ -3,6 +3,22 @@ export function formatRatio(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
+/**
+ * A ratio as a whole percent: `0.575` → `58%`.
+ *
+ * `Math.round(ratio * 100)` alone loses every half-percent boundary that binary
+ * floating point puts a hair below it — `0.575 * 100` is `57.49999999999999`,
+ * so a content gap missed on 23 of 40 snapshots printed `57%`. Callers hand in
+ * an unrounded `cited / total`, which lands on those boundaries constantly, so
+ * the error is removed before the rounding decision rather than after it. Six
+ * decimals is far finer than any ratio these reports carry and cannot lift a
+ * value that is genuinely under the boundary over it.
+ */
+export function formatWholePercent(ratio: number): string {
+  if (!Number.isFinite(ratio)) return '0%'
+  return `${Math.round(Number((ratio * 100).toFixed(6)))}%`
+}
+
 export function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
@@ -471,6 +487,22 @@ export function formatWindowCountDelta(
   }
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
+}
+
+export type PointDeltaDirection = 'up' | 'down' | 'none'
+
+/**
+ * A server rate delta (a fraction in [-1, 1]) as percentage points for a change
+ * line. Formats only: the delta is the server's own `current - previous`.
+ *
+ * A non-zero change below 0.05 points reads `<0.1`, so a real movement never
+ * rounds to a misleading `0.0`. One decimal keeps its trailing `.0`, matching
+ * `formatRatio`.
+ */
+export function formatPointDelta(delta: number): { direction: PointDeltaDirection; magnitude: string } {
+  if (delta === 0) return { direction: 'none', magnitude: '0' }
+  const points = Math.abs(delta) * 100
+  return { direction: delta > 0 ? 'up' : 'down', magnitude: points < 0.05 ? '<0.1' : points.toFixed(1) }
 }
 
 /**

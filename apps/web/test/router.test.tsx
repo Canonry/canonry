@@ -120,6 +120,7 @@ test('/projects/$id/conversions renders the conversion integrity workspace', asy
 test('/projects/$id/report renders the report tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/report')
   expect(container.innerHTML).toMatch(/Loading report/)
+  expect([...container.querySelectorAll('h1')].map(heading => heading.textContent)).toEqual(['Citypoint Dental NYC'])
 })
 
 test('/projects/$id/local renders the local presence tab', async () => {

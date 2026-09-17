@@ -79,6 +79,45 @@ test('scope picker panels compile outside document flow with an opaque surface',
   expect(panel).toContain('background-color: var(--color-bg)')
 })
 
+// The headline strip's frame lives in the stylesheet, not in a className, so a
+// component test cannot see it: `.report-headline` reads the same whether the
+// rule draws one bordered box with dividers or nothing at all. The tiles carry
+// their own surface, and a partial revert that put the shared frame back would
+// otherwise pass every suite.
+test('the headline strip separates its tiles instead of sharing one frame', async () => {
+  const css = await compileAppStyles([])
+  const strip = ruleFor(css, '.report-headline')
+  expect(strip).toContain('display: grid')
+  expect(strip).toMatch(/gap:/)
+  expect(strip).not.toMatch(/border|divide/)
+  // `divide-*` compiles to a child rule, which never appears in the block above.
+  expect(css).not.toMatch(/\.report-headline\s*>/)
+  const tile = ruleFor(css, '.report-headline-tile')
+  expect(tile).toContain('border-color: var(--color-border)')
+  expect(tile).toContain('background-color: var(--color-surface)')
+})
+
+// Five collapsed rows end the AI Visibility tab, and they come from two
+// components. They only read as one list while they resolve to one row style,
+// which no component test can see.
+test('every visibility detail row resolves to one collapsed row style', async () => {
+  const css = await compileAppStyles([])
+  const summary = ruleFor(css, '.visibility-disclosure-summary')
+  expect(summary).toContain('cursor: pointer')
+  expect(summary).toMatch(/min-height:/)
+  expect(summary).toMatch(/padding/)
+  expect(summary).toContain('&:focus-visible')
+  expect(summary).toContain('--tw-ring-color: var(--color-mono-400)')
+  expect(ruleFor(css, '.visibility-disclosure')).toMatch(/border-top/)
+  expect(ruleFor(css, '.visibility-disclosure-meta')).toContain('color: var(--color-text-secondary)')
+  // An opened panel pays its own bottom space and nothing else. The signals
+  // panel used page-section rhythm in here, which opened the row on 32px of
+  // margin, a stray divider and 24px of padding before its first line.
+  const panel = ruleFor(css, '.visibility-disclosure-panel')
+  expect(panel).toMatch(/padding-bottom:/)
+  expect(panel).not.toMatch(/margin-top|border-top/)
+})
+
 test('measurement table actions stay visible on an opaque surface while columns scroll', async () => {
   const css = await compileAppStyles([])
   const actions = ruleFor(css, '.measurement-table-actions')

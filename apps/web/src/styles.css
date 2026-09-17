@@ -1015,12 +1015,36 @@
     @apply flex shrink-0 items-center gap-2;
   }
 
-  .tag-row {
-    @apply mt-2 flex flex-wrap gap-1.5;
+  /* ── Project context row ── */
+  /* Operator project pages only; embeds keep `.page-header`. The title is
+     visually hidden at md and up, where the topbar breadcrumb names the project. */
+
+  .project-context-row {
+    @apply flex min-h-11 flex-wrap items-center gap-x-4 gap-y-2;
   }
 
-  .tag {
-    @apply rounded-md border border-base bg-bg-elevated/50 px-2 py-0.5 text-[11px] font-medium text-secondary;
+  .project-context-title {
+    @apply text-base font-semibold text-heading;
+  }
+
+  /* The measurement scope slot takes its own last line below md, so the
+     visible title and the actions share the first line; at md and up it
+     returns to DOM order and caps its width. The trigger label wraps
+     instead of truncating. */
+  .project-context-scope {
+    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-md;
+  }
+
+  .project-context-domain {
+    @apply text-[13px] text-secondary;
+  }
+
+  .project-context-meta {
+    @apply text-[13px] text-secondary;
+  }
+
+  .project-context-actions {
+    @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }
 
   /* ── Eyebrow / labels ── */
@@ -1058,15 +1082,28 @@
     container-type: inline-size;
   }
 
+  /* The results toolbar sits above the keyed results, so it stays mounted while
+     a filter change reloads them. Its two groups share one row at a container
+     width of 50rem and up, and wrap below that. */
+  .visibility-results-toolbar {
+    @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-default py-3;
+  }
+
+  /* A removable active filter: a rectangular 44px Button that never outgrows its row. */
+  .visibility-filter-token {
+    @apply max-w-full;
+  }
+
+  /* The Filters panel grid: engine, location and model, then the UTC dates and Results from. */
   .visibility-report-filters {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    @apply items-end gap-4 border-b border-default py-4;
+    @apply items-end gap-4 py-4;
   }
 
   @container (min-width: 50rem) {
-    .visibility-report-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .visibility-report-filters[data-has-scope='false'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .visibility-results-toolbar { flex-wrap: nowrap; }
+    .visibility-report-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
 
   @container (max-width: 26rem) {
@@ -1140,6 +1177,66 @@
 
   .visibility-trend-chart {
     @apply h-64 w-full sm:h-72;
+  }
+
+  /* Headline strip: one quiet tile per rate, separated by a gap. The strip
+     itself carries no shared frame and no dividers. */
+  .report-headline {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-3;
+  }
+
+  .report-headline[data-columns='2'] {
+    @apply sm:grid-cols-2;
+  }
+
+  .report-headline-tile {
+    @apply flex min-w-0 flex-col gap-1 rounded-xl border border-default bg-surface px-4 py-4;
+  }
+
+  /* The rate and its change read as one line, wrapping together when narrow. */
+  .report-headline-value {
+    @apply flex flex-wrap items-baseline gap-x-2;
+  }
+
+  /* Population size and the compared sweep, beside the class heading. */
+  .report-headline-caption {
+    @apply flex items-center gap-1 text-sm text-secondary;
+  }
+
+  /* The collapsed rows that end the AI Visibility tab. Three come from the
+     report section and two from the project page, so the row lives here rather
+     than in either component: one label, one count, one rhythm, one divider and
+     one focus ring, or the stack reads as two unrelated designs. */
+  .visibility-disclosure {
+    @apply border-t border-default;
+  }
+
+  .visibility-disclosure-summary {
+    @apply min-h-11 cursor-pointer py-4 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .visibility-disclosure-label {
+    @apply font-semibold;
+  }
+
+  .visibility-disclosure-meta {
+    @apply ml-3 text-sm font-normal text-secondary;
+  }
+
+  /* An opened panel pays its own bottom space and nothing else: the row above
+     already draws the divider, so page-section rhythm in here opens the panel
+     on a margin, a second divider and a block of padding. */
+  .visibility-disclosure-panel {
+    @apply pb-5;
+  }
+
+  /* Bounded bar under a breakdown rate. The fill width is the server rate. */
+  .report-rate-bar {
+    @apply mt-1.5 block h-1 w-full max-w-32 overflow-hidden rounded-full bg-mono-800;
+  }
+
+  .report-rate-bar-fill {
+    @apply block h-full rounded-full;
   }
 
   .visibility-trend-note {
@@ -1741,7 +1838,7 @@
      text that recedes, the active tab marked by a Snow underline sitting on
      the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply relative mt-5 mb-5 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
+    @apply relative mt-2 mb-4 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
   }
 
   .project-subnav-measure {

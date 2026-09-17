@@ -559,7 +559,7 @@ if (answerMentioned) mentioned++
 
 1. **Competitive metrics default to non-brand.** Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape are all non-brand by default.
 2. **Branded stays visible, never merged.** Return it as a sibling field (`branded`) and render it as its own labelled section with its own denominator. Dropping the data is as wrong as pooling it.
-3. **The class travels with the number.** Every surface that prints a class-scoped figure prints the class too (`scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line). A reader who sees only the number must still be able to tell which instrument produced it.
+3. **The class travels with the number.** Every class-scoped figure carries its class (`scope` / `queryClass` on the wire; "· non-brand queries" in the chart title, column header, and CLI line). A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label — the dashboard's AI Visibility headline strip does, naming the class once in its `h2` — but each figure still carries the class in its own accessible text (an `sr-only` suffix beside the value). A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. **`pooled` is a confession, not a default.** It appears only when the project has no usable brand alias to classify by. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
 5. **One classifier.** `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs the project's `effectiveBrandNames` against the query text with the shared brand matcher, and `queryClassSchema` IS `measurementQueryClassSchema`. Never hand-roll a regex or a second enum.
 6. **`competitorOverlap` is legacy MIXED evidence.** It may contain a rival found in answer text, source links, or both. Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher. Never use `competitorOverlap` alone for either claim.
@@ -747,9 +747,11 @@ tested against the business invariant it claims to represent.
 
 - [ ] Updated SPA section in `apps/web/src/pages/ReportPage.tsx`
 - [ ] Updated HTML section in `packages/api-routes/src/report-renderer.ts`
-- [ ] Section order matches between SPA and HTML for each audience
+- [ ] Copy lives in the shared modules — `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` and its copy functions) for section copy, `report-visibility.ts` for the visibility summary, `share-of-voice.ts` for share of voice — and both renderers read them; neither renderer writes report copy inline
+- [ ] Section order: `renderReportHtml` assembles its own list, and `reportSectionOrder(report, audience)` encodes that same order for the SPA, which renders it through an exhaustive switch. Adding, removing or re-conditioning a section edits both, and `packages/api-routes/test/report-renderer-bytes.test.ts` checks they agree for both audiences and every data shape
 - [ ] All visible strings (eyebrows, titles, subtitles, labels) match verbatim
 - [ ] Charts/progress bars/heroes have visual equivalents in both surfaces
+- [ ] `apps/web/test/report-page.test.tsx` matches the SPA against the outline goldens in `packages/api-routes/test/fixtures/report-outline/`, whole and for both audiences, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones the outline does not record. Only the api-routes suite writes those goldens and the HTML byte snapshots; a deliberate HTML change updates them in the same commit, never to make a failing test pass
 - [ ] `report-renderer.test.ts` updated to assert the new strings
 
 ### Agent & automation design principles

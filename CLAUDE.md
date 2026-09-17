@@ -12,7 +12,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
-- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 
 ### Color & Theme
 - Use semantic color tokens for new dashboard code. `apps/web/src/styles.css`
@@ -106,6 +106,10 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 ### Report parity (Critical)
 
 **The downloadable HTML report (`canonry report` / `GET /report.html`) and the in-app SPA report view must stay perfectly aligned.** They are two renderers of the same `ProjectReportDto` — clients and agencies see one report. Any change to a section, label, headline, chart, tile, or order in `apps/web/src/pages/ReportPage.tsx` must ship the same change in `packages/api-routes/src/report-renderer.ts` in the same commit, and vice versa. Tile labels, eyebrows, titles, subtitles, action-card copy, and evidence-card titles must match verbatim across both. Update `packages/api-routes/test/report-renderer.test.ts` whenever client/agency strings change. See AGENTS.md "Report parity" for the full rule set.
+
+- **Shared copy:** the section copy both report renderers show lives in `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` plus copy functions such as `reportExecutiveHeadline` and `reportServerActivityHeading`). Two sibling modules hold the rest of the shared copy: `report-visibility.ts` (the visibility summary) and `share-of-voice.ts`. Both renderers read all three; never write report copy inline in either one.
+- **Shared order:** `renderReportHtml` assembles its own ordered section list in `report-renderer.ts`; `reportSectionOrder(report, audience)` encodes that same order and drives the SPA through an exhaustive switch over `ReportSectionIds`. `report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree, so adding, removing or re-conditioning a section means editing both in the same commit.
+- **Outline goldens:** `packages/api-routes/test/report-renderer-bytes.test.ts` pins the HTML bytes and writes the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. `apps/web/test/report-page.test.tsx` holds the SPA to those goldens — whole, for both audiences — through its `data-report-*` hooks, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones an outline does not record. Only the api-routes suite regenerates the goldens, and never to make a failing test pass.
 
 ### Theme Migration Tests
 

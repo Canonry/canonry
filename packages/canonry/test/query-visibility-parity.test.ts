@@ -20,7 +20,34 @@ function inputFile(input: unknown): string {
 }
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true }) })
 
+/** A report whose populations carry an available and an unavailable change since the previous sweep. */
+const REPORT_WITH_COMPARISON = {
+  selection: { queryClass: 'all', revision: 2, run: { id: 'run-current', explicit: false } },
+  populations: [
+    { queryClass: 'branded', comparison: { state: 'unavailable', reason: 'partial-run', previousRun: { id: 'run-previous', createdAt: '2026-09-06T12:00:00.000Z', completedAt: null } } },
+    {
+      queryClass: 'non-brand',
+      comparison: {
+        state: 'available',
+        previousRun: { id: 'run-previous', createdAt: '2026-09-06T12:00:00.000Z', completedAt: '2026-09-06T12:40:00.000Z' },
+        mentionCoverage: { state: 'available', previous: { numerator: 18, denominator: 36, rate: 0.5 }, delta: 24 / 36 - 0.5 },
+        citationCoverage: { state: 'unavailable', reason: 'previous-unavailable' },
+        propertyReach: { state: 'unavailable', reason: 'not-applicable' },
+      },
+    },
+  ],
+}
+
 describe('query and visibility CLI parity', () => {
+  it('keeps each population comparison unchanged in JSON output', async () => {
+    client.getVisibilityReport.mockResolvedValue(REPORT_WITH_COMPARISON)
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await runAdvancedMeasurementOperation('demo', 'visibility', inputFile({ queryClass: 'all' }), 'json')
+    const printed = JSON.parse(output.mock.calls[0]![0] as string)
+    expect(printed).toEqual(REPORT_WITH_COMPARISON)
+    expect(printed.populations[1].comparison.mentionCoverage.delta).toBe(24 / 36 - 0.5)
+  })
+
   it('returns the report envelope verbatim, including class populations and revision evidence', async () => {
     const result = { selection: { queryClass: 'all', revision: 2 }, populations: [{ queryClass: 'branded' }, { queryClass: 'non-brand' }] }
     client.getVisibilityReport.mockResolvedValue(result)
@@ -59,6 +86,15 @@ describe('query and visibility MCP parity', () => {
     const { project, ...selection } = input
     expect(client.getVisibilityReport).toHaveBeenCalledWith(project, selection)
     expect(tool!.access).toBe('read')
+  })
+
+  it('returns the client report, including each comparison, unchanged', async () => {
+    const tool = canonryMcpTools.find(tool => tool.name === 'canonry_visibility_report')
+    expect(tool).toBeDefined()
+    client.getVisibilityReport.mockResolvedValue(REPORT_WITH_COMPARISON)
+    const output = await tool!.handler(client as unknown as ApiClient, tool!.inputSchema.parse({ project: 'demo', queryClass: 'all' }))
+    expect(output).toBe(REPORT_WITH_COMPARISON)
+    expect(output).toEqual(REPORT_WITH_COMPARISON)
   })
 
   it('requires the same preview token and workspace version for an agent commit', async () => {

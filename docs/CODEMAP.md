@@ -37,7 +37,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@ainyc/canonry-api-client` | **All web API calls must go through generated SDK** (`@ainyc/canonry-api-client/react-query`) — `fetch()` banned except here |
 | `src/api-aero.ts` | Aero SSE client | |
 | `src/embed.ts` | Presentational embed helpers: `embedViewIdForPath`, `isEmbedProjectTabAllowed`, `embedThemeStyle` | Pure, testable |
-| `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, etc. | |
+| `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, `measurement-view-url` (shared measurement URL selection and the first-page visibility-report query key), `project-scope` (which scope control the project context row shows on each tab), etc. | `VisibilityTrendSection` exports `VisibilityOverview` (results toolbar above the keyed workspace) and `useVisibilityReportFirstPage`. |
 | `src/queries/*` | TanStack Query hooks (`use-dashboard-overview`, `use-project-dashboard`, `use-health`, `mutations`, `server-traffic`) | |
 | `src/contexts/*` | `dashboard-context`, `account-context` | |
 | `src/mappers/insight-mapper.ts` | Insight DTO → view-model | |
@@ -137,6 +137,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/doctor/*` | Health checks — `registry.ts`, `runner.ts`, `checks/*`. Cloudflare direct push skips pull lag. Both direct and Queue sources use `traffic.source.worker-version` to compare the generated version with the most recently ingested batch's Worker version. |
 | `src/discovery/*` | Discovery orchestrator + routes |
 | `src/measurement-*` | Advanced measurement plans, overview, property evidence |
+| `src/measurement-scope-options.ts` | `planScopeOptions`: the single server scope-option builder (visibility report with `marketLinks: true`, query-tracking workspace with `marketLinks: false`); `simpleScopeOptions` for Simple projects |
 | `src/visibility-attribution.ts` | Query attribution helpers (`buildQueryAttribution`, `resolveCurrentQuery`) — by-id then by-text fallback for historical snapshots |
 | `AGENTS.md` | Route file map, `notProbeRun` contract, SDK layering |
 

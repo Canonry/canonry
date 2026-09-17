@@ -1,0 +1,249 @@
+{
+  "sections": [
+    {
+      "id": "client-summary",
+      "eyebrow": null,
+      "title": "AI visibility",
+      "intro": null,
+      "items": [
+        {
+          "table": [
+            "Query type",
+            "Queries measured",
+            "Answers measured",
+            "Mentioned",
+            "Cited"
+          ]
+        },
+        {
+          "table": [
+            "Date",
+            "Query type",
+            "Mentioned",
+            "Cited",
+            "Comparison"
+          ]
+        }
+      ],
+      "content": [
+        {
+          "text": "Each answer is counted once for its assigned properties. Branded and non-brand queries are measured separately. Latest measurement: 2026-09-01"
+        },
+        {
+          "row": [
+            "Non-brand",
+            "2",
+            "6",
+            "33.3% 2 of 6 answers",
+            "16.7% 1 of 6 answers"
+          ]
+        },
+        {
+          "row": [
+            "Branded",
+            "1",
+            "3",
+            "Not measured Property identity unverified",
+            "0% 0 of 3 answers"
+          ]
+        },
+        {
+          "summary": "Measurement history"
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "AI engine attention",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs over the last 7 days — the other half of citations.",
+      "items": [
+        {
+          "tile": "AI bot requests observed"
+        },
+        {
+          "tile": "AI user-fetch requests"
+        },
+        {
+          "tile": "AI referral sessions"
+        },
+        {
+          "heading": "By AI tool"
+        },
+        {
+          "table": [
+            "AI tool",
+            "Bot requests (7d)",
+            "User fetches (7d)",
+            "Referral sessions"
+          ]
+        },
+        {
+          "note": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
+        }
+      ],
+      "content": [
+        {
+          "tile": "AI bot requests observed 249 234 verified · 15 unverified · «positive|Up 104% vs prior 7 days (122 requests)»"
+        },
+        {
+          "tile": "AI user-fetch requests 42 «positive|Up 133% vs prior 7 days (18 requests)»"
+        },
+        {
+          "tile": "AI referral sessions 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1"
+        },
+        {
+          "text": "By AI tool"
+        },
+        {
+          "row": [
+            "OpenAI",
+            "150",
+            "32",
+            "8"
+          ]
+        },
+        {
+          "row": [
+            "Anthropic",
+            "70",
+            "0",
+            "3"
+          ]
+        },
+        {
+          "row": [
+            "Google AI",
+            "29",
+            "0",
+            "1"
+          ]
+        },
+        {
+          "row": [
+            "Perplexity",
+            "0",
+            "10",
+            "0"
+          ]
+        },
+        {
+          "text": "Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range."
+        }
+      ]
+    },
+    {
+      "id": "client-action-plan",
+      "eyebrow": "Action plan",
+      "title": "What to do next",
+      "intro": "Approve these in order. They are sorted by what will move the needle fastest.",
+      "items": [
+        {
+          "heading": "Create content for \"best aeo platform\""
+        }
+      ],
+      "content": [
+        {
+          "text": "«tip Priority — 1 will move the needle fastest|1» «caution|This month» Strong evidence"
+        },
+        {
+          "text": "Create content for \"best aeo platform\""
+        },
+        {
+          "text": "Publish a client-safe guide that directly answers the priority query. rival.com is the current winning cited source"
+        },
+        {
+          "summary": "See the data behind this"
+        },
+        {
+          "text": "Why this matters"
+        },
+        {
+          "item": "AI engines already cite competitors for this query."
+        },
+        {
+          "text": "What we saw"
+        },
+        {
+          "item": "rival.com is the current winning cited source"
+        },
+        {
+          "text": "What success looks like: The client is cited for \"best aeo platform\" in a future sweep."
+        }
+      ]
+    },
+    {
+      "id": "client-evidence-summary",
+      "eyebrow": "What we based this on",
+      "title": "The signals behind this plan",
+      "intro": "The data behind the recommendations above. Switch to Agency for the full breakdowns.",
+      "items": [
+        {
+          "heading": "Where AI gets its answers"
+        },
+        {
+          "note": "The websites AI tools cited most often when answering customer queries about your industry."
+        },
+        {
+          "heading": "Pages Google can find on your site"
+        },
+        {
+          "note": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
+        },
+        {
+          "heading": "What people search Google for"
+        },
+        {
+          "note": "You appeared in 5.0K Google searches and got 1.0K clicks this period."
+        },
+        {
+          "heading": "Topics where you could improve"
+        },
+        {
+          "note": "Customer queries where better content on your site would help AI cite you."
+        }
+      ],
+      "content": [
+        {
+          "text": "Where AI gets its answers"
+        },
+        {
+          "text": "The websites AI tools cited most often when answering customer queries about your industry."
+        },
+        {
+          "text": "reddit.com 4× rival.com (competitor) 2×"
+        },
+        {
+          "text": "Pages Google can find on your site"
+        },
+        {
+          "text": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
+        },
+        {
+          "text": "«caution|80%» 80 of 100 pages indexed 20 pages are not indexed yet."
+        },
+        {
+          "text": "What people search Google for"
+        },
+        {
+          "text": "You appeared in 5.0K Google searches and got 1.0K clicks this period."
+        },
+        {
+          "text": "rich brand 3.0K searches best aeo 2.0K searches"
+        },
+        {
+          "text": "Topics where you could improve"
+        },
+        {
+          "text": "Customer queries where better content on your site would help AI cite you."
+        },
+        {
+          "item": "best aeo platform Create"
+        },
+        {
+          "item": "answer engine optimization Refresh «caution|Ceded surface»"
+        }
+      ]
+    }
+  ]
+}

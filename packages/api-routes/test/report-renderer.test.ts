@@ -1,457 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
+import { REPORT_SECTION_COPY, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility, type ProjectReportDto } from '@ainyc/canonry-contracts'
 import { formatLandingPageHtml, renderReportHtml, renderReportVisibility } from '../src/report-renderer.js'
-
-function emptyReport(): ProjectReportDto {
-  return {
-    meta: {
-      generatedAt: '2026-05-01T12:00:00.000Z',
-      project: {
-        id: 'p-1',
-        name: 'demo',
-        displayName: 'Demo',
-        canonicalDomain: 'demo.example.com',
-        country: 'US',
-        language: 'en',
-      },
-      location: null,
-      providerLocationHandling: [],
-      periodStart: null,
-      periodEnd: null,
-      periodDays: 30,
-    },
-    executiveSummary: {
-      citationRate: 0,
-      citedQueryCount: 0,
-      totalQueryCount: 0,
-      mentionRate: 0,
-      mentionedQueryCount: 0,
-      trend: 'unknown',
-      queryCount: 0,
-      competitorCount: 0,
-      providerCount: 0,
-      gsc: null,
-      ga: null,
-      findings: [],
-    },
-    citationScorecard: { queries: [], providers: [], matrix: [], providerRates: [] },
-    competitorLandscape: { projectCitationCount: 0, competitors: [] },
-    mentionLandscape: {
-      projectMentionCount: 0,
-      totalAnswerSnapshots: 0,
-      competitors: [],
-      scope: 'non-brand',
-      nonBrand: { projectMentionCount: 0, totalAnswerSnapshots: 0, competitors: [] },
-      branded: { projectMentionCount: 0, totalAnswerSnapshots: 0, competitors: [] },
-    },
-    aiSourceOrigin: { categories: [], topDomains: [] },
-    gsc: null,
-    ga: null,
-    socialReferrals: null,
-    aiReferrals: null,
-    serverActivity: null,
-    indexingHealth: null,
-    citationsTrend: [],
-    whatsChanged: {
-      enoughHistory: false,
-      headline: 'Building baseline (0 of 4 checks completed). Trends appear after a few more checks.',
-	      citationRate: null,
-	      mentionRate: null,
-	      citedQueryCount: null,
-	      mentionedQueryCount: null,
-	      gscClicksDelta: null,
-      aiReferralsDelta: null,
-      comparisonWindowDays: 15,
-      providerMovements: [],
-      wins: [],
-      regressions: [],
-    },
-    insights: [],
-    recommendedNextSteps: [],
-    actionPlan: [],
-    clientSummary: {
-      headline: 'No tracked queries have completed a visibility sweep yet',
-      overview: 'No visibility data yet.',
-      actionItems: [],
-      confidenceNotes: [],
-    },
-    agencyDiagnostics: {
-      priorities: [],
-      diagnostics: [],
-    },
-    contentOpportunities: [],
-    contentGaps: [],
-    groundingSources: [],
-  }
-}
-
-function richReport(): ProjectReportDto {
-  const clientAction: ProjectReportDto['actionPlan'][number] = {
-    audience: 'both',
-    priority: 10,
-    horizon: 'short-term',
-    category: 'content',
-    title: 'Create content for "best aeo platform"',
-    action: 'Publish a client-safe guide that directly answers the priority query.',
-    why: ['AI engines already cite competitors for this query.'],
-    evidence: ['rival.com is the current winning cited source'],
-    successMetric: 'The client is cited for "best aeo platform" in a future sweep.',
-    confidence: 'high',
-  }
-  const agencyAction: ProjectReportDto['actionPlan'][number] = {
-    audience: 'agency',
-    priority: 20,
-    horizon: 'short-term',
-    category: 'provider',
-    title: 'Diagnose zero-citation providers',
-    action: 'Inspect provider answers and source lists for model-specific gaps.',
-    why: ['Provider-level misses isolate where retrieval differs by model family.'],
-    evidence: ['openai: 0/2 cited query-provider pairs'],
-    successMetric: 'OpenAI cites the client on at least one tracked query.',
-    confidence: 'high',
-  }
-  return {
-    meta: {
-      generatedAt: '2026-05-02T12:00:00.000Z',
-      project: {
-        id: 'p-2',
-        name: 'rich',
-        displayName: 'Rich Project',
-        canonicalDomain: 'rich.example.com',
-        country: 'US',
-        language: 'en',
-      },
-      location: {
-        label: 'michigan',
-        city: 'Detroit',
-        region: 'Michigan',
-        country: 'US',
-        otherConfiguredLabels: ['florida'],
-      },
-      providerLocationHandling: [
-        { provider: 'gemini', treatment: 'prompt', description: 'Location appended to the query text the Gemini model receives.' },
-        { provider: 'openai', treatment: 'request-param', description: 'Location sent as a structured `user_location` field on OpenAI’s web_search tool.' },
-      ],
-      periodStart: '2026-04-01T00:00:00Z',
-      periodEnd: '2026-04-30T00:00:00Z',
-      // Deliberately distinct from whatsChanged.comparisonWindowDays below so
-      // these tests prove the server-activity labels read meta.periodDays while
-      // the what's-changed traffic-delta labels read comparisonWindowDays —
-      // independent wiring, not a shared constant.
-      periodDays: 7,
-    },
-    executiveSummary: {
-      citationRate: 65,
-      citedQueryCount: 3,
-      totalQueryCount: 5,
-      mentionRate: 40,
-      mentionedQueryCount: 2,
-      trend: 'up',
-      queryCount: 5,
-      competitorCount: 3,
-      providerCount: 2,
-      gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
-      ga: { sessions: 12000, users: 9000, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
-      findings: [
-        { title: 'Citation rate at 65%', detail: 'Up from previous run.', tone: 'positive' },
-        { title: '1 critical regression', detail: 'Lost citation', tone: 'negative' },
-      ],
-    },
-    citationScorecard: {
-      queries: ['aeo platform', 'answer engine'],
-      providers: ['gemini', 'openai'],
-      matrix: [
-        [
-          { citationState: 'cited', answerMentioned: true, model: 'g-2.0' },
-          { citationState: 'not-cited', answerMentioned: false, model: 'gpt-4o' },
-        ],
-        [
-          { citationState: 'not-cited', answerMentioned: false, model: 'g-2.0' },
-          { citationState: 'cited', answerMentioned: true, model: 'gpt-4o' },
-        ],
-      ],
-	      providerRates: [
-	        { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 },
-	        { provider: 'openai', citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 },
-	      ],
-    },
-    competitorLandscape: {
-      projectCitationCount: 4,
-      competitors: [
-        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedQueries: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
-        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedQueries: ['answer engine'], sharePct: 0, theirCitedPages: [] },
-      ],
-    },
-    mentionLandscape: {
-      // Top level mirrors `nonBrand` — the competitive view the section leads with.
-      projectMentionCount: 3,
-      totalAnswerSnapshots: 4,
-      competitors: [
-        { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33 },
-        { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 17 },
-      ],
-      scope: 'non-brand',
-      nonBrand: {
-        projectMentionCount: 3,
-        totalAnswerSnapshots: 4,
-        competitors: [
-          { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33 },
-          { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 17 },
-        ],
-      },
-      branded: {
-        projectMentionCount: 2,
-        totalAnswerSnapshots: 2,
-        competitors: [
-          { domain: 'rival.com', mentionCount: 0, totalCount: 2, pressureLabel: 'None', mentionedQueries: [], sharePct: 0 },
-          { domain: 'other.com', mentionCount: 0, totalCount: 2, pressureLabel: 'None', mentionedQueries: [], sharePct: 0 },
-        ],
-      },
-    },
-    aiSourceOrigin: {
-      categories: [
-        { category: 'forum', label: 'Forums & Q&A', count: 5, sharePct: 50 },
-        { category: 'news', label: 'News & Media', count: 3, sharePct: 30 },
-      ],
-      topDomains: [
-        { domain: 'reddit.com', count: 4, isCompetitor: false },
-        { domain: 'rival.com', count: 2, isCompetitor: true },
-      ],
-    },
-    gsc: {
-      periodStart: '2026-04-01',
-      periodEnd: '2026-04-30',
-      totalClicks: 1000,
-      totalImpressions: 5000,
-      ctr: 0.2,
-      avgPosition: 4.5,
-      topQueries: [
-        { query: 'rich brand', clicks: 800, impressions: 3000, ctr: 0.27, avgPosition: 1.5, category: 'brand' },
-        { query: 'best aeo', clicks: 200, impressions: 2000, ctr: 0.1, avgPosition: 5.5, category: 'industry' },
-      ],
-      categoryBreakdown: [
-        { category: 'brand', clicks: 800, impressions: 3000, sharePct: 80 },
-        { category: 'industry', clicks: 200, impressions: 2000, sharePct: 20 },
-      ],
-      trend: [
-        { date: '2026-04-01', clicks: 100, impressions: 500 },
-        { date: '2026-04-02', clicks: 200, impressions: 1000 },
-      ],
-      trackedButNoGsc: [],
-      gscButNotTracked: [],
-    },
-    ga: {
-      totalSessions: 12000,
-      totalUsers: 9000,
-      totalOrganicSessions: 8000,
-      periodStart: '2026-04-01',
-      periodEnd: '2026-04-30',
-      topLandingPages: [
-        { page: '/', sessions: 6000, users: 4500, organicSessions: 4000 },
-      ],
-      channelBreakdown: [
-        { channel: 'Organic Search', sessions: 8000, sharePct: 67 },
-        { channel: 'Direct', sessions: 4000, sharePct: 33 },
-      ],
-    },
-    socialReferrals: {
-      totalSessions: 1500,
-      organicSessions: 1000,
-      paidSessions: 500,
-      channels: [
-        { channelGroup: 'Organic Social', sessions: 1000, sharePct: 67 },
-        { channelGroup: 'Paid Social', sessions: 500, sharePct: 33 },
-      ],
-      topCampaigns: [
-        { source: 'linkedin.com', medium: 'referral', sessions: 700 },
-      ],
-    },
-    // Sessions only. The users fields are deprecated and never emitted; the
-    // fixture omits them so it matches what the report actually produces.
-    aiReferrals: {
-      totalSessions: 200,
-      paidSessions: 150,
-      organicSessions: 50,
-      bySource: [
-        { source: 'chatgpt.com', sessions: 150, paidSessions: 150, organicSessions: 0, sharePct: 75 },
-        { source: 'gemini.google.com', sessions: 50, paidSessions: 0, organicSessions: 50, sharePct: 25 },
-      ],
-      trend: [
-        { date: '2026-04-15', sessions: 100 },
-        { date: '2026-04-16', sessions: 100 },
-      ],
-      topLandingPages: [
-        { page: '/', sessions: 120 },
-      ],
-    },
-    serverActivity: {
-      windowStart: '2026-04-25T00:00:00.000Z',
-      windowEnd: '2026-05-02T00:00:00.000Z',
-      hasData: true,
-      verifiedCrawlerHits: { current: 234, prior: 117, deltaPct: 100 },
-      unverifiedCrawlerHits: { current: 15, prior: 5, deltaPct: 200 },
-      aiUserFetchHits: { current: 42, prior: 18, deltaPct: 133 },
-      referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
-      referralRedirects: 0,
-      referralArrivalsByClass: {
-        paid: { current: 9, prior: 4, deltaPct: 125 },
-        organic: { current: 2, prior: 2, deltaPct: 0 },
-        unclassified: { current: 1, prior: 0, deltaPct: null },
-      },
-      referralArrivalsClassSummary: 'Paid 9 · Organic 2 · Unclassified 1',
-      byOperator: [
-        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: 75 },
-        { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 3, deltaPct: 40 },
-        { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, userFetchHits: 0, referralArrivals: 1, deltaPct: null },
-        { operator: 'Perplexity', verifiedHits: 0, unverifiedHits: 0, userFetchHits: 10, referralArrivals: 0, deltaPct: null },
-      ],
-      topCrawledPaths: [
-        { path: '/blog/foo', verifiedHits: 80, distinctOperators: 2 },
-        { path: '/pricing', verifiedHits: 50, distinctOperators: 1 },
-      ],
-      referralProducts: [
-        { product: 'ChatGPT', arrivals: 8, distinctLandingPaths: 3 },
-        { product: 'Claude', arrivals: 3, distinctLandingPaths: 1 },
-      ],
-      dailyTrend: [
-        { date: '2026-04-29', verifiedCrawlerHits: 30, userFetchHits: 4, referralArrivals: 2 },
-        { date: '2026-04-30', verifiedCrawlerHits: 45, userFetchHits: 8, referralArrivals: 3 },
-      ],
-      topReferralLandingPaths: [
-        { path: '/landing', arrivals: 5, distinctProducts: 2 },
-      ],
-    },
-    indexingHealth: {
-      provider: 'google',
-      total: 100,
-      indexed: 80,
-      notIndexed: 20,
-      deindexed: 0,
-      unknown: 0,
-      indexedPct: 80,
-    },
-    citationsTrend: [
-	      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50, mentionRate: 25 }] },
-	      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65, mentionRate: 40 }] },
-    ],
-    whatsChanged: {
-      enoughHistory: false,
-      headline: 'Building baseline (2 of 4 checks completed). Trends appear after a few more checks.',
-	      citationRate: null,
-	      mentionRate: null,
-	      citedQueryCount: null,
-	      mentionedQueryCount: null,
-	      gscClicksDelta: null,
-      aiReferralsDelta: null,
-      comparisonWindowDays: 14,
-      providerMovements: [],
-      wins: [],
-      regressions: [],
-    },
-    insights: [
-      {
-        id: 'i-1',
-        type: 'regression',
-        severity: 'critical',
-        title: 'Lost citation on aeo platform',
-        query: 'aeo platform',
-        provider: 'gemini',
-        recommendation: 'review-content — /landing — rival outranking',
-        createdAt: '2026-04-30T00:00:00Z',
-        instanceCount: 1,
-      },
-    ],
-    recommendedNextSteps: [
-      { horizon: 'immediate', title: 'Resolve 1 critical regression', rationale: 'Lost citation on aeo platform.' },
-    ],
-    actionPlan: [clientAction, agencyAction],
-    clientSummary: {
-	      headline: '2 of 5 tracked queries mention the brand in AI answers',
-	      overview: 'Rich Project is mentioned on 40% of tracked queries and cited on 65%. There is not enough comparable run history yet to call a mention trend.',
-      actionItems: [clientAction],
-      confidenceNotes: ['This summary is scoped to the michigan run location.'],
-    },
-    agencyDiagnostics: {
-      priorities: [clientAction, agencyAction],
-      diagnostics: [
-        {
-          title: 'Provider citation coverage',
-          detail: 'One provider returned zero client citations.',
-          severity: 'negative',
-          evidence: ['openai: 0/2'],
-        },
-      ],
-    },
-    contentOpportunities: [
-      {
-        targetRef: 'rich:create:best-aeo-platform',
-        query: 'best aeo platform',
-        action: 'create',
-        ourBestPage: null,
-        winningCompetitor: {
-          domain: 'rival.com',
-          url: 'https://rival.com/best-aeo',
-          title: 'Best AEO',
-          citationCount: 3,
-        },
-        score: 87.5,
-        scoreBreakdown: { demand: 0.6, competitor: 0.8, absence: 1, gapSeverity: 1 },
-        drivers: ['high competitor density', 'no own page'],
-        demandSource: 'competitor-evidence',
-        actionConfidence: 'high',
-        existingAction: null,
-        winnabilityClass: 'ownable',
-        winnability: 0.9,
-      },
-      {
-        targetRef: 'rich:refresh:answer-engine-optimization',
-        query: 'answer engine optimization',
-        action: 'refresh',
-        ourBestPage: {
-          url: '/blog/answer-engine-optimization',
-          gscImpressions: 1500,
-          gscClicks: 120,
-          gscAvgPosition: 4,
-          organicSessions: 200,
-        },
-        winningCompetitor: null,
-        score: 62.1,
-        scoreBreakdown: { demand: 0.7, competitor: 0.3, absence: 0.5, gapSeverity: 0.4 },
-        drivers: ['existing page ranks weakly'],
-        demandSource: 'gsc',
-        actionConfidence: 'medium',
-        existingAction: null,
-        winnabilityClass: 'ceded',
-        winnability: 0.1,
-      },
-    ],
-    contentGaps: [
-      {
-        query: 'best aeo platform',
-        competitorDomains: ['rival.com'],
-        competitorCount: 1,
-        missRate: 1,
-        lastSeenInRunId: 'r-2',
-      },
-    ],
-    groundingSources: [
-      {
-        query: 'best aeo platform',
-        groundingSources: [
-          {
-            uri: 'https://rival.com/best-aeo',
-            title: 'Best AEO',
-            domain: 'rival.com',
-            isOurDomain: false,
-            isCompetitor: true,
-            citationCount: 3,
-            providers: ['gemini'],
-          },
-        ],
-      },
-    ],
-  }
-}
+import { emptyReport, fullReport, reportWithChangeHistory, richReport } from '../../contracts/test/fixtures/report-dto.js'
 
 describe('renderReportHtml', () => {
   test('returns a string starting with <!DOCTYPE html>', () => {
@@ -925,6 +475,34 @@ describe('renderReportHtml', () => {
     expect(html).toContain('AI Visibility — Server-Side')
     // Section 10 is the agency-numbered eyebrow and must not leak to clients
     expect(html).not.toContain('Section 10')
+  })
+
+  // No fixture renders this state, so `renderWinsLosses`'s empty branch was
+  // never compared against the SPA's: enough history to show the tiles, and
+  // nothing new in either direction.
+  test.each(['client', 'agency'] as const)('%s: history with no new wins or regressions prints the empty note under each heading', (audience) => {
+    const report = fullReport()
+    report.whatsChanged.wins = []
+    report.whatsChanged.regressions = []
+    const html = renderReportHtml(report, { audience })
+    const copy = audience === 'client' ? REPORT_SECTION_COPY['whats-changed'].client : REPORT_SECTION_COPY['whats-changed'].agency
+    expect(html).toContain(`<h3>${copy.winsHeading}</h3>`)
+    expect(html).toContain(copy.winsEmpty)
+    expect(html).toContain(`<h3>${copy.regressionsHeading}</h3>`)
+    expect(html).toContain(copy.regressionsEmpty)
+  })
+
+  // Severity says how far something moved, never whether the move was good
+  // news, so toning a gain by severity alone badged "Gained citation" in the
+  // alarm tone under Wins, exactly like a lost citation under Regressions.
+  test('the agency wins table badges a gain by its direction, not its severity', () => {
+    const html = renderReportHtml(fullReport(), { audience: 'agency' })
+    const copy = REPORT_SECTION_COPY['whats-changed'].agency
+    const tableAfter = (heading: string) => html.split(`<h3>${heading}</h3>`)[1]!.split('</table>')[0]!
+    expect(tableAfter(copy.winsHeading)).toContain('<span class="badge tone-positive">')
+    expect(tableAfter(copy.winsHeading)).not.toContain('tone-negative')
+    // A high-severity regression keeps the alarm tone it earned.
+    expect(tableAfter(copy.regressionsHeading)).toContain('<span class="badge tone-negative">')
   })
 
   test('handles empty data without throwing', () => {
@@ -1631,3 +1209,319 @@ test('HTML report keeps unclassified history even when the latest population is 
   expect(history).toContain(reportQueryClassLabel('unknown'))
   expect(history).toContain(date.slice(0, 10))
 })
+
+test('HTML report visibility tables scroll inside their own container on narrow screens', () => {
+  // DESIGN.md: a table may be wider than the page only inside its own
+  // overflow-x: auto container. The visibility summary and history tables sat in
+  // a `table-scroll` div that the stylesheet never defined, so on a phone they
+  // widened the page instead of scrolling, and as bare tables they skipped the
+  // report's cell wrapping. The SPA twin wraps both in overflow-x-auto.
+  const measured = { numerator: 3, denominator: 6, rate: 0.5 }
+  const visibility: ReportVisibility = { selection: {
+    mode: 'simple', queryClass: 'all', scope: { id: 'project', label: 'Example', kind: 'project', targetCount: 1 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: null,
+    run: { id: 'latest', explicit: false }, provenance: { kind: 'frozen-simple', definitionRevision: null },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: null,
+      measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T10:00:00Z' },
+  }, populations: [{ queryClass: 'non-brand', summary: { queryCount: 2, answerCount: 6, mentionCoverage: measured,
+    citationCoverage: measured, propertyReach: measured, outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 1, notMeasured: 0, total: 2 } },
+    trend: [{ runId: 'latest', createdAt: '2026-09-01T10:00:00Z', revision: null, provenance: { kind: 'frozen-simple', definitionRevision: null },
+      queryCount: 2, answerCount: 6, mentionCoverage: measured, citationCoverage: measured,
+      continuity: { state: 'comparable', comparedRunId: null } }],
+  }] }
+
+  const section = renderReportVisibility(visibility)
+  const [summary, history] = section.split('<details>')
+  // Class tokens, not literal tags: another class on either element is fine.
+  const wrappedReportTable = /<div class="[^"]*\btable-scroll\b[^"]*">\s*<table\s[^>]*?\bclass="[^"]*\breport-table\b[^"]*"[^>]*>/g
+  expect(section.match(/<table\b/g) ?? [], 'the visibility section renders exactly two tables').toHaveLength(2)
+  expect(summary!.match(wrappedReportTable) ?? [], 'the summary table must be a report-table directly inside div.table-scroll').toHaveLength(1)
+  expect(history!.match(wrappedReportTable) ?? [], 'the history table must be a report-table directly inside div.table-scroll').toHaveLength(1)
+
+  const report = richReport()
+  report.visibility = visibility
+  for (const audience of ['client', 'agency'] as const) {
+    const html = renderReportHtml(report, { audience })
+    expect(html).toContain(section)
+    // The every-table guard sees these two tables only when the report carries visibility.
+    const tables = reportTables(html)
+    expect(tables.flatMap(({ section: id, problem }) => problem === null ? [] : [`#${id} table ${problem}`])).toEqual([])
+    expect(tables.filter(table => table.section === 'client-summary')).toHaveLength(2)
+    expect(tableScrollStyleProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
+  }
+})
+
+test('the report stylesheet check catches a table-scroll rule that stops working', () => {
+  const sound = [
+    '.table-scroll { overflow-x: auto; max-width: 100%; }',
+    'table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; }',
+    '@media (max-width: 760px) { .container { padding: 0; } }',
+    '@media print { @page { margin: 0.5in; } .table-scroll { overflow: visible; } }',
+  ].join('\n')
+  expect(tableScrollStyleProblems(sound)).toEqual([])
+  expect(tableScrollStyleProblems(sound.replace('overflow-x: auto;', ''))).toEqual(['no top-level .table-scroll rule scrolls horizontally'])
+  expect(tableScrollStyleProblems(`${sound}\n.table-scroll { overflow-x: visible; }`)).toEqual(['no top-level .table-scroll rule scrolls horizontally'])
+  expect(tableScrollStyleProblems(`${sound}\n@media (max-width: 760px) { .table-scroll { overflow-x: visible; } }`)).toEqual(['@media (max-width: 760px) stops .table-scroll from scrolling'])
+  expect(tableScrollStyleProblems(sound.replace('.table-scroll { overflow: visible; }', ''))).toEqual(['print keeps .table-scroll scrolling, so a wide or long table clips on paper'])
+  expect(tableScrollStyleProblems(sound.replace('table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; }', ''))).toEqual(['report-table evidence lines (p.muted) have no style'])
+})
+
+test.each([
+  { name: 'client', audience: 'client' as const, build: richReport, tablesIn: { 'server-activity': 1 } },
+  { name: 'agency', audience: 'agency' as const, build: richReport, tablesIn: { 'competitor-landscape': 1, gsc: 1, 'server-activity': 4, 'content-opportunities': 1 } },
+  { name: 'client change-history', audience: 'client' as const, build: reportWithChangeHistory, tablesIn: { 'whats-changed': 3 } },
+  { name: 'agency change-history', audience: 'agency' as const, build: reportWithChangeHistory, tablesIn: { 'whats-changed': 3, 'citations-trend': 1 } },
+])('every table in the $name report scrolls inside its own container on narrow screens', ({ audience, build, tablesIn }) => {
+  // DESIGN.md: only tables, diagrams and code blocks may be wider than the
+  // page, and each needs its own overflow-x: auto container. At a 375px
+  // viewport the agency report's bare competitor, GSC, server-activity and
+  // content-opportunity tables pushed the page out to 627px. The
+  // change-history renders reach the what's-changed and citations-trend
+  // tables, which richReport() leaves empty.
+  const html = renderReportHtml(build(), { audience })
+  const tables = reportTables(html)
+  expect(tables.flatMap(({ section, problem }) => problem === null ? [] : [`#${section} table ${problem}`])).toEqual([])
+  // Not vacuous: the sections under test really do render their tables.
+  const tablesPerSection: Record<string, number> = {}
+  for (const { section } of tables) tablesPerSection[section] = (tablesPerSection[section] ?? 0) + 1
+  expect(tablesPerSection).toMatchObject(tablesIn)
+  expect(tableScrollStyleProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
+})
+
+test('the report table check wants each table alone inside a div.table-scroll', () => {
+  const inSection = (body: string) => reportTables(`<section class="report-section" id="demo"><h2>Demo</h2>${body}</section>`)
+  const table = '<table class="report-table"><tbody><tr><td>1</td></tr></tbody></table>'
+  expect(inSection(`<div class="table-scroll">\n  ${table}\n</div>`)).toEqual([{ section: 'demo', problem: null }])
+  expect(inSection(`<div class="chart-body table-scroll">${table}</div>`)).toEqual([{ section: 'demo', problem: null }])
+  expect(inSection(`<div class="chart-card"><h3>Top</h3>${table}</div>`)).toEqual([{ section: 'demo', problem: expect.stringMatching(/it follows: .*<div class="chart-card"><h3>Top<\/h3>$/) }])
+  expect(inSection(`<div class="table-scroller">${table}</div>`)).toEqual([{ section: 'demo', problem: expect.stringContaining('is not inside a div.table-scroll') }])
+  expect(inSection(`<div class="table-scroll">${table}<p class="meta">Note</p></div>`)).toEqual([{ section: 'demo', problem: 'shares its div.table-scroll with markup after </table>' }])
+})
+
+test('report grid columns shrink to fit a phone instead of widening the page', () => {
+  // A 375px phone leaves a 343px content box inside the report's 16px
+  // gutters. `.client-evidence-grid` asked for 360px columns, so every client
+  // report's evidence cards ran past the right edge and the page scrolled.
+  for (const audience of ['client', 'agency'] as const) {
+    const style = renderReportHtml(richReport(), { audience }).match(/<style[\s\S]*?<\/style>/)![0]
+    expect(gridMinimumProblems(style)).toEqual([])
+  }
+})
+
+test('the report grid check flags a column minimum wider than a phone', () => {
+  const grid = (columns: string) => `.cards { display: grid; grid-template-columns: ${columns}; gap: 16px; }`
+  const tooWide = (minimum: string, where = '.cards') => [`${where}: minmax() minimum ${minimum} can exceed a 343px phone content box; cap it with min(<length>, 100%)`]
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(360px, 1fr))'))).toEqual(tooWide('360px'))
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(min(360px, 100%), 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(min(100%, 360px), 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(343px, 1fr))'))).toEqual([])
+  expect(gridMinimumProblems(grid('minmax(0, 1.35fr) minmax(240px, 0.65fr)'))).toEqual([])
+  expect(gridMinimumProblems(grid('repeat(auto-fit, minmax(max(360px, 50%), 1fr))'))).toEqual(tooWide('max(360px, 50%)'))
+  expect(gridMinimumProblems(`@media (max-width: 760px) { ${grid('minmax(400px, 1fr) minmax(min(360px, 100%), 1fr)')} }`)).toEqual(tooWide('400px', '@media (max-width: 760px) .cards'))
+})
+
+test('the insights table keeps every column readable on a phone', () => {
+  // `table-layout: fixed` sizes the insights columns from the table's own
+  // width: two fixed label columns (96px, 88px) plus 18% and 28% of the table.
+  // Squeezed into a 343px phone content box, that left Recommendation, the
+  // longest text in the report, about 1px wide. A minimum table width keeps
+  // every column readable and lets its div.table-scroll scroll instead.
+  const html = renderReportHtml(richReport(), { audience: 'agency' })
+  expect(html).toContain('<table class="report-table insights-table">')
+  expect(insightsColumnProblems(html.match(/<style[\s\S]*?<\/style>/)![0])).toEqual([])
+})
+
+test('the insights column check catches columns a phone would crush', () => {
+  const sound = [
+    'table.insights-table { table-layout: fixed; min-width: 680px; }',
+    'table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }',
+    'table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }',
+    'table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }',
+    'table.insights-table th.col-title, table.insights-table td.col-title { width: 28%; }',
+    'table.insights-table th.col-recommendation, table.insights-table td.col-recommendation { width: auto; }',
+  ].join('\n')
+  expect(insightsColumnProblems(sound)).toEqual([])
+  expect(insightsColumnProblems(sound.replace(' min-width: 680px;', ''))).toEqual(['table.insights-table has no px min-width, so its columns shrink with the screen'])
+  expect(insightsColumnProblems(sound.replace('680px', '400px'))).toEqual([
+    'at 400px the title column is 112px wide; it needs 120px',
+    'at 400px the query column is 72px wide; it needs 120px',
+    'at 400px the recommendation column is 32px wide; it needs 160px',
+  ])
+  expect(insightsColumnProblems(sound.replace('width: 28%;', 'width: 60%;'))).toEqual(['at 680px the recommendation column is 0px wide; it needs 160px'])
+  expect(insightsColumnProblems(sound.replace('680px', '900px'))).toEqual(['table.insights-table is at least 900px wide, wider than a printed A4 page (698px), and print does not release it'])
+  expect(insightsColumnProblems(`${sound.replace('680px', '900px')}\n@media print { table.insights-table { min-width: 0; } }`)).toEqual([])
+})
+
+interface ReportCssRule { media: string | null; selector: string; declarations: Map<string, string> }
+
+/** Top-level rules plus the rules one level inside `@media` blocks, which is every nesting the report stylesheet uses. */
+function reportCssRules(css: string): ReportCssRule[] {
+  const source = css.replace(/<\/?style[^>]*>/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules: ReportCssRule[] = []
+  const parse = (block: string, media: string | null) => {
+    for (const [, selectorText, body] of block.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+      const declarations = new Map<string, string>()
+      for (const declaration of body!.split(';')) {
+        const colon = declaration.indexOf(':')
+        if (colon > 0) declarations.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim())
+      }
+      for (const selector of selectorText!.split(',')) rules.push({ media, selector: selector.trim(), declarations })
+    }
+  }
+  let topLevel = ''
+  let index = 0
+  while (index < source.length) {
+    const at = source.indexOf('@media', index)
+    if (at === -1) {
+      topLevel += source.slice(index)
+      break
+    }
+    topLevel += source.slice(index, at)
+    const open = source.indexOf('{', at)
+    let depth = 1
+    let cursor = open + 1
+    while (cursor < source.length && depth > 0) {
+      if (source[cursor] === '{') depth++
+      else if (source[cursor] === '}') depth--
+      cursor++
+    }
+    parse(source.slice(open + 1, cursor - 1), source.slice(at + '@media'.length, open).trim())
+    index = cursor
+  }
+  parse(topLevel, null)
+  return rules
+}
+
+/**
+ * What would stop the visibility tables scrolling inside their section: no
+ * scrolling rule that wins at the top level, a narrow-screen override that
+ * turns it off, or print keeping a scroll container (browsers clip it on paper
+ * rather than paginate it). Also pins the evidence line's style, which lives
+ * in the same cells.
+ */
+function tableScrollStyleProblems(css: string): string[] {
+  const rules = reportCssRules(css)
+  const overflowValue = (rule: ReportCssRule) => rule.declarations.get('overflow-x') ?? rule.declarations.get('overflow')
+  const tableScroll = rules.filter(rule => rule.selector === '.table-scroll')
+  const problems: string[] = []
+  const lastTopLevel = tableScroll.filter(rule => rule.media === null && overflowValue(rule) !== undefined).at(-1)
+  if (!lastTopLevel || !['auto', 'scroll'].includes(overflowValue(lastTopLevel)!)) problems.push('no top-level .table-scroll rule scrolls horizontally')
+  for (const rule of tableScroll) {
+    if (rule.media !== null && rule.media !== 'print' && ['visible', 'hidden', 'clip'].includes(overflowValue(rule) ?? '')) {
+      problems.push(`@media ${rule.media} stops .table-scroll from scrolling`)
+    }
+  }
+  if (!tableScroll.some(rule => rule.media === 'print' && rule.declarations.get('overflow') === 'visible')) {
+    problems.push('print keeps .table-scroll scrolling, so a wide or long table clips on paper')
+  }
+  if (!rules.some(rule => rule.media === null && rule.selector === 'table.report-table td p.muted' && rule.declarations.has('font-size'))) {
+    problems.push('report-table evidence lines (p.muted) have no style')
+  }
+  return problems
+}
+
+interface ReportTable { section: string; problem: string | null }
+
+/**
+ * Every `<table>` in rendered report markup, with the section it sits in and
+ * what keeps it from being the only child of a `.table-scroll` div (null when
+ * nothing does): the nearest markup before `<table` must open that div, and
+ * the nearest markup after `</table>` must close it.
+ */
+function reportTables(html: string): ReportTable[] {
+  // The embedded report JSON escapes `<`, so it holds no tags, but it is not markup either.
+  const markup = html.split('<script')[0]!
+  return Array.from(markup.matchAll(/<table\b/g), ({ index }) => {
+    const before = markup.slice(0, index).trimEnd()
+    const section = Array.from(before.matchAll(/<section\b[^>]*\sid="([^"]+)"/g)).at(-1)?.[1] ?? '(no section)'
+    const opener = /<div\b[^>]*>$/.exec(before)?.[0] ?? ''
+    if (!(/\bclass="([^"]*)"/.exec(opener)?.[1] ?? '').split(/\s+/).includes('table-scroll')) {
+      return { section, problem: `is not inside a div.table-scroll; it follows: ${before.slice(-70).replace(/\s+/g, ' ')}` }
+    }
+    const close = markup.indexOf('</table>', index)
+    const closesWrapper = close !== -1 && markup.slice(close + '</table>'.length).trimStart().startsWith('</div>')
+    return { section, problem: closesWrapper ? null : 'shares its div.table-scroll with markup after </table>' }
+  })
+}
+
+/** A 375px phone viewport less the report's 16px side gutters. */
+const PHONE_CONTENT_WIDTH_PX = 343
+
+/**
+ * Grid rules whose `minmax()` minimum is a px length wider than a phone's
+ * content box. A track never shrinks below its minimum, so the grid widens the
+ * page instead. `min(<length>, 100%)` caps the minimum at the grid's own width
+ * and is accepted. The report stylesheet sizes grid tracks in px.
+ */
+function gridMinimumProblems(css: string): string[] {
+  const capped = /^min\(\s*(?:[\d.]+px\s*,\s*100%|100%\s*,\s*[\d.]+px)\s*\)$/
+  const problems: string[] = []
+  for (const rule of reportCssRules(css)) {
+    for (const minimum of minmaxMinimums(rule.declarations.get('grid-template-columns') ?? '')) {
+      const widestPx = Math.max(0, ...Array.from(minimum.matchAll(/([\d.]+)px\b/g), ([, px]) => Number(px)))
+      if (widestPx > PHONE_CONTENT_WIDTH_PX && !capped.test(minimum)) {
+        problems.push(`${rule.media === null ? '' : `@media ${rule.media} `}${rule.selector}: minmax() minimum ${minimum} can exceed a ${PHONE_CONTENT_WIDTH_PX}px phone content box; cap it with min(<length>, 100%)`)
+      }
+    }
+  }
+  return problems
+}
+
+/** The narrowest each insights column may get: label columns hold one badge or engine name, text columns hold sentences. */
+const INSIGHTS_COLUMN_FLOOR_PX = { severity: 80, title: 120, query: 120, provider: 80, recommendation: 160 } as const
+
+/** A4 less the report's 0.5in print margins, at 96 CSS px per inch. US Letter is wider. */
+const PRINTABLE_A4_WIDTH_PX = 698
+
+/**
+ * What would crush the insights table's `table-layout: fixed` columns: no px
+ * minimum table width, a column narrower than its floor at that minimum (px
+ * widths stay put, percentages scale with the table, and `auto` columns share
+ * what is left), or a minimum wider than a printed page that print keeps.
+ */
+function insightsColumnProblems(css: string): string[] {
+  const rules = reportCssRules(css)
+  const declared = (selector: string, property: string, media: string | null = null) =>
+    rules.filter(rule => rule.media === media && rule.selector === selector && rule.declarations.has(property)).at(-1)?.declarations.get(property)
+  const minimum = /^([\d.]+)px$/.exec(declared('table.insights-table', 'min-width') ?? '')
+  if (!minimum) return ['table.insights-table has no px min-width, so its columns shrink with the screen']
+  const tablePx = Number(minimum[1])
+  const columns = Object.keys(INSIGHTS_COLUMN_FLOOR_PX) as Array<keyof typeof INSIGHTS_COLUMN_FLOOR_PX>
+  const sized = new Map<string, number>()
+  for (const column of columns) {
+    const width = declared(`table.insights-table td.col-${column}`, 'width') ?? 'auto'
+    const px = /^([\d.]+)px$/.exec(width)
+    const percent = /^([\d.]+)%$/.exec(width)
+    if (px) sized.set(column, Number(px[1]))
+    else if (percent) sized.set(column, tablePx * Number(percent[1]) / 100)
+  }
+  const autoColumns = columns.filter(column => !sized.has(column))
+  const remainder = Math.max(0, tablePx - Array.from(sized.values()).reduce((sum, px) => sum + px, 0))
+  const problems: string[] = []
+  for (const column of columns) {
+    const px = sized.get(column) ?? remainder / autoColumns.length
+    if (px < INSIGHTS_COLUMN_FLOOR_PX[column]) {
+      problems.push(`at ${tablePx}px the ${column} column is ${Math.round(px)}px wide; it needs ${INSIGHTS_COLUMN_FLOOR_PX[column]}px`)
+    }
+  }
+  const printMinimum = declared('table.insights-table', 'min-width', 'print')
+  if (tablePx > PRINTABLE_A4_WIDTH_PX && !['0', 'auto', 'none', 'initial', 'unset'].includes(printMinimum ?? '')) {
+    problems.push(`table.insights-table is at least ${tablePx}px wide, wider than a printed A4 page (${PRINTABLE_A4_WIDTH_PX}px), and print does not release it`)
+  }
+  return problems
+}
+
+/** The first argument of each `minmax()` in a grid track list, with any nested function kept whole. */
+function minmaxMinimums(tracks: string): string[] {
+  const minimums: string[] = []
+  for (let start = tracks.indexOf('minmax('); start !== -1; start = tracks.indexOf('minmax(', start + 1)) {
+    const from = start + 'minmax('.length
+    let end = from
+    for (let depth = 0; end < tracks.length && !(depth === 0 && (tracks[end] === ',' || tracks[end] === ')')); end++) {
+      if (tracks[end] === '(') depth++
+      else if (tracks[end] === ')') depth--
+    }
+    minimums.push(tracks.slice(from, end).trim())
+  }
+  return minimums
+}

@@ -11,7 +11,7 @@ export function ProjectSettingsSection({
   onUpdateProject,
   onRefresh,
 }: {
-  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; aliases: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
+  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; aliases: string[]; country: string; language: string; tags?: string[]; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
   onRefresh: () => void
 }) {
@@ -378,6 +378,18 @@ export function ProjectSettingsSection({
                 <td className="px-4 py-2.5 text-muted font-medium">Language</td>
                 <td className="px-4 py-2.5 text-strong">{project.language}</td>
               </tr>
+              {project.tags?.length ? (
+                <tr className="border-b border-subtle">
+                  <td className="px-4 py-2.5 text-muted font-medium">Tags</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {project.tags.map((tag) => (
+                        <span key={tag} className="rounded-md border border-mono-700/60 bg-mono-800/40 px-2 py-1 text-xs text-neutral">{tag}</span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
               <tr>
                 <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Locations</td>
                 <td className="px-4 py-2.5">
