@@ -1287,6 +1287,7 @@ function ActiveScanState({
   progressError,
   onRetryProgress,
   pageHealthDestination = false,
+  boundedPageLimit,
   livePageHealthPreview,
   livePageHealthError = false,
   livePageHealthRunId = null,
@@ -1297,6 +1298,8 @@ function ActiveScanState({
   progressError?: boolean
   onRetryProgress?: () => void
   pageHealthDestination?: boolean
+  /** Set when this scan was dispatched with a smaller first-run budget. */
+  boundedPageLimit?: number
   livePageHealthPreview?: LivePageHealthPreviewView | null
   livePageHealthError?: boolean
   livePageHealthRunId?: string | null
@@ -1323,6 +1326,11 @@ function ActiveScanState({
             ? 'Arranging map. The scan is complete and its map is being published.'
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
+      {boundedPageLimit ? (
+        <p className="mt-2 text-xs text-faint">
+          This first scan covers up to {boundedPageLimit} pages, so read the result as a first look at the site rather than a complete audit.
+        </p>
+      ) : null}
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
             <dt className="text-sm text-secondary">Pages found</dt>
@@ -2168,6 +2176,7 @@ export function SiteHealthSection({
             progressError={activeProgressQuery.isError}
             onRetryProgress={() => { void activeProgressQuery.refetch() }}
             pageHealthDestination={explicitOnboarding}
+            boundedPageLimit={explicitOnboarding ? SITE_AUDIT_ONBOARDING_PAGE_LIMIT : undefined}
             livePageHealthPreview={livePageHealthPreviewQuery.data}
             livePageHealthError={livePageHealthPreviewQuery.isError}
             livePageHealthRunId={exactProgressRunId}

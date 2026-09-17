@@ -993,6 +993,36 @@ test('uses the exact active run for a first scan instead of showing stale-map co
   }))).not.toBeUndefined()
 })
 
+test('states the bounded first-run budget during onboarding and not on a regular scan', () => {
+  for (const surface of ['onboarding', 'regular'] as const) {
+    const queryClient = makeClient()
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
+    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({
+      client: heyClient,
+      path: { name: projectName },
+      query: { runId: 'run_active' },
+    }), {
+      project: projectName,
+      hasCrawlData: false,
+      legacyAuditAvailable: false,
+      runId: 'run_active',
+      runStatus: 'running',
+    })
+
+    renderSection(queryClient, surface === 'onboarding' ? { showOnboardingActions: true } : {})
+
+    const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
+    if (surface === 'onboarding') {
+      expect(scanProgress.textContent).toContain('This first scan covers up to 100 pages')
+    } else {
+      expect(scanProgress.textContent).not.toContain('This first scan covers up to 100 pages')
+    }
+
+    cleanup()
+    queryClient.clear()
+  }
+})
+
 test('offers the onboarding continuation only after the selected active scan reaches its persisted 20-second threshold', () => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-08-08T18:15:19.999Z'))
