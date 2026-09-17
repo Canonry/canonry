@@ -22,6 +22,7 @@ import {
 } from '../api.js'
 import {
   ONBOARDING_FLOW_VERSION,
+  SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
 } from '@ainyc/canonry-contracts'
@@ -725,7 +726,7 @@ function PlatformSetupPageBody({
         projectId: project.id,
         projectLabel: project.displayName || project.name,
         suppressErrorToast: true,
-        body: { checkDeadLinks: true },
+        body: { checkDeadLinks: true, maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT },
       })
       const settlement = await settleSiteHealthDispatch(dispatch)
       if (settlement.state === 'queued') {

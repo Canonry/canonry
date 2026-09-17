@@ -1636,7 +1636,7 @@ test('offers rerun recovery when a pinned onboarding scan is cancelled before a 
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
   expect(onReleaseInitialRun).toHaveBeenCalledOnce()
 })
@@ -1737,7 +1737,7 @@ test('keeps a partial crawl recoverable when it publishes no Page health score',
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
 })
 
@@ -1759,7 +1759,7 @@ test('keeps explicit onboarding recoverable and follows the active replacement a
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
 
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
@@ -3254,7 +3254,14 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
     } else {
       expect(buttons.length).toBeGreaterThan(0)
       fireEvent.click(buttons.at(-1)!)
-      expect(mutationMock.mutate).toHaveBeenCalledWith({ projectName, projectId, body: { checkDeadLinks: Boolean(props.showOnboardingActions) } })
+      expect(mutationMock.mutate).toHaveBeenCalledWith({
+        projectName,
+        projectId,
+        body: {
+          checkDeadLinks: Boolean(props.showOnboardingActions),
+          ...(props.showOnboardingActions ? { maxPages: 100 } : {}),
+        },
+      })
     }
     cleanup()
     queryClient.clear()

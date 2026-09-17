@@ -871,7 +871,7 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
   })
   const siteAudit = requests.find((request) => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')
   expect(siteAudit).toBeDefined()
-  expect(JSON.parse(siteAudit?.body ?? '{}')).toEqual({ checkDeadLinks: true })
+  expect(JSON.parse(siteAudit?.body ?? '{}')).toEqual({ checkDeadLinks: true, maxPages: 100 })
 })
 
 test('preserves a created project with retry and setup recovery when dispatch fails', async () => {

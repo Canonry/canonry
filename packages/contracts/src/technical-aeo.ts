@@ -1552,6 +1552,11 @@ export type SiteCrawlDeadLinksResponseDto = z.infer<typeof siteCrawlDeadLinksRes
 export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = 1_000
 export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
 /**
+ * First-run Site Health budget. Onboarding is a bounded first look at the top
+ * of the site, not the full audit: the scheduled scan keeps the page default.
+ */
+export const SITE_AUDIT_ONBOARDING_PAGE_LIMIT = 100
+/**
  * There is deliberately no default edge limit. The crawl engine derives the
  * edge budget from the resolved page count, and any flat default applied here
  * would cap below that derivation on a large site, silently ending page

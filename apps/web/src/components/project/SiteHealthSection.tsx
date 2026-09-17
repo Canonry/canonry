@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import {
   RunKinds,
+  SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
   SiteCrawlIndexabilityReasons,
@@ -1965,7 +1966,12 @@ export function SiteHealthSection({
     runMutation.mutate({
       projectName,
       projectId,
-      body: { checkDeadLinks: explicitOnboarding || checkDeadLinks },
+      body: {
+        checkDeadLinks: explicitOnboarding || checkDeadLinks,
+        // Onboarding is a bounded first look, so it does not spend the full
+        // crawl budget before the operator has seen any result.
+        ...(explicitOnboarding ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT } : {}),
+      },
     })
   }
   const selectSection = (path: string) => {
