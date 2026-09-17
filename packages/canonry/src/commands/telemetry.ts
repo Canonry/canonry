@@ -1,7 +1,7 @@
-import { configExists, getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
+import { configExists, getConfigPath } from '../config.js'
 import { CliError, type CliFormat, isMachineFormat, usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import { getTelemetryStatus } from '../telemetry.js'
+import { getTelemetryStatus, setTelemetryPreference } from '../telemetry.js'
 import { normalizeTelemetryStatus, type TelemetryStatusDto, type TelemetryTarget } from '@ainyc/canonry-contracts'
 
 type TelemetryPayload = TelemetryStatusDto & { configPath?: string; anonymousIdMasked?: string }
@@ -90,20 +90,18 @@ export function telemetryCommand(
 
     case 'enable': {
       requireLocalConfig('telemetry.enable')
-      const config = loadConfig()
-      config.telemetry = true
-      saveConfigPatch(config)
+      void setTelemetryPreference(true, 'cli')
       emitStatus(localStatus(), format, true)
       break
     }
 
     case 'disable': {
       requireLocalConfig('telemetry.disable')
-      const config = loadConfig()
-      config.telemetry = false
-      saveConfigPatch(config)
+      // Print the receipt immediately, then hold the process open until the
+      // opt-out event is delivered (bounded by the 3s telemetry timeout).
+      const delivery = setTelemetryPreference(false, 'cli')
       emitStatus(localStatus(), format, true)
-      break
+      return delivery
     }
 
     default:

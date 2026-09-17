@@ -530,6 +530,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
   })
 
   app.post('/auth/login', async (request, reply) => {
+    assertCookieWriteOrigin(request)
     const parsed = loginRequestSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Enter a name and a password.', { issues: parsed.error.issues })

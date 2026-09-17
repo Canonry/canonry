@@ -11,12 +11,13 @@ import {
 } from './telemetry.js'
 import { autoSyncSkills, formatAutoSyncNotice } from './skills-autosync.js'
 import { buildSetupState } from './setup-state.js'
+import { cliRuntimeContext } from './runtime-context.js'
 import type { CliFormat } from './cli-error.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
-import { checkLatestVersionForCli } from './update-check.js'
+import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
@@ -30,6 +31,7 @@ Usage:  cnry <command> [options]
 Setup:
   bootstrap             Create local config/database (no provider required)
   serve                 Start the local server (foreground)
+  demo                  Serve a public view-only sample dashboard
   start / stop          Start/stop as a background daemon
   init                  Optional interactive provider/OAuth provisioning
   skills                List or install bundled agent skills (claude/codex)
@@ -161,6 +163,18 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const command = args[0]!
   const format = extractFormat(args)
 
+  // Demo startup must not read a personal config, send telemetry, refresh
+  // installed skills, or start an update check on the hosting machine.
+  if (command === 'demo') {
+    try {
+      await dispatchRegisteredCommand(args, format, REGISTERED_CLI_COMMANDS)
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
+  }
+
   // Skip telemetry entirely for help requests — the user is just reading usage
   const isHelpRequest = args.includes('--help') || args.includes('-h')
 
@@ -203,25 +217,25 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     trackEvent('cli.command', {
       command: resolvedCommand,
       ...(setupState ? { setup_state: setupState } : {}),
+      ...cliRuntimeContext(),
     })
   }
 
-  // Surface a new-version banner before the command runs. Opt-outs and the
-  // 24h cache live in `update-check.ts`; this stays a no-op when the
-  // registry is unreachable, the user is offline, or no upgrade is
-  // available. Banner goes to stderr so it never pollutes `--format json`.
-  //
-  // Gated on an interactive stderr: when output is piped or captured (the
-  // agent case), this fire-and-forget banner is skipped entirely so it can
-  // never interleave with command output or force callers to add `2>/dev/null`.
-  if (!isHelpRequest && command !== 'telemetry' && process.stderr.isTTY) {
-    void checkLatestVersionForCli().then((update) => {
-      if (!update) return
-      process.stderr.write(
-        `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
-        `  Upgrade: ${update.upgradeCommand}\n\n`,
-      )
-    })
+  // Update notice for people AND agents. It is printed synchronously from the
+  // on-disk cache before the command runs, so it is always the first stderr
+  // line and can never interleave with command output; stdout is untouched.
+  // The registry refresh runs in the background and only updates the cache,
+  // so a new release is announced from the next invocation on. Opt-outs and
+  // the 24h TTL live in `update-check.ts`. The shape follows the caller:
+  // banner on a terminal, one plain line when captured, one JSON line for
+  // `--format json|jsonl`.
+  if (!isHelpRequest && command !== 'telemetry') {
+    const update = readCachedUpdateAvailable()
+    notePrintedUpdateAvailable(update)
+    if (update) {
+      process.stderr.write(formatUpdateNotice(update, { format, interactive: Boolean(process.stderr.isTTY) }))
+    }
+    void checkLatestVersionForCli()
   }
 
   const commandStartedAt = Date.now()

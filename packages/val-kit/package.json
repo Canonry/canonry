@@ -2,7 +2,7 @@
   "name": "@canonry/val-kit",
   "version": "0.2.0",
   "description": "Host-agnostic core shared by Canonry's Val Town sample vals: the AI-visibility engine, the public-check admission machinery, storage, MCP framing, and the design tokens.",
-  "license": "FSL-1.1-ALv2",
+  "license": "MIT",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -47,7 +47,8 @@
   "files": [
     "dist/",
     "README.md",
-    "package.json"
+    "package.json",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"

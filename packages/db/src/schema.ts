@@ -736,6 +736,35 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
   checkedAt: text('checked_at').notNull(),
   /** When we last emitted for this (status, code). Null until first emit. */
   notifiedAt: text('notified_at'),
+  /**
+   * Every failing check from the last pass as sorted `status:code` pairs. The
+   * headline code alone cannot see a second breach arriving UNDER an existing
+   * one: a GBP outage opening beneath a standing GA warning left the worst code
+   * unchanged, so it was graded, listed in the payload, and then never sent.
+   * NULL on rows written before this column existed — unknown is not the same
+   * as changed, so the trigger falls back to the code rule for one pass rather
+   * than paging every already-degraded project the moment this ships.
+   */
+  failingSignature: text('failing_signature'),
+})
+
+/**
+ * Website liveness, kept apart from doctor_health_state on purpose. The liveness
+ * schedule checks one thing every few minutes; the doctor pass grades everything
+ * every 6h. Sharing one row would let a quick "site is up" pass overwrite a GA
+ * outage the slow pass recorded, and send a false health.recovered.
+ */
+export const siteLivenessState = sqliteTable('site_liveness_state', {
+  projectId: text('project_id').primaryKey(),
+  /** Last graded probe: ok | fail. Skipped probes are not recorded. */
+  status: text('status').notNull(),
+  code: text('code').notNull(),
+  summary: text('summary').notNull(),
+  /** Failed passes in a row. Paging waits for two so one blip never alerts. */
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  checkedAt: text('checked_at').notNull(),
+  /** Set when an outage was actually paged; cleared on recovery. */
+  notifiedAt: text('notified_at'),
 })
 
 export const notifications = sqliteTable('notifications', {

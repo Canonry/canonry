@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
   projects,
@@ -34,10 +34,19 @@ import {
   type SiteAuditPageFactorDto,
   type SiteCrawlAuditFactorDto,
   type SiteCrawlCriticalDefectDto,
+  ONBOARDING_FLOW_VERSION,
+  RunTriggers,
+  bucketOnboardingCount,
   describeError,
 } from '@ainyc/canonry-contracts'
 import { resolvePublicHttpTarget, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import { createLogger } from './logger.js'
+import {
+  buildSiteAuditCompletedProps,
+  type SiteAuditCrawlOutcome,
+  type SiteAuditTelemetryStatus,
+} from './run-telemetry.js'
+import { trackEvent } from './telemetry.js'
 import { resolveSiteAuditRootUrl } from './site-audit-root.js'
 import {
   deleteSiteCrawlGraphLayout,
@@ -309,6 +318,54 @@ function deadLinkCheckedCount(edges: Iterable<CrawlEdgeObservation>, pages: Iter
 }
 
 /**
+ * Terminal telemetry for one site audit: `site_audit.completed` always, plus
+ * `activation.completed` (`kind: site_health`) for a project's first audit that
+ * scored at least one page. Page Health is the first-run path, so without this
+ * an operator who never runs an answer-visibility sweep never activates.
+ *
+ * Called only after the terminal state is committed, and never throws: a
+ * telemetry or lookup failure must not turn a published crawl into a failed
+ * run, which the catch path would otherwise record and report a second time.
+ */
+function trackSiteAuditOutcome(db: DatabaseClient, input: {
+  runId: string
+  projectId: string
+  status: SiteAuditTelemetryStatus
+  startTime: number
+  trigger: string | null
+  canonicalDomain: string | null
+  crawl?: SiteAuditCrawlOutcome
+}): void {
+  try {
+    const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'UNKNOWN' : undefined
+    trackEvent(
+      'site_audit.completed',
+      buildSiteAuditCompletedProps(input),
+      errorCode ? { errorCode } : undefined,
+    )
+
+    const pagesAudited = input.crawl?.pagesAudited ?? 0
+    if (pagesAudited === 0 || input.trigger === RunTriggers.probe) return
+    // The snapshot for this run was written in the publish transaction, so any
+    // OTHER snapshot means the project already had a scored audit.
+    const prior = db.select({ id: siteAuditSnapshots.id })
+      .from(siteAuditSnapshots)
+      .where(and(eq(siteAuditSnapshots.projectId, input.projectId), ne(siteAuditSnapshots.runId, input.runId)))
+      .limit(1)
+      .get()
+    if (prior) return
+    trackEvent('activation.completed', {
+      flowVersion: ONBOARDING_FLOW_VERSION,
+      kind: 'site_health',
+      status: input.status,
+      pagesAuditedBucket: bucketOnboardingCount(pagesAudited),
+    })
+  } catch (error) {
+    log.warn('telemetry.failed', { runId: input.runId, projectId: input.projectId, error: describeError(error) })
+  }
+}
+
+/**
  * Local full-crawl executor.
  *
  * Events update an attempt-local graph durably as they arrive.  A distinct
@@ -329,6 +386,9 @@ export async function executeSiteAudit(
     .where(and(eq(runs.id, runId), eq(runs.projectId, projectId), eq(runs.status, 'queued')))
     .run()
   if (claim.changes === 0) return
+  const startTime = Date.now()
+  const trigger = db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId)).get()?.trigger ?? null
+  let canonicalDomain: string | null = null
 
   const attemptNumber = (db.select({ value: sql<number>`coalesce(max(${siteCrawlAttempts.attemptNumber}), 0)` })
     .from(siteCrawlAttempts)
@@ -676,6 +736,7 @@ export async function executeSiteAudit(
   try {
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project not found: ${projectId}`)
+    canonicalDomain = project.canonicalDomain
 
     const homepageUrl = toHomepageUrl(project.canonicalDomain)
     const maxPages = clampSiteAuditLimit(opts.maxPages ?? opts.limit)
@@ -937,6 +998,26 @@ export async function executeSiteAudit(
     }
 
     log.info('completed', { runId, projectId, status: terminalStatus, complete: crawlSummary.complete, pages: crawlSummary.pagesObserved })
+    trackSiteAuditOutcome(db, {
+      runId,
+      projectId,
+      status: crawlSummary.complete ? 'completed' : 'partial',
+      startTime,
+      trigger,
+      canonicalDomain,
+      crawl: {
+        complete: crawlSummary.complete,
+        termination: crawlSummary.terminationReason,
+        pagesDiscovered: crawlSummary.pagesDiscovered,
+        pagesFetched: crawlSummary.pagesFetched,
+        pagesAudited: crawlSummary.auditRollup.auditedPages,
+        pagesErrored: errorCount,
+        aggregateScore: crawlSummary.auditRollup.aggregateScore,
+        pageBudget: maxPages,
+        checkDeadLinks: opts.checkDeadLinks ?? false,
+        deadLinksFound,
+      },
+    })
   } catch (error) {
     const finishedAt = new Date().toISOString()
     const cancelled = isCancelled(error, opts.signal)
@@ -955,6 +1036,14 @@ export async function executeSiteAudit(
       }).where(and(eq(runs.id, runId), eq(runs.status, 'running'))).run()
     })
     log.error('failed', { runId, projectId, cancelled, error: message })
+    trackSiteAuditOutcome(db, {
+      runId,
+      projectId,
+      status: cancelled ? 'cancelled' : 'failed',
+      startTime,
+      trigger,
+      canonicalDomain,
+    })
     throw error
   }
 }

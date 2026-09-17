@@ -16,7 +16,7 @@
       },
       "homepage": "https://canonry.ai",
       "repository": "https://github.com/Canonry/canonry",
-      "license": "FSL-1.1-ALv2",
+      "license": "MIT",
       "keywords": [
         "aeo",
         "answer-engine-optimization",

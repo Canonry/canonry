@@ -29,6 +29,10 @@ vi.mock('../src/telemetry.js', () => ({
 
 vi.mock('../src/update-check.js', () => ({
   checkLatestVersionForCli: vi.fn().mockResolvedValue(null),
+  readCachedUpdateAvailable: vi.fn().mockReturnValue(null),
+  notePrintedUpdateAvailable: vi.fn(),
+  getPrintedUpdateAvailable: vi.fn().mockReturnValue(null),
+  formatUpdateNotice: vi.fn().mockReturnValue(''),
 }))
 
 const { runCli } = await import('../src/cli.js')
@@ -80,6 +84,8 @@ describe('CLI command lifecycle telemetry', () => {
     expect(mocks.trackEvent).toHaveBeenCalledWith('cli.command', {
       command: 'wordpress.schema.deploy',
       setup_state: beforeState,
+      agent: expect.any(String),
+      interactive: expect.any(Boolean),
     })
     expect(mocks.trackFinished).toHaveBeenCalledWith({
       command: 'wordpress.schema.deploy',
@@ -158,6 +164,8 @@ describe('CLI command lifecycle telemetry', () => {
 
     expect(mocks.trackEvent).toHaveBeenCalledWith('cli.command', {
       command: 'unknown',
+      agent: expect.any(String),
+      interactive: expect.any(Boolean),
     })
     expect(mocks.trackFinished).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -46,8 +46,8 @@ function serveNamedAccounts(googleEnabled: boolean) {
 afterEach(() => {
   cleanup()
   window.history.replaceState({}, '', '/')
-  window.localStorage.clear()
-  window.sessionStorage.clear()
+  window.localStorage?.clear?.()
+  window.sessionStorage?.clear?.()
 })
 
 test('maps API-key metadata to conservative dashboard capabilities', () => {
@@ -158,7 +158,10 @@ describe('invitation sign-in', () => {
       url: expect.not.stringContaining('invite-secret'),
       body: { invitationToken: 'invite-secret', returnTo: '/' },
     }])
-    expect([...Object.values(window.localStorage), ...Object.values(window.sessionStorage)]).not.toContain('invite-secret')
+    expect([
+      ...Object.values(window.localStorage ?? {}),
+      ...Object.values(window.sessionStorage ?? {}),
+    ]).not.toContain('invite-secret')
   })
 
   test('does not let a current account bypass an invitation', async () => {
@@ -232,7 +235,10 @@ describe('first administrator setup', () => {
       authorization: 'Bearer cnry_setup_secret',
     }])
     expect(loginRequests).toBe(1)
-    expect([...Object.values(window.localStorage), ...Object.values(window.sessionStorage)]).not.toContain('cnry_setup_secret')
+    expect([
+      ...Object.values(window.localStorage ?? {}),
+      ...Object.values(window.sessionStorage ?? {}),
+    ]).not.toContain('cnry_setup_secret')
     expect(window.location.pathname).toBe('/settings')
     expect(window.location.search).toBe('?section=sign-in')
   })

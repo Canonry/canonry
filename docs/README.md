@@ -10,6 +10,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | --- | --- | --- | --- |
 | [`agent-operations/v1.md`](agent-operations/v1.md) | current, versioned | agents, operators | Canonical MCP navigation, vocabulary, workflows, authority, and safety; source for optional Codex/Claude skills |
 | [`README.md`](../README.md) | current | users, operators | Product overview, quickstart, key CLI/API entrypoints |
+| [`public-demo.md`](public-demo.md) | current | operators | Public view-only sample dashboard, isolation, and hosting |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | current | contributors | Setup, workspace structure, and contribution rules |
 | [`AGENTS.md`](../AGENTS.md) | current | Codex, Claude Code | Repo guidance optimized for Codex and Claude Code |
 | [`CLAUDE.md`](../CLAUDE.md) | current | Claude Code | Claude-specific overlay (imports AGENTS.md + UI design system) |

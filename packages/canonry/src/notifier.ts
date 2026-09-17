@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, doctorHealthState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, doctorHealthState, siteLivenessState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -45,6 +45,20 @@ function insightMagnitude(insight: Insight): number | null {
 function insightNotifyKey(projectId: string, insight: Insight): string {
   return `${projectId}:${insight.type}:${insight.query}:${insightFingerprint(insight)}`
 }
+
+/** Failed liveness passes in a row before a site-down page. */
+export const SITE_LIVENESS_FAILURES_TO_PAGE = 2
+/**
+ * A second failure only counts when it is this long after the one before it.
+ * A boot catch-up pass and the cron tick seconds later are one observation of
+ * one moment, not two passes spread over an interval.
+ */
+export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
+/**
+ * A failure older than this starts the count again. A failure stored before a
+ * week-long shutdown plus one failed pass at boot is not a confirmed outage.
+ */
+export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
 export class Notifier {
   private db: DatabaseClient
@@ -212,6 +226,10 @@ export class Notifier {
       .where(eq(doctorHealthState.projectId, projectId)).get()
     const previousStatus = (previous?.status ?? null) as 'ok' | 'warn' | 'fail' | null
 
+    // `failing` is already sorted deterministically above, so this is stable
+    // across passes and only moves when the SET of breaches moves.
+    const failingSignature = failing.map(c => `${c.status}:${c.code}`).join(',')
+
     // Transition rules: a first observation only speaks up if it is already
     // bad, so installing this does not announce healthy projects.
     let event: 'health.degraded' | 'health.recovered' | null = null
@@ -221,6 +239,19 @@ export class Notifier {
       event = 'health.recovered'
     } else if (status !== 'ok' && (previousStatus === 'ok' || previous.code !== code)) {
       event = 'health.degraded'
+    } else if (
+      status !== 'ok'
+      && previous.failingSignature !== null
+      && previous.failingSignature !== failingSignature
+    ) {
+      // A second breach opening under an existing one leaves the headline code
+      // untouched, so keying only on that code graded the new outage, listed it
+      // in `failing`, and then dropped it at the trigger. The ranking decides
+      // which breach leads; it must not decide whether anyone is told at all.
+      // Guarded on a non-NULL previous signature: a row predating this column
+      // knows nothing about the old set, and treating unknown as changed would
+      // page every already-degraded project on the first pass after deploy.
+      event = 'health.degraded'
     }
 
     const now = report.checkedAt
@@ -228,7 +259,7 @@ export class Notifier {
     // leave `notifiedAt` alone until something is actually sent — it previously
     // recorded "decided to notify", which read as delivered even when zero
     // webhooks matched.
-    const observation = { projectId, status, code, summary, checkedAt: now }
+    const observation = { projectId, status, code, summary, checkedAt: now, failingSignature }
     if (previous === undefined) {
       this.db.insert(doctorHealthState).values({ ...observation, notifiedAt: null }).run()
     } else {
@@ -271,14 +302,116 @@ export class Notifier {
     for (const notif of notifs) {
       const config = notif.config as { url: string; events?: string[] }
       if (!config.url) continue
-      await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)
-      delivered += 1
+      if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (delivered > 0) {
       this.db.update(doctorHealthState).set({ notifiedAt: now })
         .where(eq(doctorHealthState.projectId, projectId)).run()
     }
     log.info('health.notified', { projectId, event, status, code, subscribers: notifs.length, delivered })
+    return event
+  }
+
+  /**
+   * Record a website liveness probe and notify on a confirmed change.
+   *
+   * Separate from onHealthChecked: that state grades the whole 6h doctor pass,
+   * and this pass sees one check. Sharing its row would let "site is up" clear
+   * an unrelated GA outage and send a false recovery.
+   *
+   * Two failed passes in a row before paging. The probe already retries once
+   * inside a pass, so an alert means four failed requests spread over at least
+   * one schedule interval, not a blip or a host restart. A recovery is sent only
+   * for an outage that was paged, so a blip that never alerted stays silent in
+   * both directions.
+   */
+  async onSiteLivenessChecked(
+    projectId: string,
+    result: {
+      check: { id: string; status: string; code: string; summary: string; remediation?: string | null }
+      checkedAt: string
+    },
+  ): Promise<'health.degraded' | 'health.recovered' | null> {
+    const { check, checkedAt } = result
+    // Skipped (no domain, a refused address) is not a liveness signal.
+    if (check.status !== 'ok' && check.status !== 'fail') return null
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) {
+      log.error('project.not-found', { projectId, msg: 'skipping site liveness notification' })
+      return null
+    }
+
+    const previous = this.db.select().from(siteLivenessState)
+      .where(eq(siteLivenessState.projectId, projectId)).get()
+    const sincePrevious = previous ? Date.parse(checkedAt) - Date.parse(previous.checkedAt) : Number.NaN
+    // A repeat too close to the previous pass, or after a long gap, restarts the
+    // count rather than confirming an outage.
+    const countsAsRepeat = Number.isFinite(sincePrevious)
+      && sincePrevious >= SITE_LIVENESS_MIN_PASS_GAP_MS
+      && sincePrevious <= SITE_LIVENESS_MAX_PASS_GAP_MS
+    const failures = check.status === 'fail'
+      ? (countsAsRepeat ? (previous?.consecutiveFailures ?? 0) + 1 : 1)
+      : 0
+    const outagePaged = previous?.status === 'fail' && Boolean(previous.notifiedAt)
+
+    let event: 'health.degraded' | 'health.recovered' | null = null
+    if (check.status === 'fail' && failures >= SITE_LIVENESS_FAILURES_TO_PAGE && !outagePaged) event = 'health.degraded'
+    if (check.status === 'ok' && outagePaged) event = 'health.recovered'
+
+    const observation = {
+      projectId,
+      status: check.status,
+      code: check.code,
+      summary: check.summary,
+      consecutiveFailures: failures,
+      checkedAt,
+      notifiedAt: check.status === 'ok' ? null : (previous?.notifiedAt ?? null),
+    }
+    if (previous === undefined) {
+      this.db.insert(siteLivenessState).values(observation).run()
+    } else {
+      this.db.update(siteLivenessState).set(observation).where(eq(siteLivenessState.projectId, projectId)).run()
+    }
+
+    // No log on a quiet pass: every project, every few minutes, would evict a
+    // night of real diagnostics from the operational log buffer.
+    if (!event) return null
+
+    const notifs = this.db.select().from(notifications)
+      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+    const payload: HealthWebhookPayload = {
+      source: 'canonry',
+      event,
+      project: { name: project.name, canonicalDomain: project.canonicalDomain },
+      health: {
+        status: check.status as 'ok' | 'fail',
+        code: check.code,
+        summary: check.summary,
+        remediation: check.remediation ?? null,
+        checkedAt,
+        // The counter resets on every ok, so a page always follows a site that was
+        // answering. Echoing the row the first failed pass wrote would report
+        // "fail -> fail" and show the operator no transition at all.
+        previousStatus: event === 'health.degraded' ? 'ok' : 'fail',
+        failing: event === 'health.degraded'
+          ? [{ id: check.id, status: check.status, code: check.code, summary: check.summary }]
+          : [],
+      },
+      dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+    }
+
+    // Same rule as onHealthChecked: health events reach every enabled webhook.
+    let delivered = 0
+    for (const notif of notifs) {
+      const config = notif.config as { url: string; events?: string[] }
+      if (!config.url) continue
+      if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
+    }
+    if (event === 'health.degraded' && delivered > 0) {
+      this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
+        .where(eq(siteLivenessState.projectId, projectId)).run()
+    }
+    log.info('site-liveness.notified', { projectId, event, code: check.code, subscribers: notifs.length, delivered })
     return event
   }
 
@@ -578,7 +711,8 @@ export class Notifier {
     return transitions
   }
 
-  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
+  /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
+  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
     // A chat webhook IS a webhook whose body has to look a particular way, so
     // the destination is resolved from the URL rather than declared on the
     // stored notification. Discord and Slack both reject arbitrary JSON;
@@ -591,7 +725,7 @@ export class Notifier {
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
-      return
+      return false
     }
 
     log.info('webhook.send', { event: payload.event, url: targetLabel })
@@ -606,7 +740,7 @@ export class Notifier {
         if (response.status >= 200 && response.status < 300) {
           log.info('webhook.delivered', { event: payload.event, url: targetLabel, httpStatus: response.status })
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
-          return
+          return true
         }
 
         const errorDetail = response.error ?? `HTTP ${response.status}`
@@ -626,6 +760,7 @@ export class Notifier {
         await new Promise(resolve => setTimeout(resolve, delays[attempt]!))
       }
     }
+    return false
   }
 
   private logDelivery(projectId: string, notificationId: string, event: string, status: string, error: string | null): void {

@@ -7,7 +7,16 @@ description: Weekly and monthly report templates with metric tables, regression/
 
 ## Month-over-month AEO (do this right)
 
-For ANY month-over-month AEO claim, use `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` — never diff two `visibility-stats --month` calls by hand. It returns the statistically honest comparison. **Share of voice is less exposed to an engine's broad naming propensity than an absolute rate**, and is computed over non-brand queries only (see the branded caveat below), but it does **not** bypass model continuity. The comparison is restricted to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months. Every figure carries a Wilson interval and a `verdict`:
+For Advanced Property or market reports, read `portfolio-analysis.md` first
+and use `canonry_measurement_changes` for compatible stored-run comparisons.
+Do not substitute a project-wide month comparison for Property-scoped data.
+For Site Health reports, read `site-health.md` and keep crawl and audit
+provenance separate from answer-visibility periods.
+
+For Simple month-over-month AEO claims, use `canonry_visibility_compare`
+(CLI: `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>`),
+never diff two `visibility-stats --month` calls by hand. It returns the
+statistically honest comparison. **Share of voice is less exposed to an engine's broad naming propensity than an absolute rate**, and is computed over non-brand queries only (see the branded caveat below), but it does **not** bypass model continuity. The comparison is restricted to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months. Every figure carries a Wilson interval and a `verdict`:
 
 - **`within-noise`** — the periods' intervals overlap. **No confirmed change; never report it as a rise or a decline.**
 - **`moved`** — disjoint intervals; a real directional move (the point sign is the direction).

@@ -61,10 +61,10 @@ describe('resolveEffectiveScope — MCP read-only auto-detection', () => {
     expect(await resolveEffectiveScope(client, 'all')).toBe('all')
   })
 
-  it('does not probe when --read-only was already requested', async () => {
+  it('still probes host authority when --read-only was already requested', async () => {
     const getApiKeySelf = vi.fn()
     expect(await resolveEffectiveScope({ getApiKeySelf }, 'read-only')).toBe('read-only')
-    expect(getApiKeySelf).not.toHaveBeenCalled()
+    expect(getApiKeySelf).toHaveBeenCalledOnce()
   })
 
   it('falls back to the requested scope when the probe fails (offline / old server)', async () => {

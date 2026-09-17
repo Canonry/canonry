@@ -120,15 +120,15 @@ Vals pin an EXACT version (`npm:@canonry/val-kit@0.2.0/...`), so a change here r
 specifier is bumped. Before publishing, a val resolves the kit locally through Deno `links` so an unreleased change
 can be run end to end; after publishing, the pin moves.
 
-Publishing is a manual workflow. It is not part of the Canonry release, and the kit's version is independent of
-`packages/canonry`.
+Publishing is manual (`pnpm --filter @canonry/val-kit publish`); there is no publish workflow. It is not part of the
+Canonry release, and the kit's version is independent of `packages/canonry`.
 
 ## `src/mcp/skills/` is generated
 
 For the Canonry entry point, edit `docs/agent-operations/v1.md` and run `pnpm guide:sync`; it refreshes the
 runtime guide, native skills, and this mirror together. Other skill documents still originate in
 `skills/<name>/`; run `node scripts/sync-val-town-skills.mjs` after editing them and commit the result.
-`--check` fails instead of writing, which is what CI runs. Never hand-edit a generated module; the next sync
+`--check` fails instead of writing, which is what the pre-push hook runs. Never hand-edit a generated module; the next sync
 overwrites it.
 
 ## Tests

@@ -5,6 +5,12 @@ description: Workflow recipes — baseline, regression response, weekly review, 
 
 # Orchestration Workflows
 
+Use these recipes with the current measurement scope. For Advanced
+portfolios, read `portfolio-analysis.md` and use the Property/market tools
+instead of substituting project-level metrics. For crawl or audit work, read
+`site-health.md`. Built-in Aero uses the corresponding exposed `canonry_*`
+tools; CLI examples below assume an external host with a shell.
+
 **Read the mention signal first in every workflow.** Compute and compare **mention rate + mention share** before cited rate. The fast mention read is `cnry overview <project> --format json` (returns `queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`) plus `cnry analytics <project> --feature gaps --format json` (returns `mentionedQueries[]`, `mentionGap[]`, `notMentioned[]` alongside the cited buckets). Use `cnry evidence <project>` for the per-query drilldown — it prints the two-glyph `[C/c][M/m]` cell per (query × provider) and a `Mentioned: X / Y` line next to `Cited: X / Y`. Mention and citation are independent — never derive one from the other. Treat `answerMentioned = null` as "not checked," never as not-mentioned.
 
 ## Workflow 1: New Client Baseline
@@ -17,7 +23,7 @@ Steps:
 3. With explicit operator approval for the crawl and persisted run, `cnry technical-aeo run <project> --wait`, then `cnry technical-aeo score <project> --format json` for site readiness. Use `cnry site-health overview <project> --format json` only to add crawl metadata (root, completeness, budgets, and termination); it never replaces the score. The crawl discovers the in-scope URL inventory from the root, sitemaps, and internal links. The default page budget is 1,000; the edge budget is unset by default and the crawl engine derives it from the page count, so `--max-edges` sets a ceiling rather than lifting one. Use `--max-pages`, `--max-edges`, or `--max-depth` to tighten them. Dead-link checks remain off unless `--check-dead-links` is explicit. For architecture investigation, use bounded Site Health subgraph/path/changes reads rather than attempting to load the visualization graph. Treat `countAccuracy: "lower-bound"` subgraph counts as minimums, and qualify an incomplete path's unreachable/truncated result with `complete: false` plus `termination`; neither is a site-wide conclusion. Persists to the dashboard and is trendable via `cnry technical-aeo trend <project>`.
 4. Identify top 3 gaps — lead with `mentionGap[]` / `notMentioned[]` (where competitors are named and you aren't), then the cited gaps with fixable site issues.
 5. Generate onboarding report with baseline + action plan
-6. Store baseline metrics in memory (include mention rate + mention share, not just cited rate)
+6. Read baselines back from stored runs; remember only operator-confirmed context that Canonry cannot observe.
 
 ## Workflow 2: Regression Response
 
@@ -28,11 +34,11 @@ Steps:
 2. `cnry history <project>` → trend for affected query
 3. Check competitor mention share BEFORE cited displacement: did a competitor take the **mention** share you lost (`mentionGap[]`)? Only then ask whether a competitor gained the **citation** you lost.
 4. Check indexing: `cnry google coverage <project>` → is the page still indexed? (a deindexed/thin page starves both signals)
-5. Audit the page: `npx @canonry/aeo-audit@4 "<page-url>" --format json`
+5. Read the page's persisted audit with `canonry_site_health_page_audit`. Propose a bounded new audit only if the stored evidence cannot answer the question.
 6. Diagnose cause: indexing issue / content issue / competitive displacement (mention-share loss first, citation loss second)
 7. Recommend fix with evidence — lead with what restores the mention
 8. If content fix: generate diff (schema, llms.txt, or content changes)
-9. Update memory with regression event + diagnosis (record which signal regressed: mention, citation, or both)
+9. Ground the diagnosis in stored run and page evidence; do not save metrics or unvalidated causes as durable facts.
 
 **Want to verify the regression is real / reproducible before reporting?**
 Propose the exact provider/query and get explicit approval, then use a probe
@@ -50,7 +56,7 @@ Trigger: Scheduled (weekly, or on-demand)
 
 Steps:
 1. `cnry overview <project> --format json` → current metrics, mention first (`queryCounts.mentionRate`, `scores.mention`, `scores.mentionShare`); `cnry analytics <project> --feature gaps --format json` for the mention gaps; `cnry evidence <project> --format json` for the per-query `[C/c][M/m]` drilldown
-2. Compare to baseline/prior week from memory — mention rate + mention share first, cited rate second
+2. Compare compatible stored periods/runs using the reporting or portfolio playbook — mention rate + mention share first, cited rate second
 3. Compute deltas: mentions gained/lost/stable (primary), then citations gained/lost/stable (secondary)
 4. Flag any new regressions not yet addressed (lead with lost mentions)
 5. Check competitor movement — mention share swing first, then cited-domain displacement
@@ -64,6 +70,6 @@ Steps:
 1. `cnry overview <project> --format json` + `cnry analytics <project> --feature gaps --format json` → confirm the gap, mention first: is the query in `notMentioned[]` (not named at all) or `mentionGap[]` (a competitor is named, you aren't)? Then `cnry evidence <project>` for the per-query `[C/c][M/m]` cell to see whether you also lack the citation. Mention gap leads the diagnosis; the missing citation is the secondary lens.
 2. Check if a relevant page exists on the domain
 3. If no page: recommend content creation (topic, target queries) — give the engine a reason to name you
-4. If page exists: `npx @canonry/aeo-audit@4 "<page-url>"` → diagnose why neither mentioned nor cited
+4. If page exists, inspect its persisted page audit and answer evidence. Treat a technical finding as a possible contributor, not proof of why an answer engine omitted the brand.
 5. Check schema completeness, llms.txt coverage, indexing status
 6. Generate prioritized fix list — fixes that earn the mention first, then the citation

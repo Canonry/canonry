@@ -159,7 +159,7 @@ canonry traffic connect cloudflare <project> --delivery-mode queue-pull --zone-i
 canonry traffic activate <project> --source <id> # explicit cutover: pause the old source and move/remove traffic-sync scheduling for the target mode
 canonry traffic events <project> --source <id> --format json                    # smoke-check forwarded edge events
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit, ads-sync, doctor}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --every-days 14 --start-date 2026-09-23 --at 00:00 --timezone America/New_York  # calendar recurrence, anchored to the local date/time
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
@@ -167,7 +167,7 @@ canonry schedule set <project> --kind gbp-sync --preset daily                   
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
 canonry schedule set <project> --kind backlinks-sync --preset weekly                         # backlinks-sync (re-probe Common Crawl; sync only when a newer rolling window is published; no source/providers)
 canonry schedule set <project> --kind site-audit --preset weekly                             # site-audit / Technical AEO (bounded full-site crawl; no source/providers)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit] # default kind is answer-visibility
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|doctor] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
@@ -385,6 +385,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 |----------|----|-------|---------|
 | database | `db.file.present` | global | Configured SQLite database file still exists on disk (catches `rm ~/.canonry/data.db` against a running daemon — SQLite holds the inode open across `unlink`) |
 | config | `config.file.present` | global | Configured `~/.canonry/config.yaml` still exists on disk (same gotcha as above) |
+| config | `canonry.version.current` | global | The running server is the newest published `@canonry/canonry`: warns `version.outdated` with an upgrade command for the detected install (npm, Homebrew, or container) plus a restart reminder; skipped when the update check is opted out (reports which opt-out, never suggests undoing it), before the registry has been reached, or on deployments that don't report update status. Registry values that are not strict semver are ignored |
 | auth | `google.auth.connection` | project | OAuth credentials present, refresh token works |
 | auth | `google.auth.property-access` | project | Authorized principal can list the selected GSC site |
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
@@ -394,7 +395,10 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `gbp.auth.scopes` | project | Granted scope includes `business.manage` |
 | auth | `gbp.account.access` | project | The tracked GBP account is still listable for the authorized user (maps 0-QPM access-form-pending → warn) |
 | auth | `gbp.places.api-key` | project | Google Places API readiness for the listing cross-reference (#648): warns when GBP is connected but no Places key is set, or when no selected location carries a Maps place id; skipped when Places is disabled (`tier: off`) or GBP isn't connected |
-| integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 7d (warn) or 30d (fail); warns when never synced |
+| integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 4d (warn) or 30d (fail); warns when never synced. 4d rather than 7d because GBP metrics land daily, so a week of silence is already a long outage |
+| integrations | `ga.data.recent-data` | project | Newest stored GA4 daily row is no older than 3d (`ga.data.aging`) or 5d (`ga.data.stale`), both **warn** so a failing auth check keeps the headline. Catches a sync that keeps succeeding with zero rows, for example a GA4 tag removed from the site. Reports `ga.data.not-syncing` instead when no sync has completed recently; skipped when GA4 is not connected |
+| integrations | `gsc.data.recent-data` | project | Same for Search Console at 5d and 7d, graded from the monotonic `gsc_data_watermarks` date (which advances even on zero-impression days) against Google's Pacific reporting date; skipped when GSC is not connected |
+| integrations | `site.reachability` | project | **Opt-in** (`optIn: true`): runs only when a filter names it, so an unfiltered doctor pass never reaches the network. The project homepage answers below HTTP 500, retried once, trying every approved address. Each hop is resolved and checked against private, reserved and link-local ranges before dialing. A 403 or 429 counts as up; a name that resolves only to refused addresses fails as `site.reachability.refused-address`; this host's own resolver failing is `skipped`, never an outage |
 | auth | `ads.auth.connection` | project | OpenAI ads connection row has a matching SDK key in the local config (skipped when not connected) |
 | integrations | `ads.data.recent-sync` | project | Connected ad account synced in the last 7d (warn) or 30d (fail); warns when never synced (skipped when not connected) |
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
@@ -411,6 +415,13 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are available through a verified native plugin cache or present under `~/.claude/skills/`; an enabled entry with missing/corrupt assets warns instead of reporting a false success |
 | agent | `agent.skills.trigger-surface` | global | The bundled skills' `description` frontmatter, which is their ENTIRE trigger surface: a skill is model-decided, so nothing forces it to load and the description is the only text a request is matched against. Fails on a missing description or one over the 1024-char spec cap; warns when one is too thin to match or never names the CLI binary the operator actually types. Reports total listing cost, which competes for the host's per-session skill budget. Measures the surface, never the outcome. |
 | agent | `agent.skills.current` | global | Native plugin manifest versions must match the running Canonry bundle; version mismatches warn. Legacy `~/.claude/skills/` trees are compared file-by-file and warn when new or upstream-updated files have not been picked up (local edits do not count as "behind") |
+
+### Scheduled health alerts
+
+Two schedules feed `health.degraded` and `health.recovered`, which reach every enabled webhook whether or not it subscribes to them:
+
+- `doctor` (every 6h, seeded per project) grades every check and notifies when the worst `(status, code)` changes, **or when the set of failing checks changes** (`doctor_health_state.failing_signature`, sorted `status:code` pairs). The second rule exists because equally severe checks are ranked by id: a breach opening under an alphabetically earlier one left the headline code untouched, so it was graded, listed in the payload's `failing`, and then dropped at the trigger. A row predating that column carries NULL, which reads as unknown rather than changed, so shipping the rule pages nobody on its first pass. `site.reachability` is `optIn`, so it never runs in that pass.
+- The website loop (every 10 min, in-process, started with the server) runs only `site.reachability` and keeps its own `site_liveness_state` row. It pages after two failed passes that are genuinely an interval apart, and sends `health.recovered` only for an outage it actually delivered a page for. It never writes `doctor_health_state`, so a quick "site is up" pass cannot clear a GA outage. It is deliberately not a schedule row: an older build would not recognize the kind and would run the row as a paid answer-visibility sweep after a rollback.
 
 ### Adding a new check
 
@@ -1158,7 +1169,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - `commit`: the git sha the bundle was built from. `packages/canonry/tsup.config.ts` stamps it at build time from `git rev-parse HEAD` (`packages/canonry/scripts/build-commit.ts`). A build without git omits the stamp and the server falls back to the `CANONRY_COMMIT` env var at runtime; unset as well means the field is omitted.
 - `instance`: read at boot from `CANONRY_INSTANCE` (`name`) and `CANONRY_INSTANCE_ROLE` (`role`). Omitted entirely when `CANONRY_INSTANCE` is unset; `role` is dropped when its var is unset. Role is free text, but use the convention so fleet tooling can group on it: `internal` (our own engines), `client-demo` (a prospect's demo tenant), `client-trial` (a client on trial), `preview` (a branch or PR preview).
 - `basePath`: omitted when not configured.
-- `updateAvailable`: `{ current, latest, url, upgradeCommand }` when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
+- `updateAvailable`: `{ current, latest, url, upgradeCommand, installMethod }` (`installMethod` is `npm`, `homebrew`, or `docker`, detected from `CANONRY_INSTALL_METHOD`, a Homebrew `Cellar/canonry/` path, or a container marker; `upgradeCommand` and `url` come from fixed contracts helpers, never free text) when a newer `@canonry/canonry` is on npm (`packages/canonry/src/update-check.ts`); omitted otherwise, or when the check is opted out.
 
 ### Web UI — use `window.__CANONRY_CONFIG__.basePath`
 
@@ -1224,6 +1235,17 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Every guard has its own rule id in `eslint.config.js`; **never add options to core `no-restricted-syntax`** (flat config last-wins override clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
 
+## Internal observability authority
+
+- **Internal observability is operator-only.** Runtime logs and server telemetry
+  reads/updates require a direct bearer ID in host-only `CANONRY_OPERATOR_KEY_IDS`.
+  Unset denies all; `*`, customer admin roles, OAuth/delegated keys, browser cookies,
+  and project-scoped keys never substitute for this trust grant. Normal route scopes
+  still apply. Never approve a shared customer/proxy key. `/keys/self` reports
+  `operator`; MCP discovery fails closed when it is missing/false. Ordinary audit
+  history excludes internal telemetry state. Do not add an API that self-grants this
+  host authority.
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
@@ -1249,19 +1271,18 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 ### Vals and the kit
 
-The Val Town Vals under `apps/vals/` import `@canonry/val-kit`, and the two
-graphs they run on are validated in two different places. CI's `vals` matrix job
-builds `packages/val-kit` and runs each Val's own `deno task check|lint|test`
-against the DEV graph, where the Val's committed `deno.dev.json` links the kit
-back to the workspace — so one PR can change the kit and its consumers together,
-before anything reaches npm. Each Val's deploy workflow validates the PRODUCTION
-graph instead (plain `deno.json`, `--frozen`) and refuses to push until the exact
-`npm:@canonry/val-kit@<version>` the Val pins is already on public npm.
-Publishing the kit is therefore its own manual, operator-triggered workflow
-(`.github/workflows/publish-val-kit.yml`), with a guard that refuses a version
-npm already has. Adding a Val is a matrix entry in `ci.yml` plus its own deploy
-workflow with its own fixed target IDs — never a second Val parameterised into
-an existing one.
+The Val Town Vals under `apps/vals/` import `@canonry/val-kit`. **They have no
+CI/CD**: no GitHub job checks them, nothing deploys them, and nothing publishes
+the kit. Validate a Val by hand before a deploy: build `packages/val-kit`, then
+run the Val's own `deno task check|lint|test` against the DEV graph (the Val's
+committed `deno.dev.json` links the kit back to the workspace, so one change can
+move the kit and its consumers together before anything reaches npm), and its
+production tasks against plain `deno.json`, which resolves the exact
+`npm:@canonry/val-kit@<version>` the Val pins from public npm. Publish the kit
+with `pnpm --filter @canonry/val-kit publish` before deploying a Val that pins a
+new version, then deploy with `vt push` from the Val's directory. The one
+remaining automated guard is the pre-push `val:skills:check`, which keeps the
+kit's generated skill mirror in step with `skills/`.
 
 Two Vals ship today: **AI Visibility Check** (non-brand questions; is the brand
 mentioned and the domain cited) and **Brand Perception Check** (branded

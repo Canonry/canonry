@@ -235,7 +235,7 @@ describe('native Canonry plugin bundle', () => {
         author: { name: 'Canonry' },
         homepage: 'https://canonry.ai',
         repository: 'https://github.com/Canonry/canonry',
-        license: 'FSL-1.1-ALv2',
+        license: 'MIT',
         keywords: ['aeo'],
       }
       for (const relativePath of versionedFiles) {

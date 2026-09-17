@@ -42,8 +42,8 @@ function valNames(): string[] {
  * source rather than resolving one `deno.json` key — the same reason the engine
  * pin is swept rather than edited. That is N places to drift instead of one, so
  * this is asserted as a set: one file left behind on an older kit is exactly
- * what this contract exists to catch, and it is what the deploy workflow's
- * published-version preflight refuses to guess about.
+ * what this contract exists to catch. Vals have no deploy workflow, so this
+ * test is the only automated check on the pins before a manual `vt push`.
  */
 function valKitSpecifiers(val: string): string[] {
   const roots = [`apps/vals/${val}/src`, `apps/vals/${val}/main.http.tsx`]

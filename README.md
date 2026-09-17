@@ -1,12 +1,13 @@
 # Canonry <img src="https://raw.githubusercontent.com/Canonry/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
 
-Canonry is an **agent-first, self-hosted AEO operating platform.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after your agent acts.
+Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform with a comprehensive web UI.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after you or your agent acts.
 
-**Self-hosted, with your own provider keys.** Your dashboard and agent review the same project evidence.
+**Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent see the same evidence.
 
-[Live demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
@@ -19,12 +20,6 @@ Canonry is an **agent-first, self-hosted AEO operating platform.** Track AI visi
 <a id="or-use-any-shell-capable-coding-agent"></a>
 
 ### Start with your agent
-
-Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
-
-Or use [Aero](skills/aero/SKILL.md), Canonry's optional built-in agent. Aero works without an external agent. When enabled, Aero wakes after completed runs to review the evidence.
-
-For a new installation, give your agent this setup request:
 
 <details>
 <summary>Copy the first-time setup request</summary>
@@ -50,9 +45,13 @@ If a Canonry installation or connected plugin/MCP is available, use it. Do not c
 
 </details>
 
+### Or Use Official Claude and Codex Plugins
+
+Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to your own agent.
+
 <a id="get-a-page-health-baseline"></a>
 
-### Start locally
+### Or start it locally yourself
 
 1. Install Canonry.
 
@@ -261,4 +260,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-[FSL-1.1-ALv2](./LICENSE). Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
+[MIT](./LICENSE), starting with Canonry 5.0.0. Use, modify, self-host, redistribute, and build commercial products with Canonry. Keep the copyright and permission notice with copies or substantial portions of the software.
+
+Earlier releases retain their original licenses, including any future-license grants. Dependencies and bundled assets retain their own licenses; see [third-party notices](packages/canonry/THIRD_PARTY_NOTICES.md).

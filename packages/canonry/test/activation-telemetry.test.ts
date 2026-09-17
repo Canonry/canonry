@@ -186,6 +186,7 @@ describe('activation telemetry', () => {
     expect(activationCallbacks).toBe(1)
     expect(activations[0]?.properties).toEqual({
       flowVersion: 1,
+      kind: 'answer_visibility',
       status: 'completed',
       providerCountBucket: '1',
       queryCountBucket: '1',

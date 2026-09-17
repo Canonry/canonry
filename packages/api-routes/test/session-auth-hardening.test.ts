@@ -235,6 +235,17 @@ test('delegated credentials require an active account at their issued authorizat
   expect((await app.inject({ method: 'GET', url: '/api/v1/projects', headers: withKey(delegatedToken) })).statusCode).toBe(401)
 })
 
+test('named-account login refuses a missing origin the same way other cookie writes do', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: { name: 'owner', password: ADMIN_PASSWORD },
+  })
+  expect(res.statusCode).toBe(403)
+  expect(db.select().from(userSessions).all()).toEqual([])
+})
+
 // ─── P2.4 cross-origin writes ──────────────────────────────────────────────
 
 test('a write driven from another origin is refused even with a valid cookie', async () => {

@@ -3201,7 +3201,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/operations/logs',
     summary: 'Read bounded, redacted runtime logs',
-    description: 'Requires logs.read (or wildcard), an admin role for user sessions, and an instance-wide credential. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.',
+    description: 'Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist, plus logs.read (or wildcard). Customer admin roles, scopes alone, browser sessions, OAuth/delegated keys, and project-scoped keys cannot grant access. Includes application and HTTP diagnostics, separate from audit history. File-backed hosts retain logs across restarts; inspect retention, retentionPolicy, dropped, and captureErrors. Filters apply before pagination and must remain unchanged when resuming a cursor. Cursors expire on retention eviction.',
     tags: ['operations'],
     parameters: [
       { name: 'limit', in: 'query', required: false, description: 'Maximum entries (default 100).', schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } },
@@ -3214,7 +3214,7 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Runtime log page with retention and capture-loss metadata.', 'OperationalLogListDto'),
       400: errorResponse('Invalid filters or expired cursor.'),
       401: errorResponse('Authentication required.'),
-      403: errorResponse('Instance logs.read permission required.'),
+      403: errorResponse('Host-approved operator authority and instance logs.read permission required.'),
       501: errorResponse('This deployment does not provide operational logs.'),
     },
   },
@@ -3222,9 +3222,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/telemetry',
     summary: 'Get telemetry status',
+    description: 'Internal surface. Requires a direct bearer API key approved in the host CANONRY_OPERATOR_KEY_IDS allowlist; customer admin roles and wildcard scopes alone are insufficient.',
     tags: ['telemetry'],
     responses: {
       200: jsonResponse('Telemetry status returned.', 'TelemetryStatusDto'),
+      403: errorResponse('Host-approved operator authority required.'),
       501: errorResponse('Telemetry status is not available.'),
     },
   },
@@ -3232,7 +3234,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/telemetry',
     summary: 'Update telemetry status',
-    description: 'Requires settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.',
+    description: 'Requires host-approved direct-bearer operator authority and settings.write. The response reports the configured preference and effective state; deployment/environment opt-outs take precedence.',
     tags: ['telemetry'],
     requestBody: {
       required: true,
@@ -3251,7 +3253,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Telemetry updated.', 'TelemetryStatusDto'),
       400: errorResponse('Invalid telemetry request.'),
-      403: errorResponse('The credential lacks settings.write.'),
+      403: errorResponse('The credential lacks host-approved operator authority or settings.write.'),
       501: errorResponse('Telemetry configuration is not available.'),
     },
   },

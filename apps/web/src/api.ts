@@ -193,6 +193,8 @@ declare global {
        * Example: '/canonry/' → API calls go to '/canonry/api/v1/...'
        */
       basePath?: string
+      /** Only the dedicated synthetic demo server sets this disclosure. */
+      demo?: { enabled: boolean; readOnly: boolean; sampleData: boolean }
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
@@ -218,6 +220,12 @@ declare global {
       embed?: EmbedClientConfig
     }
   }
+}
+
+export function isPublicDemo(): boolean {
+  if (typeof window === 'undefined') return false
+  const demo = window.__CANONRY_CONFIG__?.demo
+  return demo?.enabled === true && demo.readOnly === true && demo.sampleData === true
 }
 
 /** Runtime-selected first-open experience with an operator-configurable override. */
@@ -375,7 +383,7 @@ function getApiOrigin(): string {
   return origin
 }
 
-function getPublicBase(): string {
+export function getPublicBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
     return window.__CANONRY_CONFIG__.basePath.replace(/\/$/, '')
   }

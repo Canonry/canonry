@@ -1,20 +1,77 @@
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import {
+  CANONRY_NPM_PACKAGE_URL,
+  compareSemver,
+  isInstallMethod,
+  isStrictSemver,
+  updateCheckEnvOptOut,
+  upgradeCaveatFor,
+  upgradeCommandFor,
+  type InstallMethod,
+  type UpdateCheckEnvOptOut,
+} from '@ainyc/canonry-contracts'
 import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
+
+export { compareSemver, type InstallMethod }
 
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 
 const PKG_NAME = '@canonry/canonry'
 const NPM_DIST_TAGS_URL = `https://registry.npmjs.org/-/package/${PKG_NAME}/dist-tags`
-const NPM_PACKAGE_URL = `https://www.npmjs.com/package/${PKG_NAME}`
+const NPM_PACKAGE_URL = CANONRY_NPM_PACKAGE_URL
 const FETCH_TIMEOUT_MS = 1_500
 
 export interface UpdateAvailable {
   current: string
   latest: string
   url: string
+  /** Tailored to `installMethod`: npm, Homebrew, or a container rebuild. */
   upgradeCommand: string
+  installMethod: InstallMethod
 }
+
+const CONTAINER_MARKERS = ['/.dockerenv', '/run/.containerenv']
+
+/**
+ * How this canonry was installed, so the upgrade instruction is one that
+ * works. `CANONRY_INSTALL_METHOD` wins when set: the published image declares
+ * `docker` explicitly, because Kubernetes (containerd), Cloud Run, and Fly do
+ * not create the marker files Docker and Podman leave behind. Homebrew
+ * installs live under `Cellar/canonry/` (the formula runs
+ * `npm install` into its own libexec, so `npm install -g` would leave a second,
+ * shadowed copy). Inside a container an in-place `npm install -g` is lost when
+ * the container is recreated, so the image has to move instead.
+ */
+export function detectInstallMethod(opts?: {
+  modulePath?: string
+  exists?: (path: string) => boolean
+  env?: NodeJS.ProcessEnv
+}): InstallMethod {
+  const declared = (opts?.env ?? process.env).CANONRY_INSTALL_METHOD
+  if (isInstallMethod(declared)) return declared
+  let modulePath = opts?.modulePath ?? fileURLToPath(import.meta.url)
+  try {
+    modulePath = fs.realpathSync(modulePath)
+  } catch {
+    // keep the unresolved path
+  }
+  if (modulePath.replace(/\\/g, '/').includes('/Cellar/canonry/')) return 'homebrew'
+  const exists = opts?.exists ?? fs.existsSync
+  if (CONTAINER_MARKERS.some((marker) => exists(marker))) return 'docker'
+  return 'npm'
+}
+
+let detectedInstallMethod: InstallMethod | undefined
+
+function currentInstallMethod(): InstallMethod {
+  detectedInstallMethod ??= detectInstallMethod()
+  return detectedInstallMethod
+}
+
+export type UpdateCheckDisabledReason = UpdateCheckEnvOptOut | 'config'
 
 /**
  * Opt-out gate. Mirrors telemetry's opt-out pattern so users get one mental
@@ -23,50 +80,21 @@ export interface UpdateAvailable {
  * Order: CANONRY_DISABLE_UPDATE_CHECK=1 > DO_NOT_TRACK=1 > CI > config.updateCheck === false
  */
 export function isUpdateCheckEnabled(): boolean {
-  if (process.env.CANONRY_DISABLE_UPDATE_CHECK === '1') return false
-  if (process.env.DO_NOT_TRACK === '1') return false
-  if (process.env.CI) return false
-
-  if (!configExists()) return true
-
-  try {
-    const raw = loadConfigRaw()
-    return raw?.updateCheck !== false
-  } catch {
-    return true
-  }
+  return updateCheckDisabledReason() === null
 }
 
-/**
- * Compare two semver-shaped strings ("major.minor.patch" with optional
- * pre-release / build metadata which we ignore). Returns 1 if a > b,
- * -1 if a < b, 0 if equal. Anything we can't parse compares as equal so
- * we never falsely advertise an "upgrade" from a malformed registry response.
- */
-export function compareSemver(a: string, b: string): number {
-  const parse = (v: string): [number, number, number] | null => {
-    const core = v.split(/[-+]/)[0]
-    if (!core) return null
-    const parts = core.split('.')
-    if (parts.length < 3) return null
-    const nums: number[] = []
-    for (let i = 0; i < 3; i++) {
-      const n = Number(parts[i])
-      if (!Number.isInteger(n) || n < 0) return null
-      nums.push(n)
-    }
-    return [nums[0]!, nums[1]!, nums[2]!]
-  }
+/** The opt-out that disabled the update check, or null when it is enabled. */
+export function updateCheckDisabledReason(): UpdateCheckDisabledReason | null {
+  const envOptOut = updateCheckEnvOptOut(process.env)
+  if (envOptOut) return envOptOut
 
-  const pa = parse(a)
-  const pb = parse(b)
-  if (!pa || !pb) return 0
+  if (!configExists()) return null
 
-  for (let i = 0; i < 3; i++) {
-    if (pa[i]! > pb[i]!) return 1
-    if (pa[i]! < pb[i]!) return -1
+  try {
+    return loadConfigRaw()?.updateCheck === false ? 'config' : null
+  } catch {
+    return null
   }
-  return 0
 }
 
 /**
@@ -87,7 +115,8 @@ export async function fetchLatestVersion(opts?: { timeoutMs?: number }): Promise
     })
     if (!res.ok) return null
     const data = (await res.json()) as { latest?: unknown }
-    if (typeof data.latest !== 'string') return null
+    // Strict shape only: the value is embedded in text agents act on.
+    if (typeof data.latest !== 'string' || !isStrictSemver(data.latest)) return null
     return data.latest
   } catch {
     return null
@@ -101,13 +130,20 @@ export async function fetchLatestVersion(opts?: { timeoutMs?: number }): Promise
  * `current`. Returns null when no upgrade is available or inputs are
  * malformed.
  */
-export function buildUpdateAvailable(current: string, latest: string): UpdateAvailable | null {
+export function buildUpdateAvailable(
+  current: string,
+  latest: string,
+  installMethod: InstallMethod = currentInstallMethod(),
+): UpdateAvailable | null {
+  // Re-validated here because cached values come from config.yaml too.
+  if (!isStrictSemver(latest)) return null
   if (compareSemver(latest, current) <= 0) return null
   return {
     current,
     latest,
     url: NPM_PACKAGE_URL,
-    upgradeCommand: `npm install -g ${PKG_NAME}`,
+    upgradeCommand: upgradeCommandFor(installMethod),
+    installMethod,
   }
 }
 
@@ -169,6 +205,85 @@ export async function checkLatestVersionForCli(opts?: {
   }
 
   return buildUpdateAvailable(PKG_VERSION, latest)
+}
+
+/**
+ * Synchronous, network-free read of the on-disk cache written by
+ * `checkLatestVersionForCli`. Lets the CLI print its update notice before the
+ * command runs, so the notice can never interleave with command output.
+ */
+export function readCachedUpdateAvailable(): UpdateAvailable | null {
+  if (!isUpdateCheckEnabled()) return null
+  if (!configExists()) return null
+  try {
+    const cachedLatest = loadConfigRaw()?.lastKnownLatestVersion
+    if (typeof cachedLatest !== 'string') return null
+    return buildUpdateAvailable(PKG_VERSION, cachedLatest)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Snapshot of the CLI's pre-dispatch `UPDATE_AVAILABLE` read. Serve must not
+ * re-read the on-disk cache after `checkLatestVersionForCli` may have written
+ * it during startup.
+ */
+let printedUpdateAvailable: UpdateAvailable | null = null
+
+export function notePrintedUpdateAvailable(update: UpdateAvailable | null): void {
+  printedUpdateAvailable = update
+}
+
+export function getPrintedUpdateAvailable(): UpdateAvailable | null {
+  return printedUpdateAvailable
+}
+
+/** Stable code agents can branch on, shared by the CLI notice and doctor. */
+export const UPDATE_AVAILABLE_NOTICE_CODE = 'UPDATE_AVAILABLE'
+
+/**
+ * Render the update notice for stderr.
+ *
+ * - Interactive text output keeps the human banner.
+ * - `--format json|jsonl` gets one compact JSON line, so a caller that merges
+ *   stderr into stdout still reads a stream of valid JSON documents.
+ * - Non-interactive text output (an agent shelling out) gets one plain line
+ *   that names the versions, the upgrade command, and how to silence it.
+ */
+export function formatUpdateNotice(
+  update: UpdateAvailable,
+  opts: { format: 'text' | 'json' | 'jsonl'; interactive: boolean },
+): string {
+  const caveat = upgradeCaveatFor(update.installMethod)
+  if (opts.format === 'json' || opts.format === 'jsonl') {
+    return `${JSON.stringify({
+      notice: {
+        code: UPDATE_AVAILABLE_NOTICE_CODE,
+        current: update.current,
+        latest: update.latest,
+        installMethod: update.installMethod,
+        upgradeCommand: update.upgradeCommand,
+        url: update.url,
+        ...(caveat ? { note: caveat } : {}),
+      },
+    })}\n`
+  }
+  if (opts.interactive) {
+    return (
+      `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
+      `  Upgrade: ${update.upgradeCommand}\n` +
+      (caveat ? `  ${caveat}\n` : '') +
+      '\n'
+    )
+  }
+  const upgrade = update.installMethod === 'docker'
+    ? `Upgrade: ${update.upgradeCommand}.`
+    : `Upgrade with \`${update.upgradeCommand}\`, then restart any running \`canonry serve\`.`
+  return (
+    `[canonry] ${UPDATE_AVAILABLE_NOTICE_CODE}: canonry ${update.latest} is available (installed ${update.current}). ` +
+    `${upgrade} ${caveat ? `${caveat} ` : ''}Silence with CANONRY_DISABLE_UPDATE_CHECK=1.\n`
+  )
 }
 
 interface MemoryCacheEntry {
@@ -247,4 +362,42 @@ export function checkLatestVersionForServer(opts?: {
 
   if (!memoryCache || !memoryCache.latest) return null
   return buildUpdateAvailable(PKG_VERSION, memoryCache.latest)
+}
+
+export interface UpdateStatus {
+  /** False when an opt-out (env, CI, or config) disabled the check. */
+  enabled: boolean
+  disabledBy?: UpdateCheckDisabledReason
+  current: string
+  /** Newest published version known to this process, or null when never fetched. */
+  latest: string | null
+  installMethod: InstallMethod
+  upgradeCommand: string
+  url: string
+}
+
+/**
+ * Server-side status for the `canonry.version.current` doctor check.
+ * Non-blocking like `checkLatestVersionForServer` (and kicks the same
+ * background refresh). Falls back to the CLI's on-disk cache so a doctor call
+ * right after boot, before the first registry round-trip lands, still knows
+ * the latest version.
+ */
+export function getServerUpdateStatus(opts?: { ttlMs?: number; now?: () => number }): UpdateStatus {
+  const installMethod = currentInstallMethod()
+  const base = { current: PKG_VERSION, installMethod, upgradeCommand: upgradeCommandFor(installMethod), url: NPM_PACKAGE_URL }
+  const disabledBy = updateCheckDisabledReason()
+  if (disabledBy) return { ...base, enabled: false, disabledBy, latest: null }
+
+  checkLatestVersionForServer(opts)
+  let latest = memoryCache?.latest ?? null
+  if (!latest && configExists()) {
+    try {
+      const cached = loadConfigRaw()?.lastKnownLatestVersion
+      if (typeof cached === 'string') latest = cached
+    } catch {
+      // best-effort
+    }
+  }
+  return { ...base, enabled: true, latest: latest && isStrictSemver(latest) ? latest : null }
 }

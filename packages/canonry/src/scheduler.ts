@@ -23,6 +23,7 @@ const log = createLogger('Scheduler')
 /** Default cadence for the health schedule seeded for each project. */
 export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
 
+
 /**
  * Ensure one default doctor schedule exists for a project.
  *

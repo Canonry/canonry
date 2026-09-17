@@ -3,12 +3,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { afterEach, expect, it, vi } from 'vitest'
-import { auditLog, createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, createClient, migrate } from '@ainyc/canonry-db'
+import { hashApiKey } from '@ainyc/canonry-api-routes'
 import { createServer } from '../src/server.js'
 import { getConfigPath, saveConfig } from '../src/config.js'
 import { createLogger } from '../src/logger.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
+
+function approveFixtureOperator(db: ReturnType<typeof createClient>, token: string) {
+  db.insert(apiKeys).values({ id: 'fixture-operator', name: 'operator', keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes: ['*'], createdAt: new Date().toISOString() }).run()
+  vi.stubEnv('CANONRY_OPERATOR_KEY_IDS', 'fixture-operator')
+}
 
 it('keeps health responsive when runtime capture encounters a database writer lock', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-log-lock-smoke-'))
@@ -19,6 +25,7 @@ it('keeps health responsive when runtime capture encounters a database writer lo
   const db = createClient(config.database)
   migrate(db)
   const lock = createClient(config.database)
+  approveFixtureOperator(db, config.apiKey)
   let app: Awaited<ReturnType<typeof createServer>> | undefined
   try {
     app = await createServer({ config, db, logger: false, assetsDir: path.join(dir, 'assets') })
@@ -50,6 +57,7 @@ it('serves bounded diagnostics and effective telemetry from the real server wiri
   saveConfig(config)
   const db = createClient(config.database)
   migrate(db)
+  approveFixtureOperator(db, config.apiKey)
   let app: Awaited<ReturnType<typeof createServer>> | undefined
   try {
     app = await createServer({ config, db, logger: false, assetsDir: path.join(dir, 'assets') })
@@ -80,6 +88,7 @@ it('keeps redacted Fastify runtime failures available after a server restart', a
   saveConfig(config)
   let db = createClient(config.database)
   migrate(db)
+  approveFixtureOperator(db, config.apiKey)
   let app: Awaited<ReturnType<typeof createServer>> | undefined
   try {
     app = await createServer({ config, db, logger: false, assetsDir: path.join(dir, 'assets') })

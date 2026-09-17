@@ -22,7 +22,7 @@ it.each(['legacy', 'current'] as const)('supports telemetry reads and successful
     return new Response(JSON.stringify(status()), { headers: { 'content-type': 'application/json' } })
   }))
   const api = new ApiClient('https://telemetry-fixture.invalid', 'cnry_fixture', { skipProbe: true })
-  const server = createCanonryMcpServer({ eager: true, clientFactory: () => api })
+  const server = createCanonryMcpServer({ eager: true, operator: true, clientFactory: () => api })
   const client = new Client({ name: 'telemetry-compat-test', version: '1' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   try {

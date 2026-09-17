@@ -32,6 +32,9 @@ export async function runChecks(
 
   const selected = checks.filter(check => {
     if (check.scope !== targetScope) return false
+    // An opt-in check is skipped by a default (unfiltered) run and included
+    // only when a filter names it, exactly or by wildcard.
+    if (check.optIn && filters.length === 0) return false
     return matchesCheckId(check.id, filters)
   })
 

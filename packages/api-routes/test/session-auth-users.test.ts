@@ -78,6 +78,7 @@ function withKey(token: string) {
 }
 
 const ORIGIN = 'http://localhost:4100'
+const LOGIN_ORIGIN = { origin: ORIGIN, host: 'localhost:4100' }
 
 /**
  * A browser's headers. The cookie alone is not what a browser sends — it also
@@ -565,6 +566,7 @@ test('T6: the session cookie cannot be read by page scripts or ridden from anoth
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: ADMIN_PASSWORD },
   })
 
@@ -594,6 +596,7 @@ test('T6: repeated wrong passwords pause that name instead of allowing an endles
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
+      headers: LOGIN_ORIGIN,
       payload: { name: 'owner', password: 'not-the-right-password' },
     })
     statuses.push(res.statusCode)
@@ -606,6 +609,7 @@ test('T6: repeated wrong passwords pause that name instead of allowing an endles
   const correct = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: ADMIN_PASSWORD },
   })
   expect(correct.statusCode).toBe(429)
@@ -617,11 +621,13 @@ test('T6: a failed sign-in never reveals whether the name exists', async () => {
   const wrongPassword = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: 'not-the-right-password' },
   })
   const unknownName = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'nobody', password: 'not-the-right-password' },
   })
 

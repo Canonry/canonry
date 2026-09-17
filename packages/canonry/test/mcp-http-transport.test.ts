@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@ainyc/canonry-db'
 import { createUserSession, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
@@ -121,6 +121,7 @@ interface Built {
   app: Awaited<ReturnType<typeof createServer>>
   wildcardKey: string
   readOnlyKey: string
+  operatorKey: string
   /** Register a pre-registered OAuth client; there is no DCR by design. */
   registerClient: (redirectUri: string) => void
   /** Create a real signed-in session and return its cookie header. */
@@ -139,9 +140,11 @@ async function buildServer(researchAllowViewers = false): Promise<Built> {
 
   const wildcardKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
   const readOnlyKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
-  for (const [raw, scopes, name] of [[wildcardKey, ['*'], 'root'], [readOnlyKey, ['read'], 'reader']] as const) {
+  const operatorKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+  vi.stubEnv('CANONRY_OPERATOR_KEY_IDS', 'operator-fixture')
+  for (const [raw, scopes, name] of [[wildcardKey, ['*'], 'root'], [readOnlyKey, ['read'], 'reader'], [operatorKey, ['logs.read'], 'operator-fixture']] as const) {
     db.insert(apiKeys).values({
-      id: crypto.randomUUID(),
+      id: name,
       name,
       keyHash: crypto.createHash('sha256').update(raw).digest('hex'),
       keyPrefix: raw.slice(0, 9),
@@ -178,6 +181,7 @@ async function buildServer(researchAllowViewers = false): Promise<Built> {
     origin,
     wildcardKey,
     readOnlyKey,
+    operatorKey,
     sessionKeys: () => db.select().from(apiKeys).all()
       .filter(k => k.name.startsWith('mcp-session:'))
       .map(k => ({ scopes: k.scopes, revokedAt: k.revokedAt })),
@@ -202,6 +206,7 @@ async function buildServer(researchAllowViewers = false): Promise<Built> {
     },
     cleanup: async () => {
       await app.close()
+      vi.unstubAllEnvs()
       fs.rmSync(tmpDir, { recursive: true, force: true })
     },
   }
@@ -523,8 +528,18 @@ describe('MCP over Streamable HTTP', () => {
     expect(created.statusCode).toBe(200)
     const key = created.json().key as string
     const tools = await toolsFor(built, '/api/v1/mcp', key)
-    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name), 'canonry_help'])
-    expect(tools).toContain('canonry_logs_list')
+    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name), 'canonry_help'])
+    expect(tools).not.toContain('canonry_logs_list')
+  })
+
+  it('exposes internal reads only for host-approved bearers, never customer-admin OAuth', async () => {
+    const names = ['canonry_logs_list', 'canonry_telemetry_get']
+    const operatorTools = await toolsFor(built, '/api/v1/mcp/readonly', built.operatorKey)
+    expect(operatorTools).toEqual(expect.arrayContaining(names))
+    expect(operatorTools).not.toContain('canonry_telemetry_update')
+    const token = await mintAccessToken(built, { role: 'admin', scope: 'read research.run' })
+    const customerTools = await toolsFor(built, '/api/v1/mcp', token)
+    for (const name of [...names, 'canonry_telemetry_update']) expect(customerTools).not.toContain(name)
   })
 
   it('issues a session id on initialize and accepts it on a follow-up', async () => {
@@ -576,7 +591,7 @@ describe('MCP over Streamable HTTP', () => {
   ] as const)('exposes the entire permitted catalog at %s (read-only key: %s)', async (url, readOnlyKey) => {
     const tools = await toolsFor(built, url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
     const readOnly = readOnlyKey || url.endsWith('/readonly')
-    const expected = canonryMcpTools.filter(tool => !readOnly || tool.access === 'read').map(tool => tool.name)
+    const expected = canonryMcpTools.filter(tool => !tool.requiresOperator && (!readOnly || tool.access === 'read')).map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
     expect(tools).toEqual(expect.arrayContaining([
       'canonry_project_overview', 'canonry_visibility_report',
@@ -596,7 +611,7 @@ describe('MCP over Streamable HTTP', () => {
   it('exposes the entire read catalog to an OAuth reader without write tools', async () => {
     const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
     const tools = await toolsFor(built, '/api/v1/mcp', token)
-    const expected = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
+    const expected = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
   })
 

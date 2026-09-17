@@ -14,14 +14,14 @@ import {
   users,
 } from '../src/index.js'
 
-test('v156 upgrades a latest-main database without losing users, audit attribution, or credential children', () => {
+test('v158 upgrades a latest-main database without losing users, audit attribution, or credential children', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-user-access-migration-'))
   const db = createClient(path.join(dir, 'test.db'))
   const now = '2026-09-11T00:00:00.000Z'
   try {
-    // v155 is the latest migration shipped on main. The feature migrations
+    // v157 is the latest migration shipped on main. The feature migrations
     // must upgrade that exact database shape rather than only an older fixture.
-    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 155))
+    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 157))
     db.$client.prepare(`INSERT INTO users (id, name, name_key, password_hash, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?)`)
       .run('legacy-user', 'Legacy User', 'legacy-user', 'legacy-password-hash', 'viewer', now)
@@ -92,12 +92,12 @@ test('v156 upgrades a latest-main database without losing users, audit attributi
   }
 })
 
-test('v156 does not reject an unrelated legacy foreign-key orphan', () => {
+test('v158 does not reject an unrelated legacy foreign-key orphan', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-user-access-orphan-'))
   const db = createClient(path.join(dir, 'test.db'))
   const now = '2026-09-11T00:00:00.000Z'
   try {
-    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 155))
+    migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 157))
     db.$client.pragma('foreign_keys = OFF')
     db.$client.prepare(`INSERT INTO queries (id, project_id, query, created_at)
       VALUES (?, ?, ?, ?)`)

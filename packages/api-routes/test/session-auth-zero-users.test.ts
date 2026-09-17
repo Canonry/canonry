@@ -124,6 +124,7 @@ test('zero-users mode leaves the login route inert', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: { origin: 'http://localhost:4100', host: 'localhost:4100' },
     payload: { name: 'anybody', password: 'anything-at-all' },
   })
 

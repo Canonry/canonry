@@ -27,7 +27,7 @@ it('keeps authenticated identity, error detail, and typed diagnostics through lo
   const log = createLogger('RuntimeFixture')
   try {
     await app.register(apiRoutes, {
-      db, listOperationalLogs: query => store.list(query),
+      db, operatorApiKeyIds: ['key-fixture'], listOperationalLogs: query => store.list(query),
       registerAuthenticatedRoutes: async scope => {
         scope.post('/observability-fixture', async request => {
           log.info('diagnostic.fixture', { runId: 'run-fixture', success: false, actor: 'spoofed', credentialId: 'spoofed' })

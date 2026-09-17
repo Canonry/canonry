@@ -251,3 +251,76 @@ test('notifiedAt records delivery, not intent', async () => {
   expect(stored.status).toBe('fail')
   expect(stored.notifiedAt).toBeNull()
 })
+
+test('a breach opening under an existing one still notifies', async () => {
+  // The trigger keyed on the worst check's code, and equally severe checks are
+  // ranked by id, so a second failure sorting later left the headline
+  // untouched. That outage was graded, listed in `failing`, and then dropped at
+  // the trigger: the ranking decided who leads, and silently also decided
+  // whether anyone was told at all.
+  const { notifier, projectId } = harness()
+  const sent: { health: { failing: { code: string }[] } }[] = []
+  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...a: unknown[]) => { sent.push(a[1] as never) })
+
+  await notifier.onHealthChecked(projectId, {
+    checks: [check('a.first', 'warn', 'a.first.code')],
+    ...at('2026-07-31T05:00:00.000Z'),
+  })
+  const event = await notifier.onHealthChecked(projectId, {
+    checks: [
+      check('a.first', 'warn', 'a.first.code'),
+      check('b.second', 'warn', 'b.second.code'),
+    ],
+    ...at('2026-07-31T11:00:00.000Z'),
+  })
+
+  expect(event).toBe('health.degraded')
+  expect(sent).toHaveLength(2)
+  expect(sent.at(-1)!.health.failing.map((c) => c.code)).toEqual(['a.first.code', 'b.second.code'])
+})
+
+test('an unchanged breach set stays silent', async () => {
+  // Re-firing on the SET must not decay into re-firing on every pass. An
+  // operator who gets the same warning every six hours stops reading the
+  // channel, which recreates the original failure with extra steps.
+  const { notifier, projectId } = harness()
+  const sent: unknown[] = []
+  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...a: unknown[]) => { sent.push(a[1]) })
+
+  const twoBreaches = [check('a.first', 'warn', 'a.first.code'), check('b.second', 'warn', 'b.second.code')]
+  await notifier.onHealthChecked(projectId, { checks: twoBreaches, ...at('2026-07-31T05:00:00.000Z') })
+  const event = await notifier.onHealthChecked(projectId, { checks: twoBreaches, ...at('2026-07-31T11:00:00.000Z') })
+
+  expect(event).toBeNull()
+  expect(sent).toHaveLength(1)
+})
+
+test('a row written before the signature column does not page on the first pass', async () => {
+  // Every already-degraded project carries a NULL signature the moment this
+  // ships. Reading unknown as "changed" would turn one deploy into an alert
+  // storm across the whole instance, so the first pass falls back to the code
+  // rule and only records what it saw.
+  const { db, notifier, projectId } = harness()
+  const sent: unknown[] = []
+  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...a: unknown[]) => { sent.push(a[1]) })
+
+  await notifier.onHealthChecked(projectId, {
+    checks: [check('a.first', 'warn', 'a.first.code')],
+    ...at('2026-07-31T05:00:00.000Z'),
+  })
+  db.update(doctorHealthState).set({ failingSignature: null } as never)
+    .where(eq(doctorHealthState.projectId, projectId)).run()
+
+  const event = await notifier.onHealthChecked(projectId, {
+    checks: [
+      check('a.first', 'warn', 'a.first.code'),
+      check('b.second', 'warn', 'b.second.code'),
+    ],
+    ...at('2026-07-31T11:00:00.000Z'),
+  })
+
+  expect(event).toBeNull()
+  expect(sent).toHaveLength(1)
+  const stored = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectId)).get()!
+  expect(stored.failingSignature).toBe('warn:a.first.code,warn:b.second.code')
+})

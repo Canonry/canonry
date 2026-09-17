@@ -95,6 +95,7 @@ import {
   fetchRunDetail,
   triggerBacklinkExtract,
   isEmbed,
+  isPublicDemo,
   ApiError,
 } from '../../api.js'
 import type {
@@ -153,6 +154,7 @@ function formatElapsed(startedAt: string | null, createdAt: string): string {
 }
 
 export function BacklinksSection({ projectName }: { projectName: string }) {
+  const publicDemo = isPublicDemo()
   const [summary, setSummary] = useState<BacklinkSummaryDto | null>(null)
   const [list, setList] = useState<BacklinkListResponse | null>(null)
   const [history, setHistory] = useState<BacklinkHistoryEntry[]>([])
@@ -368,7 +370,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-muted mt-1">
                     Run a workspace release sync to populate backlinks for every project in this workspace.
                   </p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4">
                       <Button asChild type="button" size="sm">
                         <a href={publicPath('/backlinks')}>Set up backlinks</a>
@@ -384,7 +386,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     A workspace release sync is running ({latestSync.status}
                     {latestSync.phaseDetail ? ` — ${latestSync.phaseDetail}` : ''}). Backlinks will appear here once it finishes.
                   </p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4">
                       <Button asChild type="button" variant="outline" size="sm">
                         <a href={publicPath('/backlinks')}>View sync status</a>
@@ -399,7 +401,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-muted mt-1">
                     {latestSync.error ?? 'The workspace release sync failed. Retry from the Backlinks admin page.'}
                   </p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4">
                       <Button asChild type="button" size="sm">
                         <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
@@ -412,7 +414,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 <>
                   <h3 className="text-base font-semibold text-heading">No backlinks yet for this project</h3>
                   <p className="text-sm text-secondary mt-1">Release <code className="text-neutral">{latestSync.release}</code> is ready. Run an extract for this project.</p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
                         <Play className="h-4 w-4 mr-1.5" aria-hidden />
@@ -427,7 +429,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 <>
                   <h3 className="text-base font-semibold text-heading">Last extract failed</h3>
                   <p className="text-sm text-secondary mt-1">See the error above, then check the workspace source before retrying.</p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button asChild type="button" size="sm">
                         <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
@@ -440,7 +442,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 <>
                   <h3 className="text-base font-semibold text-heading">No referring domains found</h3>
                   <p className="text-sm text-secondary mt-1">The latest release found no referring domains for {summary!.targetDomain}. Try a newer release or re-run this extract.</p>
-                  {!isEmbed() && (
+                  {!isEmbed() && !publicDemo && (
                     <div className="mt-4 flex items-center gap-3 flex-wrap">
                       <Button asChild type="button" size="sm">
                         <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
@@ -469,7 +471,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
 
     return renderDataView(
       <>
-        {!isEmbed() && (
+        {!isEmbed() && !publicDemo && (
           <>
             <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
               <Download className="h-4 w-4 mr-1.5" aria-hidden />
@@ -478,7 +480,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             <Hint label="About re-running">Re-queries the current release for this project without downloading it again.</Hint>
           </>
         )}
-        {!isEmbed() && (
+        {!isEmbed() && !publicDemo && (
           <Button asChild type="button" variant="outline" size="sm">
             <a href={publicPath('/backlinks')}>Open admin</a>
           </Button>

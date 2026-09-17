@@ -284,3 +284,45 @@ test('viewer research follows the visibility model, offers discovered alternativ
   await waitFor(() => expect(bodies).toHaveLength(3))
   expect(bodies[2]).toMatchObject({ runs: [{ provider: 'claude', model: 'claude-sonnet-new' }] })
 })
+
+test('public demo reads saved research without settings or run controls', async () => {
+  window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
+  const requests: string[] = []
+  const run = {
+    id: 'demo-run', projectId: 'project_demo', status: 'completed', provider: 'openai',
+    requestedModel: 'gpt-5-mini', resolvedModel: 'gpt-5-mini', location: null,
+    totalQueries: 1, completedQueries: 1, failedQueries: 0, error: null,
+    startedAt: '2026-09-01T00:00:00.000Z', finishedAt: '2026-09-01T00:01:00.000Z', createdAt: '2026-09-01T00:00:00.000Z',
+  }
+  const restoreFetch = mockFetch((url) => {
+    const path = new URL(url).pathname
+    requests.push(path)
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [run] })
+    if (path === '/api/v1/projects/demo/research/runs/demo-run') return jsonResponse({ ...run, queries: [{
+      id: 'demo-query', position: 0, query: 'How can a retailer improve local visibility?', status: 'completed',
+      requestedModel: 'gpt-5-mini', resolvedModel: 'gpt-5-mini', servedModel: 'gpt-5-mini', answerText: 'Saved research answer.',
+      groundingSources: [], citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
+      answerMentioned: true, citationState: 'cited', error: null,
+      startedAt: run.startedAt, finishedAt: run.finishedAt, createdAt: run.createdAt,
+    }] })
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
+      country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: {},
+      locations: [], defaultLocation: null, autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+    })
+    if (path === '/api/v1/settings') return jsonResponse({ error: { code: 'FORBIDDEN' } }, 403)
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" onReviewForTracking={() => {}} /></QueryClientProvider>)
+
+  await screen.findByText('Saved research answer.')
+  expect(requests).not.toContain('/api/v1/settings')
+  expect(screen.getByText('This public demo shows saved research results. Running research is unavailable.')).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
+  expect(screen.queryByRole('button', { name: RESEARCH_COPY.runAction })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+})

@@ -132,6 +132,7 @@ export async function showApiKeySelf(format?: string): Promise<void> {
   console.log(`API key "${key.name}" (${key.keyPrefix})`)
   console.log(`  Scopes:    ${key.scopes.join(', ')}`)
   console.log(`  Read-only: ${key.readOnly ? 'yes' : 'no'}`)
+  console.log(`  Operator:  ${key.operator === true ? 'yes' : 'no'}`)
   console.log(`  Reach:     ${keyReach(key)}`)
   console.log(`  Status:    ${keyStatus(key)}`)
 }

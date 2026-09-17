@@ -34,6 +34,8 @@ FROM public.ecr.aws/docker/library/node:22-bookworm-slim
 
 ENV NODE_ENV=production
 ENV CANONRY_CONFIG_DIR=/data/canonry
+# Upgrade notices tell agents to move the image, not `npm install -g` inside it.
+ENV CANONRY_INSTALL_METHOD=docker
 ENV PORT=4100
 
 WORKDIR /app

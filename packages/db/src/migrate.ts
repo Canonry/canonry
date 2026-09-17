@@ -4138,11 +4138,40 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
+    // Liveness gets its own row per project. See siteLivenessState in
+    // schema.ts: a fast "site is up" pass must never overwrite the 6h doctor
+    // state, or it would clear an unrelated outage and send a false recovery.
+    version: 156,
+    name: 'site-liveness-state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_liveness_state (
+        project_id           TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        status               TEXT NOT NULL,
+        code                 TEXT NOT NULL,
+        summary              TEXT NOT NULL,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        checked_at           TEXT NOT NULL,
+        notified_at          TEXT
+      )`,
+    ],
+  },
+  {
+    // A breach opening underneath an existing one never reached anyone: the
+    // trigger keyed on the worst check's code, and a lower-ranked check going
+    // bad does not change it. Existing rows get NULL, which the notifier reads
+    // as "unknown" rather than "changed" so shipping this pages nobody.
+    version: 157,
+    name: 'doctor-health-failing-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN failing_signature TEXT`,
+    ],
+  },
+  {
     // Migration 121 made both the password and the two-role set physical
     // SQLite constraints. A rebuild is the only forward-compatible way to
     // admit Google-only accounts and the Analyst role while retaining account
     // ids for all of the session/OAuth/delegated-key children.
-    version: 156,
+    version: 158,
     name: 'per-instance-user-access-foundation',
     statements: [
       `ALTER TABLE user_sessions ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0`,
@@ -4161,9 +4190,8 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     run: rebuildUsersForPerInstanceAccess,
     disableForeignKeys: true,
   },
-
   {
-    version: 157,
+    version: 159,
     name: 'native-google-identities-and-invitations',
     statements: [
       `CREATE TABLE IF NOT EXISTS user_external_identities (
@@ -4194,7 +4222,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 158,
+    version: 160,
     name: 'google-login-transaction-return-target',
     statements: [
       `ALTER TABLE google_login_transactions ADD COLUMN return_to TEXT`,

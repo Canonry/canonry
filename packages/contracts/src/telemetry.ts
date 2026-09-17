@@ -239,3 +239,96 @@ export function isGhostTelemetryEvent(
     : ''
   return GHOST_TELEMETRY_TEST_LOCATIONS.has(location)
 }
+
+/**
+ * The interface a Canonry request or event came through. Canonry is agent
+ * first, so MCP, the CLI, the built-in Aero agent, raw API callers, and the
+ * dashboard are separate funnels that analysis must never pool.
+ */
+export const usageSurfaceSchema = z.enum(['cli', 'mcp-stdio', 'mcp-http', 'aero', 'api', 'dashboard'])
+export type UsageSurface = z.infer<typeof usageSurfaceSchema>
+
+/**
+ * Request headers a first-party client sets so the server can attribute usage.
+ * They are LABELS for telemetry only: caller-controlled, so they are validated
+ * to enums and slugs and never participate in identity, scope, or authority.
+ */
+export const USAGE_TELEMETRY_HEADERS = {
+  surface: 'x-canonry-surface',
+  agent: 'x-canonry-agent',
+  mcpClient: 'x-canonry-mcp-client',
+  mcpTool: 'x-canonry-mcp-tool',
+  mcpCall: 'x-canonry-mcp-call',
+} as const
+
+/** The agent value when no coding agent was detected. Distinct from an absent field, which means an older client. */
+export const AGENT_NONE = 'none'
+
+const AGENT_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/
+
+/**
+ * Reduce a free-form agent or MCP client name to a bounded, low-cardinality
+ * slug: lowercase, runs of other characters collapsed to `-`, at most 40
+ * characters. Returns null when nothing usable remains.
+ */
+export function normalizeAgentSlug(value: string | null | undefined): string | null {
+  if (!value) return null
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .slice(0, 40)
+    .replace(/^[-._]+|[-._]+$/g, '')
+  return AGENT_SLUG_PATTERN.test(slug) ? slug : null
+}
+
+const AI_AGENT_ALIASES: Readonly<Record<string, string>> = {
+  'claude-code': 'claude',
+  'github-copilot-cli': 'github-copilot',
+}
+
+/**
+ * `AI_AGENT` is a convention a harness sets to name itself. Some embed a
+ * version (Claude Code sends `claude-code_2-1-270_agent`), which would make
+ * every release a new agent, so the version and the `_agent` suffix are
+ * dropped before the name is used.
+ */
+function agentFromAiAgentVariable(value: string): string | null {
+  const name = value.trim().toLowerCase().replace(/_agent$/, '').replace(/_\d[\d._-]*$/, '')
+  const slug = normalizeAgentSlug(name)
+  return slug ? (AI_AGENT_ALIASES[slug] ?? slug) : null
+}
+
+/**
+ * Name the coding agent a process runs under, from environment variables the
+ * agents set for the commands they spawn.
+ *
+ * The table and its precedence mirror `@vercel/detect-agent` 1.2.5 (MIT), so
+ * Canonry reports the same names other agent-aware tools do. Two deliberate
+ * differences: no filesystem probe (this module stays pure, so the Devin check
+ * is omitted), and `CANONRY_AGENT` is honoured first as an explicit label for
+ * a harness the table does not know.
+ *
+ * `CURSOR_TRACE_ID` is also present in Cursor's integrated terminal when a
+ * person types a command, so `cursor` alone does not prove an agent ran it;
+ * read it together with the event's `interactive` flag.
+ */
+export function detectAgentRuntime(env: Readonly<Record<string, string | undefined>>): string {
+  const explicit = normalizeAgentSlug(env.CANONRY_AGENT)
+  if (explicit) return explicit
+  if (env.AI_AGENT?.trim()) {
+    const named = agentFromAiAgentVariable(env.AI_AGENT)
+    if (named) return named
+  }
+  if (env.CURSOR_TRACE_ID) return 'cursor'
+  if (env.CURSOR_AGENT || env.CURSOR_EXTENSION_HOST_ROLE === 'agent-exec') return 'cursor-cli'
+  if (env.GEMINI_CLI) return 'gemini'
+  if (env.CODEX_SANDBOX || env.CODEX_CI || env.CODEX_THREAD_ID) return 'codex'
+  if (env.ANTIGRAVITY_AGENT) return 'antigravity'
+  if (env.AUGMENT_AGENT) return 'augment-cli'
+  if (env.OPENCODE_CLIENT) return 'opencode'
+  if (env.CLAUDECODE || env.CLAUDE_CODE) return env.CLAUDE_CODE_IS_COWORK ? 'cowork' : 'claude'
+  if (env.REPL_ID) return 'replit'
+  if (env.COPILOT_MODEL || env.COPILOT_ALLOW_ALL || env.COPILOT_GITHUB_TOKEN) return 'github-copilot'
+  return AGENT_NONE
+}

@@ -21,6 +21,8 @@ vi.mock('../src/config.js', async importOriginal => ({
 }))
 const { showSettings, setProvider } = await import('../src/commands/settings.js')
 const { telemetryCommand } = await import('../src/commands/telemetry.js')
+const { showOperationalLogs } = await import('../src/commands/logs.js')
+const { showApiKeySelf } = await import('../src/commands/keys.js')
 
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -51,6 +53,7 @@ async function harness() {
   const options: McpHttpOptions = { db, selfApiUrl: '' }
   app.register(apiRoutes, {
     db,
+    operatorApiKeyIds: ['root', 'settings', 'logs'],
     providerSummary: providers,
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-old', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
     googleSettingsSummary: { configured: true },
@@ -79,6 +82,21 @@ async function harness() {
 }
 
 describe('agent operations cross-surface smoke', () => {
+  it('denies internal diagnostics in the actual CLI while exposing host-derived identity', async () => {
+    const { origin } = await harness()
+    const out = vi.spyOn(console, 'log').mockImplementation(() => {})
+    state.client = new ApiClient(origin, 'cnry_smoke_unrelated', { skipProbe: true })
+    await expect(showOperationalLogs({}, 'json')).rejects.toMatchObject({ details: { httpStatus: 403 } })
+    await expect(telemetryCommand('status', 'json', 'server')).rejects.toMatchObject({ details: { httpStatus: 403 } })
+    expect(out).not.toHaveBeenCalled()
+    await showApiKeySelf('json')
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toMatchObject({ operator: false })
+    state.client = new ApiClient(origin, 'cnry_smoke_logs', { skipProbe: true })
+    await showApiKeySelf('json')
+    expect(JSON.parse(out.mock.calls.at(-1)![0])).toMatchObject({ operator: true, readOnly: true })
+    await showOperationalLogs({}, 'json')
+    expect(JSON.parse(out.mock.calls.at(-1)![0]).entries).toHaveLength(1)
+  })
   it('reads remote settings through CLI and edits a provider without transporting its secret', async () => {
     const { api, connect, providerUpdate } = await harness()
     const out = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -130,9 +148,9 @@ describe('agent operations cross-surface smoke', () => {
     const { connect } = await harness()
     for (const name of ['read', 'research', 'scopedLogs']) {
       const mcp = await connect(name)
+      expect((await mcp.listTools()).tools.some(tool => tool.name === 'canonry_logs_list')).toBe(false)
       const result = await mcp.callTool({ name: 'canonry_logs_list', arguments: { projectId: 'project-demo' } })
       expect(result.isError, name).toBe(true)
-      expect(result.structuredContent).toMatchObject({ error: { details: { httpStatus: 403 } } })
     }
     const mcp = await connect('logs')
     const result = await mcp.callTool({ name: 'canonry_logs_list', arguments: {} })
@@ -164,8 +182,8 @@ describe('agent operations cross-surface smoke', () => {
     const secret = await mcp.callTool({ name: 'canonry_provider_settings_update', arguments: { provider: 'openai', apiKey: 'must-not-be-accepted' } })
     expect(secret.isError).toBe(true)
     const unrelated = await connect('unrelated')
+    expect((await unrelated.listTools()).tools.some(tool => tool.name === 'canonry_telemetry_update')).toBe(false)
     const denied = await unrelated.callTool({ name: 'canonry_telemetry_update', arguments: { enabled: false } })
     expect(denied.isError).toBe(true)
-    expect(denied.structuredContent).toMatchObject({ error: { details: { httpStatus: 403 } } })
   })
 })

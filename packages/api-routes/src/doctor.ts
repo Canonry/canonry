@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
-import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
+import type { DoctorContext, DoctorUpdateStatus, TrafficSourceValidator } from './doctor/types.js'
 import type { AdsCredentialStore } from './ads.js'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
@@ -39,6 +39,8 @@ export interface DoctorRoutesOptions {
   bundledSkills?: BundledSkillSnapshot[]
   /** Live user-global native Canonry plugin state, when available on a local host. */
   getAgentPluginState?: () => AgentPluginState
+  /** Running vs latest published version. See `DoctorContext.getUpdateStatus`. */
+  getUpdateStatus?: () => DoctorUpdateStatus
   /** Synchronous, secret-free metadata resolver. It must not call Google APIs. */
   getGoogleMarketingDoctorInput?: GoogleMarketingDoctorInputResolver
 }
@@ -82,6 +84,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
+      getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
@@ -116,6 +119,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
+      getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })

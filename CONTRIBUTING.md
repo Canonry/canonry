@@ -1,6 +1,8 @@
 # Contributing to Canonry
 
-Thanks for your interest in contributing! Canonry is FSL-1.1-ALv2 licensed and welcomes contributions.
+Thanks for your interest in contributing! Canonry is [MIT licensed](./LICENSE) and welcomes contributions.
+
+By submitting a contribution, you agree to license it under the project's MIT license. Submit only work you have the right to contribute, and preserve any third-party copyright and license notices.
 
 ## Setup
 

@@ -10,7 +10,7 @@ The publishable npm package (`@canonry/canonry`, plus compatibility publish as `
 |------|------|
 | `src/cli.ts` | CLI entry point — shebang, telemetry, command dispatch |
 | `src/logger.ts` | Compatibility exports of the shared runtime logger in api-routes. Application and Fastify logging use the same pure redaction policy before stdout/stderr and durable capture. Do not add a second sanitizer or raw request logger. |
-| `src/commands/logs.ts` | `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires instance-wide `logs.read`, not project scope. |
+| `src/commands/logs.ts` | `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires host-approved operator authority plus instance-wide `logs.read`; customer admin roles and project scope are insufficient. |
 | `src/telemetry.ts` | `trackEvent`, source attribution (incl. the validated `CANONRY_TELEMETRY_SOURCE` harness override), per-process `sessionId`, `cli.upgraded` detection |
 | `src/setup-nudge.ts` | The stalled-setup stderr line: human-mode + TTY only, lazy state read, exempt roots |
 | `src/activation-notice.ts` | Once-ever first-activation notice; marker written before printing, TTY-gated |
@@ -195,7 +195,7 @@ Conventions when adding `jsonl` to a command:
 
 The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
 
-The CLI also keeps interactive chrome (the "new version available" banner) off a non-interactive stderr — it's gated on `process.stderr.isTTY`, so piped/captured output stays clean without `2>/dev/null`. Errors still go to stderr.
+The update notice is the one piece of chrome that reaches agents as well as people, because an agent is usually the one running an outdated install. `cli.ts` prints it synchronously from the on-disk cache (`readCachedUpdateAvailable`) BEFORE dispatch, so it is always the first stderr line and never interleaves with output; stdout is untouched, and the registry refresh only rewrites the cache in the background. `formatUpdateNotice` picks the shape: the human banner on a terminal, one plain `[canonry] UPDATE_AVAILABLE: ...` line when stderr is captured, and one compact `{"notice":{"code":"UPDATE_AVAILABLE",...}}` line for `--format json|jsonl` (so `2>&1` still yields a valid JSON stream). The upgrade command follows `detectInstallMethod` (`CANONRY_INSTALL_METHOD`, which the published image sets to `docker`; then Homebrew `Cellar/canonry/`; then a container marker; else npm) and comes from `upgradeCommandFor` in contracts, with `upgradeCaveatFor` adding the Homebrew-lags-npm note, and the registry value must pass `isStrictSemver` (contracts) before it is cached or printed, because agents act on this text. Skipped for help and `telemetry`; silenced by the update-check opt-outs. The server-side counterpart is the `canonry.version.current` doctor check (`getServerUpdateStatus`). MCP-only agents never run the CLI, so `canonry-mcp` fetches the connected server's `/health` notice at startup (`createUpdateNoticeSource` in `src/mcp/update-notice.ts`: honours the env opt-outs in the adapter's own environment and refreshes hourly; `ApiClient.getServerUpdateAvailable` reads `/health` and `parseServerUpdateAvailable` keeps only the strict-semver versions and the install-method enum, rebuilding the command and URL from contracts so no server text reaches the initialize instructions, which clients load into the system prompt) and hosted MCP reads the server cache (`McpHttpOptions.getUpdateAvailable`); both append it to the initialize instructions and add `updateAvailable` to every `canonry_help` result. Other interactive chrome (skills auto-sync notice, setup nudge) stays gated on `process.stderr.isTTY`. Errors still go to stderr.
 
 ### Run completion pipeline
 
@@ -391,7 +391,13 @@ Tool surface has two layers:
   These stay Aero-only because they read on-disk skill files, not API state.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
-  on-demand via slug.
+  on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
+  Advanced interpretation. `agent-operations` is generated from
+  `docs/agent-operations/v1.md` by `pnpm guide:sync` and ships through the same
+  skill-doc reader; built-in Aero does not expose external MCP help/load tools.
+  The Aero-only framing is a preface added by the generator, not guide text, so
+  external hosts reading the guide, `skills/canonry/SKILL.md`, or the MCP
+  resource never see Aero internals.
 - **Aero tool profiles** (`src/agent/tools.ts`) — the default profile exposes
   the full local MCP-derived tool surface for the requested scope. The
   `ads-operator` profile narrows local state tools to an explicit typed
@@ -472,7 +478,11 @@ System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 the task instructions. Both files ship in `assets/agent-workspace/skills/aero/`.
 The `<memory>` hydrate block is appended at session-build time by
 `SessionRegistry.buildHydratedSystemPrompt` — the DB row keeps the raw
-(unhydrated) prompt so every new session sees the latest notes.
+(unhydrated) installed prompt snapshot. Cold hydration and idle
+`acquireForTurn` adopt the current bundled skill plus configured prompt
+appends without clearing the transcript, queued follow-ups, or durable notes.
+Busy turns keep their existing prompt. Skill updates therefore do not require
+operators to delete their conversations.
 
 ### Disabling Aero
 
@@ -535,7 +545,7 @@ top-level envelope:
 
 | Event | Properties | Notes |
 |-------|-----------|-------|
-| `cli.command` | `{ command, setup_state? }` | Fires on every CLI invocation except `telemetry` and `--help`. `setup_state: { provider_count, has_keywords, project_count, is_first_run }` lets the receiver cohort by configured / not-configured. |
+| `cli.command` | `{ command, setup_state?, agent, interactive }` | Fires on every CLI invocation except `telemetry` and `--help`. `setup_state: { provider_count, has_keywords, project_count, is_first_run }` lets the receiver cohort by configured / not-configured. `agent` and `interactive` (`cliRuntimeContext`, `src/runtime-context.ts`) also ride `cli.command.finished`, `cli.init`, and `serve.started`: `agent` is the coding agent from `detectAgentRuntime` in contracts (`claude`, `codex`, `cursor`, `gemini`, ..., or `none`; `CANONRY_AGENT` overrides), `interactive` is true when stdin and stdout are both terminals. An absent `agent` means a client older than the field. |
 | `cli.command.finished` | `{ command, success, duration_bucket, setup_state? }` | Terminal command outcome. Command is resolved from the registered command catalog; raw argv and exact duration are never sent. Failures use top-level stable `errorCode`. |
 | `cli.init` | `{ providerCount, providers, setup_state?, googleConfigured, agentConfigured, setupState, skillsInstalled }` | Fires after successful `canonry init`; `setup_state` is the post-init snapshot. `setupState` is retained temporarily for report compatibility. |
 | `cli.upgraded` | `{ fromVersion, toVersion }` | Fires once when the on-disk `lastSeenVersion` differs from the running build. Suppressed on a fresh install (no prior version recorded). |
@@ -544,8 +554,15 @@ top-level envelope:
 | `onboarding.started` | `{ flowVersion, onboardingSessionId, step, resumed }` | Dashboard setup entry/resume. Accepted through the strict `/api/v1/telemetry/onboarding` contract; the browser-generated top-level `eventId` is preserved across one delivery retry. |
 | `onboarding.step_completed` | `{ flowVersion, onboardingSessionId, step, method, countBucket? }` | Durable setup milestone; raw domains, queries, and keys are forbidden by the contract. |
 | `onboarding.blocked` | `{ flowVersion, onboardingSessionId, step, action, reasonCode }` | Stable recovery point and low-cardinality blocker. |
-| `run.requested` | `{ flowVersion, onboardingSessionId, origin, result, providerCountBucket, queryCountBucket, reasonCode? }` | Setup launch attempt, including synchronous rejection. |
-| `activation.completed` | `{ flowVersion, status, providerCountBucket, queryCountBucket, snapshotCountBucket }` | Emitted once for the first non-probe answer-visibility run that persists at least one snapshot. |
+| `run.requested` | `{ flowVersion, onboardingSessionId, origin, result, kind?, providerCountBucket, queryCountBucket, reasonCode? }` | Setup launch attempt, including synchronous rejection. `kind` is `answer_visibility` or `site_health`; absent on older clients means `answer_visibility`. |
+| `activation.completed` | `{ flowVersion, kind, status, providerCountBucket?, queryCountBucket?, snapshotCountBucket?, pagesAuditedBucket? }` | Once per project per `kind`. `answer_visibility` (with the provider/query/snapshot buckets): the first non-probe answer-visibility run that persists at least one snapshot. `site_health` (with `pagesAuditedBucket`): the first site audit that scores at least one page. Events without `kind` predate the field and are `answer_visibility`. |
+| `site_audit.completed` | `{ status, durationMs, trigger?, domainHash?, complete?, termination?, pagesDiscovered?, pagesFetched?, pagesAudited?, pagesErrored?, aggregateScore?, pageBudget?, checkDeadLinks?, deadLinksFound? }` | Every terminal Technical AEO / Site Health crawl (`executeSiteAudit`), manual or scheduled. Crawl counts are present only for `completed` / `partial`; `aggregateScore` only when a page was audited; `deadLinksFound` only when the run checked dead links. Failures set top-level `errorCode` `UNKNOWN`, cancellations `RUN_CANCELLED`. A crawl interrupted by a server restart is reported at the next boot by `JobRunner.recoverStaleRuns` as `failed` with `errorCode` `SERVER_RESTARTED` (no crawl counts; `durationMs` spans the downtime). Composed by `buildSiteAuditCompletedProps` in `src/run-telemetry.ts`. |
+| `traffic.synced` | `{ status, sourceType, sourceId, pulledEvents, selfTrafficExcluded, crawlerHits, aiReferralHits, durationMs }` | Every server-side traffic sync. Failures set top-level `errorCode`. |
+| `api.request` | `{ surface, agent, method, route, statusClass, durationBucket, mcpClient?, mcpTool?, mcpCallId?, droppedBefore? }` | Server-side, one per API request from an AGENT SURFACE: `mcp-stdio`, `mcp-http`, `aero`, or a raw `api` caller. CLI requests (already `cli.command`) and dashboard requests (polling) are skipped, as are health, OpenAPI, and telemetry routes. `route` is the template, never a URL. `surface` comes from the `x-canonry-surface` label a first-party `ApiClient` sends (`ApiClientOptions.surface`), else the user agent. `agent` is the client's env-detected agent, falling back to the MCP client name. Clients the server builds for itself (hosted MCP, Aero) send no env-detected agent, because whichever agent launched `canonry serve` is not their caller. Scheduler callbacks (data refresh, traffic sync, doctor, backlinks) use a separate unlabelled `schedulerClient`, so automation is never reported as Aero traffic. `mcpTool` / `mcpCallId` come from `runWithUsageTags`, which the MCP server and Aero wrap around every tool call; group by `mcpCallId` to count tool calls. Capped per process by a token bucket (burst 20, one token per 10s, so at most ~360/hour); suppressed requests are reported as `droppedBefore` on the next event. The cap is sized to the canonry.ai collector's per-IP limit (100/minute, 1,000/hour), past which it drops every event from that IP; do not raise one without the other. Built by `createApiUsageTelemetry` (`src/usage-telemetry.ts`) from the `onRequestCompleted` api-routes hook. The labels are caller-controlled, validated to enums/slugs, and never identity. |
+| `mcp.session.started` | `{ surface, agent, mcpClient? }` | Once per MCP connection (keyed by the client's `x-canonry-actor-session` correlation value), on its first tool call, which is the first request that carries the MCP client name. |
+| `telemetry.disabled` | `{ method }` | The last event an install sends, so the opt-out rate is measurable. Whether to send it is decided while telemetry is still on; it is sent only after the opt-out is written, so an opt-out that could not be persisted (read-only config) is never announced. `method` is `cli` (`canonry telemetry disable`) or `api` (`PUT /telemetry`: dashboard checkbox, settings, MCP, or `--target server`). Not sent when telemetry is already effectively off, including env overrides. All preference writes go through `setTelemetryPreference` in `src/telemetry.ts`; the CLI awaits delivery so process exit cannot drop it. |
+
+A new event name must also be added to `ALLOWED_EVENTS` in the canonry.ai collector (`lib/telemetry/validation.ts`) before it ships; the collector rejects unknown names with a 400, and `trackEvent` never surfaces that failure. Property values must be string, number, boolean, string array, or a flat object: `null` rejects the whole event.
 
 ### Adding a new event
 
@@ -567,6 +584,10 @@ top-level envelope:
 `--confirm` deletes those visibility/research results after the operator backs them up.
 The MCP equivalent is `canonry_results_clear`; exclude it from the in-product Aero agent.
 Site Health, backlinks, configuration, audit records, and usage accounting remain intact.
+
+### Public sample server
+
+`canonry demo` starts a separate in-memory, synthetic, view-only runtime. It must never use the normal server factory, personal config/database paths, provider callbacks, or background workers. The exact GET/HEAD allowlist in `src/demo/access.ts` is intentional; new route registrations are denied until explicitly audited. Startup has no MCP parity because it controls a host listener. See `docs/public-demo.md`.
 
 ## Native Google login and people administration
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import {
@@ -6,8 +7,9 @@ import {
   ADS_WRITE_SCOPE,
   isReadOnlyKey,
   restrictedWriteScopes,
+  upgradeCaveatFor,
 } from '@ainyc/canonry-contracts'
-import { createApiClient, type ApiClient } from '../client.js'
+import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
 import { errorToolResult, jsonToolResult, withToolErrors } from './results.js'
@@ -23,6 +25,8 @@ export interface CanonryMcpServerOptions {
   scope?: CanonryMcpScope
   /** Actual credential grants, separate from an explicit read-only endpoint/flag. */
   credentialScopes?: readonly string[]
+  /** Host-derived authority from auth or /keys/self. Missing means denied. */
+  operator?: boolean
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -36,6 +40,13 @@ export interface CanonryMcpServerOptions {
    * Undefined means every tier, which is the stdio default and unchanged.
    */
   tiers?: readonly CanonryMcpTier[]
+  /**
+   * Newer-release notice from the connected server. Read once when the server
+   * is built (appended to the initialize instructions) and again on every
+   * `canonry_help`, so an agent that never runs the CLI still learns about it.
+   * Must not block; a throwing getter is treated as no notice.
+   */
+  updateAvailable?: () => ServerUpdateAvailable | null
 }
 
 export interface CreateCanonryMcpServerResult {
@@ -57,21 +68,51 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 /** Automatic entry point, generated from the public guide; skills are optional. */
 const SERVER_INSTRUCTIONS = OPERATIONS_GUIDE.initialize
 
+/**
+ * The initialize-time line for a newer release. Addressed to the agent but
+ * routed to the operator: upgrading changes the operator's machine, and
+ * guidance never grants authority.
+ */
+export function updateNoticeInstructions(update: ServerUpdateAvailable): string {
+  const upgrade = update.installMethod === 'docker'
+    ? update.upgradeCommand
+    : `${update.upgradeCommand}, then restart the Canonry server`
+  const caveat = upgradeCaveatFor(update.installMethod)
+  return (
+    `Update available (UPDATE_AVAILABLE): canonry ${update.latest} is published; the connected Canonry server runs ${update.current}. ` +
+    `Tell the operator. Upgrade: ${upgrade}. ${caveat ? `${caveat} ` : ''}Only upgrade with the operator's approval.`
+  )
+}
+
+function updateNoticePayload(update: ServerUpdateAvailable) {
+  const caveat = upgradeCaveatFor(update.installMethod)
+  return { code: 'UPDATE_AVAILABLE', ...update, ...(caveat ? { note: caveat } : {}) }
+}
+
+function readUpdateAvailable(getter: CanonryMcpServerOptions['updateAvailable']): ServerUpdateAvailable | null {
+  try {
+    return getter?.() ?? null
+  } catch {
+    return null
+  }
+}
+
 export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
-  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp' }))
+  const clientFactory = options.clientFactory ?? (() => createApiClient({ clientName: 'canonry-mcp', surface: 'mcp-stdio', actorSession: randomUUID() }))
   const client = clientFactory()
   const scope = options.scope ?? 'all'
+  const update = readUpdateAvailable(options.updateAvailable)
   const server = new McpServer({
     name: 'canonry',
     version: PACKAGE_VERSION,
   }, {
-    instructions: SERVER_INSTRUCTIONS,
+    instructions: update ? `${SERVER_INSTRUCTIONS.trimEnd()}\n\n${updateNoticeInstructions(update)}` : SERVER_INSTRUCTIONS,
   })
 
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -85,7 +126,13 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
       },
       async (input: unknown) => withToolErrors(async () => {
         const parsed = tool.inputSchema.parse(input ?? {})
-        return handler(client, parsed)
+        // Label every API request this tool call makes, so the server can
+        // attribute it to the tool and to the MCP client that asked for it.
+        return runWithUsageTags(client, {
+          mcpTool: tool.name,
+          mcpCall: randomUUID(),
+          mcpClient: server.server.getClientVersion()?.name,
+        }, () => handler(client, parsed))
       }),
     )
     entries.push({ tool, registered })
@@ -107,7 +154,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   const mode: GuideMode = options.tiers !== undefined
     ? 'hosted-fixed-catalog'
     : eager ? 'stdio-fixed-catalog' : 'stdio-progressive'
-  registerMetaTools(server, catalog, { includeToolkitLoader: options.tiers === undefined, mode })
+  registerMetaTools(server, catalog, { includeToolkitLoader: options.tiers === undefined, mode, updateAvailable: options.updateAvailable })
   server.registerResource('canonry-agent-operations-v1', OPERATIONS_GUIDE.resourceUri, {
     title: 'Canonry Operations Guide v1',
     description: 'Optional public operations guidance. Use canonry_help when resources are unavailable.',
@@ -129,7 +176,7 @@ const helpInputSchema = z.object({
 function registerMetaTools(
   server: McpServer,
   catalog: DynamicToolCatalog,
-  opts: { includeToolkitLoader: boolean; mode: GuideMode },
+  opts: { includeToolkitLoader: boolean; mode: GuideMode; updateAvailable?: CanonryMcpServerOptions['updateAvailable'] },
 ): void {
   server.registerTool(
     'canonry_help',
@@ -142,7 +189,11 @@ function registerMetaTools(
     async (input: unknown) => {
       try {
         const parsed = helpInputSchema.parse(input ?? {})
-        const result = operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog)
+        const update = readUpdateAvailable(opts.updateAvailable)
+        const result = {
+          ...operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog),
+          ...(update ? { updateAvailable: updateNoticePayload(update) } : {}),
+        }
         return { ...jsonToolResult(result), structuredContent: result }
       } catch (error) {
         return errorToolResult(error)
@@ -170,12 +221,14 @@ export function getCanonryMcpTools(
   scope: CanonryMcpScope = 'all',
   tiers?: readonly CanonryMcpTier[],
   credentialScopes?: readonly string[],
+  operator = false,
 ) {
   const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
   const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
+  const authorized = canonryMcpTools.filter(tool => !tool.requiresOperator || operator)
   const byScope = readOnly
-    ? canonryMcpTools.filter(tool => tool.access === 'read')
-    : canonryMcpTools.filter(tool => {
+    ? authorized.filter(tool => tool.access === 'read')
+    : authorized.filter(tool => {
       if (!restricted || tool.access === 'read') return true
       if (tool.requiredScope && restricted.includes(tool.requiredScope)) return true
       // Preserve existing Ads catalogs only for an actual Ads grant; another

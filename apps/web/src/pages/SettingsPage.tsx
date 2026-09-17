@@ -356,7 +356,7 @@ function SettingsPageBody() {
                 )}
               </div>
               <ToneBadge tone={toneFromService(healthSnapshot.workerStatus)} title={serviceStatusTooltip(healthSnapshot.workerStatus)}>
-                {healthSnapshot.workerStatus.state === 'ok' ? 'Healthy' : 'Attention'}
+                {healthSnapshot.workerStatus.state === 'ok' ? 'Healthy' : healthSnapshot.workerStatus.state === 'disabled' ? 'Disabled' : 'Attention'}
               </ToneBadge>
             </div>
           </div>

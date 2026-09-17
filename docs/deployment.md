@@ -76,56 +76,6 @@ For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 Use `dashboard.managedRunKinds` for a deployment where your team runs work for
 clients:
 
-<<<<<<< HEAD
-Simple and Advanced Measurement dashboards replace sweep launch controls with
-the enabled answer-visibility schedule's actual `nextRunAt`, displayed in UTC.
-Without a usable next-run time, they show “Sweeps are run by your Canonry team”.
-Site Health scans and other run kinds keep their controls.
-Discovery remains available to clients with write access. Research uses
-provider quota separately from scheduled visibility sweeps; viewer access is
-controlled independently below. Read-only API keys remain unable to start it.
-Running sweeps, baseline results, and failure details remain visible. Project
-Settings shows the schedule without controls to change it. Dashboard Aero uses
-read-only tools and disables its sweep shortcut and write-scope toggle.
-
-### Viewer research
-
-An operator can let signed-in viewer accounts run isolated research queries:
-
-```yaml
-research:
-  allowViewers: true
-  viewerDailyRunLimit: 20
-```
-
-`CANONRY_RESEARCH_ALLOW_VIEWERS` and
-`CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT` override these values for container
-deployments. The opt-in defaults to false; the daily per-project cap defaults
-to 20 and resets at 00:00 UTC.
-
-This grant covers only `POST /projects/:name/research/runs`. It does not grant
-access to provider settings, tracked-query changes, discovery, or visibility
-sweeps. Administrators and wildcard API keys keep their existing access.
-Explicit `research.run` API keys can run research independently of the viewer
-opt-in; `read` alone and unrelated scopes cannot. Viewer OAuth clients must
-explicitly obtain `research.run` consent, bounded by this deployment opt-in.
-Existing read-only OAuth grants do not acquire research permission automatically.
-
-The daily cap is shared by all limited research callers for a project across
-browser sessions, API, CLI, and MCP. Reconnecting or using another key does not
-reset it; replaying an identical idempotent request does not consume another
-batch. The configuration names remain unchanged for compatibility. Each new
-run records the initiating account or API key and whether it consumed the
-limited budget. MCP retains the original account, not an ephemeral session
-identity. See [MCP research access](mcp.md#research-access) for setup.
-
-This hides sweep controls for **all dashboard roles, including admins**.
-Operators retain `canonry run <project>` against the managed instance as the
-manual lever. CLI, API, MCP, scheduling, and authorization are unchanged.
-Viewer sessions and read-only keys still cannot start sweeps, regardless of
-this presentation flag. Unset or false preserves the existing dashboard and
-injects no additional client config.
-=======
 ```yaml
 dashboard:
   managedRunKinds:
@@ -176,7 +126,37 @@ server authorization are unchanged. Viewer sessions and read-only keys cannot
 start scans or sweeps regardless of these settings. With neither setting, the
 injected client config is byte-identical; `managedRunKinds` is injected only
 when non-empty.
->>>>>>> f51e193d (feat: configure managed run kinds and viewer scans)
+
+### Viewer research
+
+An operator can let signed-in viewer accounts run isolated research queries:
+
+```yaml
+research:
+  allowViewers: true
+  viewerDailyRunLimit: 20
+```
+
+`CANONRY_RESEARCH_ALLOW_VIEWERS` and
+`CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT` override these values for container
+deployments. The opt-in defaults to false; the daily per-project cap defaults
+to 20 and resets at 00:00 UTC.
+
+This grant covers only `POST /projects/:name/research/runs`. It does not grant
+access to provider settings, tracked-query changes, discovery, or visibility
+sweeps. Administrators and wildcard API keys keep their existing access.
+Explicit `research.run` API keys can run research independently of the viewer
+opt-in; `read` alone and unrelated scopes cannot. Viewer OAuth clients must
+explicitly obtain `research.run` consent, bounded by this deployment opt-in.
+Existing read-only OAuth grants do not acquire research permission automatically.
+
+The daily cap is shared by all limited research callers for a project across
+browser sessions, API, CLI, and MCP. Reconnecting or using another key does not
+reset it; replaying an identical idempotent request does not consume another
+batch. The configuration names remain unchanged for compatibility. Each new
+run records the initiating account or API key and whether it consumed the
+limited budget. MCP retains the original account, not an ephemeral session
+identity. See [MCP research access](mcp.md#research-access) for setup.
 
 ### Embed fonts
 
@@ -365,6 +345,8 @@ sudo systemctl enable --now canonry
 ```dockerfile
 FROM node:22-alpine
 RUN npm install -g @canonry/canonry
+# Tells update notices to upgrade by rebuilding this image.
+ENV CANONRY_INSTALL_METHOD=docker
 EXPOSE 4100
 CMD ["canonry", "serve", "--host", "0.0.0.0"]
 ```

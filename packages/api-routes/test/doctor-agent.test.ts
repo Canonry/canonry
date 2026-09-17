@@ -253,8 +253,9 @@ describe('agent.skills.current', () => {
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent.skills.plugin-version-mismatch')
-    expect(result.summary).toContain('Claude Code v9.9.8')
-    expect(result.summary).toContain('Canonry v9.9.9')
+    expect(result.summary).toContain('the Canonry plugin for Claude Code (v9.9.8)')
+    expect(result.summary).toContain('this Canonry v9.9.9')
+    expect(result.remediation).toContain('in Claude Code')
   })
 
   it('warns for only the stale client when another verified client is current', async () => {
@@ -268,7 +269,7 @@ describe('agent.skills.current', () => {
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent.skills.plugin-version-mismatch')
-    expect(result.summary).toContain('Codex v9.9.8')
+    expect(result.summary).toContain('the Canonry plugin for Codex (v9.9.8)')
     expect(result.summary).not.toContain('Claude Code')
   })
 

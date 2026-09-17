@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema, resolveGoogleSignInConfig } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveGoogleSignInConfig, resolveOperatorApiKeyIds } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 
 const _require = createRequire(import.meta.url);
@@ -14,7 +14,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -76,7 +76,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentEnabled } from "./agent-config.js";
-import { saveConfigPatch, loadConfig, getConfigPath } from "./config.js";
+import { saveConfigPatch, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -140,9 +140,11 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  setTelemetryPreference,
   trackEvent,
 } from "./telemetry.js";
-import { checkLatestVersionForServer } from "./update-check.js";
+import { createApiUsageTelemetry } from "./usage-telemetry.js";
+import { checkLatestVersionForServer, getServerUpdateStatus } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
 import { maybeShowActivationNotice } from './activation-notice.js'
@@ -230,6 +232,7 @@ import {
 import { ProviderRegistry } from "./provider-registry.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
+import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -849,6 +852,7 @@ export async function createServer(opts: {
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
+  const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env);
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
   const operationalLogs = new OperationalLogStore(opts.db, {
     retention: opts.config.database === ':memory:' ? 'process' : 'durable',
@@ -962,13 +966,21 @@ export async function createServer(opts: {
   // server don't fail at construction time.
   const aeroClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: "aero",
+  });
+  // The scheduler callbacks below (data-refresh, traffic, doctor, backlinks)
+  // are server automation, not Aero, so they get their own client without the
+  // `aero` usage label. Otherwise every scheduled sync would be reported as
+  // `api.request` agent traffic and spend the per-process telemetry budget
+  // that real agent requests need. Unlabelled, usage telemetry skips them like
+  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
+    skipProbe: true,
   });
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
-  // the data/intelligence/notification pipeline is unaffected. `aeroClient`
-  // itself stays: the scheduler callbacks below reuse it (data-refresh,
-  // traffic, backlinks), which is unrelated to Aero.
+  // the data/intelligence/notification pipeline is unaffected.
   const agentEnabled = resolveAgentEnabled(process.env, opts.config);
   const sessionRegistry = agentEnabled
     ? new SessionRegistry({
@@ -1656,6 +1668,8 @@ export async function createServer(opts: {
       )),
   };
 
+  let stopSiteLiveness: (() => void) | null = null;
+
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
       jobRunner
@@ -1670,10 +1684,10 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
-      // Reuse the same in-process API client Aero uses. The traffic-sync
+      // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      aeroClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
         app.log.error(
           {
             projectName,
@@ -1699,7 +1713,7 @@ export async function createServer(opts: {
       // degraded instrument kept emitting `run.completed` and looked healthy.
       void (async () => {
         try {
-          const report = await aeroClient.runDoctor({ project: projectName });
+          const report = await schedulerClient.runDoctor({ project: projectName });
           const project = opts.db
             .select()
             .from(projects)
@@ -1726,7 +1740,7 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(aeroClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName);
     },
     onBacklinksSyncRequested: (projectName) => {
       // Re-probe Common Crawl for the newest rolling window. The release sync is
@@ -1765,7 +1779,7 @@ export async function createServer(opts: {
           );
           return;
         }
-        aeroClient
+        schedulerClient
           .backlinksTriggerSync(probed.release)
           .catch((err: unknown) => {
             app.log.error(
@@ -2527,6 +2541,9 @@ export async function createServer(opts: {
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
+    // Agent-surface usage (MCP, Aero, raw API). CLI and dashboard requests are
+    // measured elsewhere and skipped inside.
+    onRequestCompleted: createApiUsageTelemetry(),
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
@@ -2579,6 +2596,8 @@ export async function createServer(opts: {
       }
     })(),
     getAgentPluginState: opts.getAgentPluginState,
+    // Powers the `canonry.version.current` doctor check. Non-blocking.
+    getUpdateStatus: () => getServerUpdateStatus(),
     // Local canonry serve runs on the operator's machine, where pointing a
     // webhook at localhost (Discord test container, Pipedream-mock dev server,
     // etc.) is a legitimate workflow. Default to allowing it for the local
@@ -2602,7 +2621,13 @@ export async function createServer(opts: {
       // MCP over Streamable HTTP. Registered HERE, not on the root app, so it
       // inherits the api-routes auth hook — the root app has none, and a route
       // mounted there would serve MCP unauthenticated.
-      registerMcpHttpRoutes(scope, { selfApiUrl: opts.config.apiUrl, issuer: publicOrigin, db: opts.db });
+      registerMcpHttpRoutes(scope, {
+        selfApiUrl: opts.config.apiUrl,
+        issuer: publicOrigin,
+        db: opts.db,
+        // Same non-blocking cache as /health, so hosted agents see the notice too.
+        getUpdateAvailable: () => checkLatestVersionForServer(),
+      });
       // Operator-only OAuth routes: inside the authenticated scope, behind the
       // api-key auth and the admin gate, while /oauth/* stays public.
       registerOAuthAdminRoutes(scope, { db: opts.db });
@@ -3225,12 +3250,13 @@ export async function createServer(opts: {
         }
       });
     },
+    operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
     setTelemetryEnabled: (enabled: boolean) => {
-      const config = loadConfig();
-      config.telemetry = enabled;
-      saveConfigPatch(config);
+      // Persists synchronously; an opt-out's `telemetry.disabled` event is
+      // delivered in the background, since this process keeps running.
+      void setTelemetryPreference(enabled, "api");
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },
@@ -3650,6 +3676,18 @@ export async function createServer(opts: {
     if (runtimeStartupSettled) return;
     try {
       scheduler.start();
+      stopSiteLiveness = startSiteLivenessLoop({
+        db: opts.db,
+        // In-process, so a pass writes no HTTP request logs, and the check is
+        // named explicitly because it is opt-in and never runs in a default pass.
+        probe: async (project) => {
+          const report = await runChecks({ db: opts.db, project }, SITE_REACHABILITY_CHECKS, {
+            checkIds: [SITE_REACHABILITY_CHECK_ID],
+          });
+          return report.checks[0] ?? null;
+        },
+        notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
+      });
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -3674,6 +3712,8 @@ export async function createServer(opts: {
   // Graceful shutdown
   app.addHook("onClose", async () => {
     stopLogCapture();
+    stopSiteLiveness?.();
+    stopSiteLiveness = null;
     scheduler.stop();
   });
 

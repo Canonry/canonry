@@ -96,8 +96,8 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'run.failed': 'An AEO sweep failed',
   'insight.critical': 'A critical-severity insight was generated',
   'insight.high': 'A high-severity insight was generated',
-  'health.degraded': 'A scheduled health check found the measurement itself degraded (sent on change, not every pass)',
-  'health.recovered': 'A previously degraded health check is passing again',
+  'health.degraded': 'A scheduled health check found the measurement degraded, daily data stopped arriving, or the website stopped answering (sent on change, not every pass)',
+  'health.recovered': 'A degraded health check is passing again, or a website that was paged as down answers again',
 }
 
 export function listEvents(format?: string, target = 'local'): void | Promise<void> {

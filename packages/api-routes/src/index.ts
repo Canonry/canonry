@@ -4,7 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import fs from 'node:fs'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
-import { registerRequestContext } from './request-context.js'
+import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
@@ -101,7 +101,7 @@ import { researchRoutes } from './research.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
-import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
+import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -118,11 +118,16 @@ export {
 } from './gsc-totals.js'
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
+export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
+export { runChecks } from './doctor/runner.js'
 export * from './notifications/alert.js'
 export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
+  operatorApiKeyIds?: readonly string[]
   /**
    * Absolute URL of the MCP resource, e.g. https://host/api/v1/mcp. Enables
    * OAuth bearer acceptance and is the audience every token is checked against,
@@ -238,6 +243,8 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
+  /** Per-request usage telemetry hook (route template + usage labels only). The host validates labels and applies rate limits. */
+  onRequestCompleted?: RequestContextOptions['onRequestCompleted']
   /** Google auth config and storage */
   getGoogleAuthConfig?: GoogleRoutesOptions['getGoogleAuthConfig']
   /** Resolved Google Places config for the `gbp.places.api-key` doctor check. */
@@ -392,6 +399,8 @@ export interface ApiRoutesOptions {
   bundledSkills?: BundledSkillSnapshot[]
   /** Live user-global native Canonry plugin state, when available on a local host. */
   getAgentPluginState?: () => AgentPluginState
+  /** Running vs latest published version for the `canonry.version.current` doctor check. */
+  getUpdateStatus?: () => DoctorUpdateStatus
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -471,7 +480,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   await app.register(async (api) => {
     // Must be registered before authPlugin so its preHandler sees the
     // authenticated principal while AsyncLocalStorage remains request-local.
-    registerRequestContext(api)
+    registerRequestContext(api, { onRequestCompleted: opts.onRequestCompleted })
     // Expensive POST-based previews opt in per route. Run after authentication
     // so API keys and named users get independent budgets; unauthenticated test
     // harnesses safely fall back to the caller IP.
@@ -485,6 +494,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
     if (!opts.skipAuth) {
       await authPlugin(api, {
+        operatorApiKeyIds: opts.operatorApiKeyIds,
         researchAllowViewers: opts.researchAllowViewers,
         // A bearer that is not an api key is tried as an OAuth access token.
         // Wired unconditionally: the table is empty until an operator registers
@@ -747,6 +757,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
+      getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here

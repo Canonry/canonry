@@ -1,4 +1,4 @@
-import { test, expect, onTestFinished, beforeEach, afterEach } from 'vitest'
+import { test, expect, onTestFinished, beforeEach, afterEach, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -26,6 +26,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   if (ORIGINAL_CANONRY_TRUST_PROXY === undefined) delete process.env.CANONRY_TRUST_PROXY
   else process.env.CANONRY_TRUST_PROXY = ORIGINAL_CANONRY_TRUST_PROXY
 })
@@ -101,6 +102,7 @@ test('buildApp refuses to start when CANONRY_TRUST_PROXY is not set', () => {
 })
 
 test('cloud REST host exposes durable redacted runtime logs without weakening access control', async () => {
+  vi.stubEnv('CANONRY_OPERATOR_KEY_IDS', 'runtime-key')
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-runtime-logs-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)

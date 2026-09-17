@@ -646,7 +646,7 @@ describe('MCP tool registry', () => {
     expect(CANONRY_MCP_TOOL_COUNT).toBe(230)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(152)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
+    const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
   })
 

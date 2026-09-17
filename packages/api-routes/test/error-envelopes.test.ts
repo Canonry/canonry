@@ -13,6 +13,11 @@ function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
   const db = createClient(dbPath)
   migrate(db)
   const app = Fastify()
+  // This route/error harness bypasses auth; model an approved operator explicitly.
+  app.addHook('onRequest', async request => {
+    request.principal = { kind: 'api-key', id: 'operator', name: 'operator', scopes: ['*'], viaCookie: false }
+    request.operatorAccess = true
+  })
   app.register(apiRoutes, { db, skipAuth: true, ...opts })
   return { app, tmpDir }
 }

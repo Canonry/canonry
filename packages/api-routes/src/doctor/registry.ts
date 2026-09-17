@@ -4,6 +4,8 @@ import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
 import { CONTENT_CHECKS } from './checks/content.js'
 import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
+import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
+import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
 import { GOOGLE_AUTH_CHECKS } from './checks/google-auth.js'
@@ -12,18 +14,21 @@ import { RUNTIME_STATE_CHECKS } from './checks/runtime-state.js'
 import { TRAFFIC_SOURCE_CHECKS } from './checks/traffic-source.js'
 import { WORDPRESS_PUBLISH_CHECKS } from './checks/wordpress-publish.js'
 import { GOOGLE_MARKETING_DOCTOR_CHECKS } from './checks/google-marketing.js'
+import { VERSION_CHECKS } from './checks/version.js'
 import type { CheckDefinition } from './types.js'
 
 export const ALL_CHECKS: readonly CheckDefinition[] = [
   // Runtime-state checks run first so file-system gone errors surface
   // before any auth/integration checks try to touch the (orphaned) DB.
   ...RUNTIME_STATE_CHECKS,
+  ...VERSION_CHECKS,
   ...GOOGLE_AUTH_CHECKS,
   ...GBP_AUTH_CHECKS,
   ...PLACES_CHECKS,
   ...BING_AUTH_CHECKS,
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,
+  ...DATA_FRESHNESS_CHECKS,
   ...ADS_CHECKS,
   ...GOOGLE_MARKETING_DOCTOR_CHECKS,
   ...PROVIDERS_CHECKS,
@@ -31,4 +36,6 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BACKLINKS_CHECKS,
   ...CONTENT_CHECKS,
   ...AGENT_CHECKS,
+  // Network probe last, so a slow or unreachable site never delays the local checks.
+  ...SITE_REACHABILITY_CHECKS,
 ]

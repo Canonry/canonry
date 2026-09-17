@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { afterEach, expect, test, vi } from 'vitest'
 import { createFirstAdministrator, fetchProjects, setOnAuthExpired } from '../src/api.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
@@ -25,8 +26,8 @@ test('setup sends its key once, excludes cookies, and leaves subsequent requests
   expect(requests[0]?.body).toEqual({ ...body, role: 'admin', onlyIfFirstAdmin: true })
   expect(requests[0]?.url).not.toContain(secret)
   expect(requests[1]?.headers.has('authorization')).toBe(false)
-  expect(localStorage.length).toBe(0)
-  expect(sessionStorage.length).toBe(0)
+  expect(globalThis.localStorage?.length ?? 0).toBe(0)
+  expect(globalThis.sessionStorage?.length ?? 0).toBe(0)
 })
 
 test('an incorrect setup credential is an inline failure, not session expiry', async () => {

@@ -2,7 +2,7 @@
   "name": "@ainyc/canonry-wordpress-traffic-logger-plugin",
   "version": "1.1.1",
   "private": true,
-  "license": "FSL-1.1-ALv2",
+  "license": "MIT",
   "description": "PHP WordPress plugin that emits canonry traffic-logger events for the integration-wordpress-traffic adapter to pull.",
   "scripts": {
     "test": "php test/run-tests.php",

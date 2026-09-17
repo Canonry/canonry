@@ -45,6 +45,7 @@ import { isNonPageMedia,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
 } from '../src/execute-site-audit.js'
+import { hashDomain } from '../src/run-telemetry.js'
 import { resolveSiteAuditRootUrl } from '../src/site-audit-root.js'
 import { SITE_CRAWL_GRAPH_LAYOUT_VERSION } from '../src/site-crawl-graph-layout.js'
 import { deriveSiteHealthState } from '@ainyc/canonry-contracts'
@@ -1000,6 +1001,155 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, runId)).get()?.state).toBe('cancelled')
     expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).all()).toEqual([])
     expect(db.select().from(siteCrawlGraphLayouts).where(eq(siteCrawlGraphLayouts.runId, runId)).all()).toEqual([])
+  })
+
+  describe('telemetry', () => {
+    const TELEMETRY_ENV_KEYS = [
+      'CANONRY_ANONYMOUS_ID',
+      'CANONRY_TELEMETRY_DISABLED',
+      'DO_NOT_TRACK',
+      'CI',
+      'CANONRY_CONFIG_DIR',
+    ] as const
+    // The canonry.ai collector rejects a larger body with a 400 that
+    // fire-and-forget `trackEvent` never surfaces.
+    const COLLECTOR_MAX_BODY_BYTES = 2048
+
+    let savedEnv: Partial<Record<(typeof TELEMETRY_ENV_KEYS)[number], string>>
+    let configDir: string
+
+    beforeEach(() => {
+      savedEnv = {}
+      for (const key of TELEMETRY_ENV_KEYS) {
+        if (process.env[key] !== undefined) savedEnv[key] = process.env[key]
+        delete process.env[key]
+      }
+      process.env.CANONRY_ANONYMOUS_ID = crypto.randomUUID()
+      // An empty config dir is the documented no-config state, where telemetry
+      // defaults on. Without it the host's own ~/.canonry/config.yaml decides,
+      // and an operator machine with telemetry off makes every assertion vacuous.
+      configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-site-audit-telemetry-'))
+      process.env.CANONRY_CONFIG_DIR = configDir
+    })
+
+    afterEach(() => {
+      for (const key of TELEMETRY_ENV_KEYS) {
+        const value = savedEnv[key]
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      fs.rmSync(configDir, { recursive: true, force: true })
+    })
+
+    async function captureTelemetry(run: () => Promise<void>) {
+      const payloads: Array<Record<string, unknown>> = []
+      const bodyBytes: number[] = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) {
+          bodyBytes.push(Buffer.byteLength(String(init.body)))
+          payloads.push(JSON.parse(String(init.body)))
+        }
+        return new Response(JSON.stringify({ ok: true }))
+      }
+      try {
+        await run()
+        await new Promise(resolve => setTimeout(resolve, 30))
+        return { payloads, bodyBytes }
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    }
+
+    const byEvent = (payloads: Array<Record<string, unknown>>, event: string) =>
+      payloads.filter(payload => payload.event === event)
+
+    it('reports a published crawl and activates the project on its first scored audit only', async () => {
+      vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url))
+
+      const { payloads, bodyBytes } = await captureTelemetry(async () => {
+        await executeSiteAudit(db, seedRun(), projectId, { maxPages: 500 })
+        await executeSiteAudit(db, seedRun(), projectId, { maxPages: 500 })
+      })
+
+      const audits = byEvent(payloads, 'site_audit.completed')
+      expect(audits).toHaveLength(2)
+      expect(audits[0]).not.toHaveProperty('errorCode')
+      const { durationMs, ...properties } = audits[0]!.properties as Record<string, unknown>
+      expect(durationMs).toEqual(expect.any(Number))
+      expect(properties).toEqual({
+        status: 'completed',
+        trigger: 'manual',
+        domainHash: hashDomain('example.com'),
+        complete: true,
+        pagesDiscovered: 2,
+        pagesFetched: 2,
+        pagesAudited: 2,
+        pagesErrored: 0,
+        aggregateScore: 88,
+        pageBudget: 500,
+        checkDeadLinks: false,
+      })
+
+      const activations = byEvent(payloads, 'activation.completed')
+      expect(activations).toHaveLength(1)
+      expect(activations[0]!.properties).toEqual({
+        flowVersion: 1,
+        kind: 'site_health',
+        status: 'completed',
+        pagesAuditedBucket: '2-3',
+      })
+      expect(bodyBytes.length).toBe(payloads.length)
+      for (const bytes of bodyBytes) expect(bytes).toBeLessThanOrEqual(COLLECTOR_MAX_BODY_BYTES)
+    })
+
+    it('reports a budget-terminated crawl as partial with its termination reason', async () => {
+      vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, false, url))
+
+      const { payloads } = await captureTelemetry(async () => {
+        await executeSiteAudit(db, seedRun(), projectId, { checkDeadLinks: true })
+      })
+
+      const [audit] = byEvent(payloads, 'site_audit.completed')
+      expect(audit!.properties).toMatchObject({
+        status: 'partial',
+        complete: false,
+        termination: 'max-pages',
+        pagesAudited: 2,
+        checkDeadLinks: true,
+        deadLinksFound: 0,
+      })
+      expect(byEvent(payloads, 'activation.completed')[0]!.properties).toMatchObject({ kind: 'site_health', status: 'partial' })
+    })
+
+    it('reports a failed crawl without crawl counts, with UNKNOWN, and does not activate', async () => {
+      vi.mocked(runSiteCrawl).mockImplementation(async () => { throw new Error('provider connection failed') })
+
+      const { payloads } = await captureTelemetry(async () => {
+        await expect(executeSiteAudit(db, seedRun(), projectId)).rejects.toThrow('provider connection failed')
+      })
+
+      const audits = byEvent(payloads, 'site_audit.completed')
+      expect(audits).toHaveLength(1)
+      expect(audits[0]!.errorCode).toBe('UNKNOWN')
+      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'status', 'trigger'])
+      expect(audits[0]!.properties).toMatchObject({ status: 'failed' })
+      expect(byEvent(payloads, 'activation.completed')).toEqual([])
+    })
+
+    it('reports a cancelled crawl with RUN_CANCELLED', async () => {
+      vi.mocked(runSiteCrawl).mockImplementation(async () => { throw new DOMException('operation stopped', 'AbortError') })
+
+      const { payloads } = await captureTelemetry(async () => {
+        await expect(executeSiteAudit(db, seedRun(), projectId)).rejects.toThrow('operation stopped')
+      })
+
+      const audits = byEvent(payloads, 'site_audit.completed')
+      expect(audits).toHaveLength(1)
+      expect(audits[0]!.errorCode).toBe('RUN_CANCELLED')
+      expect(audits[0]!.properties).toMatchObject({ status: 'cancelled' })
+      expect(byEvent(payloads, 'activation.completed')).toEqual([])
+    })
   })
 })
 

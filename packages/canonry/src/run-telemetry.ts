@@ -102,3 +102,78 @@ export function buildRunCompletedProps(input: {
   if (input.location) props.location = input.location
   return props
 }
+
+export type SiteAuditTelemetryStatus = 'completed' | 'partial' | 'failed' | 'cancelled'
+
+/** What a published crawl can report. Absent when the audit failed or was
+ *  cancelled before a crawl summary existed. */
+export interface SiteAuditCrawlOutcome {
+  complete: boolean
+  termination?: string | null
+  pagesDiscovered: number
+  pagesFetched: number
+  pagesAudited: number
+  pagesErrored: number
+  aggregateScore?: number | null
+  pageBudget: number
+  checkDeadLinks: boolean
+  deadLinksFound: number
+}
+
+export interface SiteAuditCompletedProps {
+  [key: string]: unknown
+  status: SiteAuditTelemetryStatus
+  durationMs: number
+  trigger?: string
+  domainHash?: string
+  complete?: boolean
+  termination?: string
+  pagesDiscovered?: number
+  pagesFetched?: number
+  pagesAudited?: number
+  pagesErrored?: number
+  aggregateScore?: number
+  pageBudget?: number
+  checkDeadLinks?: boolean
+  deadLinksFound?: number
+}
+
+/**
+ * Compose the `site_audit.completed` payload.
+ *
+ * Optional fields are omitted, never nulled: the collector's property schema
+ * has no null, so a single null value rejects the whole event. The score is
+ * sent only when at least one page was audited, because a crawl that audited
+ * nothing has no score, and a zero would read as a measured failing site.
+ */
+export function buildSiteAuditCompletedProps(input: {
+  status: SiteAuditTelemetryStatus
+  startTime: number
+  trigger?: string | null
+  canonicalDomain?: string | null
+  crawl?: SiteAuditCrawlOutcome
+}): SiteAuditCompletedProps {
+  const props: SiteAuditCompletedProps = {
+    status: input.status,
+    durationMs: Date.now() - input.startTime,
+  }
+  if (input.trigger) props.trigger = input.trigger
+  const domainHash = hashDomain(input.canonicalDomain ?? null)
+  if (domainHash) props.domainHash = domainHash
+  const crawl = input.crawl
+  if (!crawl) return props
+
+  props.complete = crawl.complete
+  if (crawl.termination) props.termination = crawl.termination
+  props.pagesDiscovered = crawl.pagesDiscovered
+  props.pagesFetched = crawl.pagesFetched
+  props.pagesAudited = crawl.pagesAudited
+  props.pagesErrored = crawl.pagesErrored
+  if (crawl.pagesAudited > 0 && typeof crawl.aggregateScore === 'number' && Number.isFinite(crawl.aggregateScore)) {
+    props.aggregateScore = crawl.aggregateScore
+  }
+  props.pageBudget = crawl.pageBudget
+  props.checkDeadLinks = crawl.checkDeadLinks
+  if (crawl.checkDeadLinks) props.deadLinksFound = crawl.deadLinksFound
+  return props
+}

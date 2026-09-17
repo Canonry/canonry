@@ -158,9 +158,9 @@ listing.
 `npm:@canonry/val-kit@0.2.0/<subpath>` is the same pattern for the same reason, and it is guarded the same way:
 `packages/canonry/test/val-kit-dependency-contract.test.ts` asserts each val's inline kit specifiers collapse to one
 version, that it equals `packages/val-kit/package.json`, and that the two Deno configs stay on their respective sides
-of the seam. It iterates `apps/vals/*`, so a second val is covered on the day it lands. The deploy workflow repeats the
-version half against public npm, because a pin CI resolved from the workspace still has to exist on the registry before
-Val Town can resolve it.
+of the seam. It iterates `apps/vals/*`, so a second val is covered on the day it lands. It cannot check the registry:
+a pin resolved from the workspace still has to exist on npm before Val Town can resolve it, which only
+`deno task check:prod` verifies, by hand, before a deploy.
 
 ## "Partial" was written in THREE places, and fixing one hid the other two
 
@@ -470,7 +470,7 @@ apps/vals/ai-visibility-check/
 ├── deno.lock                     Production dependency lock (public npm)
 ├── deno.dev.json                 Local dev graph: links @canonry/val-kit from the workspace
 ├── deno.dev.lock                 Dev dependency lock (linked kit)
-├── .vt/state.json                Val and branch identity (gitignored; CI generates it from the deploy workflow)
+├── .vt/state.json                Val and branch identity (gitignored; written by `vt` on the deploying machine)
 ├── src/
 │   ├── app/                      HTTP routes and response policy
 │   ├── jobs/                     Request-bound check runner: phases, budget, sanitizers, visitor copy
@@ -539,11 +539,11 @@ In-memory storage and no Turnstile, so the UI and `/mcp` both work without crede
 
 Run `pnpm --filter @canonry/val-kit build` from the repository root, then `deno task check`, `deno task lint`, and
 `deno task test` from this directory, plus `node scripts/sync-val-town-skills.mjs --check` from the root. Those three
-tasks validate the DEV graph, which is what CI's `vals` matrix job runs.
+tasks validate the DEV graph. Vals have no CI/CD, so nothing runs them for you.
 
 `deno task check:prod` validates the PRODUCTION graph instead (plain `deno.json`, `--frozen`). It cannot pass until
 the pinned kit version is on public npm — before that it fails with `npm package '@canonry/val-kit' does not exist` —
-which is the same gate the deploy workflow applies, on purpose. A deployment additionally requires a `vt push
+and with no deploy workflow it is the only thing that catches an unpublished pin before `vt push`. A deployment additionally requires a `vt push
 --dry-run` and a live health smoke test.
 
 ## Production configuration
@@ -557,10 +557,9 @@ deployment serves reads and skills but refuses to spend.
 
 ## Release order
 
-1. Publish the pinned `@canonry/val-kit` version with the `Publish @canonry/val-kit` workflow
-   (`.github/workflows/publish-val-kit.yml`). Until then the production graph cannot resolve, and both `check:prod`
-   and the deploy workflow fail closed — by design, since a val that deploys against an unpublished pin throws at the
-   first request instead of at the push.
+1. Publish the pinned `@canonry/val-kit` version with `pnpm --filter @canonry/val-kit publish` (there is no publish
+   workflow). Until then the production graph cannot resolve and `check:prod` fails closed. Do not skip that check: a
+   val that deploys against an unpublished pin throws at the first request instead of at the push.
 2. Refresh the production `deno.lock` with `deno check --allow-import main.http.tsx` (plain config, no `--frozen`) and
    commit it. `deno.dev.lock` is separate and is not touched by this.
 
@@ -571,12 +570,11 @@ deployment serves reads and skills but refuses to spend.
 > defensible for a first-party package this repo just built and published from a
 > reviewed commit. The override is only needed to CREATE the lock: once the lock
 > pins the version with its integrity hash, `--frozen` resolves from the lock and
-> the policy does not apply, so the deploy workflow needs no flag and no config.
+> the policy does not apply, so later checks and deploys need no flag and no config.
 3. Regenerate the skill mirror with `node scripts/sync-val-town-skills.mjs`.
 4. Run the verification commands above, including `deno task check:prod`.
-5. Run `vt push --dry-run` and review the file plan. A local push reads `.vt/state.json`; CI has none, so the deploy
-   workflow generates it from the val and branch IDs pinned in the workflow with
-   `node scripts/write-val-town-state.mjs apps/vals/ai-visibility-check`.
+5. Run `vt push --dry-run` and review the file plan. The push reads `.vt/state.json` from this directory, so deploy
+   from a machine where `vt` is already linked to the production Val.
 6. Run `vt push` only after approval.
 7. Request `/healthz` and confirm `{"ok":true}`.
 

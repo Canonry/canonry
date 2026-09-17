@@ -5,8 +5,9 @@ import {
   maskTelemetryAnonymousId,
   type TelemetryStatusDto,
 } from '@ainyc/canonry-contracts'
-import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
+import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
+import { cliRuntimeContext } from './runtime-context.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -136,6 +137,7 @@ export function trackCliCommandFinished(input: CliCommandFinishedInput): void {
       success: input.success,
       duration_bucket: bucketCliCommandDuration(input.durationMs),
       ...(input.setupState ? { setup_state: input.setupState } : {}),
+      ...cliRuntimeContext(),
     },
     input.errorCode ? { errorCode: input.errorCode } : undefined,
   )
@@ -277,7 +279,8 @@ export function getOrCreateAnonymousId(): string | undefined {
       const config = loadConfig()
       if (config.anonymousId) return config.anonymousId
 
-      const id = crypto.randomUUID()
+      const carried = preConfigAnonymousId?.configPath === getConfigPath() ? preConfigAnonymousId.id : undefined
+      const id = carried ?? crypto.randomUUID()
       config.anonymousId = id
       try {
         saveConfigPatch(config)
@@ -292,8 +295,22 @@ export function getOrCreateAnonymousId(): string | undefined {
     }
   }
 
-  return getDeterministicAnonymousId()
+  const fallback = getDeterministicAnonymousId()
+  if (fallback) preConfigAnonymousId = { configPath: getConfigPath(), id: fallback }
+  return fallback
 }
+
+/**
+ * The ID this process already reported under while no config existed, and the
+ * config path it stood in for. A command that CREATES the config (`canonry
+ * bootstrap`, which the Docker entrypoint runs before `serve`) sends its start
+ * event before the file exists and its finish event after. Minting a fresh
+ * UUID at that point split one install into two IDs: every Docker container
+ * appeared as an abandoned install plus an engaged one, and CI smoke-test
+ * containers doubled. Persisting the ID the process already used keeps it one
+ * install. Scoped to the config path so a different config never inherits it.
+ */
+let preConfigAnonymousId: { configPath: string; id: string } | undefined
 
 function readEnvAnonymousId(): string | undefined {
   const raw = process.env[ANON_ID_ENV_VAR]?.trim()
@@ -423,11 +440,56 @@ export function trackEvent(
   properties?: TelemetryProperties,
   options?: TrackEventOptions,
 ): void {
-  if (!isTelemetryEnabled()) return
-  if (shouldDropTelemetryEvent(event, properties)) return
+  void deliverEvent(event, properties, options)
+}
+
+export type TelemetryPreferenceMethod = 'cli' | 'api'
+
+/**
+ * Persist the telemetry preference, announcing an opt-out first.
+ *
+ * `telemetry.disabled` is the last event an install sends. Without it an
+ * opt-out is indistinguishable from a user who stopped using Canonry, so the
+ * opt-out rate cannot be measured and every retention figure silently absorbs
+ * it. Whether to announce is decided while telemetry is still on, before the
+ * preference is written; the event is sent only after the write succeeds, so an
+ * opt-out that could not be persisted (read-only config) is never announced and
+ * a retry cannot announce it twice. It carries only how the preference changed.
+ *
+ * Nothing is sent when telemetry is already effectively off, including when an
+ * environment override (CI, DO_NOT_TRACK, CANONRY_TELEMETRY_DISABLED) wins, so
+ * re-running `disable` never counts twice.
+ *
+ * The write is synchronous; the returned promise tracks only delivery. The
+ * server ignores it, and the CLI awaits it so process exit cannot drop the one
+ * event that can never be retried.
+ */
+export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+  // Validate the whole config before touching it. A bare patch succeeds on a
+  // config that fails validation, which turned `telemetry enable` into a silent
+  // write to an invalid file instead of a path-qualified CONFIG_INVALID error.
+  loadConfig()
+  const announce = !enabled && isTelemetryEnabled()
+  saveConfigPatch({ telemetry: enabled })
+  return announce
+    ? deliverEvent('telemetry.disabled', { method }, undefined, { preferenceChecked: true })
+    : Promise.resolve()
+}
+
+/** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
+function deliverEvent(
+  event: string,
+  properties?: TelemetryProperties,
+  options?: TrackEventOptions,
+  delivery: { preferenceChecked?: boolean } = {},
+): Promise<void> {
+  // `preferenceChecked`: the caller already confirmed telemetry was on before
+  // it wrote the opt-out that would otherwise suppress this final event.
+  if (!delivery.preferenceChecked && !isTelemetryEnabled()) return Promise.resolve()
+  if (shouldDropTelemetryEvent(event, properties)) return Promise.resolve()
 
   const anonymousId = getOrCreateAnonymousId()
-  if (!anonymousId) return
+  if (!anonymousId) return Promise.resolve()
 
   const payload: TelemetryEvent = {
     eventId: options?.eventId ?? crypto.randomUUID(),
@@ -450,17 +512,18 @@ export function trackEvent(
   timeout.unref() // Don't keep the process alive waiting for telemetry
 
   try {
-    void fetch(TELEMETRY_ENDPOINT, {
+    return fetch(TELEMETRY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     })
-      .catch(() => {})
+      .then(() => undefined, () => undefined)
       .finally(() => clearTimeout(timeout))
   } catch {
     // A custom fetch implementation can throw synchronously. Telemetry must
     // still never affect the command's result or keep its timeout alive.
     clearTimeout(timeout)
+    return Promise.resolve()
   }
 }
