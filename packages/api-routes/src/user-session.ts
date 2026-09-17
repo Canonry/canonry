@@ -242,7 +242,7 @@ export function createNamedUserSession(
       expiresAt: new Date(now.getTime() + USER_SESSION_TTL_MS).toISOString(),
     }).run()
     tx.update(users).set({ lastLoginAt: nowIso }).where(eq(users.id, userId)).run()
-    writeAuditLog(tx, { actor: 'api', actorUserId: user.id, actorName: user.displayName ?? user.name, action: 'user.signed-in', entityType: 'user', entityId: user.id })
+    writeAuditLog(tx, { actor: `user:${user.id}`, actorUserId: user.id, actorName: user.displayName ?? user.name, action: 'user.signed-in', entityType: 'user', entityId: user.id })
     return { token, user: toUserDto({ ...user, lastLoginAt: nowIso }) }
   })
 }
