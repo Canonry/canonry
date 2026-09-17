@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import {
   formatDate,
   REPORT_SECTION_COPY,
@@ -12,7 +13,9 @@ import {
 } from '@ainyc/canonry-contracts'
 import { advancedReport, emptyReport, fullReport, richReport, simpleVisibility, truncatedReport } from '../../../packages/contracts/test/fixtures/report-dto.js'
 import { downloadReportHtml } from '../src/api.js'
+import { ReportPage } from '../src/pages/ReportPage.js'
 import { cleanupReportPage, getReportSection, queryReportSection, renderReportPage, selectReportAudience } from './report-page-harness.js'
+import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
   pinReportGoldenTimeZone,
   readReportOutline,
@@ -385,5 +388,35 @@ describe('action plan cards', () => {
     const overflow = within(cardFor('client')).getByText(reportMoreChipLabel(1))
     expect(Array.from(overflow.parentElement!.children, chip => chip.textContent))
       .toEqual(['one', 'two', 'three', reportMoreChipLabel(1)])
+  })
+})
+
+describe('report heading', () => {
+  test('keeps the heading while the report query loads', () => {
+    const restore = mockFetch(() => new Promise(() => {}))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ReportPage projectName="acme" projectTitle="Acme Co" />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Acme Co')
+    expect(screen.getByText('Loading report…')).toBeTruthy()
+    restore()
+    queryClient.clear()
+  })
+
+  test('keeps the heading when the report query fails', async () => {
+    const restore = mockFetch(() => jsonResponse({ error: 'unavailable' }, 500))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ReportPage projectName="acme" projectTitle="Acme Co" />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(screen.getByText('Failed to load report')).toBeTruthy())
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Acme Co')
+    restore()
+    queryClient.clear()
   })
 })

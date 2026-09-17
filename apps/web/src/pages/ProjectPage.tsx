@@ -3296,7 +3296,7 @@ function ProjectPageContent({
           ) : null}
         </>
       ) : tab === 'report' ? (
-        <ReportPage projectName={model.project.name} />
+        <ReportPage projectName={model.project.name} projectTitle={model.project.displayName || model.project.name} />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}
