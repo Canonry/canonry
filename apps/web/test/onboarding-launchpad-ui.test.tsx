@@ -15,6 +15,7 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST } from '../src/pages/OnboardingSetupPage.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -42,23 +43,6 @@ vi.mock('../src/components/project/SiteHealthSection.js', () => ({
     </section>
   ),
 }))
-
-const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
-
-Use Canonry's official docs:
-- Agent quickstart: https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent
-- CLI reference: https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md
-- Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
-- MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
-
-Use an existing Canonry installation or connected plugin/MCP if one is already available. Do not create a duplicate. The \`cnry\` and \`canonry\` commands are interchangeable.
-
-1. Ask for my public domain, country, and language. Do not create or scan anything yet.
-2. Check the local setup with \`command -v cnry\`, \`cnry --version\`, \`cnry doctor --format json\`, and \`cnry project list --format json\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If initialization is required, tell me to run \`cnry bootstrap\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or \`cnry bootstrap\` output.
-3. Show the normalized domain, proposed project name, exact \`cnry project create ...\` command, and wait for explicit approval before creating it.
-4. Propose a bounded Site Health scan, including \`--max-pages\` and whether dead-link checking is enabled. Show the exact \`cnry technical-aeo run ... --wait --format json\` command and wait for separate approval before scanning.
-5. After the crawl, summarize the findings and propose AI Visibility setup. Ask before adding queries, connecting providers, starting any provider-backed or quota-consuming run, editing files, or publishing.`
-const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -151,6 +135,37 @@ test('the legacy rescue query wins over an enabled platform flag', async () => {
   await renderSetup('/setup?experience=legacy')
 
   expect(await screen.findByText('Step 2 of 5')).toBeTruthy()
+})
+
+test('auto resumes Site Health for an existing project instead of the provider-gated wizard', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
+  const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
+    ? jsonResponse([{
+        id: 'project-example',
+        name: 'example-com',
+        displayName: 'Example',
+        canonicalDomain: 'example.com',
+        ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
+        providers: [], providerModels: {}, locations: [], defaultLocation: null,
+        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
+        autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+      }])
+    : jsonResponse([]))
+  onTestFinished(restore)
+
+  const { router } = await renderSetup('/setup')
+
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      onboarding: 'site-health',
+      setupProject: 'example-com',
+    })
+  })
+  expect(await screen.findByRole('region', { name: 'Explicit Site Health' })).toBeTruthy()
+  expect(screen.getByText('example-com:project-example:latest:true')).toBeTruthy()
+  expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
 })
 
 test('an explicit Site Health handoff wins over the configured legacy surface and resumes the exact run', async () => {
@@ -666,13 +681,14 @@ test('gives an agent a copyable setup request', async () => {
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/plugins.md')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/mcp.md')
-  expect(AGENT_SETUP_REQUEST).toContain('cnry doctor --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('cnry start')
   expect(AGENT_SETUP_REQUEST).toContain('cnry project list --format json')
   expect(AGENT_SETUP_REQUEST).toContain('npm install -g @canonry/canonry')
-  expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry project create'))
-  expect(AGENT_SETUP_REQUEST).toContain('wait for separate approval before scanning')
-  expect(AGENT_SETUP_REQUEST).toContain('If initialization is required, tell me to run `cnry bootstrap`')
-  expect(AGENT_SETUP_REQUEST).toContain('Never ask me to paste passwords, API keys, OAuth credentials, or `cnry bootstrap` output')
+  expect(AGENT_SETUP_REQUEST).not.toContain('cnry doctor --format json')
+  expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
+  expect(AGENT_SETUP_REQUEST).toContain('Wait for separate approval before scanning')
+  expect(AGENT_SETUP_REQUEST).toContain('If configuration is missing, tell me to run `cnry bootstrap`')
+  expect(AGENT_SETUP_REQUEST).toContain('Never ask me to paste passwords, API keys, OAuth credentials, or command output')
   expect(screen.getByRole('button', { name: 'Copied setup request' })).toBeTruthy()
 })
 

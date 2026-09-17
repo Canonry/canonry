@@ -92,7 +92,7 @@ describe('AuthGate', () => {
 
       render(<AuthGate />)
       expect(await screen.findByText('Create a dashboard password')).toBeTruthy()
-      expect(screen.getByText('Stored on this Canonry install as a salted, one-way hash. Canonry cannot recover it.')).toBeTruthy()
+      expect(screen.getByText('This password protects the dashboard on this computer. Canonry cannot recover it, so store it somewhere you can find.')).toBeTruthy()
       expect(screen.queryByText(/future visits/i)).toBeNull()
     })
 

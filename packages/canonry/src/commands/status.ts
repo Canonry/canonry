@@ -42,7 +42,7 @@ export async function showStatus(project: string, format?: string): Promise<void
     }
     console.log(`\n  Total runs: ${latest.totalRuns}`)
   } else {
-    console.log('\n  No runs yet. Use "canonry run" to trigger one.')
+    console.log(`\n  No runs yet. Capture Page Health with "canonry technical-aeo run ${project}", or run an AI Visibility sweep after adding a provider.`)
   }
 }
 

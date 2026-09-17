@@ -50,19 +50,20 @@ export const SITE_HEALTH_DISPATCH_BOUNDARY_MS = 1_800
 export const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
 export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
 
-Use Canonry's official docs:
+Use the official Canonry docs:
 - Agent quickstart: https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent
 - CLI reference: https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md
 - Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
 - MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
 
-Use an existing Canonry installation or connected plugin/MCP if one is already available. Do not create a duplicate. The \`cnry\` and \`canonry\` commands are interchangeable.
+If a Canonry installation or connected plugin/MCP is available, use it. Do not create a duplicate. Choose the connected tools or the shell path, not both. The \`cnry\` and \`canonry\` commands are interchangeable.
 
 1. Ask for my public domain, country, and language. Do not create or scan anything yet.
-2. Check the local setup with \`command -v cnry\`, \`cnry --version\`, \`cnry doctor --format json\`, and \`cnry project list --format json\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If initialization is required, tell me to run \`cnry bootstrap\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or \`cnry bootstrap\` output.
-3. Show the normalized domain, proposed project name, exact \`cnry project create ...\` command, and wait for explicit approval before creating it.
-4. Propose a bounded Site Health scan, including \`--max-pages\` and whether dead-link checking is enabled. Show the exact \`cnry technical-aeo run ... --wait --format json\` command and wait for separate approval before scanning.
-5. After the crawl, summarize the findings and propose AI Visibility setup. Ask before adding queries, connecting providers, starting any provider-backed or quota-consuming run, editing files, or publishing.`
+2. If connected tools are available, use them for the remaining steps. For the shell path, make sure that \`cnry\` is on PATH. Then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If configuration is missing, tell me to run \`cnry bootstrap\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or command output.
+3. Make sure that the API or connected tool is reachable. If the shell API is unavailable, propose \`cnry start\`. Wait for approval. List the projects with the connected project tool or \`cnry project list --format json\`. Reuse a project with the same domain. Make sure that the proposed name is not assigned to a different domain. If no match exists, show the exact create operation and wait for approval.
+4. Propose a bounded Site Health scan. Include \`--max-pages\` and the state of dead-link checking. Show the connected operation or exact \`cnry technical-aeo run ... --wait --format json\` command. Wait for separate approval before scanning.
+5. If the run status is \`completed\` or \`partial\`, read its score and worst pages with run-pinned connected tools. For the shell path, use \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. If the run failed or was cancelled, inspect the run error and stop. Summarize completed evidence and propose AI Visibility setup.
+6. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
 export type OnboardingProjectListState =
   | { state: 'idle' | 'loading' | 'error' }
@@ -587,6 +588,14 @@ export function OnboardingSetupPage() {
   if (missingSiteHealthProject || explicitSiteHealthOnboarding) {
     return <SiteHealthOnboardingPage projectName={search.setupProject} initialRunId={search.siteHealthRunId} />
   }
+  const autoResumeProject = mode === 'auto'
+    && surface === 'legacy'
+    && !search.setupProject
+    && projectsQuery.isSuccess
+    && projectsQuery.data[0]
+  if (autoResumeProject) {
+    return <AutoResumeSiteHealthRedirect projectName={autoResumeProject.name} />
+  }
   if (surface === 'legacy') {
     return (
       <SetupPage
@@ -603,6 +612,19 @@ export function OnboardingSetupPage() {
       skipSiteScan={search.siteScan === 'skip'}
     />
   )
+}
+
+/** Write the same URL `cnry serve` prints so the focused first-run shell applies. */
+function AutoResumeSiteHealthRedirect({ projectName }: { projectName: string }) {
+  const navigate = useNavigate()
+  useEffect(() => {
+    void navigate({
+      to: '/setup',
+      search: { onboarding: 'site-health', setupProject: projectName },
+      replace: true,
+    })
+  }, [navigate, projectName])
+  return <AutoModeLoading />
 }
 
 function PlatformSetupPage({

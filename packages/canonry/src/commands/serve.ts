@@ -1,5 +1,7 @@
+import { asc, eq } from 'drizzle-orm'
+
 import { loadConfig } from '../config.js'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
@@ -24,12 +26,60 @@ export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
   return !isLoopbackBindHost(host)
 }
 
-function existingProjectCount(db: ReturnType<typeof createClient>): number {
+function readServeOpenState(db: ReturnType<typeof createClient>): {
+  projectCount: number
+  firstProjectName?: string
+  hasSiteAudit: boolean
+} {
   try {
-    return db.select({ id: projects.id }).from(projects).all().length
+    const rows = db.select({
+      id: projects.id,
+      name: projects.name,
+      createdAt: projects.createdAt,
+    }).from(projects)
+      .orderBy(asc(projects.createdAt), asc(projects.name))
+      .all()
+    if (rows.length === 0) return { projectCount: 0, hasSiteAudit: false }
+    let scanned = new Set<string>()
+    try {
+      const audits = db.select({
+        projectId: runs.projectId,
+        status: runs.status,
+      }).from(runs)
+        .where(eq(runs.kind, 'site-audit'))
+        .all()
+      scanned = new Set(
+        audits
+          .filter(run => run.status === 'completed' || run.status === 'partial')
+          .map(run => run.projectId),
+      )
+    } catch {
+      scanned = new Set()
+    }
+    const firstUnscanned = rows.find(row => !scanned.has(row.id))
+    if (firstUnscanned) {
+      return { projectCount: rows.length, firstProjectName: firstUnscanned.name, hasSiteAudit: false }
+    }
+    return { projectCount: rows.length, firstProjectName: rows[0]?.name, hasSiteAudit: true }
   } catch {
-    return 0
+    return { projectCount: 0, hasSiteAudit: false }
   }
+}
+
+/** First-run banner: empty installs and unscanned projects still point at Page Health. */
+export function buildServeOpenLine(input: {
+  url: string
+  projectCount: number
+  firstProjectName?: string
+  hasSiteAudit: boolean
+}): string {
+  if (input.projectCount === 0) {
+    return `Open ${input.url}/setup to map your site and run your first Page Health scan.`
+  }
+  if (!input.hasSiteAudit && input.firstProjectName) {
+    return `Open ${input.url}/setup?onboarding=site-health&setupProject=${encodeURIComponent(input.firstProjectName)} to run your first Page Health scan.`
+  }
+  return `Open ${input.url}`
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
@@ -121,11 +171,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     const url = operatorHttpUrl(host, port)
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
-      if (existingProjectCount(db) === 0) {
-        console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
-      } else {
-        console.log(`Open ${url}`)
-      }
+      console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
       if (shouldWarnAboutRemoteSetup(host)) {
         console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
       }

@@ -1616,6 +1616,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
     readiness: false,
   })
 
+  expect(html).toContain('Map site')
   expect(html).toContain('Set up AI Visibility')
   expect(html).toContain('No AI Visibility baseline yet')
   expect(html).toContain('Coverage signals')
@@ -1633,6 +1634,32 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).not.toContain('Run another sweep')
   expect(html).not.toContain('Baseline captured')
   expect(html).not.toContain('Run AI sweep')
+})
+
+test('Map site is the overview primary action and is omitted on Site Health', async () => {
+  const overview = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      forceNoisyFreshVisibility(dashboard)
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['gemini']
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+  expect(overview).toContain('Map site')
+
+  const siteHealth = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, {
+    configureFixture(dashboard) {
+      forceNoisyFreshVisibility(dashboard)
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['gemini']
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: false,
+  })
+  expect(siteHealth).not.toContain('>Map site<')
 })
 
 test('a first sweep in flight replaces empty-state instructions with one live status', async () => {

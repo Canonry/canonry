@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyServerEnv } from '../src/cli-commands/system.js'
-import { resolveServePort, shouldWarnAboutRemoteSetup } from '../src/commands/serve.js'
+import { buildServeOpenLine, resolveServePort, shouldWarnAboutRemoteSetup } from '../src/commands/serve.js'
 
 const KEYS = [
   'CANONRY_PORT',
@@ -123,5 +123,31 @@ describe('shouldWarnAboutRemoteSetup', () => {
     expect(shouldWarnAboutRemoteSetup('127.0.0.1')).toBe(false)
     expect(shouldWarnAboutRemoteSetup('::1')).toBe(false)
     expect(shouldWarnAboutRemoteSetup('localhost')).toBe(false)
+  })
+})
+
+describe('buildServeOpenLine', () => {
+  const url = 'http://127.0.0.1:4100'
+
+  it('points an empty install at /setup', () => {
+    expect(buildServeOpenLine({ url, projectCount: 0, hasSiteAudit: false })).toContain(`${url}/setup to map your site`)
+  })
+
+  it('points an unscanned project at Site Health setup', () => {
+    expect(buildServeOpenLine({
+      url,
+      projectCount: 1,
+      firstProjectName: 'example-com',
+      hasSiteAudit: false,
+    })).toBe(`Open ${url}/setup?onboarding=site-health&setupProject=example-com to run your first Page Health scan.`)
+  })
+
+  it('opens the dashboard when a site audit already exists', () => {
+    expect(buildServeOpenLine({
+      url,
+      projectCount: 1,
+      firstProjectName: 'example-com',
+      hasSiteAudit: true,
+    })).toBe(`Open ${url}`)
   })
 })

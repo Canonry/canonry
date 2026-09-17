@@ -2400,6 +2400,13 @@ function ProjectPageContent({
     })
   }
 
+  function openSiteHealth() {
+    void navigate({
+      to: '/projects/$projectName/technical-aeo',
+      params: { projectName },
+    })
+  }
+
   async function handleDeleteProject() {
     setDeleting(true)
     try {
@@ -2677,6 +2684,11 @@ function ProjectPageContent({
           ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+              {tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs ? (
+                <WriteButton type="button" onClick={openSiteHealth}>
+                  Map site
+                </WriteButton>
+              ) : null}
               {/* Secondary, not primary. The schedule beside it is what actually
                   runs the sweep; this is the override for when you can't wait
                   for it. Deleting the project used to sit here too — an
