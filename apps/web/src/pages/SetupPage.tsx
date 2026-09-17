@@ -1054,6 +1054,7 @@ function ReadySetupPage({
             ? 'An answer engine is required for visibility sweeps. You can save queries now and connect later.'
             : 'Checking available providers. You can choose queries while this finishes.'}
       </p>
+      <p className="text-xs text-faint">(connect other providers later)</p>
       {providerReadiness === false || showProviderConfig ? (
         providerToConfigure ? (
           <div>
