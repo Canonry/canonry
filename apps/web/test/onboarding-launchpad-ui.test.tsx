@@ -687,8 +687,11 @@ test('gives an agent a copyable setup request', async () => {
   expect(AGENT_SETUP_REQUEST).not.toContain('cnry doctor --format json')
   expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
   expect(AGENT_SETUP_REQUEST).toContain('Wait for separate approval before scanning')
+  expect(AGENT_SETUP_REQUEST).toContain('--max-pages 100')
   expect(AGENT_SETUP_REQUEST).toContain('If configuration is missing, tell me to run `cnry bootstrap`')
   expect(AGENT_SETUP_REQUEST).toContain('Never ask me to paste passwords, API keys, OAuth credentials, or command output')
+  expect(AGENT_SETUP_REQUEST).toContain('Read the crawl termination reason')
+  expect(AGENT_SETUP_REQUEST).toContain('Never present a bounded first scan as a full-site result')
   expect(screen.getByRole('button', { name: 'Copied setup request' })).toBeTruthy()
 })
 
