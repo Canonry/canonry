@@ -223,7 +223,18 @@ function joinReportParts(parts: readonly ReactNode[]): ReactNode {
 /** No pending dismissals. A module constant so an empty render keeps one identity. */
 const NO_DISMISSALS: ReadonlySet<string> = new Set()
 
-export function ReportPage({ projectName }: { projectName: string }) {
+function ReportPageHeading({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="page-header-left">
+      <p className="eyebrow">{REPORT_HEADER_COPY.eyebrow}</p>
+      <h1 className="page-title">{title}</h1>
+      {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
+      {children}
+    </div>
+  )
+}
+
+export function ReportPage({ projectName, projectTitle }: { projectName: string; projectTitle?: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [period, setPeriod] = useState<ReportPeriodDays>(REPORT_DEFAULT_PERIOD_DAYS)
@@ -309,14 +320,27 @@ export function ReportPage({ projectName }: { projectName: string }) {
     }
   }
 
+  const headingTitle = projectTitle || projectName
   if (reportQuery.isLoading) {
-    return <p className="text-sm text-muted py-8 text-center">Loading report…</p>
+    return (
+      <div>
+        <div className="page-header">
+          <ReportPageHeading title={headingTitle} />
+        </div>
+        <p className="text-sm text-muted py-8 text-center">Loading report…</p>
+      </div>
+    )
   }
   if (reportQuery.error) {
     const message = reportQuery.error instanceof Error ? reportQuery.error.message : 'Failed to load report'
     return (
-      <div className="py-8 text-center">
-        <p className="text-sm text-negative-400">{message}</p>
+      <div>
+        <div className="page-header">
+          <ReportPageHeading title={headingTitle} />
+        </div>
+        <div className="py-8 text-center">
+          <p className="text-sm text-negative-400">{message}</p>
+        </div>
       </div>
     )
   }
@@ -326,17 +350,19 @@ export function ReportPage({ projectName }: { projectName: string }) {
   return (
     <div>
       <div className="page-header">
-        <div className="page-header-left">
-          <p className="eyebrow">{REPORT_HEADER_COPY.eyebrow}</p>
-          <h1 className="page-title">{report.meta.project.displayName}</h1>
-          <p className="page-subtitle">
-            {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
-            {' · '}{report.visibility?.selection.mode === 'advanced' ? reportVisibilityLocationLabel(report.visibility) : reportHeaderMarketLabel(report.meta.location)}
-            {' · '}{reportHeaderPeriodLabel(report.meta.periodDays)}
-            {' · '}{REPORT_HEADER_COPY.generated} {formatDate(report.meta.generatedAt)}
-          </p>
-          {downloadError && <p className="mt-2 text-xs text-negative-400">{downloadError}</p>}
-        </div>
+        <ReportPageHeading
+          title={report.meta.project.displayName}
+          subtitle={
+            <>
+              {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
+              {' · '}{report.visibility?.selection.mode === 'advanced' ? reportVisibilityLocationLabel(report.visibility) : reportHeaderMarketLabel(report.meta.location)}
+              {' · '}{reportHeaderPeriodLabel(report.meta.periodDays)}
+              {' · '}{REPORT_HEADER_COPY.generated} {formatDate(report.meta.generatedAt)}
+            </>
+          }
+        >
+          {downloadError ? <p className="mt-2 text-xs text-negative-400">{downloadError}</p> : null}
+        </ReportPageHeading>
         <div className="page-header-right flex flex-col items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!embedded && <AudienceToggle audience={audience} onChange={setSelectedAudience} />}

@@ -447,4 +447,17 @@ describe('URL-bound toolbar controls', () => {
     expect(within(toolbar).queryByRole('button', { name: 'Manage queries' })).toBeNull()
     expect(within(toolbar).queryByRole('link')).toBeNull()
   })
+
+  it('binds Property details to the URL selection, not the displayed report', () => {
+    const urlProperty = parseVisibilitySelection({ queryClass: 'non-brand', measurementScope: 'property', measurementScopeKey: 'pier-inn' })
+    render(<VisibilityResultsToolbar
+      report={toolbarReport({ scope: 'property' })}
+      selection={urlProperty}
+      onSelectionChange={() => {}}
+      renderPropertyLink={({ id, label }) => <a href={`/properties/${id}`}>Property details for {label}</a>}
+    />)
+    const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
+    expect(within(toolbar).getByRole('link', { name: 'Property details for pier-inn' }).getAttribute('href')).toBe('/properties/pier-inn')
+    expect(within(toolbar).queryByRole('link', { name: 'Property details for Harbor House' })).toBeNull()
+  })
 })

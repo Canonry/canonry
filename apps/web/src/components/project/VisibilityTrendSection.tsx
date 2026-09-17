@@ -9,6 +9,7 @@ import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-ap
 import { apiErrorDetails, heyClient } from '../../api.js'
 import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../lib/measurement-view-url.js'
 import { visibilityReportFirstPageQuery } from '../../lib/measurement-view-url.js'
+import { selectedScopeOption } from '../../lib/project-scope.js'
 import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
@@ -549,7 +550,13 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
   // A clean URL asks for every class until normalization records the served one.
   const queryClass = selection.queryClass === 'all' ? population.queryClass : selection.queryClass
   const tokens = visibilityFilterTokens(selection, report)
-  const propertyLink = served.mode === 'advanced' && served.scope.kind === 'property' ? renderPropertyLink?.({ id: served.scope.id, label: served.scope.label }) : null
+  const propertyKey = selection.measurementScope === 'property' ? selection.measurementScopeKey : undefined
+  const propertyLink = propertyKey
+    ? renderPropertyLink?.({
+      id: propertyKey,
+      label: selectedScopeOption(report.scopeOptions, selection)?.label ?? propertyKey,
+    })
+    : null
   const provider = selection.provider ?? ''
   const model = selection.model ?? ''
   const location = selection.location ?? ''
