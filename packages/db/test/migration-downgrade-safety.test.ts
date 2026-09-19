@@ -153,6 +153,13 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // the delete removes exactly those, so a re-run selects nothing and
   // `dead_links_checked` cannot be reduced twice.
   140,
+  // v158 rebuilds `users` so Google-only accounts can omit a password and the
+  // Analyst role can exist, while keeping every existing user id for sessions,
+  // OAuth grants, and delegated keys. The new columns are nullable or
+  // defaulted, so an older writer that still supplies a password and
+  // admin|viewer still inserts a valid row. It needs run() because SQLite
+  // cannot drop NOT NULL or widen a CHECK without a table rebuild.
+  158,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

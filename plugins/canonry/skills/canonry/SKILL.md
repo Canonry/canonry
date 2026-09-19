@@ -101,6 +101,14 @@ Properties individually; do not silently replace mention ranking with citation
 ranking. Keep sample sizes and ties visible. Preparing a report does not
 authorize new measurement.
 
+**Instance access:** administrators can use setup tools to list people and
+invitations, change roles/status, replace or revoke invitations, and revoke
+user-bound access. These changes apply to the whole install, not one project.
+Use `canonry_user_list` and `canonry_user_invitation_list` to inspect existing
+state before an authorized change. Scope the change to the exact person and
+role. Password bootstrap and Google client secrets use the trusted CLI or
+settings flow; browser Google linking is not an agent operation.
+
 ## Authority and approval
 
 ### Agent operations

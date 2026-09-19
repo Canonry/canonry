@@ -51,6 +51,7 @@ function login(name: string, remoteAddress = '203.0.113.7') {
     method: 'POST',
     url: '/api/v1/auth/login',
     remoteAddress,
+    headers: { origin: 'http://localhost:4100', host: 'localhost:4100' },
     payload: { name, password: 'whatever-they-guessed' },
   })
 }
@@ -163,6 +164,7 @@ test('a correct password still signs in once the guessing stops', async () => {
     method: 'POST',
     url: '/api/v1/auth/login',
     remoteAddress: '192.0.2.55',
+    headers: { origin: 'http://localhost:4100', host: 'localhost:4100' },
     payload: { name: 'owner', password: ADMIN_PASSWORD },
   })
   expect(res.statusCode).toBe(200)

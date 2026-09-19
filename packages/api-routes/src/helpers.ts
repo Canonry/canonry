@@ -62,6 +62,10 @@ export interface AuditEntry {
    * sequence of mutations can be grouped. Optional.
    */
   actorSession?: string | null
+  /** Stable authenticated user ID, when the caller is a user or delegated key. */
+  actorUserId?: string | null
+  /** Display name captured with the authenticated user identity. */
+  actorName?: string | null
   /** Server-issued request correlation id for an HTTP mutation. */
   requestId?: string | null
   /** ID of the API credential that authenticated an HTTP mutation. */
@@ -85,6 +89,8 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
     diff: entry.diff != null ? JSON.stringify(entry.diff) : null,
     userAgent: sanitizeRequestContext(entry.userAgent ?? context?.userAgent),
     actorSession: sanitizeRequestContext(entry.actorSession ?? context?.actorSession),
+    actorUserId: entry.actorUserId ?? null,
+    actorName: entry.actorName ?? null,
     requestId: entry.requestId ?? context?.requestId ?? null,
     credentialId: entry.credentialId ?? context?.credentialId ?? null,
     createdAt: now,
@@ -115,6 +121,12 @@ export function auditFromRequest(
   return {
     ...entry,
     actor,
+    actorUserId: entry.actorUserId ?? (request.principal?.kind === 'user'
+      ? request.principal.id
+      : request.principal?.delegatedUser?.id ?? null),
+    actorName: entry.actorName ?? (request.principal?.kind === 'user'
+      ? request.principal.name
+      : request.principal?.delegatedUser?.name ?? null),
     credentialId: entry.credentialId ?? identity.credentialId ?? context?.credentialId ?? null,
     userAgent: sanitizeRequestContext(entry.userAgent ?? userAgent),
     actorSession: sanitizeRequestContext(entry.actorSession ?? actorSession),

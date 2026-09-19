@@ -29,3 +29,7 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 
 - `packages/contracts/src/config-schema.ts` — Zod schemas for config validation
 - `packages/canonry/src/client.ts` — `createApiClient()` uses `loadConfig()`
+
+## Native Google sign-in
+
+`resolveGoogleSignInConfig` merges local `auth.google` configuration with the three `CANONRY_GOOGLE_SIGN_IN_*` overrides, including explicit false. Any override makes settings read-only in the UI/API. This configuration is separate from GSC/GA Google OAuth. Cloud `CANONRY_PUBLIC_URL` and `CANONRY_BASE_PATH` define callback routing; never infer sign-in callback authority from request Host.

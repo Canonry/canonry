@@ -105,7 +105,7 @@ function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSecti
   return { ...all, queryClient }
 }
 
-function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
+function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}, role: 'viewer' | 'analyst' = 'viewer') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const all = {
     projectName: 'demo',
@@ -115,7 +115,7 @@ function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof Querie
     ...props,
   }
   render(
-    <AccountProvider account={{ name: 'viewer', role: 'viewer' }}>
+    <AccountProvider account={{ name: 'viewer', role }}>
       <QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>
     </AccountProvider>,
   )
@@ -130,10 +130,7 @@ test('omits the Research workspace for a viewer when paid research is not enable
   expect(screen.queryByRole('tab', { name: 'Research' })).toBeNull()
 })
 
-test('gives an opted-in viewer the direct query test without exposing discovery or settings', async () => {
-  ;(window as unknown as { __CANONRY_CONFIG__: unknown }).__CANONRY_CONFIG__ = {
-    research: { allowViewers: true, viewerDailyRunLimit: 7 },
-  }
+test('gives an analyst the direct query test without exposing discovery or settings', async () => {
   const requests: Array<{ path: string; method: string; body?: unknown }> = []
   const project = {
     id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
@@ -161,7 +158,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
     throw new Error(`Unexpected fetch: ${method} ${path}`)
   })
   onTestFinished(restore)
-  renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
+  renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' }, 'analyst')
 
   expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()

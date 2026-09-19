@@ -17,12 +17,10 @@ import type {
 } from '@ainyc/canonry-contracts'
 
 import {
-  getViewerResearchConfig,
   triggerDiscoveryRun,
   heyClient,
   isEmbed,
 } from '../../api.js'
-import type { ViewerResearchConfig } from '../../api.js'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
@@ -87,12 +85,11 @@ export function QueriesSection({
   trackingQueryId,
   onTrackingQueryIdChange,
 }: QueriesSectionProps) {
-  const { account } = useAccount()
+  const { canResearch } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
   const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>('find')
   const [pendingTrackingSource, setPendingTrackingSource] = useState<PendingTrackingSource | null>(null)
-  const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
-  const showResearchWorkspace = account?.role !== 'viewer' || viewerResearchConfig !== null
+  const showResearchWorkspace = canResearch
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
   const queryWorkspace = requestedWorkspace === 'research' && !showResearchWorkspace ? 'tracked' : requestedWorkspace
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
@@ -144,7 +141,6 @@ export function QueriesSection({
             onModeChange={selectResearchMode}
             onReviewSavedSource={reviewSavedSource}
             onSelectionChange={onSelectionChange}
-            viewerResearchConfig={viewerResearchConfig}
           />
         )}
       </div>
@@ -172,7 +168,6 @@ function QueryResearchWorkspace({
   mode,
   onModeChange,
   onReviewSavedSource,
-  viewerResearchConfig,
 }: {
   projectName: string
   selection: NonNullable<QueriesSectionProps['selection']>
@@ -180,7 +175,6 @@ function QueryResearchWorkspace({
   onModeChange: (mode: ResearchWorkspaceMode) => void
   onSelectionChange?: QueriesSectionProps['onSelectionChange']
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
-  viewerResearchConfig: ViewerResearchConfig | null
 }) {
   const { canWrite } = useAccount()
   const researchWorkspaceEnabled = !canWrite || mode === 'test'
@@ -242,7 +236,6 @@ function QueryResearchWorkspace({
     return (
       <ResearchQueriesSection
         {...researchProps}
-        viewerResearchConfig={viewerResearchConfig}
       />
     )
   }

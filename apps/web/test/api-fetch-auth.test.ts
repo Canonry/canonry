@@ -1,6 +1,14 @@
 import { test, expect, onTestFinished, describe, vi, beforeEach } from 'vitest'
 
-import { fetchProjects, loginWithPassword, setupDashboardPassword, setOnAuthExpired, handleAuthExpired } from '../src/api.js'
+import {
+  fetchAuthMethods,
+  fetchProjects,
+  handleAuthExpired,
+  loginWithPassword,
+  setOnAuthExpired,
+  setupDashboardPassword,
+  signInWithAccount,
+} from '../src/api.js'
 import { fetchAeroTranscript, fetchAgentProviders, resetAeroTranscript, promptAero } from '../src/api-aero.js'
 
 function mockFetch(status: number, body?: unknown) {
@@ -80,6 +88,24 @@ describe('apiFetch auth expiry', () => {
     setOnAuthExpired(handler)
 
     await expect(setupDashboardPassword('password123')).rejects.toThrow()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('calls auth expired handler on 401 from authenticated account methods', async () => {
+    mockFetch(401, { error: { code: 'AUTH_REQUIRED', message: 'Authentication required' } })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchAuthMethods()).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('does NOT call auth expired handler for a rejected named-account login', async () => {
+    mockFetch(401, { error: { code: 'AUTH_INVALID', message: 'Incorrect name or password' } })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(signInWithAccount('person', 'wrong-password')).rejects.toThrow()
     expect(handler).not.toHaveBeenCalled()
   })
 

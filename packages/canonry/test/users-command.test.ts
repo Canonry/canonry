@@ -4,12 +4,20 @@ import type { UserDto, UserListDto } from '@ainyc/canonry-contracts'
 const mockListUsers = vi.fn()
 const mockCreateUser = vi.fn()
 const mockDeleteUser = vi.fn()
+const mockUpdateUser = vi.fn()
+const mockCreateInvitation = vi.fn()
+const mockReplaceInvitation = vi.fn()
+const mockGoogleSettings = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     listUsers: mockListUsers,
     createUser: mockCreateUser,
     deleteUser: mockDeleteUser,
+    updateUser: mockUpdateUser,
+    createUserInvitation: mockCreateInvitation,
+    replaceUserInvitation: mockReplaceInvitation,
+    updateGoogleSignInSettings: mockGoogleSettings,
   }),
 }))
 
@@ -25,11 +33,20 @@ function captureLog(): { logs: string[]; restore: () => void } {
   return { logs, restore: () => { console.log = orig } }
 }
 
-const { listUsers, createUser, deleteUser } = await import('../src/commands/users.js')
+const {
+  INVITATION_URL_OUTPUT_PREFIX,
+  listUsers,
+  createUser,
+  deleteUser,
+  updateUser,
+  createUserInvitation,
+  replaceUserInvitation,
+  configureGoogleSignIn,
+} = await import('../src/commands/users.js')
 
 const USERS: UserDto[] = [
-  { id: 'u1', name: 'owner', role: 'admin', createdAt: '2026-05-01T00:00:00.000Z', lastLoginAt: '2026-05-30T00:00:00.000Z' },
-  { id: 'u2', name: 'watcher', role: 'viewer', createdAt: '2026-05-02T00:00:00.000Z', lastLoginAt: null },
+  { id: 'u1', name: 'owner', displayName: null, email: null, role: 'admin', status: 'active', createdAt: '2026-05-01T00:00:00.000Z', lastLoginAt: '2026-05-30T00:00:00.000Z', lastSeenAt: null, authVersion: 0, hasPassword: true },
+  { id: 'u2', name: 'watcher', displayName: null, email: null, role: 'viewer', status: 'active', createdAt: '2026-05-02T00:00:00.000Z', lastLoginAt: null, lastSeenAt: null, authVersion: 0, hasPassword: true },
 ]
 
 describe('user list', () => {
@@ -84,9 +101,15 @@ describe('user create', () => {
   const created: UserDto = {
     id: 'u3',
     name: 'newcomer',
+    displayName: null,
+    email: null,
     role: 'viewer',
+    status: 'active',
     createdAt: '2026-05-31T00:00:00.000Z',
     lastLoginAt: null,
+    lastSeenAt: null,
+    authVersion: 0,
+    hasPassword: true,
   }
 
   it('asks for the password rather than taking it from the command line', async () => {
@@ -159,6 +182,77 @@ describe('user create', () => {
       createUser({ name: 'newcomer', role: 'viewer', format: undefined }),
     ).rejects.toThrow(/do not match/i)
     expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('account access controls', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('uses the typed status mutation for a suspension', async () => {
+    mockUpdateUser.mockResolvedValue({ ...USERS[1], status: 'suspended' })
+    await updateUser('u2', { status: 'suspended', format: 'json' })
+    expect(mockUpdateUser).toHaveBeenCalledWith('u2', { status: 'suspended' })
+  })
+
+  it('updates profile fields and accepts explicit clearing without changing roles', async () => {
+    const patch = { displayName: 'Profile label', email: 'profile@example.test' }
+    mockUpdateUser.mockResolvedValue({ ...USERS[1], ...patch })
+    await updateUser(USERS[1]!.id, { ...patch, format: 'json' })
+    expect(mockUpdateUser).toHaveBeenLastCalledWith(USERS[1]!.id, patch)
+    await updateUser(USERS[1]!.id, { displayName: '', email: '', format: 'json' })
+    expect(mockUpdateUser).toHaveBeenLastCalledWith(USERS[1]!.id, { displayName: null, email: null })
+  })
+
+  it('creates an analyst invitation with the requested capability role', async () => {
+    mockCreateInvitation.mockResolvedValue({ invitation: { id: 'i1', email: 'person@example.test', role: 'analyst' }, invitationUrl: 'https://canonry.example.test/#invitation=one-time-token' })
+    const cap = captureLog()
+    try {
+      await createUserInvitation({ email: 'person@example.test', role: 'analyst' })
+    } finally {
+      cap.restore()
+    }
+    expect(mockCreateInvitation).toHaveBeenCalledWith({ email: 'person@example.test', role: 'analyst' })
+    expect(cap.logs).toContain(`${INVITATION_URL_OUTPUT_PREFIX} https://canonry.example.test/#invitation=one-time-token`)
+  })
+
+  it('prints the replacement one-time invitation URL in human output while preserving JSON', async () => {
+    const invitationUrl = 'https://canonry.example.test/#invitation=replacement-one-time-token'
+    mockReplaceInvitation.mockResolvedValue({ invitation: { id: 'i1', email: 'person@example.test', role: 'analyst' }, invitationUrl })
+    const cap = captureLog()
+    try {
+      await replaceUserInvitation('i1')
+    } finally {
+      cap.restore()
+    }
+    expect(mockReplaceInvitation).toHaveBeenCalledWith('i1')
+    expect(cap.logs).toContain(`${INVITATION_URL_OUTPUT_PREFIX} ${invitationUrl}`)
+  })
+
+  it('preserves the complete invitation response for machine output', async () => {
+    const result = { invitation: { id: 'i1', email: 'person@example.test', role: 'analyst' }, invitationUrl: 'https://canonry.example.test/#invitation=machine-one-time-token' }
+    mockCreateInvitation.mockResolvedValue(result)
+    const cap = captureLog()
+    try {
+      await createUserInvitation({ email: 'person@example.test', role: 'analyst', format: 'json' })
+    } finally {
+      cap.restore()
+    }
+    expect(JSON.parse(cap.logs.join(''))).toEqual(result)
+  })
+
+  it('reads a Google client secret from stdin and never prints it', async () => {
+    mockGoogleSettings.mockResolvedValue({ enabled: true, configured: true })
+    const cap = captureLog()
+    try {
+      await configureGoogleSignIn({
+        clientSecretStdin: true,
+        readStdin: async () => 'google-secret-value\n',
+      })
+    } finally {
+      cap.restore()
+    }
+    expect(mockGoogleSettings).toHaveBeenCalledWith({ clientSecret: 'google-secret-value' })
+    expect(cap.logs.join('\n')).not.toContain('google-secret-value')
   })
 })
 

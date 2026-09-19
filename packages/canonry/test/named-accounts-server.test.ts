@@ -33,17 +33,14 @@ async function bootServer() {
   })
 }
 
-function addAccount(name: string, role: 'admin' | 'viewer') {
-  db.insert(users).values({
-    id: crypto.randomUUID(),
-    name,
-    nameKey: name.toLowerCase(),
-    // A real digest is irrelevant here: these tests never sign in, they only
-    // check that the OLD way in closes once an account exists.
-    passwordHash: 'scrypt$1$AAAA$AAAA',
-    role,
-    createdAt: new Date().toISOString(),
-  }).run()
+async function addAccount(name: string, role: 'admin' | 'viewer') {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/users',
+    headers: { authorization: `Bearer ${rawKey}` },
+    payload: { name, role, password: 'a-long-enough-admin-password' },
+  })
+  expect(response.statusCode).toBe(201)
 }
 
 beforeEach(async () => {
@@ -82,7 +79,7 @@ describe('shared dashboard password alongside named accounts', () => {
   })
 
   it('steps aside once the first account exists, and says what to do instead', async () => {
-    addAccount('owner', 'admin')
+    await addAccount('owner', 'admin')
 
     const status = await app.inject({ method: 'GET', url: '/api/v1/session' })
     expect(JSON.parse(status.body)).toEqual({ authenticated: false, setupRequired: false })
@@ -109,7 +106,7 @@ describe('shared dashboard password alongside named accounts', () => {
     const before = await app.inject({ method: 'GET', url: '/api/v1/auth/session' })
     expect(JSON.parse(before.body)).toEqual({ authRequired: false, user: null })
 
-    addAccount('owner', 'admin')
+    await addAccount('owner', 'admin')
 
     const after = await app.inject({ method: 'GET', url: '/api/v1/auth/session' })
     expect(JSON.parse(after.body)).toEqual({ authRequired: true, user: null })
@@ -123,7 +120,7 @@ describe('shared dashboard password alongside named accounts', () => {
     })
     expect(before.statusCode).toBe(200)
 
-    addAccount('owner', 'admin')
+    await addAccount('owner', 'admin')
 
     const after = await app.inject({
       method: 'GET',

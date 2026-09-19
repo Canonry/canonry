@@ -205,7 +205,7 @@ describe('research capability across the real MCP and REST boundary', () => {
     expect(started.isError).not.toBe(true)
     const receipt = content(started)
     const run = receipt.runs[0]
-    expect(run.initiatedBy).toEqual({ kind: 'user', id: 'analyst', name: 'Analyst', role: 'viewer', limited: true })
+    expect(run.initiatedBy).toEqual({ kind: 'user', id: 'analyst', name: 'Analyst', role: 'analyst', limited: true })
     expect(run.queries[0].query).toBe(args.request.runs[0].queries[0])
     expect(run).toMatchObject({
       provider: 'openai', requestedModel: 'gpt-test', resolvedModel: 'gpt-test', location: { label: 'New York' },

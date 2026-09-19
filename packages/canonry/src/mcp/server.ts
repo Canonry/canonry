@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, upgradeCaveatFor } from '@ainyc/canonry-contracts'
+import {
+  ADS_ACTIVATE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_WRITE_SCOPE,
+  isReadOnlyKey,
+  restrictedWriteScopes,
+  upgradeCaveatFor,
+} from '@ainyc/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
@@ -224,8 +231,11 @@ export function getCanonryMcpTools(
     : authorized.filter(tool => {
       if (!restricted || tool.access === 'read') return true
       if (tool.requiredScope && restricted.includes(tool.requiredScope)) return true
-      // Preserve existing Ads catalogs; their API handlers enforce individual grants.
-      return restricted.some(grant => grant !== RESEARCH_RUN_SCOPE) && tool.tier === 'ads'
+      // Preserve existing Ads catalogs only for an actual Ads grant; another
+      // named capability such as users.write must not advertise Ads writes.
+      return restricted.some(grant => (
+        grant === ADS_WRITE_SCOPE || grant === ADS_APPROVE_SCOPE || grant === ADS_ACTIVATE_SCOPE
+      )) && tool.tier === 'ads'
     })
   if (!tiers) return byScope
   const wanted = new Set<CanonryMcpTier>(tiers)

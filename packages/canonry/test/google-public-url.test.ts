@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apiKeys, createClient, migrate, projects } from '@ainyc/canonry-db'
 
-import { createServer, resolveGooglePublicUrl } from '../src/server.js'
+import { createServer, resolveGooglePublicUrl, resolveGoogleSignInPublicUrl } from '../src/server.js'
 
 describe('resolveGooglePublicUrl', () => {
   let tmpDir: string | undefined
@@ -106,5 +106,14 @@ describe('resolveGooglePublicUrl', () => {
     } finally {
       await app.close()
     }
+  })
+})
+
+describe('resolveGoogleSignInPublicUrl', () => {
+  it('requires an explicit valid public URL while preserving a configured subpath', () => {
+    expect(resolveGoogleSignInPublicUrl({ publicUrl: 'https://canonry.example.com/app' }))
+      .toBe('https://canonry.example.com/app')
+    expect(resolveGoogleSignInPublicUrl({})).toBeUndefined()
+    expect(resolveGoogleSignInPublicUrl({ publicUrl: 'not a url' })).toBeUndefined()
   })
 })

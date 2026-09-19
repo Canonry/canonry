@@ -22,6 +22,7 @@ import {
   migrate,
   projects,
   runs,
+  users,
 } from '@ainyc/canonry-db'
 import { shouldSkipAuth } from '../src/auth.js'
 import {
@@ -112,6 +113,10 @@ function buildApp({
     canonicalDomain: 'https://acme.example', country: 'US', language: 'en',
     createdAt: NOW, updatedAt: NOW,
   }).run()
+  db.insert(users).values([
+    { id: 'admin', name: 'admin', nameKey: 'admin', role: UserRoles.admin, createdAt: NOW, permissionsMigrated: true },
+    { id: 'other-admin', name: 'other admin', nameKey: 'other-admin', role: UserRoles.admin, createdAt: NOW, permissionsMigrated: true },
+  ]).run()
 
   const credentials = new Map<string, GoogleMarketingStoredCredential>()
   const credentialWrites: GoogleMarketingStoredCredential[] = []

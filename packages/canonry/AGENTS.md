@@ -661,3 +661,9 @@ Site Health, backlinks, configuration, audit records, and usage accounting remai
 ### Public sample server
 
 `canonry demo` starts a separate in-memory, synthetic, view-only runtime. It must never use the normal server factory, personal config/database paths, provider callbacks, or background workers. The exact GET/HEAD allowlist in `src/demo/access.ts` is intentional; new route registrations are denied until explicitly audited. Startup has no MCP parity because it controls a host listener. See `docs/public-demo.md`.
+
+## Native Google login and people administration
+
+`server.ts` wires config-backed native Google sign-in independently of data-integration Google OAuth. Persist config before replacing in-memory values. OAuth consent supports Google-only users and configured subpaths while retaining legacy root protocol routes.
+
+`cli-commands/users.ts` and `commands/users.ts` expose account list/create/update/suspend/reactivate/revoke-access/history and invitation list/create/replace/revoke. Google setup uses `user auth google status|configure` and secret stdin; `user auth providers` is safe metadata. Browser login and own Google linking/unlinking are protocol exceptions, not bearer-key CLI operations. MCP account administration uses the same public API authority. See [standalone setup](../../docs/google-sign-in.md).

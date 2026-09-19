@@ -253,8 +253,8 @@ test('viewer research follows the visibility model, offers discovered alternativ
   onTestFinished(restore)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   onTestFinished(() => queryClient.clear())
-  render(<AccountProvider account={{ name: 'analyst', role: 'viewer' }}>
-    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" viewerResearchConfig={{ allowViewers: true, viewerDailyRunLimit: 20 }} /></QueryClientProvider>
+  render(<AccountProvider account={{ name: 'analyst', role: 'analyst' }}>
+    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
   </AccountProvider>)
   await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · chat-latest` })
   const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement

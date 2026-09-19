@@ -61,7 +61,7 @@ export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   /** Adapter metadata for validation — keyed by provider name */
   providerAdapters?: ProviderAdapterInfo[]
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'actorUserId' | 'actorName' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
@@ -182,10 +182,12 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
     // Only trusted identity and bounded correlation reach the host's audit writer;
     // never forward the authorization header or mutable request object.
-    const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
+    const { actor, actorUserId, actorName, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
       actor: 'api', action: 'provider.updated', entityType: 'provider',
     })
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota, { actor, userAgent, actorSession, requestId, credentialId })
+    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota, {
+      actor, actorUserId, actorName, userAgent, actorSession, requestId, credentialId,
+    })
     if (!result) {
       throw internalError('Failed to update provider configuration')
     }

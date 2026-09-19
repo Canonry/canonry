@@ -66,6 +66,8 @@ export interface RouterContext {
 }
 
 type SearchParams = {
+  /** Global Settings section. Legacy /settings remains Connections. */
+  section?: 'connections' | 'people' | 'sign-in'
   /** Opens the project's query manager after a navigation, so setup can hand off to it. */
   manageQueries?: boolean
   runId?: string
@@ -123,6 +125,9 @@ function RootLayoutWithErrorBoundary() {
 export const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayoutWithErrorBoundary,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
+    section: search.section === 'connections' || search.section === 'people' || search.section === 'sign-in'
+      ? search.section
+      : undefined,
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,

@@ -78,6 +78,7 @@ function withKey(token: string) {
 }
 
 const ORIGIN = 'http://localhost:4100'
+const LOGIN_ORIGIN = { origin: ORIGIN, host: 'localhost:4100' }
 
 /**
  * A browser's headers. The cookie alone is not what a browser sends — it also
@@ -260,7 +261,16 @@ test('T2: a signed-in admin sees exactly what the root key sees', async () => {
   expect(JSON.parse(viaSession.body)).toEqual(JSON.parse(viaKey.body))
 
   const whoami = await app.inject({ method: 'GET', url: '/api/v1/auth/session', headers: withCookie(session) })
-  expect(JSON.parse(whoami.body)).toEqual({ authRequired: true, user: { name: 'owner', role: 'admin' } })
+  expect(JSON.parse(whoami.body)).toMatchObject({
+    authRequired: true,
+    user: {
+      name: 'owner',
+      role: 'admin',
+      status: 'active',
+      authVersion: 0,
+      hasPassword: true,
+    },
+  })
 })
 
 // ─── T3 ────────────────────────────────────────────────────────────────────
@@ -556,6 +566,7 @@ test('T6: the session cookie cannot be read by page scripts or ridden from anoth
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: ADMIN_PASSWORD },
   })
 
@@ -585,6 +596,7 @@ test('T6: repeated wrong passwords pause that name instead of allowing an endles
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
+      headers: LOGIN_ORIGIN,
       payload: { name: 'owner', password: 'not-the-right-password' },
     })
     statuses.push(res.statusCode)
@@ -597,6 +609,7 @@ test('T6: repeated wrong passwords pause that name instead of allowing an endles
   const correct = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: ADMIN_PASSWORD },
   })
   expect(correct.statusCode).toBe(429)
@@ -608,11 +621,13 @@ test('T6: a failed sign-in never reveals whether the name exists', async () => {
   const wrongPassword = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'owner', password: 'not-the-right-password' },
   })
   const unknownName = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
+    headers: LOGIN_ORIGIN,
     payload: { name: 'nobody', password: 'not-the-right-password' },
   })
 
@@ -694,7 +709,7 @@ test('the last administrator cannot be deleted', async () => {
 
   const refused = await app.inject({ method: 'DELETE', url: '/api/v1/users/owner', headers: withCookie(admin) })
   expect(refused.statusCode).toBe(400)
-  expect(JSON.parse(refused.body).error.message).toContain('only administrator')
+  expect(JSON.parse(refused.body).error.code).toBe('VALIDATION_ERROR')
 
   const allowed = await app.inject({ method: 'DELETE', url: '/api/v1/users/watcher', headers: withCookie(admin) })
   expect(allowed.statusCode).toBe(200)

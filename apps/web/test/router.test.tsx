@@ -245,7 +245,7 @@ test('back/forward navigation works via router history', async () => {
     await router.navigate({ to: '/settings' })
   })
   await waitFor(() => {
-    expect(container.innerHTML).toMatch(/Connections and answer engines/)
+    expect(container.querySelector('[data-testid="settings-section-navigation"]')).not.toBeNull()
   })
 
   // Go back to /runs

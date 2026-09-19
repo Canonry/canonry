@@ -222,6 +222,15 @@ describe('POST /projects', () => {
       expect(response.statusCode, name).toBe(403)
       expect(response.json()).toMatchObject({ error: { code: 'FORBIDDEN' } })
     }
+
+    const unrelatedMutation = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/existing/queries',
+      headers: { authorization: `Bearer ${USERS_WRITER_KEY}` },
+      payload: { queries: ['must not be written by an account-only key'] },
+    })
+    expect(unrelatedMutation.statusCode).toBe(403)
+    expect(unrelatedMutation.json()).toMatchObject({ error: { code: 'FORBIDDEN' } })
   })
 
   it('allows an administrator session and refuses a viewer session', async () => {
