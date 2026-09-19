@@ -88,7 +88,7 @@ test('does not advertise a working Aero prompt when no agent provider is configu
     defaultProvider: null,
   })
 
-  expect(screen.getByRole('status').textContent).toBe('Aero, the built-in AEO analyst, needs an answer-engine provider before it can read this data with you.Open Settings')
+  expect(screen.getByRole('status').textContent).toBe('Aero needs an answer-engine provider.Open Settings')
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
 
   fireEvent.click(screen.getByRole('link', { name: 'Open Settings' }))

@@ -43,6 +43,7 @@ import {
 import { useTriggerSiteAudit } from '../queries/mutations.js'
 import { AdminOnly } from '../components/shared/AccessControls.js'
 import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
+import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { Button } from '../components/ui/button.js'
 import { SetupPage } from './SetupPage.js'
 
@@ -50,6 +51,9 @@ const LazySiteHealthSection = lazy(async () => {
   const module = await import('../components/project/SiteHealthSection.js')
   return { default: module.SiteHealthSection }
 })
+
+/** Asked for, not announced: the consent line states the ask, this explains it. */
+const CRAWL_CONSENT_HELP = `Public pages only, crawled from this computer and stored locally. The first scan reads up to ${SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages, then stops.`
 
 export const SITE_HEALTH_DISPATCH_BOUNDARY_MS = 1_800
 export const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
@@ -1171,15 +1175,10 @@ function PlatformSetupPageBody({
               checked={crawlApproved}
               onChange={(event) => setCrawlApproved(event.target.checked)}
               aria-label="Allow Canonry to scan this public site."
-              aria-describedby="local-crawl-note"
             />
-            <span className="grid gap-0.5">
+            <span className="flex items-center gap-1.5">
               <span className="text-sm leading-5 text-heading">Allow Canonry to scan this public site.</span>
-              <span id="local-crawl-note" className="text-sm leading-5 text-secondary">
-                The crawl runs on this Canonry instance, follows internal links, and stores its results locally.
-                {' '}This first scan reads up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages and stops at a time limit, so on a large
-                site it is a first look rather than a full audit. You can raise the budget in Scan settings afterwards.
-              </span>
+              <InfoTooltip text={CRAWL_CONSENT_HELP} />
             </span>
           </label>
         ) : null}

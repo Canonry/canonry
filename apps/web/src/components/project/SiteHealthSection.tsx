@@ -359,10 +359,12 @@ const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = 
  * suggestion rather than a misleading one.
  */
 const TERMINATION_REMEDY: Partial<Record<SiteCrawlTermination, string>> = {
-  'max-pages': 'Raise the page budget in Scan settings, or narrow the scan with a lower crawl depth.',
-  'max-edges': 'Raise the page budget in Scan settings; the link budget follows it.',
+  'max-pages': 'Raise the page budget in Scan settings.',
+  'max-edges': 'Raise the page budget in Scan settings.',
   'max-fetches': 'Raise the page budget in Scan settings.',
-  'max-duration': 'Lower the page budget or the crawl depth in Scan settings so the next scan finishes inside its time budget.',
+  // A time limit is the one case where the fix is a SMALLER scan, which is
+  // the direction nobody guesses.
+  'max-duration': 'Try a smaller scan in Scan settings.',
   'max-depth': 'Raise the crawl depth in Scan settings.',
 }
 
@@ -1375,8 +1377,9 @@ function ActiveScanState({
         // previously set in the smallest and faintest type on the screen. It
         // also named only the page budget, when a first scan on a real site
         // usually stops at the time budget instead.
-        <p className="mt-3 rounded-lg border border-caution bg-caution-soft px-4 py-2 text-sm text-caution">
-          This first scan reads up to {boundedPageLimit} pages and stops at a time limit, so read the result as a first look at the site rather than a complete audit.
+        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-caution bg-caution-soft px-4 py-2 text-sm text-caution">
+          First look, not a full audit.
+          <InfoTooltip text={`This first scan reads up to ${boundedPageLimit} pages, or stops sooner at the time limit. Raise the budget in Scan settings once you have a result.`} />
         </p>
       ) : null}
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
@@ -2114,22 +2117,28 @@ export function SiteHealthSection({
                   Scan settings
                 </summary>
                 <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)]">
-                  <label className="flex cursor-pointer items-start gap-3 text-sm text-heading">
+                  <div className="flex items-center justify-between gap-3 text-sm text-heading">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      Check dead links
+                      <InfoTooltip text="Adds dead-link analysis to this scan. Slower on a large site." />
+                    </span>
                     <input
                       type="checkbox"
                       aria-label="Check dead links"
                       checked={checkDeadLinks}
                       disabled={scanBusy}
                       onChange={(event) => setCheckDeadLinks(event.target.checked)}
-                      className="mt-0.5 size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
                     />
-                    <span>
-                      <span className="font-medium">Check dead links</span>
-                      <span className="mt-1 block text-sm text-secondary">Adds dead-link analysis to this scan.</span>
+                  </div>
+                  {/* The tooltip sits OUTSIDE the label: inside it, its own
+                      accessible name folds into the control's, and both answer
+                      to the same name. */}
+                  <div className="mt-4">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
+                      Page budget
+                      <InfoTooltip text="How many pages one scan may read before it stops." />
                     </span>
-                  </label>
-                  <label className="mt-4 block text-sm text-heading">
-                    <span className="font-medium">Page budget</span>
                     <select
                       aria-label="Page budget"
                       value={pageBudget === null ? '' : String(pageBudget)}
@@ -2141,9 +2150,12 @@ export function SiteHealthSection({
                         <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
                       ))}
                     </select>
-                  </label>
-                  <label className="mt-3 block text-sm text-heading">
-                    <span className="font-medium">Crawl depth</span>
+                  </div>
+                  <div className="mt-3">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
+                      Crawl depth
+                      <InfoTooltip text="How far from the home page to follow links. A smaller scan is what fixes a scan that ran out of time." />
+                    </span>
                     <select
                       aria-label="Crawl depth"
                       value={crawlDepth === null ? '' : String(crawlDepth)}
@@ -2155,10 +2167,7 @@ export function SiteHealthSection({
                         <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
                       ))}
                     </select>
-                    <span className="mt-1 block text-sm text-secondary">
-                      A smaller scan finishes inside its time budget. A scan that ran out of time needs a lower one, not a higher page budget.
-                    </span>
-                  </label>
+                  </div>
                 </div>
               </details>
               <WriteButton onClick={startScan} disabled={scanBusy}>

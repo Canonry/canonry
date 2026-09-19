@@ -1013,9 +1013,9 @@ test('states the bounded first-run budget during onboarding and not on a regular
 
     const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
     if (surface === 'onboarding') {
-      expect(scanProgress.textContent).toContain('This first scan reads up to 100 pages')
+      expect(scanProgress.textContent).toContain('First look, not a full audit.')
     } else {
-      expect(scanProgress.textContent).not.toContain('This first scan reads up to 100 pages')
+      expect(scanProgress.textContent).not.toContain('First look, not a full audit.')
     }
 
     cleanup()

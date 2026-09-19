@@ -522,8 +522,10 @@ test('auto waits for a successful authoritative empty project list before showin
     name: 'Allow Canonry to scan this public site.',
   })
   expect(crawlApproval).toBeTruthy()
-  expect(crawlApproval.getAttribute('aria-describedby')).toBe('local-crawl-note')
-  expect(screen.getByText(/The crawl runs on this Canonry instance, follows internal links, and stores its results locally\./)).toBeTruthy()
+  // Detail moved into a tooltip: the consent line states the ask and nothing else.
+  expect(crawlApproval.getAttribute('aria-describedby')).toBeNull()
+  expect(screen.getByLabelText(/Public pages only, crawled from this computer/)).toBeTruthy()
+  expect(screen.getByLabelText(/Public pages only, crawled from this computer/)).toBeTruthy()
   expect(screen.queryByText('Allow Canonry to scan this public site and follow internal links.')).toBeNull()
   expect(screen.getByRole('button', { name: 'Scan site' })).toBeTruthy()
   const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
