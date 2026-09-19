@@ -177,6 +177,9 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
     console.log('Providers: none (Page Health works now; add one later to enable AI Visibility).')
   }
   if (generatedApiKey) {
-    console.log(`API key: ${generatedApiKey}`)
+    // Say what it is for. This is the only place the key appears, and without
+    // a purpose it reads as a second credential competing with the dashboard
+    // password the operator is about to be asked for.
+    console.log(`API key (for the CLI, MCP, and agents): ${generatedApiKey}`)
   }
 }
