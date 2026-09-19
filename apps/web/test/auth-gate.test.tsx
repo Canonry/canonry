@@ -95,7 +95,10 @@ describe('AuthGate', () => {
       // One screen, one thing to act on. What the CLI's API key is for belongs
       // where that key is printed, not in front of someone who has not reached
       // a terminal yet.
-      expect(screen.getByText('This password protects the dashboard on this computer. Canonry cannot recover it, so store it somewhere you can find.')).toBeTruthy()
+      expect(screen.getByText('This password protects the dashboard on this computer.')).toBeTruthy()
+      // The sign-in screen already offers "Forgot password? Use API key", so a
+      // warning that it cannot be recovered contradicts the product.
+      expect(screen.queryByText(/cannot recover/i)).toBeNull()
       expect(screen.queryByText(/API key/)).toBeNull()
       expect(screen.queryByText(/future visits/i)).toBeNull()
     })
