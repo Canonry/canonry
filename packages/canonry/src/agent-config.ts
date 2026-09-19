@@ -25,6 +25,7 @@ export function resolveAgentEnabled(env: NodeJS.ProcessEnv, config: CanonryConfi
   }
   return config.agent?.mode !== 'disabled'
 }
+
 /**
  * Resolve whether Aero may wake ITSELF, from the environment layered over
  * `~/.canonry/config.yaml`, resolved exactly the way `resolveAgentEnabled`
