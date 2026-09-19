@@ -135,10 +135,11 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.1 is the agent tier; glm-5.1-flash is the cheap tier
  *     for analyze + classify.
- *   - DeepInfra: GLM-5.2 (Western-hosted, Sonnet-class open weights) on all
- *     three tiers. At ~$0.95/$3.00 per 1M it undercuts the Claude analyze
- *     (Sonnet) and classify (Haiku) tiers it replaces, so the cheaper tiers
- *     take no quality hit. These are DeepInfra `org/Model` slugs, not pi-ai
+ *   - DeepInfra: Western-hosted open weights, split by tier. DeepSeek-V4-Flash
+ *     drives the agent loop at ~$0.09/$0.18 per 1M; GLM-5.2 stays on analyze +
+ *     classify, where suppressing the reasoning trace rides GLM's chat-template
+ *     switch and so needs a reasoning model to apply. Both undercut the Claude
+ *     tiers they replace. These are DeepInfra `org/Model` slugs, not pi-ai
  *     catalog ids — model resolution builds a custom openai-completions model
  *     (see `buildOpenAiCompatibleModel`). Serving is quantized (FP8/FP4);
  *     validate quality before production use.
@@ -170,15 +171,62 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
   [AgentProviderIds.deepinfra]: {
-    // DeepInfra `org/Model` slugs. GLM-5.2 (Sonnet-class) on all three tiers —
-    // it undercuts the Claude tiers it replaces, so the cheaper tiers take no
-    // quality hit. Resolved into a custom openai-completions model, not pi-ai's
-    // catalog.
-    [LlmCapabilities.agent]: 'zai-org/GLM-5.2',
+    // DeepInfra `org/Model` slugs, resolved into a custom openai-completions
+    // model rather than pi-ai's catalog.
+    //
+    // The agent tier is pinned explicitly: the dashboard picker sends a
+    // provider and no model, so whatever sits here is what selecting DeepInfra
+    // pins a session to.
+    //
+    // analyze + classify stay on GLM on purpose. Those tiers suppress the
+    // reasoning trace through GLM's chat-template switch, and that branch
+    // applies only to a model declared `reasoning: true`; moving them to
+    // DeepSeek-V4-Flash (which is not) would quietly stop suppressing anything.
+    [LlmCapabilities.agent]: 'deepseek-ai/DeepSeek-V4-Flash',
     [LlmCapabilities.analyze]: 'zai-org/GLM-5.2',
     [LlmCapabilities.classify]: 'zai-org/GLM-5.2',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
+
+/**
+ * Model ids that must no longer drive a provider's AGENT tier.
+ *
+ * A session persists its model id, so bumping `PROVIDER_MODELS[x].agent` only
+ * changes what NEW sessions get. Every install that already used that provider
+ * keeps answering on the old model forever: the dashboard bar sends a provider
+ * only once someone opens the picker for that project, so an ordinary turn
+ * names neither provider nor model, and nothing on that path re-reads a stored
+ * pin against the current tier. Listing the old id here makes the next hydrate
+ * move it (see `resolveAgentModelPin`).
+ *
+ * Scoped to the agent tier on purpose. `zai-org/GLM-5.2` is retired as
+ * DeepInfra's agent model but is still its analyze and classify model, so this
+ * is not a statement that the model is gone — only that it must not be what
+ * drives the agent loop.
+ */
+export const RETIRED_AGENT_MODELS: Record<AgentProviderId, readonly string[]> = {
+  [AgentProviderIds.claude]: [],
+  [AgentProviderIds.openai]: [],
+  [AgentProviderIds.gemini]: [],
+  [AgentProviderIds.zai]: [],
+  // Was the agent tier before DeepSeek-V4-Flash, at roughly ten times the cost.
+  [AgentProviderIds.deepinfra]: ['zai-org/GLM-5.2'],
+}
+
+/**
+ * Resolve a session's stored model id against its provider's current agent
+ * tier, returning the id the session should actually run on.
+ *
+ * Only a RETIRED id is moved. An unrecognised id is left alone: an
+ * OpenAI-compatible host serves any slug it hosts, so a model this registry has
+ * never heard of is an explicit operator choice rather than a stale pin, and
+ * silently rewriting it would be the same class of bug in the other direction.
+ */
+export function resolveAgentModelPin(provider: string, storedModelId: string): string {
+  if (!isAgentProviderId(provider)) return storedModelId
+  if (!RETIRED_AGENT_MODELS[provider].includes(storedModelId)) return storedModelId
+  return AGENT_PROVIDERS[provider].defaultModel
+}
 
 // Explicitly typed as the widened entry record (not `as const satisfies`) so
 // `AGENT_PROVIDERS[id].openaiCompatible` is visible on every member — the
@@ -236,7 +284,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
       },
       // Best-effort metadata. Costs are USD/1M tokens (DeepInfra published
       // rates: GLM-5.2 ~$0.95 in / $0.18 cached / $3.00 out; DeepSeek-V4-Flash
-      // ~$0.10 in / $0.20 out). contextWindow is DeepInfra's 1M (fp4) serving
+      // $0.09 in / $0.18 out). contextWindow is DeepInfra's 1M (fp4) serving
       // window for both models; it's descriptive (see OpenAiCompatibleModelMeta),
       // so it documents the real window rather than gating compaction.
       knownModels: {
@@ -250,7 +298,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
           contextWindow: 1_048_576,
           maxTokens: 32768,
           reasoning: false,
-          cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+          cost: { input: 0.09, output: 0.18, cacheRead: 0, cacheWrite: 0 },
         },
       },
       // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is
@@ -446,6 +494,14 @@ export function validateAgentProviderRegistry(): void {
     }
     const entry = AGENT_PROVIDERS[provider]
     const agentModel = PROVIDER_MODELS[provider][LlmCapabilities.agent]
+    if (RETIRED_AGENT_MODELS[provider].includes(agentModel)) {
+      throw new Error(
+        `RETIRED_AGENT_MODELS[${provider}] lists '${agentModel}', which is still ` +
+          `PROVIDER_MODELS[${provider}].agent. A retired model cannot also be the ` +
+          `current agent tier, or every hydrate would rewrite the row to the value ` +
+          `it just rejected.`,
+      )
+    }
     if (entry.defaultModel !== agentModel) {
       throw new Error(
         `AGENT_PROVIDERS[${provider}].defaultModel ('${entry.defaultModel}') ` +

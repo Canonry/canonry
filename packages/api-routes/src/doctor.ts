@@ -10,6 +10,7 @@ import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import type { AgentProviderOption } from '@ainyc/canonry-contracts'
+import { isInstanceAdministrator } from './auth.js'
 import { resolveProject } from './helpers.js'
 import type { GoogleMarketingDoctorInputResolver } from './doctor/checks/google-marketing.js'
 
@@ -80,6 +81,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       getAgentProviderSummary: opts.getAgentProviderSummary,
+      callerIsInstanceAdministrator: isInstanceAdministrator(request),
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
@@ -115,6 +117,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       getAgentProviderSummary: opts.getAgentProviderSummary,
+      callerIsInstanceAdministrator: isInstanceAdministrator(request),
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,

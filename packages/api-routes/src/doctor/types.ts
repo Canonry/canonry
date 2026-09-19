@@ -77,6 +77,17 @@ export interface DoctorContext {
    */
   getAgentProviderSummary?: () => AgentProviderOption[]
   /**
+   * Whether the caller is an administrator of this install, as opposed to a
+   * signed-in viewer or an API key narrower than the install. Wired from the
+   * request by the doctor routes; checks that would otherwise disclose
+   * administrator-only configuration consult it before filling in a summary.
+   *
+   * Undefined means no caller was resolved — a direct `runChecks` from the CLI,
+   * where the operator is the one running it — and is treated as an
+   * administrator, matching how the auth helpers treat an absent principal.
+   */
+  callerIsInstanceAdministrator?: boolean
+  /**
    * Map of `traffic_sources.source_type` → adapter-specific validator. The
    * generic `traffic.source.credentials` / `traffic.source.scopes` checks
    * dispatch to the matching entry. Sources whose type has no validator

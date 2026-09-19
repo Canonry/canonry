@@ -20,7 +20,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { getAgentProvider } from './providers.js'
+import { getAgentProvider, resolveAgentModelPin } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -39,6 +39,19 @@ export interface SessionRegistryOptions {
   db: DatabaseClient
   client: ApiClient
   config: CanonryConfig
+  /**
+   * Whether Aero may wake itself. Omitted or `true` keeps the proactive
+   * behaviour every install has today. `false` is prompt-only: nothing is
+   * queued, nothing drains, and nothing already queued is bundled into a later
+   * interactive turn.
+   *
+   * Enforced HERE rather than only at the caller. `server.ts` returns early
+   * from the run-completion callback, but a follow-up may already be sitting in
+   * `agent_sessions.follow_up_queue` from before the mode was set, and the
+   * prompt route bundles pending messages in front of the next turn. A guard at
+   * the caller alone would let that one through the first time someone typed.
+   */
+  proactive?: boolean
 }
 
 export interface SessionPreferences {
@@ -132,6 +145,11 @@ export class SessionRegistry {
     this.opts = opts
   }
 
+  /** False only in prompt-only mode; absent means proactive, as it always was. */
+  private get proactive(): boolean {
+    return this.opts.proactive !== false
+  }
+
   /**
    * Lazily load + cache the injected remote MCP tools. The seam OSS-A exposes:
    * `loadExternalMcpTools` connects to each configured server over the frozen
@@ -203,9 +221,16 @@ export class SessionRegistry {
       // Explicit caller preferences override the persisted values (and are
       // persisted back). This keeps `--provider` / `--model` flags meaningful
       // after the first session exists instead of silently ignoring them.
+      // A stored pin can name a model that is no longer its provider's agent
+      // tier, which is what every install carries after a tier bump. Hydrate is
+      // the one place that reads the pin on an ordinary turn, so the move has to
+      // happen here: `acquireForTurn` calls `alignModel` only when the caller
+      // named a provider or a model, and the dashboard bar names neither until
+      // someone opens the provider picker for that project.
+      const repinnedModelId = resolveAgentModelPin(row.modelProvider, row.modelId)
       const effectiveProvider = (preferences?.provider ?? row.modelProvider) as SupportedAgentProvider
-      const effectiveModelId = preferences?.modelId ?? row.modelId
-      if (preferences?.provider || preferences?.modelId) {
+      const effectiveModelId = preferences?.modelId ?? repinnedModelId
+      if (preferences?.provider || preferences?.modelId || repinnedModelId !== row.modelId) {
         this.opts.db
           .update(agentSessions)
           .set({
@@ -235,7 +260,10 @@ export class SessionRegistry {
       this.profiles.set(projectName, preferences?.toolProfile ?? AeroToolProfiles.default)
       this.projectIds.set(projectName, projectId)
 
-      if (queued.length > 0) {
+      // Prompt-only leaves a persisted queue exactly where it is: not pulled
+      // into memory (it would ride the next interactive turn) and not cleared
+      // (turning the wake back on must not have cost the operator the events).
+      if (queued.length > 0 && this.proactive) {
         this.appendPending(projectName, queued)
         this.updateRow(projectId, { followUpQueue: '[]' })
       }
@@ -517,6 +545,8 @@ export class SessionRegistry {
    * both the in-memory pending and the DB-queue migration produced copies).
    */
   queueFollowUp(projectName: string, message: AgentMessage): void {
+    // Prompt-only: nothing wakes Aero, so nothing is worth queuing either.
+    if (!this.proactive) return
     if (this.live.has(projectName)) {
       this.appendPending(projectName, [message])
     } else {
@@ -526,6 +556,9 @@ export class SessionRegistry {
 
   /** Consume (and clear) the pending queue for a project. Caller prompts with the result. */
   consumePending(projectName: string): AgentMessage[] {
+    // Prompt-only: the interactive turn carries the user's message and nothing
+    // else. The persisted queue is left intact rather than consumed.
+    if (!this.proactive) return []
     const msgs = this.pending.get(projectName) ?? []
     if (msgs.length === 0) return []
     this.pending.delete(projectName)
@@ -547,6 +580,7 @@ export class SessionRegistry {
    * RunCoordinator calls after a run completes to wake Aero unprompted.
    */
   async drainNow(projectName: string): Promise<void> {
+    if (!this.proactive) return
     if (!this.hasPendingWork(projectName)) return
     try {
       let agent: Agent
