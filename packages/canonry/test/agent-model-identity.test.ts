@@ -3,18 +3,26 @@
  *
  * `requireAdminSession` refuses signed-in VIEWERS, but it passes any API key,
  * because a key carries no role. So a narrow key (a read-only one, or one
- * scoped to a single project) still reaches these reads. That is the caller
- * this redaction is for: authorized to read the project, not entitled to know
- * which provider and model sit behind Aero, or what a turn cost.
+ * scoped to a single project) used to reach these reads. It no longer does:
+ * `requireInstanceAdministrator` asks both questions, so such a key is refused
+ * outright rather than served a trimmed body.
  *
- * Three places leak it, and all three are covered here:
+ * Refusal rather than redaction, because identity was never the only secret on
+ * these routes. There is one Aero session per project, so the transcript is the
+ * operator's conversation, and memory holds operator notes plus LLM-written
+ * summaries OF that conversation. Stripping provenance would have hidden which
+ * model answered while still handing over everything it said.
+ *
+ * Three places leak identity, and all three are covered here:
  *   - the transcript's `modelProvider` / `modelId`
  *   - per-message provenance on every persisted assistant message
  *     (`model`, `provider`, `api`, and `usage`, which carries cost)
  *   - the provider catalog, which names a default model per provider
  *
  * The leak scan is built FROM the registry rather than from a hand-written
- * list, so a model added later is covered without editing this file.
+ * list, so a model added later is covered without editing this file. Every
+ * route it scans is SEEDED with content that would fail the scan if served:
+ * an empty body passes a leak scan for the wrong reason.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import os from 'node:os'
@@ -22,7 +30,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { createClient, migrate, agentSessions, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, agentMemory, agentSessions, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { AGENT_PROVIDER_IDS, AppError } from '@ainyc/canonry-contracts'
 import type { AuthPrincipal } from '@ainyc/canonry-api-routes'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
@@ -36,6 +44,15 @@ const SESSION_PROVIDER = 'deepinfra'
 const SESSION_MODEL = 'deepseek-ai/DeepSeek-V4-Flash'
 const ANSWER_TEXT = 'Coverage held steady across the tracked basket.'
 const QUESTION_TEXT = 'How did coverage move this week?'
+
+/**
+ * Memory rows that name the provider and model outright. Without them the
+ * memory route returns `{"entries":[]}` and its leak scan passes vacuously,
+ * which is precisely the route with the most to disclose: `writeCompactionNote`
+ * persists LLM summaries of the operator's transcript here.
+ */
+const MEMORY_NOTE = 'Aero answers through DeepInfra (GLM / DeepSeek) on deepseek-ai/DeepSeek-V4-Flash.'
+const COMPACTION_NOTE = 'Earlier turns summarized: deepseek-ai/DeepSeek-V4-Flash reported the basket held.'
 
 /**
  * Every string that would disclose provider or model identity, derived from
@@ -169,6 +186,28 @@ describe('Aero model identity is administrator-only', () => {
       updatedAt: now,
     }).run()
 
+    // An operator note and a compaction summary, both naming the model.
+    db.insert(agentMemory).values([
+      {
+        id: crypto.randomUUID(),
+        projectId: 'proj_acme',
+        key: 'operator-note',
+        value: MEMORY_NOTE,
+        source: 'user',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId: 'proj_acme',
+        key: 'compaction:session:1',
+        value: COMPACTION_NOTE,
+        source: 'compaction',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run()
+
     app = Fastify()
     app.setErrorHandler((error, _req, reply) => {
       if (error instanceof AppError) return reply.status(error.statusCode).send(error.toJSON())
@@ -196,37 +235,25 @@ describe('Aero model identity is administrator-only', () => {
     ['a read-only key', READ_ONLY_PRINCIPAL],
     ['a project-scoped key', PROJECT_KEY_PRINCIPAL],
   ])('%s', (_label, nonAdmin) => {
-    it('is told nothing about the provider or model on the transcript', async () => {
+    it.each(['transcript', 'providers', 'memory'])('is refused on /%s', async (route) => {
       principal = nonAdmin
-      const res = await get(`/projects/${PROJECT}/agent/transcript`)
-
-      expect(res.statusCode).toBe(200)
-      const body = res.json() as { modelProvider: unknown; modelId: unknown; messages: Record<string, unknown>[] }
-      expect(body.modelProvider).toBeNull()
-      expect(body.modelId).toBeNull()
-
-      const assistant = body.messages.find(message => message.role === 'assistant')!
-      expect(assistant).toBeDefined()
-      for (const field of ['model', 'provider', 'api', 'usage']) {
-        expect(assistant, `assistant message still carries ${field}`).not.toHaveProperty(field)
-      }
+      expect((await get(`/projects/${PROJECT}/agent/${route}`)).statusCode).toBe(403)
     })
 
-    it('still gets the conversation itself', async () => {
+    it('does not get the conversation either', async () => {
       principal = nonAdmin
       const body = (await get(`/projects/${PROJECT}/agent/transcript`)).body
 
-      // Redaction is about identity and cost, not about blanking the record.
-      expect(body).toContain(ANSWER_TEXT)
-      expect(body).toContain(QUESTION_TEXT)
+      expect(body).not.toContain(ANSWER_TEXT)
+      expect(body).not.toContain(QUESTION_TEXT)
     })
 
-    it('gets no model ids from the provider catalog', async () => {
+    it('does not get the operator memory notes', async () => {
       principal = nonAdmin
-      const res = await get(`/projects/${PROJECT}/agent/providers`)
+      const body = (await get(`/projects/${PROJECT}/agent/memory`)).body
 
-      expect(res.statusCode).toBe(200)
-      expect(res.json()).toEqual({ providers: [], defaultProvider: null })
+      expect(body).not.toContain(MEMORY_NOTE)
+      expect(body).not.toContain(COMPACTION_NOTE)
     })
 
     it.each(['transcript', 'providers', 'memory'])(
@@ -273,6 +300,16 @@ describe('Aero model identity is administrator-only', () => {
       expect(assistant.provider).toBe(SESSION_PROVIDER)
       expect(assistant.api).toBe('openai-completions')
       expect(assistant.usage).toBeDefined()
+    })
+
+    it('still sees the memory notes', async () => {
+      principal = admin
+      const body = (await get(`/projects/${PROJECT}/agent/memory`)).body
+
+      // Also the anti-vacuity control for the non-admin memory scan above:
+      // it proves the seeded rows exist and do reach this route.
+      expect(body).toContain(MEMORY_NOTE)
+      expect(body).toContain(COMPACTION_NOTE)
     })
 
     it('still sees the full provider catalog', async () => {

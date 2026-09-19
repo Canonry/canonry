@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import {
   agentSessions,
   parseJsonColumn,
@@ -15,11 +15,9 @@ import {
   validationError,
   type AgentMemoryListResponse,
   describeError,
-  UserRoles,
-  WILDCARD_SCOPE,
 } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
-import { requireAdminSession } from '@ainyc/canonry-api-routes'
+import { requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
 import {
@@ -50,56 +48,6 @@ export interface AgentRoutesOptions {
   sessionRegistry: SessionRegistry
 }
 
-/**
- * Fields pi-agent-core stamps onto a persisted assistant message that disclose
- * which model answered: the model id, the vendor, the transport (whose name
- * embeds a vendor), and the usage block, which carries per-turn cost.
- */
-const MESSAGE_PROVENANCE_FIELDS = ['model', 'provider', 'api', 'usage'] as const
-
-/**
- * Whether this caller may learn which provider and model sit behind Aero.
- *
- * Separate from `requireAdminSession`, which answers a different question.
- * That gate refuses signed-in VIEWERS, but it passes every API key, because a
- * key carries no role at all. So a narrow key — read-only, or confined to one
- * project — still reaches these reads. Such a key is authorized to read the
- * project; it was never handed the operator's choice of model, nor what a turn
- * costs them.
- *
- * Admin means: a signed-in administrator (directly, or behind a delegated
- * credential), or the install's own full-instance wildcard key, which is what
- * `canonry init` writes and what the CLI and MCP present. A request with no
- * principal at all is the un-authenticated internal path (the auth plugin did
- * not run), and is left as it was.
- */
-function revealsModelIdentity(request: FastifyRequest): boolean {
-  const principal = request.principal
-  if (!principal) return true
-  const role = principal.kind === 'user' ? principal.role : principal.delegatedUser?.role
-  if (role) return role === UserRoles.admin
-  return !principal.projectId && principal.scopes.includes(WILDCARD_SCOPE)
-}
-
-/**
- * Copy the transcript with every message's provenance removed. Returns new
- * objects: the stored row is never touched, because the operator's own reads,
- * the CLI, and cost accounting all still need what it holds.
- */
-function redactMessageProvenance(messages: AgentMessage[]): AgentMessage[] {
-  return messages.map((message) => {
-    const copy = { ...(message as unknown as Record<string, unknown>) }
-    let redacted = false
-    for (const field of MESSAGE_PROVENANCE_FIELDS) {
-      if (field in copy) {
-        delete copy[field]
-        redacted = true
-      }
-    }
-    return (redacted ? copy : message) as AgentMessage
-  })
-}
-
 function resolveProject(db: DatabaseClient, name: string): { id: string; name: string } {
   const row = db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.name, name)).get()
   if (!row) throw notFound('project', name)
@@ -121,26 +69,43 @@ function resolveProject(db: DatabaseClient, name: string): { id: string; name: s
  * Aero is an operator tool. On an install where the customer's analysts hold
  * viewer accounts, the dashboard can hide the command bar, but hiding it is
  * presentation: a viewer still holds a session cookie and can call these paths
- * directly. `requireAdminSession` is the boundary; the hidden bar is only
- * courtesy.
+ * directly. `requireInstanceAdministrator` is the boundary; the hidden bar is
+ * only courtesy.
+ *
+ * That gate asks TWO questions, and both are load-bearing here.
+ * `requireAdminSession` alone would answer only the first: it reads a role, so
+ * it refuses a viewer but passes every API key, since a key carries no role at
+ * all. A narrow key — read-only, or confined to one project — would still reach
+ * every read. So the gate also refuses any key narrower than the install, and a
+ * project-scoped read-only key is exactly the credential an operator hands to a
+ * client integration.
  *
  * The prompt route is where it matters most. Aero's tools execute with the
  * INSTALL ROOT key (server.ts builds its ApiClient from `config.apiKey`, which
  * carries the wildcard scope), and the per-turn tool scope is read off the
- * request body. So a viewer who reached this route would not be acting with
- * their own authority — they would be driving the operator's.
+ * request body. So a caller who reached this route would not be acting with
+ * their own authority — they would be driving the operator's, whatever their
+ * own credential was narrowed to.
  *
- * GET transcript is admin-ONLY rather than admin-REDACTED, deliberately. There
- * is exactly one Aero session per project, so the transcript is not metadata
- * about a conversation, it is the operator's conversation: what they asked,
- * what Aero found, and whatever the tools returned along the way. Stripping the
- * model provenance would hide which model answered while still handing over
- * everything it said. Redaction is the right shape for a field that leaks; it
- * is the wrong shape for a body that was never the reader's to see.
+ * The reads are refused outright rather than redacted, deliberately. There is
+ * exactly one Aero session per project, so the transcript is not metadata about
+ * a conversation, it is the operator's conversation: what they asked, what Aero
+ * found, and whatever the tools returned along the way. Memory is the same
+ * material — operator notes, plus the compaction summaries Aero writes OF that
+ * transcript. Stripping model provenance would have hidden which model answered
+ * while still handing over everything it said. Redaction is the right shape for
+ * a field that leaks; it is the wrong shape for a body that was never the
+ * reader's to see.
  *
- * The gate runs BEFORE `resolveProject` on purpose: a viewer gets the same 403
- * whether or not the project exists, so the refusal cannot be used to probe
- * which projects an install has.
+ * Which model answers is administrator knowledge for the same reason, so the
+ * provider catalog is refused too rather than trimmed: naming which providers
+ * exist and which one is configured is most of the answer. The doctor check
+ * `config.agent-providers` guards the same fact on a route that is NOT
+ * administrator-only, via `callerIsInstanceAdministrator`.
+ *
+ * The gate runs BEFORE `resolveProject` on purpose: a refused caller gets the
+ * same 403 whether or not the project exists, so the refusal cannot be used to
+ * probe which projects an install has.
  *
  * SSE envelope: each line is `data: <JSON AgentEvent>\n\n`. Two control frames
  * wrap the stream — `stream_open` immediately after headers flush (so clients
@@ -151,22 +116,13 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
       if (!row) {
         return { messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
       }
       const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
-      // Redaction happens on the way out, never in the database.
-      if (!revealsModelIdentity(request)) {
-        return {
-          messages: redactMessageProvenance(messages),
-          modelProvider: null,
-          modelId: null,
-          updatedAt: row.updatedAt,
-        }
-      }
       return {
         messages,
         modelProvider: row.modelProvider,
@@ -184,16 +140,8 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/providers',
     async (request) => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       resolveProject(opts.db, request.params.name)
-      // This catalog names a default model for every provider, so serving it is
-      // disclosing model identity by another path. A caller who may not know it
-      // gets an EMPTY catalog rather than a trimmed one: a trimmed list would
-      // still say which providers exist and which one is configured, which is
-      // most of the answer.
-      if (!revealsModelIdentity(request)) {
-        return { providers: [], defaultProvider: null }
-      }
       return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
     },
   )
@@ -201,7 +149,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.delete<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       // `reset` (not `evict`) — wipes the in-memory pending follow-up
       // buffer too. Otherwise a system message queued on a hot session
@@ -220,7 +168,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     Params: { name: string }
     Body: AgentPromptBody
   }>('/projects/:name/agent/prompt', async (request, reply) => {
-    requireAdminSession(request)
+    requireInstanceAdministrator(request)
     const project = resolveProject(opts.db, request.params.name)
     const body = request.body as unknown as AgentPromptBody | undefined
     const promptText = (body?.prompt ?? '').trim()
@@ -317,7 +265,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/memory',
     async (request): Promise<AgentMemoryListResponse> => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       return { entries: listMemoryEntries(opts.db, project.id) }
     },
@@ -326,7 +274,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.put<{ Params: { name: string }; Body: unknown }>(
     '/projects/:name/agent/memory',
     async (request) => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const parsed = agentMemoryUpsertRequestSchema.safeParse(request.body)
       if (!parsed.success) {
@@ -354,7 +302,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.delete<{ Params: { name: string }; Body: unknown }>(
     '/projects/:name/agent/memory',
     async (request) => {
-      requireAdminSession(request)
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const parsed = agentMemoryDeleteRequestSchema.safeParse(request.body)
       if (!parsed.success) {

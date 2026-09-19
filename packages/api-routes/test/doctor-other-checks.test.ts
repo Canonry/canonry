@@ -306,4 +306,33 @@ describe('config.agent-providers', () => {
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent-providers.summary-unavailable')
   })
+
+  it('tells a caller who is not an install administrator nothing', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      callerIsInstanceAdministrator: false,
+      getAgentProviderSummary: () => [
+        agentEntry('claude', false),
+        agentEntry('deepinfra', true, 'config'),
+      ],
+    })
+    expect(result.status).toBe('skipped')
+    expect(result.code).toBe('agent-providers.restricted')
+    // Which providers exist and that one is configured is most of the answer,
+    // so a count is as disclosing as a name.
+    expect(result.summary).not.toContain('deepinfra')
+    expect(result.summary).not.toMatch(/\d+ of \d+/)
+    expect(result.details).toBeUndefined()
+  })
+
+  it('treats an unwired caller as the operator, so the CLI doctor is unchanged', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [agentEntry('deepinfra', true, 'config')],
+    })
+    expect(result.status).toBe('ok')
+    expect(result.summary).toContain('deepinfra')
+  })
 })
