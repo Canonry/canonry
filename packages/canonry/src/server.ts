@@ -74,7 +74,7 @@ import type {
   ProviderConfigEntry,
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
-import { resolveAgentEnabled } from "./agent-config.js";
+import { resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfigPatch, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
@@ -962,11 +962,18 @@ export async function createServer(opts: {
   // the proactive wake on run completion, and the interactive agent routes —
   // the data/intelligence/notification pipeline is unaffected.
   const agentEnabled = resolveAgentEnabled(process.env, opts.config);
+  // Prompt-only Aero (config `agent.mode: 'prompt-only'` or env
+  // CANONRY_AGENT_PROMPT_ONLY=1): every interactive surface stays, and only the
+  // proactive wake below is removed. Passed to the registry as well as checked
+  // here, because a follow-up persisted under an earlier mode would otherwise
+  // ride along on the next interactive turn.
+  const agentProactive = resolveAgentProactiveEnabled(process.env, opts.config);
   const sessionRegistry = agentEnabled
     ? new SessionRegistry({
         db: opts.db,
         client: aeroClient,
         config: opts.config,
+        proactive: agentProactive,
       })
     : undefined;
 
@@ -979,6 +986,9 @@ export async function createServer(opts: {
     async (ctx) => {
       // Aero kill-switch: never wake the agent on run completion when disabled.
       if (!sessionRegistry) return;
+      // Prompt-only: Aero answers when asked and never starts a turn itself.
+      // Returning here also avoids composing a message nobody will read.
+      if (!agentProactive) return;
       const project = opts.db
         .select({ name: projects.name })
         .from(projects)
