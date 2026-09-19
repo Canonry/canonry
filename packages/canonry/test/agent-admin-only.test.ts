@@ -102,6 +102,34 @@ function principalFor(role: 'admin' | 'viewer'): AuthPrincipal {
   }
 }
 
+/**
+ * The two NARROW key shapes. Neither carries a role, so a role gate alone
+ * passes both straight through — and a project-scoped read-only key is exactly
+ * the credential an operator hands to a client integration.
+ *
+ * They must be refused for the same reason a viewer is. There is one Aero
+ * session per project, so the transcript is the operator's conversation, and
+ * the prompt route drives the install root key whatever the caller's own
+ * scopes are.
+ */
+const READ_ONLY_KEY_PRINCIPAL: AuthPrincipal = {
+  kind: 'api-key',
+  id: 'reader',
+  name: 'reader',
+  scopes: ['read'],
+  projectId: null,
+  viaCookie: false,
+}
+
+const PROJECT_KEY_PRINCIPAL: AuthPrincipal = {
+  kind: 'api-key',
+  id: 'project-key',
+  name: 'project-key',
+  scopes: ['*'],
+  projectId: 'proj_acme',
+  viaCookie: false,
+}
+
 describe('every Aero route carries the administrator gate itself', () => {
   let tmpDir: string
   let db: DatabaseClient
@@ -183,6 +211,24 @@ describe('every Aero route carries the administrator gate itself', () => {
       viaCookie: false,
     }
     expect((await call(route)).statusCode).not.toBe(403)
+  })
+
+  describe.each([
+    ['a read-only key', READ_ONLY_KEY_PRINCIPAL],
+    ['a project-scoped key', PROJECT_KEY_PRINCIPAL],
+  ])('%s', (_label, narrowKey) => {
+    it.each(labelled(AGENT_ROUTES))('is refused on %s', async (_routeLabel, route) => {
+      principal = narrowKey
+      expect((await call(route)).statusCode).toBe(403)
+    })
+
+    it('cannot read the operator conversation', async () => {
+      principal = narrowKey
+      const res = await call(['GET', '/projects/acme/agent/transcript'])
+
+      expect(res.statusCode).toBe(403)
+      expect(res.body).not.toContain('messages')
+    })
   })
 
   it('refuses a viewer before it looks the project up', async () => {
@@ -305,6 +351,35 @@ describe.each([
     const res = await callAsSession(await signIn('owner', ADMIN_PASSWORD), route)
 
     expect(res.statusCode).not.toBe(403)
+  })
+
+  it.each([
+    ['a read-only key', ['read']],
+    ['a project-scoped key', ['*']],
+  ])('refuses %s end to end', async (_label, scopes) => {
+    const projectId = db.select().from(projects).all()[0]!.id
+    const minted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/keys',
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: {
+        name: `narrow-${scopes.join('-')}`,
+        scopes,
+        ...(scopes[0] === '*' ? { projectId } : {}),
+      },
+    })
+    expect(minted.statusCode).toBe(200)
+    const narrowKey = (minted.json() as { key: string }).key
+
+    for (const [method, url, payload] of AGENT_ROUTES) {
+      const res = await app.inject({
+        method: method as 'GET' | 'POST' | 'PUT' | 'DELETE',
+        url: `/api/v1${url}`,
+        headers: { authorization: `Bearer ${narrowKey}` },
+        ...(payload !== undefined ? { payload } : {}),
+      })
+      expect(res.statusCode, `narrow key on ${method} ${url}`).toBe(403)
+    }
   })
 
   it('leaves the install root key working, so the CLI and MCP are unaffected', async () => {

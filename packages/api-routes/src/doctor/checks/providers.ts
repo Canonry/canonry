@@ -49,6 +49,21 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
   scope: CheckScopes.global,
   title: 'Agent provider keys',
   run: (ctx) => {
+    // Which provider drives the agent, and that a key is configured for it, is
+    // administrator knowledge: `GET /agent/providers` refuses a non-administrator
+    // outright rather than serving a trimmed catalog, on the grounds that naming
+    // which providers exist and which one is configured is most of the answer.
+    // Doctor carries no administrator gate of its own (the generic role gate
+    // refuses a viewer only on writes), so this check has to ask here, or it
+    // hands the same answer to every analyst on the install.
+    if (ctx.callerIsInstanceAdministrator === false) {
+      return {
+        status: CheckStatuses.skipped,
+        code: 'agent-providers.restricted',
+        summary: 'Agent provider configuration is visible to administrators only.',
+        remediation: null,
+      }
+    }
     const summary = ctx.getAgentProviderSummary?.()
     if (!summary) {
       return {

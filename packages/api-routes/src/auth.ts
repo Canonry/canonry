@@ -250,6 +250,54 @@ export function requireAdminSession(request: FastifyRequest): void {
   throw forbidden(ADMIN_ONLY_MESSAGE)
 }
 
+/** What a key narrower than the install is told on an administrator surface. */
+export const NARROW_KEY_DENIED_MESSAGE =
+  'This API key is narrower than the install, so it cannot use an administrator surface.'
+
+/**
+ * Whether the caller is an administrator OF THE INSTALL, rather than merely a
+ * credential authorized to read part of it.
+ *
+ * True for a signed-in administrator (directly, or behind a delegated
+ * credential), and for the install's own full-instance wildcard key — what
+ * `canonry init` writes and what the CLI and MCP present. False for a signed-in
+ * viewer, and false for a NARROW key: one confined to a project, or one
+ * carrying anything less than the wildcard.
+ *
+ * This is the question `requireAdminSession` does NOT answer. That gate reads a
+ * role and nothing else, so every API key passes it. Surfaces that a narrow key
+ * must not reach need both halves, which is what `requireInstanceAdministrator`
+ * below enforces and what a read may consult to decide how much to disclose.
+ *
+ * A request with no principal at all is the un-authenticated internal path (the
+ * auth plugin did not run, e.g. `skipAuth` harnesses). Treated as "auth not
+ * enforced" rather than as a deny, matching `requireScope`.
+ */
+export function isInstanceAdministrator(request: FastifyRequest): boolean {
+  const principal = request.principal
+  if (!principal) return true
+  const role = principal.kind === 'user' ? principal.role : principal.delegatedUser?.role
+  if (role) return role === UserRoles.admin
+  return !principal.projectId && principal.scopes.includes(WILDCARD_SCOPE)
+}
+
+/**
+ * Reject anyone who is not an administrator of this install.
+ *
+ * Both halves, in the order that produces the most honest refusal: a signed-in
+ * viewer is told this is an administrator screen, and a narrow key is told its
+ * own breadth is the problem, because for a key the fix is a different
+ * credential rather than a different account.
+ */
+export function requireInstanceAdministrator(request: FastifyRequest): void {
+  const principal = request.principal
+  if (!principal) return
+  const role = principal.kind === 'user' ? principal.role : principal.delegatedUser?.role
+  if (role && role !== UserRoles.admin) throw forbidden(ADMIN_ONLY_MESSAGE)
+  if (isInstanceAdministrator(request)) return
+  throw forbidden(NARROW_KEY_DENIED_MESSAGE)
+}
+
 /** Operator authority is separate from customer admin roles and all API scopes. */
 export function requireOperator(request: FastifyRequest): void {
   const principal = request.principal

@@ -765,7 +765,7 @@ export type { DatabaseClient } from '@ainyc/canonry-db'
 // auth layer uses, so it is exported rather than reimplemented.
 export { anyUsersExist, createCredentialChecker, createUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
-export { requireAdminSession, requireBroadInstanceKey, requirePaidReadScope, requireResearchGrant } from './auth.js'
+export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
 // How a host decides which proxy hops may be believed about who is calling.
 export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trust-proxy.js'

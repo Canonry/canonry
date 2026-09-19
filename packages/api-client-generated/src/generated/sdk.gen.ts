@@ -6739,7 +6739,7 @@ export const getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreview = <T
 /**
  * Reset the Aero transcript + queued follow-ups
  *
- * Evicts any live Agent instance, clears the persisted messages and follow_up_queue. A subsequent prompt starts a fresh session. Administrator-only: a signed-in viewer is refused with 403.
+ * Evicts any live Agent instance, clears the persisted messages and follow_up_queue. A subsequent prompt starts a fresh session. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403.
  */
 export const deleteApiV1ProjectsByNameAgentTranscript = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1ProjectsByNameAgentTranscriptData, ThrowOnError>) => {
     return (options.client ?? client).delete<DeleteApiV1ProjectsByNameAgentTranscriptResponses, DeleteApiV1ProjectsByNameAgentTranscriptErrors, ThrowOnError>({
@@ -6757,7 +6757,7 @@ export const deleteApiV1ProjectsByNameAgentTranscript = <ThrowOnError extends bo
 /**
  * Get the rolling Aero transcript for this project
  *
- * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer is refused with 403. A caller that is not an administrator, such as a read-only or project-scoped API key, receives the conversation with model identity removed: `modelProvider` and `modelId` are null and each message is stripped of its `model`, `provider`, `api` and `usage` fields. Stored rows are unchanged.
+ * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.
  */
 export const getApiV1ProjectsByNameAgentTranscript = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAgentTranscriptData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameAgentTranscriptResponses, GetApiV1ProjectsByNameAgentTranscriptErrors, ThrowOnError>({
@@ -6775,7 +6775,7 @@ export const getApiV1ProjectsByNameAgentTranscript = <ThrowOnError extends boole
 /**
  * Delete a durable Aero memory entry
  *
- * Removes a single project-scoped note by key. Returns `status: missing` (non-error) when the key never existed. Keys with the reserved `compaction:` prefix are rejected — those notes are pruned automatically. Administrator-only: a signed-in viewer is refused with 403.
+ * Removes a single project-scoped note by key. Returns `status: missing` (non-error) when the key never existed. Keys with the reserved `compaction:` prefix are rejected — those notes are pruned automatically. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403.
  */
 export const deleteApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1ProjectsByNameAgentMemoryData, ThrowOnError>) => {
     return (options.client ?? client).delete<DeleteApiV1ProjectsByNameAgentMemoryResponses, DeleteApiV1ProjectsByNameAgentMemoryErrors, ThrowOnError>({
@@ -6797,7 +6797,7 @@ export const deleteApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolea
 /**
  * List durable Aero memory entries for a project
  *
- * Returns the project-scoped agent_memory rows newest-first. Includes both operator-authored notes (source `user`/`aero`) and LLM-authored compaction summaries (source `compaction`, key prefix `compaction:`). The N most-recent rows are also injected into the system prompt at every new session start. Administrator-only: a signed-in viewer is refused with 403.
+ * Returns the project-scoped agent_memory rows newest-first. Includes both operator-authored notes (source `user`/`aero`) and LLM-authored compaction summaries (source `compaction`, key prefix `compaction:`). The N most-recent rows are also injected into the system prompt at every new session start. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403.
  */
 export const getApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAgentMemoryData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameAgentMemoryResponses, GetApiV1ProjectsByNameAgentMemoryErrors, ThrowOnError>({
@@ -6815,7 +6815,7 @@ export const getApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolean =
 /**
  * Upsert a durable Aero memory entry
  *
- * Creates or replaces a project-scoped note (max 2 KB, max 128-char key). Same key replaces the prior value. Keys with the reserved `compaction:` prefix are rejected — that namespace is owned by transcript compaction. Administrator-only: a signed-in viewer is refused with 403.
+ * Creates or replaces a project-scoped note (max 2 KB, max 128-char key). Same key replaces the prior value. Keys with the reserved `compaction:` prefix are rejected — that namespace is owned by transcript compaction. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403.
  */
 export const putApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolean = false>(options: Options<PutApiV1ProjectsByNameAgentMemoryData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1ProjectsByNameAgentMemoryResponses, PutApiV1ProjectsByNameAgentMemoryErrors, ThrowOnError>({
@@ -6837,7 +6837,7 @@ export const putApiV1ProjectsByNameAgentMemory = <ThrowOnError extends boolean =
 /**
  * List the LLM providers Aero can route to
  *
- * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today. Administrator-only: a signed-in viewer is refused with 403. Because each entry names a default model, a caller that is not an administrator receives an empty catalog and a null `defaultProvider` rather than a trimmed list.
+ * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403, because each entry names a default model and which providers are configured is itself administrator knowledge.
  */
 export const getApiV1ProjectsByNameAgentProviders = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAgentProvidersData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameAgentProvidersResponses, GetApiV1ProjectsByNameAgentProvidersErrors, ThrowOnError>({
