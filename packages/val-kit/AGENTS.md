@@ -137,3 +137,28 @@ overwrites it.
 the coverage it had as val-local code — a module that moved in without its tests moved in untested. `storage.test.ts`
 uses `node:sqlite` as a stand-in for Val Town's SQLite over the same `ValSqliteClient` interface, which is the point
 of the store taking an interface rather than a binding.
+
+## Vals have no CI/CD
+
+The Val Town Vals under `apps/vals/` import `@canonry/val-kit`. **They have no
+CI/CD**: no GitHub job checks them, nothing deploys them, and nothing publishes
+the kit. Validate a Val by hand before a deploy: build `packages/val-kit`, then
+run the Val's own `deno task check|lint|test` against the DEV graph (the Val's
+committed `deno.dev.json` links the kit back to the workspace, so one change can
+move the kit and its consumers together before anything reaches npm), and its
+production tasks against plain `deno.json`, which resolves the exact
+`npm:@canonry/val-kit@<version>` the Val pins from public npm. Publish the kit
+with `pnpm --filter @canonry/val-kit publish` before deploying a Val that pins a
+new version, then deploy with `vt push` from the Val's directory. The one
+remaining automated guard is the pre-push `val:skills:check`, which keeps the
+kit's generated skill mirror in step with `skills/`.
+
+Two Vals ship today: **AI Visibility Check** (non-brand questions; is the brand
+mentioned and the domain cited) and **Brand Perception Check** (branded
+questions; what the engine SAYS about the brand, with verbatim evidence). They
+are separate instruments and share no denominator, no table, and no cache — each
+owns its own result schema and its own `CHECK_FINGERPRINT_NAMESPACE`, which the
+kit's `checkFingerprint` requires as an argument precisely so two products keyed
+alike cannot serve each other's results as cache hits. A new Val is deployable
+only once the kit version it pins is on public npm, so its committed production
+`deno.lock` (and its Val Town target IDs) come after that publish, not before.

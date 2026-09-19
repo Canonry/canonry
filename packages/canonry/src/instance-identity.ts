@@ -12,7 +12,7 @@
  * `CANONRY_INSTANCE` names it; `CANONRY_INSTANCE_ROLE` says what kind it is.
  * Role is free text so an operator can tag a one-off without a code change;
  * the convention is `internal | client-demo | client-trial | preview`
- * (documented in AGENTS.md under "Health endpoint").
+ * (documented in packages/canonry/AGENTS.md under "Health endpoint").
  */
 declare const __CANONRY_BUILD_COMMIT__: string | undefined
 

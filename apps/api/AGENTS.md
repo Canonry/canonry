@@ -6,7 +6,7 @@ Cloud API entry point. A thin Fastify server that imports and mounts `packages/a
 
 ## Deployment Posture (Critical)
 
-**`apps/api` is a single-tenant deployment.** One Cloud Run service per team — never share an instance across unrelated tenants. The schema has no `owner_id` on any domain table and `resolveProject` is a global lookup, so any valid `cnry_…` bearer reads and writes every project on the instance. The full rationale (and what would be required to lift this restriction) is in the root `AGENTS.md` → "Deployment Posture" section. Do not deploy as a SaaS without doing that migration first.
+**`apps/api` is a single-tenant deployment.** One Cloud Run service per team — never share an instance across unrelated tenants. The schema has no `owner_id` on any domain table and `resolveProject` is a global lookup, so any valid `cnry_…` bearer reads and writes every project on the instance. The rule is in the root `AGENTS.md` → "Deployment Posture"; the full rationale (and what would be required to lift this restriction) is in `packages/api-routes/AGENTS.md` → "Deployment posture and key authority". Do not deploy as a SaaS without doing that migration first.
 
 ## Key Files
 

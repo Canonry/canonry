@@ -207,7 +207,7 @@ These remain separate to avoid mixing technical readiness with live-answer visib
 
 ## Agent Layer
 
-Canonry ships a built-in AI agent (Aero) backed by `@mariozechner/pi-agent-core`, plus a webhook path for external agents (Claude Code, Codex, custom). See `AGENTS.md` ("Agent Layer" section) for the full surface.
+Canonry ships a built-in AI agent (Aero) backed by `@mariozechner/pi-agent-core`, plus a webhook path for external agents (Claude Code, Codex, custom). See `packages/canonry/src/agent/AGENTS.md` for the full surface.
 
 - **Native loop:** `packages/canonry/src/agent/` (`session.ts`, `session-registry.ts`, `tools.ts`, `agent-routes.ts`).
 - **Persistence:** one rolling session per project in the `agent_sessions` table — survives `canonry serve` restarts.

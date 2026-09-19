@@ -14,7 +14,7 @@ import { createClient, migrate, MIGRATION_VERSIONS } from '../src/index.js'
  * failure mode is invisible to a shape-only test, which is why these assertions exist
  * rather than a "the list equals itself" comparison.
  *
- * AGENTS.md → "Database Schema Changes" rule 5 states the rule these enforce:
+ * packages/db/AGENTS.md → "Schema changes (Critical)" states the rule these enforce:
  * "duplicate or out-of-order `version` values break the skip-already-applied logic".
  */
 

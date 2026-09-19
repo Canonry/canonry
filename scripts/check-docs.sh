@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Check that every package/app has an AGENTS.md and CLAUDE.md.
+# Check that every package/app has an AGENTS.md.
 # Run in CI to catch missing documentation.
 set -euo pipefail
 
 errors=0
 
-# Check packages and apps for AGENTS.md + CLAUDE.md
+# Check packages and apps for AGENTS.md
 for dir in packages/*/  apps/*/; do
   # Skip if not a real package (no package.json or src/)
   if [[ ! -f "${dir}package.json" ]] && [[ ! -d "${dir}src" ]]; then
@@ -16,20 +16,13 @@ for dir in packages/*/  apps/*/; do
     echo "MISSING: ${dir}AGENTS.md"
     errors=$((errors + 1))
   fi
-
-  if [[ ! -f "${dir}CLAUDE.md" ]]; then
-    echo "MISSING: ${dir}CLAUDE.md"
-    errors=$((errors + 1))
-  fi
 done
 
 # Check root files
-for file in AGENTS.md CLAUDE.md; do
-  if [[ ! -f "$file" ]]; then
-    echo "MISSING: $file (root)"
-    errors=$((errors + 1))
-  fi
-done
+if [[ ! -f AGENTS.md ]]; then
+  echo "MISSING: AGENTS.md (root)"
+  errors=$((errors + 1))
+fi
 
 # Check key docs exist
 for file in docs/architecture.md docs/data-model.md docs/providers/README.md; do

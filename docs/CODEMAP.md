@@ -8,8 +8,7 @@ Start with `AGENTS.md` (project overview + deployment posture), then `docs/READM
 
 | Path | Role |
 |------|------|
-| `AGENTS.md` | Primary agent guidance — deployment posture, workspace map, commands, agent layer, doctor |
-| `CLAUDE.md` | Claude overlay (imports AGENTS.md + UI design system) |
+| `AGENTS.md` | Repo-wide agent rules and the map of where every other rule lives (`**/AGENTS.md`, nearest folder wins) |
 | `docs/GUARDS.md` | Lint guard table + adding-a-guard procedure (extracted from AGENTS.md) |
 | `docs/DOC_UPDATE.md` | Keeping-docs-current table (extracted from AGENTS.md) |
 | `PRODUCT.md` / `DESIGN.md` | Dashboard purpose, hierarchy, copy, controls — read before UI work |
@@ -167,6 +166,7 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 | Change first-run / onboarding | `apps/web/src/App.tsx` (redirect) → `apps/web/src/pages/SetupPage.tsx` → `apps/web/src/lib/onboarding-telemetry.ts` | Check `packages/canonry/src/execute-site-audit.ts` for probe semantics |
 | Add a dashboard section | `apps/web/src/pages/ProjectPage.tsx` → `apps/web/src/components/project/` → `apps/web/src/queries/use-project-dashboard.ts` | New API data needs `packages/api-routes` + `packages/contracts` + regenerate `api-client-generated` |
 | Add an API route | `packages/contracts/src/*.ts` (Zod) → `packages/api-routes/src/<domain>.ts` → `packages/api-routes/src/openapi.ts` → `pnpm gen` → `apps/web/src/api.ts` or `apps/web/src/queries/*` | Respect `notProbeRun()` + `requireScope`/`requirePaidReadScope` |
+| Add a CLI command | `packages/canonry/src/cli-commands/<cmd>.ts` → `packages/canonry/src/mcp/tool-registry.ts` (tier) + `openapi-classification.ts` → test | Every command supports `--format json`; add the MCP tool or classify the operation (root `AGENTS.md` → "Agent & automation design principles") |
 | Change SPA serving / embed | `packages/canonry/src/server.ts` (`sendSpaDocument`, `assetsDir`) + `packages/canonry/src/embed.ts` + `apps/web/src/embed.ts` | `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` env, `window.__CANONRY_CONFIG__.embed` |
 | Touch Site Health / Technical AEO | `packages/canonry/src/execute-site-audit.ts` → `site-crawl-graph-layout.ts` → `packages/api-routes/src/technical-aeo.ts` → `packages/contracts/src/technical-aeo.ts` → regenerate `api-client-generated` → `packages/canonry/src/mcp/tool-registry.ts` → `apps/web/src/components/project/SiteHealthSection.tsx` | Keep `technical-aeo` as the stable route/API/embed key; label it **Site Health**. Every operator-visible graph state must have a shared API/MCP semantic field or task-shaped read. Sigma receives persisted positions; agents receive bounded subgraphs, paths, and run diffs rather than the visualization payload. |
 | Touch Aero agent | `packages/canonry/src/agent/session.ts` → `session-registry.ts` → `tools.ts` → `apps/web/src/components/shared/AeroBar.tsx` | `agent.mode: 'disabled'` / `CANONRY_AGENT_DISABLED` kill-switch |

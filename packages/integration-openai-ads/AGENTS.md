@@ -63,7 +63,8 @@ before parents, and rolls back parents before children on failure.
   durable operation receipt before the network call and never blindly retry an
   ambiguous outcome. Canonry's route layer owns that receipt policy.
 - **Activation and archive are policy decisions**: archive is irreversible and
-  remains absent. Activation is available only through the exact tree,
+  exists only as guarded, human-only API routes (never an MCP tool; see
+  `packages/api-routes/AGENTS.md` → "OpenAI ads writes"). Activation is available only through the exact tree,
   advertiser-account, and executor-bound approval-grant route; direct entity activation is never exposed. Creates are paused and
   updates require a paused entity.
 - **Vocabulary**: paid metrics are `paid` / `sponsored` — never reuse
