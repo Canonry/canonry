@@ -100,7 +100,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
-  getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
+  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -1738,6 +1738,12 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
   )
 }
 
+/**
+ * Same window Site Health's own scan picker reads. Deep enough that a run of
+ * failures does not hide the completed scan underneath them.
+ */
+const MAP_SITE_SCAN_HISTORY_LIMIT = 20
+
 function ProjectPageContent({
   tab: requestedTab,
   model,
@@ -2287,15 +2293,20 @@ function ProjectPageContent({
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
   // "Map site" invites the operator to do something that has not been done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
-  // this project already has a Site Health scan. The crawl summary answers that
-  // directly and in one read, where scan history would have to be paged past
-  // any number of failed runs to find the completed one underneath. Fetched
-  // only in the state that can show the button.
+  // this project already has a Site Health scan.
+  //
+  // Scan history, not the crawl summary. Without a `runId` the crawl summary
+  // deliberately resolves only a COMPLETE crawl of a COMPLETED run, because it
+  // answers "what is the current graph". A first run bounded by the page or
+  // duration budget lands as `partial`, so asking the crawl summary reports no
+  // scan for a project that plainly has one, and the button comes back. Scan
+  // history is the list of readable scans and already excludes probes.
   const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
-  const siteCrawlQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoCrawlOptions({
+  const siteAuditScansQuery = useQuery({
+    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
       client: heyClient,
       path: { name: projectName },
+      query: { limit: MAP_SITE_SCAN_HISTORY_LIMIT },
     }),
     enabled: mapSiteCandidate && Boolean(projectName),
     retry: false,
@@ -2303,9 +2314,10 @@ function ProjectPageContent({
   // Absent evidence is not evidence of absence: offer the button only once the
   // read has actually come back without a scan to open.
   const showMapSite = mapSiteCandidate
-    && siteCrawlQuery.isSuccess
-    && !siteCrawlQuery.data.hasCrawlData
-    && !siteCrawlQuery.data.legacyAuditAvailable
+    && siteAuditScansQuery.isSuccess
+    && !siteAuditScansQuery.data.scans.some(
+      scan => scan.status === 'completed' || scan.status === 'partial',
+    )
   // The collection read returns [] when no schedule exists. This keeps fresh
   // projects quiet while still discovering a scheduled-but-never-run project
   // after queries or providers are removed.

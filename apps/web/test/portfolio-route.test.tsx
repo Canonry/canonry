@@ -17,8 +17,8 @@ import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
   getApiV1CdpStatusQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
+  getApiV1ProjectsByNameTechnicalAeoRunsQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -85,10 +85,11 @@ async function renderAt(
     readiness?: boolean
     configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
     /**
-     * Whether this project already has a readable Site Health scan. Seeded by
-     * default as "not scanned", which is what the fresh-project fixtures mean.
+     * The status of this project's most recent readable Site Health scan, or
+     * undefined for a project that has never been scanned (what the
+     * fresh-project fixtures mean).
      */
-    siteHealthScanned?: boolean
+    siteHealthScan?: 'completed' | 'partial' | 'failed'
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -128,21 +129,19 @@ async function renderAt(
     )
   }
   queryClient.setQueryData(
-    getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({ client: heyClient, path: { name: projectName } }),
+    getApiV1ProjectsByNameTechnicalAeoRunsQueryKey({ client: heyClient, path: { name: projectName }, query: { limit: 20 } }),
     {
       project: projectName,
-      hasCrawlData: options.siteHealthScanned === true,
-      legacyAuditAvailable: false,
-      runId: options.siteHealthScanned === true ? 'run_scanned' : null,
-      runStatus: options.siteHealthScanned === true ? 'completed' : null,
-      requestedRootUrl: null,
-      rootUrl: null,
-      effectiveOptions: {},
-      complete: options.siteHealthScanned === true,
-      termination: null,
-      detailsAvailable: options.siteHealthScanned === true,
-      counts: { pagesDiscovered: 0, pagesFetched: 0, pagesEligible: 0, edges: 0, findings: 0 },
-      deadLinks: { state: 'disabled' },
+      scans: options.siteHealthScan
+        ? [{
+            runId: 'run_scanned',
+            status: options.siteHealthScan,
+            createdAt: '2026-09-01T00:00:00.000Z',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            finishedAt: '2026-09-01T00:05:00.000Z',
+            hasCrawlData: options.siteHealthScan !== 'failed',
+          }]
+        : [],
     },
   )
   if (options.failedScanHandoff) {
@@ -1682,10 +1681,26 @@ test('Map site is the overview primary action and is omitted on Site Health', as
   // Nothing in the sweep-readiness flags carries this, so it is read separately.
   const alreadyMapped = await renderAt('/projects/project_citypoint', undefined, undefined, {
     ...unmappedProject,
-    siteHealthScanned: true,
+    siteHealthScan: 'completed',
   })
   expect(alreadyMapped).not.toContain('>Map site<')
   expect(alreadyMapped).toContain('Set up AI Visibility')
+
+  // A bounded first run that hits the page or duration budget lands as
+  // `partial`. It is still a scan the operator can open, so the invitation to
+  // map the site is just as wrong as after a complete one.
+  const partiallyMapped = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    ...unmappedProject,
+    siteHealthScan: 'partial',
+  })
+  expect(partiallyMapped).not.toContain('>Map site<')
+
+  // A failed scan left nothing to read, so the invitation still stands.
+  const failedScan = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    ...unmappedProject,
+    siteHealthScan: 'failed',
+  })
+  expect(failedScan).toContain('>Map site<')
 })
 
 test('a first sweep in flight replaces empty-state instructions with one live status', async () => {
