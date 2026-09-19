@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   agentSessions,
   parseJsonColumn,
@@ -15,6 +15,8 @@ import {
   validationError,
   type AgentMemoryListResponse,
   describeError,
+  UserRoles,
+  WILDCARD_SCOPE,
 } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import { requireAdminSession } from '@ainyc/canonry-api-routes'
@@ -46,6 +48,56 @@ type AgentPromptBody = Partial<{
 export interface AgentRoutesOptions {
   db: DatabaseClient
   sessionRegistry: SessionRegistry
+}
+
+/**
+ * Fields pi-agent-core stamps onto a persisted assistant message that disclose
+ * which model answered: the model id, the vendor, the transport (whose name
+ * embeds a vendor), and the usage block, which carries per-turn cost.
+ */
+const MESSAGE_PROVENANCE_FIELDS = ['model', 'provider', 'api', 'usage'] as const
+
+/**
+ * Whether this caller may learn which provider and model sit behind Aero.
+ *
+ * Separate from `requireAdminSession`, which answers a different question.
+ * That gate refuses signed-in VIEWERS, but it passes every API key, because a
+ * key carries no role at all. So a narrow key — read-only, or confined to one
+ * project — still reaches these reads. Such a key is authorized to read the
+ * project; it was never handed the operator's choice of model, nor what a turn
+ * costs them.
+ *
+ * Admin means: a signed-in administrator (directly, or behind a delegated
+ * credential), or the install's own full-instance wildcard key, which is what
+ * `canonry init` writes and what the CLI and MCP present. A request with no
+ * principal at all is the un-authenticated internal path (the auth plugin did
+ * not run), and is left as it was.
+ */
+function revealsModelIdentity(request: FastifyRequest): boolean {
+  const principal = request.principal
+  if (!principal) return true
+  const role = principal.kind === 'user' ? principal.role : principal.delegatedUser?.role
+  if (role) return role === UserRoles.admin
+  return !principal.projectId && principal.scopes.includes(WILDCARD_SCOPE)
+}
+
+/**
+ * Copy the transcript with every message's provenance removed. Returns new
+ * objects: the stored row is never touched, because the operator's own reads,
+ * the CLI, and cost accounting all still need what it holds.
+ */
+function redactMessageProvenance(messages: AgentMessage[]): AgentMessage[] {
+  return messages.map((message) => {
+    const copy = { ...(message as unknown as Record<string, unknown>) }
+    let redacted = false
+    for (const field of MESSAGE_PROVENANCE_FIELDS) {
+      if (field in copy) {
+        delete copy[field]
+        redacted = true
+      }
+    }
+    return (redacted ? copy : message) as AgentMessage
+  })
 }
 
 function resolveProject(db: DatabaseClient, name: string): { id: string; name: string } {
@@ -105,8 +157,18 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       if (!row) {
         return { messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
       }
+      const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
+      // Redaction happens on the way out, never in the database.
+      if (!revealsModelIdentity(request)) {
+        return {
+          messages: redactMessageProvenance(messages),
+          modelProvider: null,
+          modelId: null,
+          updatedAt: row.updatedAt,
+        }
+      }
       return {
-        messages: parseJsonColumn<AgentMessage[]>(row.messages, []),
+        messages,
         modelProvider: row.modelProvider,
         modelId: row.modelId,
         updatedAt: row.updatedAt,
@@ -124,6 +186,14 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     async (request) => {
       requireAdminSession(request)
       resolveProject(opts.db, request.params.name)
+      // This catalog names a default model for every provider, so serving it is
+      // disclosing model identity by another path. A caller who may not know it
+      // gets an EMPTY catalog rather than a trimmed one: a trimmed list would
+      // still say which providers exist and which one is configured, which is
+      // most of the answer.
+      if (!revealsModelIdentity(request)) {
+        return { providers: [], defaultProvider: null }
+      }
       return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
     },
   )

@@ -7957,7 +7957,7 @@ export const getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptio
 /**
  * Reset the Aero transcript + queued follow-ups
  *
- * Evicts any live Agent instance, clears the persisted messages and follow_up_queue. A subsequent prompt starts a fresh session.
+ * Evicts any live Agent instance, clears the persisted messages and follow_up_queue. A subsequent prompt starts a fresh session. Administrator-only: a signed-in viewer is refused with 403.
  */
 export const deleteApiV1ProjectsByNameAgentTranscriptMutation = (options?: Partial<Options<DeleteApiV1ProjectsByNameAgentTranscriptData>>): UseMutationOptions<DeleteApiV1ProjectsByNameAgentTranscriptResponse, DeleteApiV1ProjectsByNameAgentTranscriptError, Options<DeleteApiV1ProjectsByNameAgentTranscriptData>> => {
     const mutationOptions: UseMutationOptions<DeleteApiV1ProjectsByNameAgentTranscriptResponse, DeleteApiV1ProjectsByNameAgentTranscriptError, Options<DeleteApiV1ProjectsByNameAgentTranscriptData>> = {
@@ -7978,7 +7978,7 @@ export const getApiV1ProjectsByNameAgentTranscriptQueryKey = (options: Options<G
 /**
  * Get the rolling Aero transcript for this project
  *
- * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet.
+ * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer is refused with 403. A caller that is not an administrator, such as a read-only or project-scoped API key, receives the conversation with model identity removed: `modelProvider` and `modelId` are null and each message is stripped of its `model`, `provider`, `api` and `usage` fields. Stored rows are unchanged.
  */
 export const getApiV1ProjectsByNameAgentTranscriptOptions = (options: Options<GetApiV1ProjectsByNameAgentTranscriptData>) => {
     return queryOptions({
@@ -7998,7 +7998,7 @@ export const getApiV1ProjectsByNameAgentTranscriptOptions = (options: Options<Ge
 /**
  * Delete a durable Aero memory entry
  *
- * Removes a single project-scoped note by key. Returns `status: missing` (non-error) when the key never existed. Keys with the reserved `compaction:` prefix are rejected — those notes are pruned automatically.
+ * Removes a single project-scoped note by key. Returns `status: missing` (non-error) when the key never existed. Keys with the reserved `compaction:` prefix are rejected — those notes are pruned automatically. Administrator-only: a signed-in viewer is refused with 403.
  */
 export const deleteApiV1ProjectsByNameAgentMemoryMutation = (options?: Partial<Options<DeleteApiV1ProjectsByNameAgentMemoryData>>): UseMutationOptions<DeleteApiV1ProjectsByNameAgentMemoryResponse, DeleteApiV1ProjectsByNameAgentMemoryError, Options<DeleteApiV1ProjectsByNameAgentMemoryData>> => {
     const mutationOptions: UseMutationOptions<DeleteApiV1ProjectsByNameAgentMemoryResponse, DeleteApiV1ProjectsByNameAgentMemoryError, Options<DeleteApiV1ProjectsByNameAgentMemoryData>> = {
@@ -8019,7 +8019,7 @@ export const getApiV1ProjectsByNameAgentMemoryQueryKey = (options: Options<GetAp
 /**
  * List durable Aero memory entries for a project
  *
- * Returns the project-scoped agent_memory rows newest-first. Includes both operator-authored notes (source `user`/`aero`) and LLM-authored compaction summaries (source `compaction`, key prefix `compaction:`). The N most-recent rows are also injected into the system prompt at every new session start.
+ * Returns the project-scoped agent_memory rows newest-first. Includes both operator-authored notes (source `user`/`aero`) and LLM-authored compaction summaries (source `compaction`, key prefix `compaction:`). The N most-recent rows are also injected into the system prompt at every new session start. Administrator-only: a signed-in viewer is refused with 403.
  */
 export const getApiV1ProjectsByNameAgentMemoryOptions = (options: Options<GetApiV1ProjectsByNameAgentMemoryData>) => {
     return queryOptions({
@@ -8039,7 +8039,7 @@ export const getApiV1ProjectsByNameAgentMemoryOptions = (options: Options<GetApi
 /**
  * Upsert a durable Aero memory entry
  *
- * Creates or replaces a project-scoped note (max 2 KB, max 128-char key). Same key replaces the prior value. Keys with the reserved `compaction:` prefix are rejected — that namespace is owned by transcript compaction.
+ * Creates or replaces a project-scoped note (max 2 KB, max 128-char key). Same key replaces the prior value. Keys with the reserved `compaction:` prefix are rejected — that namespace is owned by transcript compaction. Administrator-only: a signed-in viewer is refused with 403.
  */
 export const putApiV1ProjectsByNameAgentMemoryMutation = (options?: Partial<Options<PutApiV1ProjectsByNameAgentMemoryData>>): UseMutationOptions<PutApiV1ProjectsByNameAgentMemoryResponse, PutApiV1ProjectsByNameAgentMemoryError, Options<PutApiV1ProjectsByNameAgentMemoryData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameAgentMemoryResponse, PutApiV1ProjectsByNameAgentMemoryError, Options<PutApiV1ProjectsByNameAgentMemoryData>> = {
@@ -8060,7 +8060,7 @@ export const getApiV1ProjectsByNameAgentProvidersQueryKey = (options: Options<Ge
 /**
  * List the LLM providers Aero can route to
  *
- * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today.
+ * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today. Administrator-only: a signed-in viewer is refused with 403. Because each entry names a default model, a caller that is not an administrator receives an empty catalog and a null `defaultProvider` rather than a trimmed list.
  */
 export const getApiV1ProjectsByNameAgentProvidersOptions = (options: Options<GetApiV1ProjectsByNameAgentProvidersData>) => {
     return queryOptions({
