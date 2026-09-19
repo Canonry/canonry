@@ -135,10 +135,11 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.1 is the agent tier; glm-5.1-flash is the cheap tier
  *     for analyze + classify.
- *   - DeepInfra: GLM-5.2 (Western-hosted, Sonnet-class open weights) on all
- *     three tiers. At ~$0.95/$3.00 per 1M it undercuts the Claude analyze
- *     (Sonnet) and classify (Haiku) tiers it replaces, so the cheaper tiers
- *     take no quality hit. These are DeepInfra `org/Model` slugs, not pi-ai
+ *   - DeepInfra: Western-hosted open weights, split by tier. DeepSeek-V4-Flash
+ *     drives the agent loop at ~$0.09/$0.18 per 1M; GLM-5.2 stays on analyze +
+ *     classify, where suppressing the reasoning trace rides GLM's chat-template
+ *     switch and so needs a reasoning model to apply. Both undercut the Claude
+ *     tiers they replace. These are DeepInfra `org/Model` slugs, not pi-ai
  *     catalog ids — model resolution builds a custom openai-completions model
  *     (see `buildOpenAiCompatibleModel`). Serving is quantized (FP8/FP4);
  *     validate quality before production use.
@@ -170,11 +171,18 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
   [AgentProviderIds.deepinfra]: {
-    // DeepInfra `org/Model` slugs. GLM-5.2 (Sonnet-class) on all three tiers —
-    // it undercuts the Claude tiers it replaces, so the cheaper tiers take no
-    // quality hit. Resolved into a custom openai-completions model, not pi-ai's
-    // catalog.
-    [LlmCapabilities.agent]: 'zai-org/GLM-5.2',
+    // DeepInfra `org/Model` slugs, resolved into a custom openai-completions
+    // model rather than pi-ai's catalog.
+    //
+    // The agent tier is pinned explicitly: the dashboard picker sends a
+    // provider and no model, so whatever sits here is what selecting DeepInfra
+    // pins a session to.
+    //
+    // analyze + classify stay on GLM on purpose. Those tiers suppress the
+    // reasoning trace through GLM's chat-template switch, and that branch
+    // applies only to a model declared `reasoning: true`; moving them to
+    // DeepSeek-V4-Flash (which is not) would quietly stop suppressing anything.
+    [LlmCapabilities.agent]: 'deepseek-ai/DeepSeek-V4-Flash',
     [LlmCapabilities.analyze]: 'zai-org/GLM-5.2',
     [LlmCapabilities.classify]: 'zai-org/GLM-5.2',
   },
@@ -236,7 +244,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
       },
       // Best-effort metadata. Costs are USD/1M tokens (DeepInfra published
       // rates: GLM-5.2 ~$0.95 in / $0.18 cached / $3.00 out; DeepSeek-V4-Flash
-      // ~$0.10 in / $0.20 out). contextWindow is DeepInfra's 1M (fp4) serving
+      // $0.09 in / $0.18 out). contextWindow is DeepInfra's 1M (fp4) serving
       // window for both models; it's descriptive (see OpenAiCompatibleModelMeta),
       // so it documents the real window rather than gating compaction.
       knownModels: {
@@ -250,7 +258,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
           contextWindow: 1_048_576,
           maxTokens: 32768,
           reasoning: false,
-          cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+          cost: { input: 0.09, output: 0.18, cacheRead: 0, cacheWrite: 0 },
         },
       },
       // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is
