@@ -86,7 +86,7 @@ test('each row reads as label, value, action', async () => {
     'Set up Scheduled sweeps',
     'Set up Notifications',
     'Open Local presence',
-    'Docs Your coding agent',
+    'Docs Your agent',
   ])
 })
 

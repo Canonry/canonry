@@ -1208,7 +1208,7 @@ function PlatformSetupPageBody({
 
       <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
         <p id="agent-setup-title" className="text-sm font-medium text-heading">Use your agent instead</p>
-        <p className="mt-1 text-sm leading-5 text-secondary">Copy a complete CLI setup request into any coding agent.</p>
+        <p className="mt-1 text-sm leading-5 text-secondary">Copy a complete CLI setup request into any agent.</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
           <Button type="button" variant="ghost" size="sm" className="-ml-3" onClick={asyncHandler(copyAgentSetupRequest)}>
             {agentRequestCopied

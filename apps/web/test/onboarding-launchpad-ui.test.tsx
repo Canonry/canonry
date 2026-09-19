@@ -508,7 +508,7 @@ test('auto waits for a successful authoritative empty project list before showin
   const setupForm = screen.getByRole('form', { name: 'Scan your site' })
   const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
   expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.getByText('Copy a complete CLI setup request into any coding agent.')).toBeTruthy()
+  expect(screen.getByText('Copy a complete CLI setup request into any agent.')).toBeTruthy()
   const agentGuide = screen.getByRole('link', { name: /Agent quickstart/i })
   expect(agentGuide.getAttribute('href')).toBe(AGENT_SETUP_GUIDE_URL)
   expect(agentGuide.getAttribute('target')).toBe('_blank')

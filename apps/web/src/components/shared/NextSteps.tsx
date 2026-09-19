@@ -72,7 +72,7 @@ export function buildNextSteps(): NextStep[] {
     {
       id: 'agent',
       icon: Terminal,
-      label: 'Your coding agent',
+      label: 'Your agent',
       detail: 'Read this project from Claude Code, Codex, or any MCP client.',
       action: 'Docs',
       href: 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md',
