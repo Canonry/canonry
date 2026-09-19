@@ -6,6 +6,7 @@ import {
   getApiV1ProjectsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1RunsByIdOptions,
+  getApiV1RunsOptions,
   getApiV1TelemetryOptions,
   getApiV1TelemetryQueryKey,
   putApiV1TelemetryMutation,
@@ -22,6 +23,9 @@ import {
 } from '../api.js'
 import {
   ONBOARDING_FLOW_VERSION,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
@@ -88,6 +92,65 @@ export function resolveOnboardingSurface(
   }
   if (projectList.state === 'error') return 'retry'
   return 'loading'
+}
+
+/** The shape `resolveAutoResumeTarget` needs from a site-audit run. */
+export interface AutoResumeRun {
+  id: string
+  projectId: string
+  status: string
+  trigger?: string
+}
+
+export interface AutoResumeTarget {
+  projectName: string
+  /** The scan to pin, when one exists. Absent means nothing has run yet. */
+  runId?: string
+}
+
+/**
+ * Where a bare `/setup` should land on an install that already has projects.
+ *
+ * This has to agree with `buildServeOpenLine` in the CLI, which is the other
+ * half of the same decision. `serve` sends an operator to first-run setup only
+ * while something is still unscanned, and names the FIRST UNSCANNED project.
+ * Without the same two rules here, the `/setup` URL `serve` printed on an empty
+ * install becomes a bookmark that later traps a returning operator in first-run
+ * setup for a project that finished months ago, with `replace: true` and no way
+ * back.
+ *
+ * Pinning the run matters to the funnel as much as to the UI. Every terminal
+ * onboarding event is gated on a run id, so a resume that arrives without one
+ * emits `onboarding.started` and can never emit anything after it: a permanent
+ * open entry in the `site_health` surface that depresses its conversion rate.
+ *
+ * Probes are excluded for the same reason the scan-history endpoint excludes
+ * them: a probe is not a scan the operator asked for or can read.
+ */
+export function resolveAutoResumeTarget(
+  projects: readonly ApiProject[],
+  siteAuditRuns: readonly AutoResumeRun[],
+): AutoResumeTarget | null {
+  const scanned = new Set<string>()
+  const latestRunByProject = new Map<string, string>()
+  // The runs list is newest-first, so the first row per project is its latest.
+  for (const run of siteAuditRuns) {
+    if (run.trigger === RunTriggers.probe) continue
+    if (!latestRunByProject.has(run.projectId)) latestRunByProject.set(run.projectId, run.id)
+    if (run.status === RunStatuses.completed || run.status === RunStatuses.partial) {
+      scanned.add(run.projectId)
+    }
+  }
+  // `serve` orders by created-at and the projects list is insertion-ordered,
+  // which is the same sequence in practice. Sort when the DTO carries the
+  // timestamp so the two agree by construction rather than by coincidence.
+  const ordered = projects.every(project => project.createdAt)
+    ? [...projects].sort((a, b) =>
+      (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.name.localeCompare(b.name))
+    : projects
+  const target = ordered.find(project => !scanned.has(project.id))
+  if (!target) return null
+  return { projectName: target.name, runId: latestRunByProject.get(target.id) }
 }
 
 export interface LaunchpadIdentity {
@@ -564,6 +627,14 @@ export function OnboardingSetupPage() {
     // for one mount-time confirmation before it treats this as first open.
     refetchOnMount: 'always',
   })
+  // Scoped to site-audit for the same reason the dashboard scopes its own run
+  // list: an unscoped read fills the server's row cap with integration syncs.
+  const siteAuditRunsQuery = useQuery({
+    ...getApiV1RunsOptions({ client: heyClient, query: { kind: RunKinds['site-audit'] } }),
+    enabled: mode === 'auto',
+    retry: false,
+    refetchOnMount: 'always',
+  })
   const hasAuthoritativeEmptyProjectList = mode === 'auto'
     && projectsQuery.isSuccess
     && projectsQuery.isFetchedAfterMount
@@ -589,13 +660,21 @@ export function OnboardingSetupPage() {
   if (missingSiteHealthProject || explicitSiteHealthOnboarding) {
     return <SiteHealthOnboardingPage projectName={search.setupProject} initialRunId={search.siteHealthRunId} />
   }
-  const autoResumeProject = mode === 'auto'
+  const autoResumeEligible = mode === 'auto'
     && surface === 'legacy'
     && !search.setupProject
     && projectsQuery.isSuccess
-    && projectsQuery.data[0]
-  if (autoResumeProject) {
-    return <AutoResumeSiteHealthRedirect projectName={autoResumeProject.name} />
+  // Deciding without the scan history would mean guessing that every project is
+  // unscanned, which is the wrong guess in exactly the case that matters. Wait
+  // instead of flashing the wizard and redirecting out of it a moment later.
+  if (autoResumeEligible && (siteAuditRunsQuery.isPending || siteAuditRunsQuery.isFetching)) {
+    return <AutoModeLoading />
+  }
+  const autoResume = autoResumeEligible && siteAuditRunsQuery.isSuccess
+    ? resolveAutoResumeTarget(projectsQuery.data, siteAuditRunsQuery.data)
+    : null
+  if (autoResume) {
+    return <AutoResumeSiteHealthRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
   }
   if (surface === 'legacy') {
     return (
@@ -616,15 +695,20 @@ export function OnboardingSetupPage() {
 }
 
 /** Write the same URL `cnry serve` prints so the focused first-run shell applies. */
-function AutoResumeSiteHealthRedirect({ projectName }: { projectName: string }) {
+function AutoResumeSiteHealthRedirect({ projectName, runId }: { projectName: string; runId?: string }) {
   const navigate = useNavigate()
   useEffect(() => {
     void navigate({
       to: '/setup',
-      search: { onboarding: 'site-health', setupProject: projectName },
+      search: {
+        onboarding: 'site-health',
+        setupProject: projectName,
+        // Pinning the scan is what lets the resumed session report an outcome.
+        ...(runId ? { siteHealthRunId: runId } : {}),
+      },
       replace: true,
     })
-  }, [navigate, projectName])
+  }, [navigate, projectName, runId])
   return <AutoModeLoading />
 }
 

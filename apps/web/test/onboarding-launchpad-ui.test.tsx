@@ -15,7 +15,7 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
-import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST } from '../src/pages/OnboardingSetupPage.js'
+import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -166,6 +166,91 @@ test('auto resumes Site Health for an existing project instead of the provider-g
   expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
+})
+
+const AUTO_RESUME_PROJECT = {
+  id: 'project-example',
+  name: 'example-com',
+  displayName: 'Example',
+  canonicalDomain: 'example.com',
+  ownedDomains: [], aliases: [], country: 'US', language: 'en', tags: [], labels: {},
+  providers: [], providerModels: {}, locations: [], defaultLocation: null,
+  measurement: { marketingHosts: [], brandTerms: [], leadEventNames: [] },
+  autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
+  createdAt: '2026-01-01T00:00:00.000Z',
+}
+
+function mockAutoResumeApi(siteAuditRuns: unknown[]) {
+  return mockFetch((url) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
+    // `pathOf` keeps the query string, and `/api/v1/runs/<id>` is a different
+    // endpoint the resumed page also reads.
+    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) return jsonResponse(siteAuditRuns)
+    if (path.startsWith('/api/v1/runs/')) {
+      return jsonResponse({ id: 'run_active', projectId: 'project-example', kind: 'site-audit', status: 'running', createdAt: '2026-02-02T00:00:00.000Z' })
+    }
+    return jsonResponse([])
+  })
+}
+
+test('auto resume pins the project\'s latest scan so the resumed session can report an outcome', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
+  onTestFinished(mockAutoResumeApi([
+    { id: 'run_active', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
+  ]))
+
+  const { router } = await renderSetup('/setup')
+
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      onboarding: 'site-health',
+      setupProject: 'example-com',
+      siteHealthRunId: 'run_active',
+    })
+  })
+  expect(screen.getByText('example-com:project-example:run_active:true')).toBeTruthy()
+})
+
+test('auto resume leaves a scanned install on the wizard instead of reopening first-run setup', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
+  onTestFinished(mockAutoResumeApi([
+    { id: 'run_done', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
+  ]))
+
+  const { router } = await renderSetup('/setup')
+
+  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
+  expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
+})
+
+test('resolveAutoResumeTarget agrees with the serve banner', () => {
+  const projects = [
+    { id: 'a', name: 'alpha', createdAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'b', name: 'bravo', createdAt: '2026-01-02T00:00:00.000Z' },
+  ] as unknown as Parameters<typeof resolveAutoResumeTarget>[0]
+
+  // Nothing scanned: the oldest project, and no run to pin.
+  expect(resolveAutoResumeTarget(projects, [])).toEqual({ projectName: 'alpha', runId: undefined })
+
+  // The first UNSCANNED one, exactly like `buildServeOpenLine`.
+  expect(resolveAutoResumeTarget(projects, [
+    { id: 'r1', projectId: 'a', status: 'completed', trigger: 'manual' },
+  ])).toEqual({ projectName: 'bravo', runId: undefined })
+
+  // Everything scanned: no redirect at all.
+  expect(resolveAutoResumeTarget(projects, [
+    { id: 'r1', projectId: 'a', status: 'completed', trigger: 'manual' },
+    { id: 'r2', projectId: 'b', status: 'partial', trigger: 'scheduled' },
+  ])).toBeNull()
+
+  // A probe is not a scan the operator asked for, so it neither marks the
+  // project scanned nor gets pinned. The newest non-probe run wins.
+  expect(resolveAutoResumeTarget(projects, [
+    { id: 'r_probe', projectId: 'a', status: 'completed', trigger: 'probe' },
+    { id: 'r_failed', projectId: 'a', status: 'failed', trigger: 'manual' },
+  ])).toEqual({ projectName: 'alpha', runId: 'r_failed' })
 })
 
 test('an explicit Site Health handoff wins over the configured legacy surface and resumes the exact run', async () => {

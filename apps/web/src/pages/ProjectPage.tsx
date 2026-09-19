@@ -100,6 +100,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
+  getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -2284,6 +2285,27 @@ function ProjectPageContent({
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
+  // "Map site" invites the operator to do something that has not been done yet,
+  // so it needs the one fact the sweep-readiness flags never carry: whether
+  // this project already has a Site Health scan. The crawl summary answers that
+  // directly and in one read, where scan history would have to be paged past
+  // any number of failed runs to find the completed one underneath. Fetched
+  // only in the state that can show the button.
+  const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
+  const siteCrawlQuery = useQuery({
+    ...getApiV1ProjectsByNameTechnicalAeoCrawlOptions({
+      client: heyClient,
+      path: { name: projectName },
+    }),
+    enabled: mapSiteCandidate && Boolean(projectName),
+    retry: false,
+  })
+  // Absent evidence is not evidence of absence: offer the button only once the
+  // read has actually come back without a scan to open.
+  const showMapSite = mapSiteCandidate
+    && siteCrawlQuery.isSuccess
+    && !siteCrawlQuery.data.hasCrawlData
+    && !siteCrawlQuery.data.legacyAuditAvailable
   // The collection read returns [] when no schedule exists. This keeps fresh
   // projects quiet while still discovering a scheduled-but-never-run project
   // after queries or providers are removed.
@@ -2684,7 +2706,7 @@ function ProjectPageContent({
           ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
-              {tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs ? (
+              {showMapSite ? (
                 <WriteButton type="button" onClick={openSiteHealth}>
                   Map site
                 </WriteButton>

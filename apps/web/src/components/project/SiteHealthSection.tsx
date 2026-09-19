@@ -1938,7 +1938,14 @@ export function SiteHealthSection({
       ?? null,
     [graphPages, rootNodeKey, rootPageQuery.data],
   )
-  const scanBusy = runMutation.isPending || Boolean(activeRunWithoutPublishedMap) || exactProgressActive || exactProgressPending
+  // A crawl that is in flight for some OTHER run than the selected one still
+  // blocks a new one. The route consolidates only onto an in-flight request
+  // with identical options and rejects everything else with a conflict, and
+  // onboarding's bounded budget guarantees different options. Without this the
+  // button reads "Scan running" (it already keys that copy on `activeAudit`)
+  // while staying enabled, and pressing it produces a bare error toast.
+  const conflictingActiveAudit = activeAudit && activeAudit.runId !== requestedRunId ? activeAudit : null
+  const scanBusy = runMutation.isPending || Boolean(activeRunWithoutPublishedMap) || Boolean(conflictingActiveAudit) || exactProgressActive || exactProgressPending
   const showProgressState = deferTerminalEvidence || (explicitOnboarding && runMutation.isPending)
   const requestedRunIsActive = requestedAuditRun?.status === 'queued' || requestedAuditRun?.status === 'running'
   const hasOnboardingContinuationActions = Boolean(onContinueOnboarding && onSkipOnboarding)

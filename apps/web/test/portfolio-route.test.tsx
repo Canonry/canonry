@@ -17,6 +17,7 @@ import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import {
   getApiV1CdpStatusQueryKey,
+  getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
@@ -83,6 +84,11 @@ async function renderAt(
     settleSchedule?: boolean
     readiness?: boolean
     configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void
+    /**
+     * Whether this project already has a readable Site Health scan. Seeded by
+     * default as "not scanned", which is what the fresh-project fixtures mean.
+     */
+    siteHealthScanned?: boolean
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -121,6 +127,24 @@ async function renderAt(
       options.scanSchedule,
     )
   }
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({ client: heyClient, path: { name: projectName } }),
+    {
+      project: projectName,
+      hasCrawlData: options.siteHealthScanned === true,
+      legacyAuditAvailable: false,
+      runId: options.siteHealthScanned === true ? 'run_scanned' : null,
+      runStatus: options.siteHealthScanned === true ? 'completed' : null,
+      requestedRootUrl: null,
+      rootUrl: null,
+      effectiveOptions: {},
+      complete: options.siteHealthScanned === true,
+      termination: null,
+      detailsAvailable: options.siteHealthScanned === true,
+      counts: { pagesDiscovered: 0, pagesFetched: 0, pagesEligible: 0, edges: 0, findings: 0 },
+      deadLinks: { state: 'disabled' },
+    },
+  )
   if (options.failedScanHandoff) {
     queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
       client: heyClient, path: { name: projectName, runId: 'run_failed' },
@@ -1616,7 +1640,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
     readiness: false,
   })
 
-  expect(html).toContain('Map site')
+  expect(html).toContain('>Map site<')
   expect(html).toContain('Set up AI Visibility')
   expect(html).toContain('No AI Visibility baseline yet')
   expect(html).toContain('Coverage signals')
@@ -1637,8 +1661,8 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
 })
 
 test('Map site is the overview primary action and is omitted on Site Health', async () => {
-  const overview = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    configureFixture(dashboard) {
+  const unmappedProject = {
+    configureFixture(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
       forceNoisyFreshVisibility(dashboard)
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
       project.project.providers = ['gemini']
@@ -1646,20 +1670,22 @@ test('Map site is the overview primary action and is omitted on Site Health', as
     },
     settleReadiness: true,
     readiness: false,
-  })
-  expect(overview).toContain('Map site')
+  }
 
-  const siteHealth = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, {
-    configureFixture(dashboard) {
-      forceNoisyFreshVisibility(dashboard)
-      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
-      project.project.providers = ['gemini']
-      dashboard.settings.providerStatuses = []
-    },
-    settleReadiness: true,
-    readiness: false,
-  })
+  const overview = await renderAt('/projects/project_citypoint', undefined, undefined, unmappedProject)
+  expect(overview).toContain('>Map site<')
+
+  const siteHealth = await renderAt('/projects/project_citypoint/technical-aeo', undefined, undefined, unmappedProject)
   expect(siteHealth).not.toContain('>Map site<')
+
+  // An invitation to map a site that is already mapped is just a wrong label.
+  // Nothing in the sweep-readiness flags carries this, so it is read separately.
+  const alreadyMapped = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    ...unmappedProject,
+    siteHealthScanned: true,
+  })
+  expect(alreadyMapped).not.toContain('>Map site<')
+  expect(alreadyMapped).toContain('Set up AI Visibility')
 })
 
 test('a first sweep in flight replaces empty-state instructions with one live status', async () => {

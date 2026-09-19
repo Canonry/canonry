@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 
 import { loadConfig } from '../config.js'
 import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
@@ -11,7 +11,7 @@ import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
 import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
 
@@ -26,7 +26,8 @@ export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
   return !isLoopbackBindHost(host)
 }
 
-function readServeOpenState(db: ReturnType<typeof createClient>): {
+/** Exported for the banner's tests; `serveCommand` is the only caller. */
+export function readServeOpenState(db: ReturnType<typeof createClient>): {
   projectCount: number
   firstProjectName?: string
   hasSiteAudit: boolean
@@ -40,21 +41,30 @@ function readServeOpenState(db: ReturnType<typeof createClient>): {
       .orderBy(asc(projects.createdAt), asc(projects.name))
       .all()
     if (rows.length === 0) return { projectCount: 0, hasSiteAudit: false }
-    let scanned = new Set<string>()
+    let scanned: Set<string>
     try {
+      // Probe runs are excluded for the same reason the scan-history endpoint
+      // excludes them: a probe is not a scan the operator asked for, and it
+      // leaves nothing for them to read.
       const audits = db.select({
         projectId: runs.projectId,
         status: runs.status,
       }).from(runs)
-        .where(eq(runs.kind, 'site-audit'))
+        .where(and(
+          eq(runs.kind, RunKinds['site-audit']),
+          ne(runs.trigger, RunTriggers.probe),
+        ))
         .all()
       scanned = new Set(
         audits
-          .filter(run => run.status === 'completed' || run.status === 'partial')
+          .filter(run => run.status === RunStatuses.completed || run.status === RunStatuses.partial)
           .map(run => run.projectId),
       )
     } catch {
-      scanned = new Set()
+      // Without the run list there is no evidence this install is unscanned.
+      // Telling an operator who already has results to run their FIRST scan is
+      // a worse answer than sending them to the dashboard root.
+      return { projectCount: rows.length, firstProjectName: rows[0]?.name, hasSiteAudit: true }
     }
     const firstUnscanned = rows.find(row => !scanned.has(row.id))
     if (firstUnscanned) {
