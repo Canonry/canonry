@@ -306,7 +306,11 @@ export function RootLayout() {
   // render. The server-side embed tab policy intentionally blocks /settings.
   const embed = useMemo(() => getEmbedConfig(), [])
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
-  const agentBarVisible = useMemo(shouldShowDashboardAgentBar, [])
+  const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
+  // Two independent conditions: the deployment still serves the agent at all,
+  // and this account is an administrator. Combined here rather than only at the
+  // render site so the bottom padding the bar reserves disappears with it.
+  const agentBarVisible = deploymentServesAgentBar && isAdmin
   const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
 
   // Router state is also a data-fetching input: setup owns the project-create

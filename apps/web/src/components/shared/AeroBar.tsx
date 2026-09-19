@@ -1280,6 +1280,12 @@ function TypingIndicator() {
  * the cached project list before rendering.
  */
 export function AeroBarHost() {
+  // Aero is an administrator tool. The routes refuse a viewer outright, so
+  // this is not the security boundary — it is about not offering an analyst a
+  // command bar that could only refuse them, and not naming an agent on a
+  // screen where it is not theirs to use. An install with no accounts reports
+  // full access, which keeps the single-operator case exactly as it was.
+  const { isAdmin } = useAccount()
   const location = useLocation()
   const match = /^\/projects\/([^/]+)/.exec(location.pathname)
   const urlSegment = match ? decodeURIComponent(match[1]) : null
@@ -1291,6 +1297,7 @@ export function AeroBarHost() {
   })
 
   if (!urlSegment) return null
+  if (!isAdmin) return null
   const projects = projectsQuery.data ?? []
   const resolved =
     projects.find((p) => p.id === urlSegment) ?? projects.find((p) => p.name === urlSegment)
