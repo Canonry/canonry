@@ -2311,13 +2311,17 @@ function ProjectPageContent({
     enabled: mapSiteCandidate && Boolean(projectName),
     retry: false,
   })
-  // Absent evidence is not evidence of absence: offer the button only once the
-  // read has actually come back without a scan to open.
-  const showMapSite = mapSiteCandidate
-    && siteAuditScansQuery.isSuccess
-    && !siteAuditScansQuery.data.scans.some(
+  const hasReadableSiteAudit = siteAuditScansQuery.isSuccess
+    && siteAuditScansQuery.data.scans.some(
       scan => scan.status === 'completed' || scan.status === 'partial',
     )
+  // Absent evidence is not evidence of absence: offer the button only once the
+  // read has actually come back without a scan to open.
+  const showMapSite = mapSiteCandidate && siteAuditScansQuery.isSuccess && !hasReadableSiteAudit
+  // `/projects/:name` opens on AI Visibility, which for a project in this state
+  // is entirely empty, while the Page Health result the operator just waited
+  // for sits two tabs away. Point at the evidence they actually have.
+  const showViewPageHealth = mapSiteCandidate && hasReadableSiteAudit
   // The collection read returns [] when no schedule exists. This keeps fresh
   // projects quiet while still discovering a scheduled-but-never-run project
   // after queries or providers are removed.
@@ -2721,6 +2725,10 @@ function ProjectPageContent({
               {showMapSite ? (
                 <WriteButton type="button" onClick={openSiteHealth}>
                   Map site
+                </WriteButton>
+              ) : showViewPageHealth ? (
+                <WriteButton type="button" onClick={openSiteHealth}>
+                  View Page Health
                 </WriteButton>
               ) : null}
               {/* Secondary, not primary. The schedule beside it is what actually

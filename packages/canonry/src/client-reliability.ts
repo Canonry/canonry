@@ -42,7 +42,10 @@ export function isConnectionFailure(message: string): boolean {
 export function connectionFailureMessage(target: string): string {
   return `Could not connect to canonry server at ${redactRequestTarget(target)}. ` +
     'Check that this URL is reachable and the server is running. ' +
-    'For a local Canonry instance, start it with "canonry serve" (or "canonry serve &" to run in background).'
+    // `serve` runs in the foreground, so an agent or script that follows this
+    // line verbatim blocks forever. Name the daemon first and keep `serve` for
+    // the case where watching the log is the point.
+    'For a local Canonry instance, start it with "canonry start" (a background daemon, stopped with "canonry stop"), or "canonry serve" to run it in the foreground.'
 }
 
 /** Keep diagnostic output useful without ever displaying URL credentials. */

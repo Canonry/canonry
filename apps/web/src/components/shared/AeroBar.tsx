@@ -435,7 +435,9 @@ export function AeroBar({ projectName }: AeroBarProps) {
           className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
-          <span className="font-medium text-strong">Aero needs an agent provider.</span>
+          {/* A bare product name in a persistent bar tells a first-run operator
+              nothing about what is unavailable or why they should care. */}
+          <span className="font-medium text-strong">Aero, the built-in AEO analyst, needs an answer-engine provider before it can read this data with you.</span>
           {canWrite ? (
             <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
               <Link to="/settings">Open Settings</Link>

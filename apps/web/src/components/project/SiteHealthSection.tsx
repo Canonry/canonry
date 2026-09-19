@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import {
   RunKinds,
+  SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
@@ -326,6 +327,49 @@ const TERMINATION_COPY: Record<SiteCrawlTermination, string> = {
 }
 
 const TERMINATION_LABELS = new Map<string, string>(Object.entries(TERMINATION_COPY))
+
+/**
+ * Crawl budgets the operator can actually set, as a short list rather than a
+ * free number. A scan that stops early is the single most common complaint
+ * about a first result, and until now the only way to change either budget was
+ * the CLI, which the dashboard never mentions.
+ *
+ * `null` means "send nothing and let the server apply its default", which is a
+ * different request identity from sending the default explicitly.
+ */
+const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = [
+  { value: null, label: `Default (${SITE_AUDIT_DEFAULT_PAGE_LIMIT.toLocaleString()} pages)` },
+  { value: SITE_AUDIT_ONBOARDING_PAGE_LIMIT, label: '100 pages (quick look)' },
+  { value: 500, label: '500 pages' },
+  { value: 2_500, label: '2,500 pages' },
+  { value: 10_000, label: '10,000 pages' },
+]
+
+const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
+  { value: null, label: 'Any depth' },
+  { value: 1, label: '1 click from the home page' },
+  { value: 2, label: '2 clicks' },
+  { value: 3, label: '3 clicks' },
+  { value: 5, label: '5 clicks' },
+]
+
+/**
+ * What to change so the next scan gets further. Every budget in this list is
+ * editable in Scan settings; the reasons that are not about a budget get no
+ * suggestion rather than a misleading one.
+ */
+const TERMINATION_REMEDY: Partial<Record<SiteCrawlTermination, string>> = {
+  'max-pages': 'Raise the page budget in Scan settings, or narrow the scan with a lower crawl depth.',
+  'max-edges': 'Raise the page budget in Scan settings; the link budget follows it.',
+  'max-fetches': 'Raise the page budget in Scan settings.',
+  'max-duration': 'Lower the page budget or the crawl depth in Scan settings so the next scan finishes inside its time budget.',
+  'max-depth': 'Raise the crawl depth in Scan settings.',
+}
+
+function terminationRemedy(termination: string | null): string | null {
+  if (!termination) return null
+  return TERMINATION_REMEDY[termination as SiteCrawlTermination] ?? null
+}
 
 function terminationCopy(termination: string | null): string {
   if (!termination) return 'This scan stopped before it checked every page it found.'
@@ -1327,8 +1371,12 @@ function ActiveScanState({
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
       {boundedPageLimit ? (
-        <p className="mt-2 text-xs text-faint">
-          This first scan covers up to {boundedPageLimit} pages, so read the result as a first look at the site rather than a complete audit.
+        // The single most important caveat about the result it is introducing,
+        // previously set in the smallest and faintest type on the screen. It
+        // also named only the page budget, when a first scan on a real site
+        // usually stops at the time budget instead.
+        <p className="mt-3 rounded-lg border border-caution bg-caution-soft px-4 py-2 text-sm text-caution">
+          This first scan reads up to {boundedPageLimit} pages and stops at a time limit, so read the result as a first look at the site rather than a complete audit.
         </p>
       ) : null}
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
@@ -1578,6 +1626,9 @@ export function SiteHealthSection({
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
+  // `null` on both = send nothing and take the server's defaults.
+  const [pageBudget, setPageBudget] = useState<number | null>(null)
+  const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilterId>('all')
   /**
    * The map opens on content links only. Nav and footer links repeat on every
@@ -1644,6 +1695,13 @@ export function SiteHealthSection({
     }),
     enabled: Boolean(exactProgressRunId),
     refetchInterval: (query) => shouldPollSiteAuditProgress(query.state.data?.phase) ? 3_000 : false,
+    // Same reason as the live page-health preview beside it: react-query
+    // suspends interval refetches while the window is unfocused or occluded,
+    // and onboarding explicitly invites the operator to go and do something
+    // else ("Continue while Site Health finishes"). Without this the counters
+    // freeze on whatever they read at mount, which is zero, while the findings
+    // line beside them keeps counting up from a query that does set it.
+    refetchIntervalInBackground: true,
   })
   useEffect(() => {
     if (!isInitialRunSelection || !activeProgressQuery.isError) return
@@ -1984,8 +2042,13 @@ export function SiteHealthSection({
       body: {
         checkDeadLinks: explicitOnboarding || checkDeadLinks,
         // Onboarding is a bounded first look, so it does not spend the full
-        // crawl budget before the operator has seen any result.
-        ...(explicitOnboarding ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT } : {}),
+        // crawl budget before the operator has seen any result. Everywhere
+        // else the budget is whatever Scan settings says, and an unset budget
+        // is omitted so the server applies its own default.
+        ...(explicitOnboarding
+          ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT }
+          : pageBudget === null ? {} : { maxPages: pageBudget }),
+        ...(explicitOnboarding || crawlDepth === null ? {} : { maxDepth: crawlDepth }),
       },
     })
   }
@@ -2063,6 +2126,37 @@ export function SiteHealthSection({
                     <span>
                       <span className="font-medium">Check dead links</span>
                       <span className="mt-1 block text-sm text-secondary">Adds dead-link analysis to this scan.</span>
+                    </span>
+                  </label>
+                  <label className="mt-4 block text-sm text-heading">
+                    <span className="font-medium">Page budget</span>
+                    <select
+                      aria-label="Page budget"
+                      value={pageBudget === null ? '' : String(pageBudget)}
+                      disabled={scanBusy}
+                      onChange={(event) => setPageBudget(event.target.value === '' ? null : Number(event.target.value))}
+                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+                    >
+                      {PAGE_BUDGET_CHOICES.map((choice) => (
+                        <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="mt-3 block text-sm text-heading">
+                    <span className="font-medium">Crawl depth</span>
+                    <select
+                      aria-label="Crawl depth"
+                      value={crawlDepth === null ? '' : String(crawlDepth)}
+                      disabled={scanBusy}
+                      onChange={(event) => setCrawlDepth(event.target.value === '' ? null : Number(event.target.value))}
+                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+                    >
+                      {CRAWL_DEPTH_CHOICES.map((choice) => (
+                        <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-sm text-secondary">
+                      A smaller scan finishes inside its time budget. A scan that ran out of time needs a lower one, not a higher page budget.
                     </span>
                   </label>
                 </div>
@@ -2156,7 +2250,11 @@ export function SiteHealthSection({
       )}
       {crawl?.hasCrawlData && !crawl.complete && (
         <div className="rounded-lg border border-caution bg-caution-soft px-4 py-3 text-sm text-caution" role="status">
-          {terminationCopy(crawl.termination)}
+          {terminationCopy(crawl.termination)}{' '}
+          {/* Naming the limit without naming the remedy leaves the operator
+              looking at a result they have been told is incomplete with
+              nothing to do about it. The budget lives in Scan settings. */}
+          {!embedded && !managedScanForViewer ? terminationRemedy(crawl.termination) : null}
         </div>
       )}
       {!activeAudit && newestRunStatus === 'failed' && !selectedRunId && (

@@ -1,4 +1,6 @@
 import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
@@ -124,7 +126,7 @@ test('defaults a fresh install to the domain-first Site Health flow', async () =
 
   await renderSetup()
 
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
   expect(screen.getByText('Use your agent instead')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Copy setup request' })).toBeTruthy()
@@ -165,7 +167,7 @@ test('auto resumes Site Health for an existing project instead of the provider-g
   expect(screen.getByText('example-com:project-example:latest:true')).toBeTruthy()
   expect(screen.queryByText('Launch is blocked until at least one provider is configured.')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
 })
 
 const AUTO_RESUME_PROJECT = {
@@ -376,7 +378,7 @@ test('continues a mapped project into focused AI Visibility setup', async () => 
   expect(screen.queryByText('Competitors')).toBeNull()
   const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
   expect(within(onboardingProgress).getByText('AI Visibility').closest('[aria-current="step"]')).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Set up Advanced measurement instead' })).toBeNull()
 })
 
@@ -408,7 +410,7 @@ test('keeps the fresh-install launchpad focused until a project exists', async (
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   await renderSetup()
 
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'View projects' })).toBeNull()
 })
@@ -488,7 +490,7 @@ test('keeps the auto launchpad in an accessible loading state until the project 
 
   expect((await screen.findByRole('status')).textContent).toContain('Loading projects')
   resolveProjects?.(jsonResponse([]))
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
 })
 
 test('auto waits for a successful authoritative empty project list before showing the launchpad', async () => {
@@ -501,9 +503,9 @@ test('auto waits for a successful authoritative empty project list before showin
 
   await renderSetup()
 
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
   expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and technical SEO scores.')).toBeTruthy()
-  const setupForm = screen.getByRole('form', { name: 'Map your site' })
+  const setupForm = screen.getByRole('form', { name: 'Scan your site' })
   const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
   expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(screen.getByText('Copy a complete CLI setup request into any coding agent.')).toBeTruthy()
@@ -514,18 +516,18 @@ test('auto waits for a successful authoritative empty project list before showin
   expect(agentGuide.getAttribute('rel')).toContain('noreferrer')
   expect(screen.getByLabelText('Website URL')).toHaveProperty('required', true)
   expect(screen.getByText('Only public pages are scanned.')).toBeTruthy()
-  expect(screen.getByText('Advanced settings')).toBeTruthy()
+  expect(screen.getByText('Project name and locale')).toBeTruthy()
   expect(screen.getByText('United States · English')).toBeTruthy()
   const crawlApproval = screen.getByRole('checkbox', {
     name: 'Allow Canonry to scan this public site.',
   })
   expect(crawlApproval).toBeTruthy()
   expect(crawlApproval.getAttribute('aria-describedby')).toBe('local-crawl-note')
-  expect(screen.getByText('The crawl runs on this Canonry instance, follows internal links, and stores its results locally.')).toBeTruthy()
+  expect(screen.getByText(/The crawl runs on this Canonry instance, follows internal links, and stores its results locally\./)).toBeTruthy()
   expect(screen.queryByText('Allow Canonry to scan this public site and follow internal links.')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Map site' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Scan site' })).toBeTruthy()
   const onboardingProgress = screen.getByRole('list', { name: 'Onboarding progress' })
-  expect(within(onboardingProgress).getByText('Site audit').closest('[aria-current="step"]')).toBeTruthy()
+  expect(within(onboardingProgress).getByText('Scan site').closest('[aria-current="step"]')).toBeTruthy()
   expect(within(onboardingProgress).getByText('AI Visibility')).toBeTruthy()
   expect(within(onboardingProgress).getByText('Optional')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Copy setup request' }).getAttribute('type')).toBe('button')
@@ -542,7 +544,7 @@ test('offers accessible supported locale selects with exact API codes', async ()
   await renderSetup()
 
   await screen.findByLabelText('Website URL')
-  fireEvent.click(screen.getByText('Advanced settings'))
+  fireEvent.click(screen.getByText('Project name and locale'))
   const country = screen.getByRole('combobox', { name: 'Country' }) as HTMLSelectElement
   const language = screen.getByRole('combobox', { name: 'Language' }) as HTMLSelectElement
 
@@ -740,6 +742,53 @@ test('explains when server settings keep telemetry off after an enable request',
   })
 })
 
+
+test('the README carries the same setup request the dashboard copies', () => {
+  // Two hand-maintained copies of the same instructions, and they had already
+  // drifted: the README's was missing the bounded page budget and the
+  // scan-reuse rule. Whichever one an operator finds has to be the live one.
+  // Walk up from the vitest cwd rather than `import.meta.url`, which is not a
+  // file URL in this environment.
+  let dir = resolve(process.cwd())
+  while (!existsSync(join(dir, 'pnpm-workspace.yaml')) && dirname(dir) !== dir) dir = dirname(dir)
+  const readme = readFileSync(join(dir, 'README.md'), 'utf8')
+  const fence = '```'
+  const start = readme.indexOf(`${fence}text\nHelp me set up Canonry for my public site.`)
+  expect(start).toBeGreaterThan(-1)
+  const body = readme.slice(start + fence.length + 'text\n'.length)
+  expect(body.slice(0, body.indexOf(`\n${fence}`))).toBe(AGENT_SETUP_REQUEST)
+})
+
+test('the setup request cannot strand an agent or point it at the wrong install', () => {
+  // Each of these is a failure a fresh agent actually hit when following an
+  // earlier version of this text.
+  // A connected tool cannot see a shell env var, so "prefer connected tools"
+  // silently acted on the operator's real install.
+  expect(AGENT_SETUP_REQUEST).toContain('never sees `CANONRY_CONFIG_DIR`')
+  // `bootstrap` is not interactive; handing it over and waiting deadlocks.
+  expect(AGENT_SETUP_REQUEST).toContain('run `cnry bootstrap` yourself')
+  expect(AGENT_SETUP_REQUEST).toContain('The interactive command is `cnry init`')
+  expect(AGENT_SETUP_REQUEST).not.toContain('tell me to run `cnry bootstrap`')
+  // `cnry --version` succeeds on an unconfigured install, so it cannot detect
+  // missing config; `doctor` is the command that can.
+  expect(AGENT_SETUP_REQUEST).toContain('cnry doctor --format json')
+  expect(AGENT_SETUP_REQUEST).toContain('does not read config')
+  // The product's own CONNECTION_ERROR text recommends the foreground command.
+  expect(AGENT_SETUP_REQUEST).toContain('not `cnry serve`, which runs in the foreground')
+  // `score` reports aggregateScore 0 with hasData false for a never-scanned
+  // project, which reads as a real score of zero.
+  expect(AGENT_SETUP_REQUEST).toContain('Read the `hasData` field, not the score')
+  // Neither `score` nor `pages` carries the termination reason.
+  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo crawl')
+  expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
+  // `--wait` has no timeout, and rerunning the scan is the wrong recovery.
+  expect(AGENT_SETUP_REQUEST).toContain('technical-aeo progress')
+  expect(AGENT_SETUP_REQUEST).toContain('do not rerun the scan')
+  // A time limit needs a SMALLER scan, which is the counterintuitive direction.
+  expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
+  expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
+})
+
 test('gives an agent a copyable setup request', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   const writeText = vi.fn(async () => {})
@@ -769,15 +818,12 @@ test('gives an agent a copyable setup request', async () => {
   expect(AGENT_SETUP_REQUEST).toContain('cnry start')
   expect(AGENT_SETUP_REQUEST).toContain('cnry project list --format json')
   expect(AGENT_SETUP_REQUEST).toContain('npm install -g @canonry/canonry')
-  expect(AGENT_SETUP_REQUEST).not.toContain('cnry doctor --format json')
   expect(AGENT_SETUP_REQUEST.indexOf('Ask for my public domain')).toBeLessThan(AGENT_SETUP_REQUEST.indexOf('cnry start'))
-  expect(AGENT_SETUP_REQUEST).toContain('Wait for separate approval before scanning')
+  expect(AGENT_SETUP_REQUEST).toContain('wait for separate approval before scanning')
   expect(AGENT_SETUP_REQUEST).toContain('--max-pages 100')
-  expect(AGENT_SETUP_REQUEST).toContain('If configuration is missing, tell me to run `cnry bootstrap`')
-  expect(AGENT_SETUP_REQUEST).toContain('Never ask me to paste passwords, API keys, OAuth credentials, or command output')
-  expect(AGENT_SETUP_REQUEST).toContain('Read the crawl termination reason')
-  expect(AGENT_SETUP_REQUEST).toContain('If a reused project already has a completed or partial Site Health scan, read that scan instead of proposing a new one')
-  expect(AGENT_SETUP_REQUEST).toContain('Never present a bounded first scan as a full-site result')
+  expect(AGENT_SETUP_REQUEST).toContain('never ask me to paste passwords, API keys, OAuth credentials, or command output')
+  expect(AGENT_SETUP_REQUEST).toContain('Tell me the termination reason in plain words')
+  expect(AGENT_SETUP_REQUEST).toContain('read that scan instead of starting a new one')
   expect(screen.getByRole('button', { name: 'Copied setup request' })).toBeTruthy()
 })
 
@@ -824,10 +870,10 @@ test('auto confirms a cached empty project list after mount before showing the l
   await renderSetup('/setup', { seedEmptyProjectsCache: true })
 
   expect((await screen.findByRole('status')).textContent).toContain('Loading projects')
-  expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
 
   resolveProjects?.(jsonResponse([]))
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
 })
 
 test('keeps typed launchpad input mounted through an in-flight shared project refetch', async () => {
@@ -885,7 +931,7 @@ test('auto shows a retry shell when the authoritative project-list read fails', 
   await renderSetup()
 
   expect(await screen.findByRole('heading', { name: /load projects/i })).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: 'Map your site' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Scan your site' })).toBeNull()
   expect(document.querySelector('.app-shell-focus')).toBeTruthy()
   expect(document.querySelector('#desktop-sidebar')).toBeNull()
   expect(document.querySelector('#mobile-nav')).toBeNull()
@@ -893,7 +939,7 @@ test('auto shows a retry shell when the authoritative project-list read fails', 
 
   failed = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry project check' }))
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
 })
 
 test('creates once, queues the canonical Site Health run, and hands off with exact URL state', async () => {
@@ -924,11 +970,11 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
 
   const { router } = await renderSetup()
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'https://www.example.com/pricing' } })
-  fireEvent.click(screen.getByText('Advanced settings'))
+  fireEvent.click(screen.getByText('Project name and locale'))
   fireEvent.change(screen.getByRole('combobox', { name: 'Country' }), { target: { value: 'GB' } })
   fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'fr' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Map site' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   await waitFor(() => {
     expect(router.state.location.pathname).toBe('/setup')
@@ -985,7 +1031,7 @@ test('preserves a created project with retry and setup recovery when dispatch fa
   await renderSetup()
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Map site' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Retry Site Health scan' })).toBeTruthy()
@@ -1021,7 +1067,7 @@ test('keeps auto mode on project-created recovery after the project list becomes
   await renderSetup()
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Map site' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByRole('heading', { name: 'Project created' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
@@ -1043,7 +1089,7 @@ test('surfaces a create-only name collision and never starts a scan', async () =
   await renderSetup()
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Map site' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByText(/project with this name already exists/i)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'View projects' })).toBeTruthy()
@@ -1073,7 +1119,7 @@ test('keeps auto mode on actionable conflict recovery after the project list bec
   await renderSetup()
   fireEvent.change(await screen.findByLabelText('Website URL'), { target: { value: 'example.com' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /Allow Canonry/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Map site' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Scan site' }))
 
   expect(await screen.findByRole('button', { name: 'View projects' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()

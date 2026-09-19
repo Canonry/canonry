@@ -9,7 +9,7 @@ test('keeps the three onboarding stages concise and marks AI Visibility as optio
   render(<OnboardingProgress current="fixes" />)
 
   const progress = screen.getByRole('list', { name: 'Onboarding progress' })
-  const siteAudit = within(progress).getByText('Site audit').closest('li')
+  const siteAudit = within(progress).getByText('Scan site').closest('li')
   const fixes = within(progress).getByText('Page health').closest('li')
   const visibility = within(progress).getByText('AI Visibility').closest('li')
 

@@ -92,7 +92,12 @@ describe('AuthGate', () => {
 
       render(<AuthGate />)
       expect(await screen.findByText('Create a dashboard password')).toBeTruthy()
-      expect(screen.getByText('This password protects the dashboard on this computer. Canonry cannot recover it, so store it somewhere you can find.')).toBeTruthy()
+      const description = screen.getByText(/This password protects the dashboard on this computer/).closest('div, p')!
+      // A first run hands over two different secrets in two minutes. Saying
+      // which is which is the whole point of this line.
+      expect(description.textContent).toContain('separate from the API key')
+      expect(description.textContent).toContain('cnry bootstrap')
+      expect(description.textContent).toContain('Canonry cannot recover this password')
       expect(screen.queryByText(/future visits/i)).toBeNull()
     })
 

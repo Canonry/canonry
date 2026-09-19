@@ -1703,6 +1703,26 @@ test('Map site is the overview primary action and is omitted on Site Health', as
   expect(failedScan).toContain('>Map site<')
 })
 
+test('a scanned project is pointed at the evidence it has, not an empty tab', async () => {
+  // `/projects/:name` opens on AI Visibility, which for a project with no
+  // queries is entirely empty, while the Page Health result the operator just
+  // waited through onboarding for is two tabs away with nothing pointing at it.
+  const scanned = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      forceNoisyFreshVisibility(dashboard)
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.project.providers = ['gemini']
+      dashboard.settings.providerStatuses = []
+    },
+    settleReadiness: true,
+    readiness: false,
+    siteHealthScan: 'partial',
+  })
+
+  expect(scanned).toContain('>View Page Health<')
+  expect(scanned).not.toContain('>Map site<')
+})
+
 test('a first sweep in flight replaces empty-state instructions with one live status', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {

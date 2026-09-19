@@ -468,7 +468,9 @@ export function AuthGate() {
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
                 <CardDescription>
-                  This password protects the dashboard on this computer. Canonry cannot recover it, so store it somewhere you can find.
+                  This password protects the dashboard on this computer. It is separate from the API key
+                  {' '}<code className="font-mono text-xs">cnry bootstrap</code> printed, which is for the CLI and agents.
+                  {' '}Canonry cannot recover this password, so store it somewhere you can find.
                 </CardDescription>
               </CardHeader>
               <CardContent>

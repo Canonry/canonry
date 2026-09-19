@@ -331,6 +331,26 @@ test('adds the caller recovery path when integrated page health cannot be read',
   expect(screen.queryByText('Continue after successful Page health')).toBeNull()
 })
 
+test('a partial crawl scores the pages it reached, and never claims the site', () => {
+  // `partial` is the normal outcome of a bounded first scan, not an exception.
+  // Labelling it "Site score / Pass" makes exactly the claim the agent setup
+  // request forbids ("never present it as a full-site result").
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, { ...score('audit_partial', 86), runStatus: 'partial' })
+  queryClient.setQueryData(pagesKey, { project: projectName, runId: 'audit_partial', auditedAt: '2026-07-14T18:16:33.000Z', total: 0, pages: [] })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByText('Score so far')).not.toBeNull()
+  expect(screen.getByText('Part of the site')).not.toBeNull()
+  expect(screen.queryByText('Site score')).toBeNull()
+  expect(screen.getByLabelText(/from a scan that did not cover the whole site/)).not.toBeNull()
+})
+
 test('distills the integrated view to a score and its actionable findings', async () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scoreKey, {
@@ -412,7 +432,7 @@ test('distills the integrated view to a score and its actionable findings', asyn
 
   expect(screen.getByLabelText('Site score 52 out of 100')).not.toBeNull()
   expect(screen.getByText('2 pages checked')).not.toBeNull()
-  expect(screen.getByText('2 checks need attention')).not.toBeNull()
+  expect(screen.getByText('2 checks with pages below pass')).not.toBeNull()
   const findingsHeading = screen.getByRole('heading', { name: 'Technical findings' })
   expect(findingsHeading).not.toBeNull()
   expect(screen.getByText('Select a check to see affected pages and recommended fixes.')).not.toBeNull()
@@ -538,7 +558,7 @@ test('shows one exact page finding in onboarding when aggregate recommendations 
   expect(screen.getByText('Page-level evidence for the first page to fix appears below.', { exact: false })).not.toBeNull()
   expect(screen.getByRole('heading', { name: 'First page to fix' })).not.toBeNull()
   expect(screen.getAllByRole('link', { name: 'https://citypoint.example/services' })).toHaveLength(1)
-  expect(screen.getByRole('heading', { name: 'Findings and fixes' })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Findings and fixes for this page' })).not.toBeNull()
   expect(await screen.findByText('Content depth')).not.toBeNull()
   expect(screen.getByText('42/100')).not.toBeNull()
 })

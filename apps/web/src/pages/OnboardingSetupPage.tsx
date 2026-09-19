@@ -61,14 +61,15 @@ Use the official Canonry docs:
 - Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
 - MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
 
-If a Canonry installation or connected plugin/MCP is available, use it. Do not create a duplicate. Choose the connected tools or the shell path, not both. The \`cnry\` and \`canonry\` commands are interchangeable.
+Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
 
-1. Ask for my public domain, country, and language. Do not create or scan anything yet.
-2. If connected tools are available, use them for the remaining steps. For the shell path, make sure that \`cnry\` is on PATH. Then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. If configuration is missing, tell me to run \`cnry bootstrap\` in my private terminal and wait. Never ask me to paste passwords, API keys, OAuth credentials, or command output.
-3. Make sure that the API or connected tool is reachable. If the shell API is unavailable, propose \`cnry start\`. Wait for approval. List the projects with the connected project tool or \`cnry project list --format json\`. Reuse a project with the same domain. Make sure that the proposed name is not assigned to a different domain. If a reused project already has a completed or partial Site Health scan, read that scan instead of proposing a new one. If no match exists, show the exact create operation and wait for approval.
-4. Propose a bounded Site Health scan: \`--max-pages 100\` as a first look at the top of the site, plus the state of dead-link checking. Show the connected operation or exact \`cnry technical-aeo run ... --max-pages 100 --wait --format json\` command. Wait for separate approval before scanning.
-5. If the run status is \`completed\` or \`partial\`, read its score and worst pages with run-pinned connected tools. For the shell path, use \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Read the crawl termination reason too, and say whether the scan covered the whole site or stopped at a page, link, depth, or time limit. Never present a bounded first scan as a full-site result. If the run failed or was cancelled, inspect the run error and stop. Summarize completed evidence and propose AI Visibility setup.
-6. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
+1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
+2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
+3. Confirm the API is reachable. \`cnry doctor --format json\` reports it, and any project read exits non-zero with \`CONNECTION_ERROR\` when it is not. If it is unreachable, propose \`cnry start\` and wait for approval. Use \`cnry start\`, which is the background daemon, and not \`cnry serve\`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with \`cnry stop\`.
+4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry technical-aeo score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
+5. Propose a bounded Site Health scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry technical-aeo run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` has no timeout and returns only the run id and status. If it outruns your tool timeout, do not rerun the scan: recover the run id with \`cnry technical-aeo score <project> --format json\` and poll \`cnry technical-aeo progress <project> --run-id <run-id> --format json\`.
+6. When the run is \`completed\` or \`partial\`, read \`cnry technical-aeo crawl <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and pages commands do not. Then read \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
+7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
 export type OnboardingProjectListState =
   | { state: 'idle' | 'loading' | 'error' }
@@ -1029,7 +1030,7 @@ function PlatformSetupPageBody({
       {!skipSiteScan ? <OnboardingProgress current="site" /> : null}
       <header className={`mb-8 ${skipSiteScan ? '' : 'mt-8'}`}>
         <h1 id="site-map-setup-title" className="text-2xl font-semibold tracking-[-0.025em] text-heading">
-          {skipSiteScan ? 'Create a project' : 'Map your site'}
+          {skipSiteScan ? 'Create a project' : 'Scan your site'}
         </h1>
         <p className="mt-2 max-w-lg text-sm leading-6 text-secondary">
           {skipSiteScan
@@ -1090,7 +1091,10 @@ function PlatformSetupPageBody({
 
         <details className="group border-y border-default">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
-            <span className="font-medium text-heading">Advanced settings</span>
+            {/* Nothing behind this is advanced: it is the project name Canonry
+                is about to create and the locale it will measure in. Both are
+                worth seeing before the scan starts. */}
+            <span className="font-medium text-heading">Project name and locale</span>
             <span className="flex items-center gap-2 text-secondary">
               {localeLabel}
               <ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
@@ -1173,6 +1177,8 @@ function PlatformSetupPageBody({
               <span className="text-sm leading-5 text-heading">Allow Canonry to scan this public site.</span>
               <span id="local-crawl-note" className="text-sm leading-5 text-secondary">
                 The crawl runs on this Canonry instance, follows internal links, and stores its results locally.
+                {' '}This first scan reads up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages and stops at a time limit, so on a large
+                site it is a first look rather than a full audit. You can raise the budget in Scan settings afterwards.
               </span>
             </span>
           </label>
@@ -1195,7 +1201,7 @@ function PlatformSetupPageBody({
           >
             {phase === 'creating' || phase === 'dispatching'
               ? <><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {skipSiteScan ? 'Creating project…' : 'Mapping site…'}</>
-              : skipSiteScan ? 'Create project' : 'Map site'}
+              : skipSiteScan ? 'Create project' : 'Scan site'}
           </Button>
           {phase === 'dispatching' ? <span className="text-center text-sm text-secondary" role="status">Opening Site Health when the scan is ready.</span> : null}
         </div>
