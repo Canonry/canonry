@@ -14,6 +14,7 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { AdminOnly } from '../components/shared/AccessControls.js'
 import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
+import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { addToast } from '../lib/toast-store.js'
@@ -1664,11 +1665,7 @@ function ReadySetupPage({
                     <p className="mt-0.5 text-sm text-secondary">completed engine checks</p>
                   </div>
                 </div>
-                <p className="mt-1 text-sm text-secondary">
-                  {siteHealthOnboarding
-                    ? 'Your project is ready. Review the evidence in the project.'
-                    : 'Open the project to review the evidence.'}
-                </p>
+                {createdProjectName ? <NextSteps projectName={createdProjectName} /> : null}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={openProjectDashboard}>

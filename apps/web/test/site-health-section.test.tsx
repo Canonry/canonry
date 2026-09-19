@@ -815,7 +815,7 @@ test('connects a selected graph page score to its exact audit finding in the sam
 
   fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
 
-  expect(screen.getByRole('heading', { name: 'Findings and fixes' })).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Findings and fixes for this page' })).not.toBeNull()
   expect(screen.getByLabelText('Score 61 out of 100')).not.toBeNull()
   expect(screen.getByText('The page is too thin.')).not.toBeNull()
   expect(screen.getByText('Add complete answers to the page.')).not.toBeNull()
@@ -980,7 +980,7 @@ test('uses the exact active run for a first scan instead of showing stale-map co
   expect(scanProgress.textContent).toContain('Scanning site')
   expect(scanProgress.textContent).toContain('Page health appears after the scan finishes')
   expect(scanProgress.textContent).not.toContain('map appears')
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Site audit')
+  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
   expect(screen.queryByRole('tablist', { name: 'Site Health views' })).toBeNull()
   expect(screen.queryByRole('tabpanel')).toBeNull()
   expect(scanProgress.textContent).toContain('Scanning site')
@@ -991,6 +991,68 @@ test('uses the exact active run for a first scan instead of showing stale-map co
     path: { name: projectName },
     query: { runId: 'run_active' },
   }))).not.toBeUndefined()
+})
+
+test('states the bounded first-run budget during onboarding and not on a regular scan', () => {
+  for (const surface of ['onboarding', 'regular'] as const) {
+    const queryClient = makeClient()
+    queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_active', 'running', false)))
+    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({
+      client: heyClient,
+      path: { name: projectName },
+      query: { runId: 'run_active' },
+    }), {
+      project: projectName,
+      hasCrawlData: false,
+      legacyAuditAvailable: false,
+      runId: 'run_active',
+      runStatus: 'running',
+    })
+
+    renderSection(queryClient, surface === 'onboarding' ? { showOnboardingActions: true } : {})
+
+    const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
+    if (surface === 'onboarding') {
+      expect(scanProgress.textContent).toContain('First look, not a full audit.')
+    } else {
+      expect(scanProgress.textContent).not.toContain('First look, not a full audit.')
+    }
+
+    cleanup()
+    queryClient.clear()
+  }
+})
+
+test('sends the chosen crawl budget so a scan that stopped early can be changed', () => {
+  // The only way to change either budget used to be the CLI, which the
+  // dashboard never mentions, so "this scan ran out of time" was a dead end.
+  const queryClient = makeClient()
+  renderSection(queryClient)
+
+  fireEvent.change(screen.getByLabelText('Page budget'), { target: { value: '500' } })
+  fireEvent.change(screen.getByLabelText('Crawl depth'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
+
+  expect(mutationMock.mutate).toHaveBeenCalledWith({
+    projectName,
+    projectId,
+    body: { checkDeadLinks: false, maxPages: 500, maxDepth: 2 },
+  })
+})
+
+test('omits both budgets when they are left at their defaults', () => {
+  // An unset budget must stay unset: sending the default explicitly is a
+  // different crawl identity from sending nothing.
+  const queryClient = makeClient()
+  renderSection(queryClient)
+
+  fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
+
+  expect(mutationMock.mutate).toHaveBeenCalledWith({
+    projectName,
+    projectId,
+    body: { checkDeadLinks: false },
+  })
 })
 
 test('offers the onboarding continuation only after the selected active scan reaches its persisted 20-second threshold', () => {
@@ -1631,12 +1693,12 @@ test('offers rerun recovery when a pinned onboarding scan is cancelled before a 
   expect(recovery.textContent).toContain('before Canonry could publish page health results')
   expect(recovery.textContent).not.toContain('site map')
   expect(screen.queryByRole('tablist', { name: 'Site Health views' })).toBeNull()
-  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Site audit')
+  expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
   fireEvent.click(within(recovery).getByRole('button', { name: 'Run scan again' }))
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
   expect(onReleaseInitialRun).toHaveBeenCalledOnce()
 })
@@ -1707,7 +1769,10 @@ test('labels a usable partial onboarding audit without claiming full completion'
   renderSection(queryClient, { showOnboardingActions: true })
 
   expect(screen.getByText('Page health for run_partial')).not.toBeNull()
-  expect(screen.getByText('This scan stopped at the page limit, so some pages were not checked.')).not.toBeNull()
+  const stoppedBanner = screen.getByRole('status')
+  expect(stoppedBanner.textContent).toContain('This scan stopped at the page limit, so some pages were not checked.')
+  // Naming the limit without naming the remedy leaves nothing to act on.
+  expect(stoppedBanner.textContent).toContain('Raise the page budget in Scan settings')
   expect(screen.queryByRole('heading', { name: 'Site audit finished with partial coverage' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
   expect(screen.queryByRole('tablist', { name: 'Site Health views' })).toBeNull()
@@ -1737,7 +1802,7 @@ test('keeps a partial crawl recoverable when it publishes no Page health score',
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
 })
 
@@ -1759,7 +1824,7 @@ test('keeps explicit onboarding recoverable and follows the active replacement a
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: true },
+    body: { checkDeadLinks: true, maxPages: 100 },
   })
 
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
@@ -3254,7 +3319,14 @@ test.each(['header', 'failed', 'no crawl', 'no score', 'no details'] as const)('
     } else {
       expect(buttons.length).toBeGreaterThan(0)
       fireEvent.click(buttons.at(-1)!)
-      expect(mutationMock.mutate).toHaveBeenCalledWith({ projectName, projectId, body: { checkDeadLinks: Boolean(props.showOnboardingActions) } })
+      expect(mutationMock.mutate).toHaveBeenCalledWith({
+        projectName,
+        projectId,
+        body: {
+          checkDeadLinks: Boolean(props.showOnboardingActions),
+          ...(props.showOnboardingActions ? { maxPages: 100 } : {}),
+        },
+      })
     }
     cleanup()
     queryClient.clear()
@@ -3286,7 +3358,7 @@ test.each(['running', 'failed', 'partial'] as const)('managed viewer retains map
     ? 'A newer scan is running. The latest published result remains available until it finishes.'
     : state === 'failed'
       ? 'The latest scan failed. The previous completed results remain available.'
-      : 'This scan stopped at the page limit, so some pages were not checked.')).not.toBeNull()
+      : 'This scan stopped at the page limit, so some pages were not checked.', { exact: false })).not.toBeNull()
   expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
   expect(screen.getByRole('table')).not.toBeNull()

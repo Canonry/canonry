@@ -42,7 +42,12 @@ export async function showStatus(project: string, format?: string): Promise<void
     }
     console.log(`\n  Total runs: ${latest.totalRuns}`)
   } else {
-    console.log('\n  No runs yet. Use "canonry run" to trigger one.')
+    // A project name is free text up to 120 characters, so a suggestion the
+    // operator is meant to paste has to survive a space in one.
+    const projectArg = /^[\w.-]+$/.test(project)
+      ? project
+      : `'${project.replaceAll("'", `'\\''`)}'`
+    console.log(`\n  No runs yet. Capture Page Health with "canonry technical-aeo run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
   }
 }
 
