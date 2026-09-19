@@ -14,6 +14,8 @@ consume Canonry through the external-agent webhook.
   pi-ai's catalog (`agent/providers.ts` builds a custom `openai-completions`
   model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN` or `providers.deepinfra.apiKey`,
   base URL overridable via `DEEPINFRA_BASE_URL` for proxy/LiteLLM-gateway routing).
+  The agent tier is `deepseek-ai/DeepSeek-V4-Flash`; analyze and classify stay on
+  `zai-org/GLM-5.2` (see "Model tiers and retired pins").
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up
@@ -147,6 +149,9 @@ operators to delete their conversations.
 
 ## Disabling Aero
 
+This is the full kill switch. For an install that wants an agent it can ask but
+never one that starts talking on its own, see "Prompt-only Aero" instead.
+
 Aero is enabled by default. Set `agent.mode: 'disabled'` in
 `~/.canonry/config.yaml` (or `CANONRY_AGENT_DISABLED=1` in the environment;
 env wins, `=0` forces it back on) to turn the agent OFF entirely — the
@@ -157,6 +162,94 @@ resolves this once at boot via `resolveAgentEnabled(process.env, config)`
 intelligence, and notifications are unaffected. Note it stops only the
 *automatic* per-run agent stream — the on-demand `analyze`-tier recommendation
 `explain` / `brief` routes (Sonnet) still bill on explicit user action.
+
+## Who can use Aero
+
+`agent-routes.ts` calls `requireInstanceAdministrator` on every route it mounts,
+so the whole agent surface is administrator-only: transcript, providers, memory,
+reset and prompt. A signed-in viewer is refused with 403 even on the reads, and
+`AeroBarHost` in the dashboard renders nothing for one. Installs with no accounts
+report full access and keep the bar, which is the single-operator case.
+
+The gate runs before `resolveProject`, so a refused caller gets the same 403
+whether or not the project exists and cannot use it to probe which projects an
+install has.
+
+Two reasons the reads are gated rather than trimmed. There is one Aero session
+per project, so the transcript is the operator's conversation rather than
+metadata about it, and memory holds operator notes plus the compaction summaries
+Aero writes of that transcript. And Aero's tools run with the INSTALL ROOT key
+(`server.ts` builds its `ApiClient` from `config.apiKey`, which carries the
+wildcard scope, and the per-turn tool scope is read off the request body), so
+reaching the prompt route at all means acting with the operator's authority
+rather than your own.
+
+### Why the gate asks two questions
+
+`requireAdminSession` reads a role, and an API key carries none, so it passes
+every key. `requireInstanceAdministrator` adds the second question: a key must be
+the install's own full-instance wildcard key, not one confined to a project and
+not one carrying less than the wildcard. Without it, a project-scoped read-only
+key (the shape handed to an outside integration) would read the operator's
+conversation and memory, and a project-scoped wildcard key would reach the prompt
+route and drive the install root key from a credential deliberately narrowed to
+one project.
+
+### Model identity
+
+Which provider and model answer is administrator knowledge, and it leaks from
+more than the agent routes. `GET /agent/providers` is refused rather than
+trimmed, because a filtered list still discloses which providers exist and which
+one is configured. `GET /doctor` carries no administrator gate of its own (the
+generic role gate refuses a viewer only on write methods), so the
+`config.agent-providers` check consults `ctx.callerIsInstanceAdministrator` and
+returns `agent-providers.restricted`, with no summary count and no details, to
+anyone who is not an install administrator.
+
+## Prompt-only Aero
+
+Aero wakes itself after every `run.completed`. To keep the agent fully usable but
+never self-starting, set `agent.mode: 'prompt-only'` in `~/.canonry/config.yaml`,
+or `CANONRY_AGENT_PROMPT_ONLY=1` in the environment (env wins; `=0` forces the
+wake back on even when config sets prompt-only). Resolved by
+`resolveAgentProactiveEnabled` in `src/agent-config.ts`, the same way
+`resolveAgentEnabled` resolves the kill switch.
+
+Prompt-only is not a second kill switch. The routes stay mounted, the dashboard
+bar still works for administrators, and `canonry agent ask` is unchanged. What
+goes away is the unattended turn after each run, and with it the per-run agent
+spend and any transcript entry nobody asked for.
+
+The `SessionRegistry` is the enforcing layer, not just the caller. With
+`proactive: false`, `queueFollowUp` and `drainNow` are no-ops, `consumePending`
+returns nothing, and `getOrCreate` leaves a persisted `follow_up_queue` untouched
+rather than migrating it into pending. Without that last part, a follow-up queued
+under an earlier mode would be bundled in front of the next thing an operator
+typed. The queue is left intact rather than cleared, so turning the wake back on
+does not cost the operator those events.
+
+`agent.mode` is therefore a three-state field, held on one key so the states stay
+mutually exclusive: absent (enabled and proactive), `prompt-only` (enabled, never
+self-starting), and `disabled` (off entirely).
+
+## Model tiers and retired pins
+
+`PROVIDER_MODELS` maps each provider to an agent, analyze and classify model, and
+`AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
+(`validateAgentProviderRegistry` throws if they desync). DeepInfra splits by tier:
+`deepseek-ai/DeepSeek-V4-Flash` drives the agent loop, while analyze and classify
+stay on `zai-org/GLM-5.2`, because those tiers suppress the reasoning trace
+through GLM's chat-template switch and that branch applies only to a model
+declared `reasoning: true`.
+
+A session persists its model id, so bumping the agent tier only changes what NEW
+sessions get: the dashboard bar sends a provider only once someone opens the
+picker, so an ordinary turn names neither provider nor model and nothing re-reads
+the stored pin. `RETIRED_AGENT_MODELS` lists ids that must no longer drive a
+provider's agent tier, and `resolveAgentModelPin` moves such a pin to the current
+default on the next hydrate, persisting it so the next process does not repeat
+the work. Only a retired id is moved: an unrecognised id is an explicit operator
+choice, since an OpenAI-compatible host serves any slug it hosts.
 
 ## External agents (webhook lifecycle)
 
@@ -169,7 +262,7 @@ webhook subscribing to `run.completed`, `insight.critical`, `insight.high`,
 
 Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). These file-level rules stay here:
 
-- `src/agent-config.ts` — `resolveAgentEnabled(env, config)`, the Aero kill-switch. Resolves whether the built-in agent runs from `CANONRY_AGENT_DISABLED` env layered over `agent.mode: 'disabled'` in `config.yaml` (env over config; `=1`/`true` off, `=0`/`false` force on). `server.ts` reads it once at boot and guards the three Aero wiring points: the `SessionRegistry`, the proactive run-completion wake, and the interactive agent routes. Does not touch data syncs / intelligence / notifications.
+- `src/agent-config.ts` — `resolveAgentEnabled(env, config)`, the Aero kill-switch, plus `resolveAgentProactiveEnabled(env, config)`, the prompt-only switch (`agent.mode: 'prompt-only'` / `CANONRY_AGENT_PROMPT_ONLY`) which keeps every interactive surface and removes only the self-wake. Resolves whether the built-in agent runs from `CANONRY_AGENT_DISABLED` env layered over `agent.mode: 'disabled'` in `config.yaml` (env over config; `=1`/`true` off, `=0`/`false` force on). `server.ts` reads it once at boot and guards the three Aero wiring points: the `SessionRegistry`, the proactive run-completion wake, and the interactive agent routes. Does not touch data syncs / intelligence / notifications.
 - `src/agent/session-registry.ts` — hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. `acquireForTurn` is async and awaits transcript compaction before returning.
 - `src/agent/memory-store.ts` — CRUD helpers for `agent_memory`: `listMemoryEntries`, `upsertMemoryEntry`, `deleteMemoryEntry`, `loadRecentForHydrate`, `writeCompactionNote`. Enforces the 2 KB value cap and the `compaction:` reserved-prefix rule.
 - `src/agent/compaction.ts` — transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
