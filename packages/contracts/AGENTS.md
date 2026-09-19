@@ -62,6 +62,102 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 4. Add a test file in `test/<topic>.test.ts` with happy path + edge cases (empty input, invalid input, boundary values).
 5. Migrate any inline duplicates you discover in the same change — don't leave duplication for "later."
 
+#### Where utilities live
+
+| Concern | File |
+|---------|------|
+| Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
+| URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, exact-or-subdomain matching, prose domain extraction) |
+| Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
+| Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
+| Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
+| Error factories, and rendering a caught `unknown` | `packages/contracts/src/errors.ts` (`describeError` — the one way to turn a `catch` binding into text; never hand-write `err instanceof Error ? err.message : String(err)`, whose `String()` branch prints `[object Object]` for a thrown object) |
+| SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
+| Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
+| Statistics over a series | `packages/contracts/src/statistics.ts` (`wilsonInterval` for a proportion; `linearTrend` for the least-squares fit of any evenly-spaced series, returning slope-per-step plus the two endpoints a chart draws between). Fit trends server-side and put them in the DTO — a regression computed in a chart component is invisible to the CLI and breaks UI/CLI parity. |
+| Bounded async concurrency | `packages/contracts/src/concurrency.ts` (`mapWithConcurrency` — order-preserving worker pool, fail-fast with clean settle) |
+| Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
+| JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
+
+Add new utility files to `packages/contracts/src/` and re-export them from `index.ts`. Keep modules small and focused — a `formatting.ts` for formatters, a separate file for the next category. One file per concern.
+
+#### Anti-patterns
+
+```typescript
+// ❌ Wrong — defining a generic helper inline in a domain file
+// packages/api-routes/src/report-renderer.ts
+function formatNumber(value: number): string {
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toLocaleString('en-US')
+}
+
+// ✅ Correct — single source of truth, imported everywhere
+// packages/contracts/src/formatting.ts
+export function formatNumber(value: number): string { /* ... */ }
+
+// packages/api-routes/src/report-renderer.ts
+import { formatNumber } from '@ainyc/canonry-contracts'
+```
+
+```typescript
+// ❌ Wrong — three packages each define their own formatDate
+// packages/canonry/src/gsc-sync.ts: function formatDate(d: Date) { ... }
+// packages/integration-google-analytics/src/ga4-client.ts: function formatDate(d: Date) { ... }
+// packages/api-routes/src/report-renderer.ts: function formatDate(iso: string) { ... }
+
+// ✅ Correct — one shared helper, imported by all three
+// packages/contracts/src/formatting.ts: export function formatIsoDate(iso: string) { ... }
+```
+
+### Enum constants
+
+| Constant | Type | Values |
+|----------|------|--------|
+| `RunKinds` | `RunKind` | `RunKinds['answer-visibility']`, `RunKinds['gsc-sync']`, etc. |
+| `RunStatuses` | `RunStatus` | `RunStatuses.completed`, `RunStatuses.failed`, etc. |
+| `RunTriggers` | `RunTrigger` | `RunTriggers.manual`, `RunTriggers.scheduled`, `RunTriggers.probe`, etc. |
+| `CitationStates` | `CitationState` | `CitationStates.cited`, `CitationStates['not-cited']` |
+| `VisibilityStates` | `VisibilityState` | `VisibilityStates.visible`, `VisibilityStates['not-visible']` |
+| `ComputedTransitions` | `ComputedTransition` | `ComputedTransitions.lost`, `ComputedTransitions.emerging`, etc. |
+
+```typescript
+import type { RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+
+// ✅ Correct — enum constant + typed parameter + exhaustive switch
+function kindLabel(kind: RunKind): string {
+  switch (kind) {
+    case RunKinds['answer-visibility']: return 'Answer visibility sweep'
+    case RunKinds['gsc-sync']: return 'GSC sync'
+    case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
+    case RunKinds['site-audit']: return 'Site audit'
+  }
+}
+
+// ❌ Wrong — raw string literals, untyped parameter
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'answer-visibility': return 'Answer visibility sweep'
+    default: return kind
+  }
+}
+```
+
+### Third-party HTTP calls
+
+**Every integration that talks to a third party over HTTP must back off when that service pushes back.** Wrap the package's HTTP layer in `withRetry` from `@ainyc/canonry-contracts` — one private `fetchOnce`, one exported wrapper — so retry is the default rather than something each call site remembers. `packages/integration-bing/src/bing-client.ts` is the reference shape.
+
+#### Rules
+
+1. **Retry is a property of the client, not the caller.** If a call site can forget it, it will.
+2. **Do not write a status-code check by hand.** Use `isRetryableHttpError`, which retries rate limiting, 5xx, and network errors, and refuses auth/validation/not-found.
+3. **Rate limiting is not always HTTP 429.** A service may report a throttle on a 4xx, or a 200, with the condition in the body — Bing answers `400` with `{"ErrorCode":5,"Message":"ERROR!!! ThrottleHost"}`. `isRateLimitError` therefore tests semantically: `Retry-After`, then 429, then documented throttle markers in the message. If a service signals throttling through a private numeric code, surface that code's meaning in the error message or set `retryAfter` on the error, or the shared predicate cannot see it (see `BingApiError`).
+4. **Honour `Retry-After`.** Pass `computeDelayMs: (_a, err, defaultMs) => retryAfterDelayMs(err) ?? defaultMs`. Backing off 1s against a limiter asking for 60 just burns the remaining attempts.
+5. **Tune the base delay to the service.** The 1s default is for one-off blips. A service that throttles a burst needs a base above the window it throttles over — Bing uses 2s doubling to a 30s ceiling.
+6. **Test both directions.** A retry test that only proves "transient failure eventually succeeds" is half a test. Also assert that auth and validation failures are *not* retried — retrying a permanent failure multiplies load for nothing.
+
+`packages/contracts/test/integration-retry-coverage.test.ts` enforces this: a new HTTP-calling integration without `withRetry` fails CI. Packages that predate the rule are listed there explicitly, and the list may only shrink.
+
 ### Market selection
 
 `visibility-report` accepts `marketKey` as an exact refinement of project, group, or property scope. Market scope already selects a market and rejects an additional `marketKey`. Optional scope/query `marketKeys` and `selection.market` carry frozen memberships to consumers. A reporting market may declare `groupKey` only when that group contains every target in its usage edges.

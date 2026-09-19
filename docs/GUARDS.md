@@ -16,6 +16,14 @@ Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. All guards
 
 ### Adding a guard
 
+The guards that catch real defects here are the ones that compare two sources
+that must agree, and they have caught changes to AGENTS.md more than once:
+`db-dto-coverage` (a new table with no classification), `dashboard-class-baseline`
+(a className with no stylesheet selector), `codegen-drift` (a route whose SDK was
+not regenerated), `no-new-loose-routes`, `eslint-guards`. When a change
+introduces a new pair that must stay in step, prefer a guard over a convention —
+see the "Lint Guards (Critical)" section of the root `AGENTS.md`.
+
 1. Build it with `createRestrictedSyntaxRule` from `eslint-rules/restricted-syntax.js` (same behavior as `no-restricted-syntax`, under an id you choose), or write a custom rule module in `eslint-rules/` when the check needs more than a selector.
 2. Register it in the shared `canonryGuardsPlugin` / `canonryVocabularyPlugin` object — one object per namespace, reused by reference. Flat config throws `Cannot redefine plugin` if a namespace gets two different objects.
 3. Add the rule id to the coverage matrix in `test/eslint-guards.test.ts`, plus any file it deliberately exempts. That test resolves the real config per tree and asserts each guard is enabled at error severity; it is what catches a clobbered or misscoped guard, since lint output cannot.

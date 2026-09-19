@@ -3,7 +3,7 @@
  *
  * ALL charts in the web app must use Recharts via these primitives.
  * Do not use custom SVG charts, Chart.js, Highcharts, D3, or any other
- * charting library. See CLAUDE.md "Charting" section.
+ * charting library. See apps/web/AGENTS.md "Charting and graph rendering".
  */
 import type { CSSProperties } from 'react'
 import {

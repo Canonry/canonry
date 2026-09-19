@@ -53,6 +53,11 @@ How the runner uses it:
 - Each version's statements + the `_migrations` row commit in a single SQLite transaction. A non-recoverable failure rolls the whole version back so the next boot retries cleanly. **Make every statement idempotent** (`IF NOT EXISTS`, `IF EXISTS`, `UPDATE … WHERE` guards, or `ALTER TABLE ADD COLUMN` whose duplicate-column error the runner swallows) so a retry is safe.
 - Never edit a previously-shipped version's `statements[]`. Old DBs already have it recorded as applied and won't run it again — write a new version that fixes things up forward.
 - Mirror the table in `schema.ts` for grep-ability (the runner doesn't query Drizzle, but other code paths might).
+- A new table's entry creates the table plus every index from its schema definition; a new column uses `ALTER TABLE ... ADD COLUMN`.
+- Removing a column or table: SQLite does not support `DROP COLUMN` on older versions; document the intent and leave the entry's `statements[]` as a comment-only no-op if needed.
+- Duplicate or out-of-order `version` values break the skip-already-applied logic.
+
+Checklist: table/column added to `schema.ts`; matching `MIGRATION_VERSIONS` entry in `migrate.ts`; relevant schema and migration tests pass locally (full workspace checks run in CI).
 
 ### JSON column reads
 
@@ -78,7 +83,19 @@ const overlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
 const overlap = JSON.parse(snap.competitorOverlap || '[]') as string[]
 ```
 
-The longer-term direction is to migrate the remaining JSON columns to `mode: 'json'` (and boolean columns to `mode: 'boolean'`) table by table. New tables/columns should use the native modes from day one.
+The longer-term direction is to migrate the remaining JSON columns to `mode: 'json'` (and boolean columns to `mode: 'boolean'`) table by table. New tables/columns should use the native modes from day one. Boolean columns on those legacy tables still coerce by hand (`row.x === 1` on read, `x ? 1 : 0` on write).
+
+#### Migrating a table to native modes
+
+1. Update `packages/db/src/schema.ts`: switch JSON columns to `text(col, { mode: 'json' }).$type<T>().notNull().default([])` (or `{}`), boolean columns to `integer(col, { mode: 'boolean' }).notNull().default(false)`.
+2. No DB migration is needed — the storage format is unchanged. Drizzle parses/stringifies in TS.
+3. Update every read site that called `parseJsonColumn<T>(row.X, ...)` to direct access `row.X`.
+4. Update every write site that wrapped values in `JSON.stringify(...)` to pass the raw typed value.
+5. Update every boolean read site (`row.X === 1`) and write site (`x ? 1 : 0`) to use the boolean directly.
+6. Add tests that round-trip a write → read to confirm the type flows end-to-end. (`packages/api-routes/test/db-dto-coverage.test.ts` catches schema drift; round-trip tests catch coercion bugs.)
+7. `JSON.parse` is still fine for HTTP request bodies, config files, and other non-DB sources.
+
+### Traffic event receipts
 
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
@@ -87,6 +104,8 @@ transport's complete replay or redelivery horizon; do not reuse the bounded
 `traffic_sources.last_event_ids` pull-overlap ring for pushed or buffered events.
 
 ### Transaction boundaries
+
+Multi-table writes must be wrapped in a single `db.transaction()` call. `writeAuditLog()` takes the transaction (`Pick<DatabaseClient, 'insert'>`), so the audit write commits with the change.
 
 ```typescript
 // 1. Do async I/O BEFORE the transaction

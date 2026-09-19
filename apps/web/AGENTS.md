@@ -9,6 +9,14 @@ Vite SPA (React 19 + TanStack Router/Query + Tailwind CSS 4) for the analytics d
 Read the repository-root `PRODUCT.md` and `DESIGN.md` before UI work. They are
 the durable product and interaction contract. This file owns implementation
 constraints; `DESIGN.md` owns hierarchy, copy, typography, and control choices.
+The implementation rules here must not override their hierarchy, copy,
+accessibility, or control standards.
+
+The dashboard follows a dark, professional analytics aesthetic inspired by
+**Vercel's design system** — clean, minimal, high-contrast, and
+information-dense. Rival tools like Semrush, Ahrefs, and Profound for data
+richness, but match Vercel for polish: generous whitespace, sharp typography,
+subtle borders, no visual noise.
 
 ## Key Files
 
@@ -253,6 +261,17 @@ PRs rather than rolling into tooling work.
 import { CHART_TOOLTIP_STYLE, CHART_AXIS_TICK, CHART_SERIES_COLORS } from '../shared/ChartPrimitives'
 ```
 
+- Never add Chart.js, Highcharts, D3, Plotly, Nivo, or Victory. If Recharts is
+  missing a feature, extend `ChartPrimitives.tsx` rather than adding a second
+  library.
+- Use `CHART_TOOLTIP_STYLE`, `CHART_AXIS_TICK`, `CHART_GRID_STROKE`,
+  `CHART_AXIS_STROKE`, and `CHART_SERIES_COLORS` for consistent styling.
+- Chart CSS variables (`--chart-series-*`, `--chart-tone-*`, `--chart-neutral-*`, `--chart-tooltip-*`, `--chart-grid`, `--chart-axis`) are registered in `styles.css` and consumed by `ChartPrimitives.tsx`: every Recharts color constant is `var(--chart-*, <hex fallback>)`, so the default dark render is unchanged and a theme can override the ramp at runtime. `test/chart-primitives.test.ts` locks each JS fallback to its CSS default (no two-source drift). Gauges/sparklines share the same `--chart-tone-*` / `--chart-neutral-grid-line` tokens so they can't drift from the charts. `PROVIDER_SERIES_COLORS` stays literal — it encodes engine identity, not tone. Never do string math (slice/alpha-concat) on these constants; a `var()` string would break.
+- **Pick the date formatter by what the value MEANS, not by where it renders.** `formatChartDateLabel` (tooltips) and `formatChartDateTick` (axis ticks) are CALENDAR-DATE formatters: they read the `YYYY-MM-DD` prefix and apply no timezone conversion, so a day-stamped value can never shift. A real moment (a sweep timestamp) is an `ObservedInstant` — build it with `observedInstant(iso)` and render it through `formatObservedInstantLabel` / `formatObservedInstantTick`, which localize to the viewer. The branded type is what keeps the two apart; they are indistinguishable at runtime.
+- **Never render a synthetic grouping key as a date.** An analytics bucket's `startDate` / `endDate` are boundaries anchored to the window's earliest run — nothing happened at them, and they sit days away from the sweeps inside. Label buckets with `formatBucketDateLabel` / `formatBucketDateTick` (`lib/visibility-trend-helpers.ts`), which read the bucket's real `dataStartDate` / `dataEndDate` / `sweepCount`. The boundary stays the x-axis key only.
+- Custom SVG is allowed only for non-chart visualizations (gauges, sparklines,
+  timelines) where Recharts is overkill.
+
 **Narrow Site Health exception:** the `/technical-aeo` route is labeled **Site
 Health** and renders its site map with stable `sigma@3` through
 `@react-sigma/core@5` and `graphology`. This is a WebGL graph renderer, not a
@@ -283,17 +302,42 @@ classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
 utilities such as `text-positive`, `border-positive`, `bg-positive-soft`, and
 `fill-positive` (and the caution/negative/neutral variants).
 
+Current dark defaults: `bg-bg` = `zinc-950`; `bg-surface` = `zinc-900/30`;
+`bg-surface-subtle` = `zinc-900/20`; `bg-surface-hover` = `zinc-900/40`;
+`bg-surface-inset` = `zinc-800/60`; `bg-surface-inset-hover` = `zinc-800/40`;
+`bg-surface-active` = `zinc-800/50`; `border-default` = `zinc-800/60`;
+`border-subtle` = `zinc-800/40`; `border-base` = `zinc-800`; `border-strong` =
+`zinc-700`; `text-primary` = `zinc-50`; `text-heading` = `zinc-100`;
+`text-strong` = `zinc-200`; `text-secondary` = `zinc-400`; `text-muted` =
+`zinc-500`; `text-faint` = `zinc-600`; `text-link` = `blue-400`;
+`text-on-inverse` = black; `text-on-emphasis` = white (exact legacy button
+on-colors). Use `text-heading` / `text-strong` for heading and emphasized
+neutral text, `text-primary` for highest-contrast body text, `text-secondary`
+for supporting text, and `text-muted` / `text-faint` for labels.
+
+Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose,
+**neutral** = zinc. **info** = sky is a minor accent (opportunity "track" cards,
+the suggested-query add action) exposed only as the `info-*` scale below, not a
+full tone quartet.
+
+Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for
+code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` give
+sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`,
+`-0.02em` on h1).
+
 For off-ladder shades that no role token names, use the raw scales rather than a
 literal: neutral `mono-100/200/400/500/600/700/800/900/950` (= the matching
-`zinc-*`) and the tone scales `positive-*` / `caution-*` / `negative-*` (=
-`emerald-*` / `amber-*` / `rose-*`), plus the small `info-*` sky scale
+`zinc-*`; one-off dots, focus rings, tracks, dividers, underlines, and exact
+primitive states) and the tone scales `positive-*` / `caution-*` / `negative-*`
+(= `emerald-*` / `amber-*` / `rose-*`; insight cards, toasts, chips, gauges, and
+sparklines), plus the small `info-*` sky scale
 (`100/200/300/400/500/800/950`) for info accents. Apply alpha with a Tailwind
 opacity modifier on the scale token (`bg-mono-800/30`, `bg-caution-950/25`) —
 this is exactly how `styles.css`'s one-off shades migrated with no visual
 change. Effect colors live
 as `--color-scrollbar-thumb`, `--color-shadow-drop`, `--color-shadow-panel`,
 `--color-shadow-hairline`, `--color-shadow-tooltip`, `--color-overlay-hover`,
-`--color-overlay-scrim`, and `--color-caution-glow`.
+`--color-overlay-scrim`, and `--color-caution-glow` / `-glow-inset`.
 
 `styles.css` and the entire `apps/web/src` `.tsx` component tree are fully
 tokenized (zero literal palette utilities / raw hex outside the `@theme` block) —
@@ -331,11 +375,31 @@ Token migration guardrails:
 - `test/design-tokens.test.ts` compiles the stylesheet with Tailwind and proves
   semantic utilities reference CSS variables, including opacity modifiers like
   `bg-surface/50`, and that chart-only tokens are emitted before the chart
-  bridge consumes them.
+  bridge consumes them. It guards against accidentally putting color tokens in
+  `@theme inline`.
 - `test/dashboard-class-baseline.test.tsx` SSR-renders representative routes and
-  snapshots stable class lists for later migration PRs. jsdom cannot compute
+  snapshots stable class lists for later migration PRs; use it as a fast
+  migration tripwire before browser visual checks. jsdom cannot compute
   Tailwind v4 `@layer` / `@property` / `color-mix` output reliably, so the
   computed-style spot check is the Tailwind compiler-output assertion.
+
+### Layout and navigation
+
+- **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
+- **Compact topbar** with breadcrumb, health pills, and primary action button.
+- **Page container** (`max-w-6xl`, centered) for all page content.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
+- Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
+- The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
+- The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
+
+### Accessibility
+
+- Skip-to-content link.
+- `aria-current="page"` on active nav items.
+- `aria-label` on nav landmarks.
+- Focus-visible rings on interactive elements.
+- Screen-reader-only labels (`.sr-only`) where needed.
 
 ### Component organization
 
@@ -345,13 +409,26 @@ Token migration guardrails:
 
 ### Data display
 
+- Prioritize information density. Analysts want to scan, not scroll through cards.
 - Use **data tables** for lists of 3+ structured items (evidence, findings, competitors).
 - Use **cards** only for insights/interpretations where narrative matters.
-- Use **ToneBadge** for all status indicators. Map tones through helper functions.
+- Use **ToneBadge** for all status indicators. Map tones through helper functions (`toneFromRunStatus`, `toneFromCitationState`, etc.).
 - Do not use radial/progress gauges for unbounded counts. They require a real
-  bounded scale.
+  bounded scale. Use linear progress only for a real bounded target; raw hits,
+  sessions, totals, and other unbounded counts use flat KPI rows.
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
-  checkboxes, or shared rectangular buttons for interactive choices.
+  checkboxes, or shared rectangular buttons for interactive choices. Topbar
+  health pills use `rounded-full` with tone-colored borders.
+- **AEO performance hero + metric cards:** the project overview leads with the AEO performance hero — three paired Mention / Cited / Mention-share rows with linear progress bars (stacking below `480px`) — followed by secondary metric cards in a `sm:grid-cols-2 lg:grid-cols-3` grid. Linear bars beat stacked radials when several numbers are read against each other. Keep a single `.metric-grid` / `.metric-card` definition; a duplicate once overrode the column count.
+- **Insight cards** use a left-border accent color based on tone (`insight-card-positive`, `insight-card-caution`, `insight-card-negative`).
+- **Sparklines** show inline trends in overview project rows.
+- Keep 10-11px eyebrow labels only for nonessential section context. Meaningful supporting copy is at least 13px and uses `text-secondary` or stronger.
+
+### Text and tooltips
+
+- **Heavy text belongs in tooltips, not inline.** A data surface shows values, one-line captions, and eyebrow labels — not prose. Multi-sentence explanations (methodology, "what this means", the evidence behind a finding) push the numbers down and break the analyst's scan, so they move into an `InfoTooltip` (`components/shared/InfoTooltip.tsx`) on the relevant heading, label, or row title. The trigger is a real keyboard-reachable button and the copy rides its `aria-label`, so nothing is lost for assistive tech or for tests (`getByRole('button', { name })`).
+- **What may stay inline:** the metric value itself, a single-line caption/subtitle, eyebrow section labels, and **empty / onboarding states** (which must instruct — a "connect this integration" empty state is the only content, not heavy text).
+- **The test:** if a sentence explains or justifies rather than labels or names, it goes in a tooltip. The section heading gets the info icon; the descriptive paragraph under it should not exist.
 
 ### Competitor landscapes
 
@@ -365,6 +442,14 @@ Token migration guardrails:
 - History fallback pins show unavailable metrics, never latest-only counts under
   a historical window.
 
+### Report parity (Critical)
+
+`src/pages/ReportPage.tsx` and `packages/api-routes/src/report-renderer.ts` are
+two renderers of the same `ProjectReportDto`. Any change to a section, label,
+headline, chart, tile, or order ships in both in the same commit, with
+`packages/api-routes/test/report-renderer.test.ts` updated. Full rules: root
+`AGENTS.md` "Report parity (Critical)".
+
 ### UI tests
 
 Use semantic selectors and exported UI copy constants for text assertions.
@@ -377,9 +462,11 @@ Keep fixture dates and behavior checks independent of display wording.
 - **Hardcoding `/api/v1`** — use the base path from `window.__CANONRY_CONFIG__`.
 - **Using card grids for tabular data** — analysts prefer tables for scanability.
 - **Adding decorative gradients or glow effects** — the design system is clean and flat.
+- **Hero grids with large descriptive text blocks on the project page** — keep headers compact.
+- **Multi-sentence explanatory prose inline in a data view** — move it to an `InfoTooltip` on the heading or row title (empty / onboarding states are the exception).
 
 ## See Also
 
-- Root `CLAUDE.md` — full UI design system (colors, layout, accessibility, sidebar)
+- Root `PRODUCT.md` / `DESIGN.md` — product and design contract (hierarchy, copy, typography, controls)
 - `packages/contracts/` — DTOs returned by the API
 - `packages/api-routes/` — backend endpoints the UI calls

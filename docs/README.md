@@ -13,7 +13,6 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`public-demo.md`](public-demo.md) | current | operators | Public view-only sample dashboard, isolation, and hosting |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | current | contributors | Setup, workspace structure, and contribution rules |
 | [`AGENTS.md`](../AGENTS.md) | current | Codex, Claude Code | Repo guidance optimized for Codex and Claude Code |
-| [`CLAUDE.md`](../CLAUDE.md) | current | Claude Code | Claude-specific overlay (imports AGENTS.md + UI design system) |
 | [`PRODUCT.md`](../PRODUCT.md) | current | product, design, coding agents | Dashboard purpose, users, voice, and product principles |
 | [`DESIGN.md`](../DESIGN.md) | current | designers, frontend contributors, coding agents | Durable dashboard hierarchy, copy, typography, controls, and review rules |
 

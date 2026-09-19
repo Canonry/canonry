@@ -81,6 +81,8 @@ instance, never to a canonry-hosted SaaS relay.
   `packages/api-routes/src/traffic.ts`. The classifier + rollup live in
   `packages/integration-traffic`.
 
+- **Operator setup is local-CLI-only (never MCP or Aero).** `canonry traffic connect cloudflare` (in `packages/canonry`) writes secret-free Worker/Wrangler artifacts and refuses to overwrite them. With `--deploy --confirm-route --confirm-fail-open` it deploys an unattached Worker after a route preflight; the operator attaches the exact `host/*` route manually with Fail open. With `--delivery-mode queue-pull` the API token stays server-side and the Worker gets only a producer binding; enable pull separately with `wrangler queues consumer http add <name>`. `canonry traffic activate` is the explicit cutover: it pauses the old source and moves or removes traffic-sync scheduling for the target mode.
+
 ## Common Mistakes
 
 - **Echoing the verifier's failure reason in the HTTP response.** Use a

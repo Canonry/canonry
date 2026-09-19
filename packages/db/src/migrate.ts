@@ -580,7 +580,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     name: 'gsc-integration',
     statements: [
       // google_connections (domain-scoped)
-      // WARNING: access_token, refresh_token are authentication material; consider storing in config.yaml per CLAUDE.md
+      // WARNING: access_token, refresh_token are authentication material; consider storing in config.yaml per AGENTS.md
       `CREATE TABLE IF NOT EXISTS google_connections (
         id              TEXT PRIMARY KEY,
         domain          TEXT NOT NULL,
@@ -733,7 +733,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     name: 'ga4-integration',
     statements: [
       // ga_connections
-      // WARNING: private_key is authentication material; consider storing in config.yaml per CLAUDE.md
+      // WARNING: private_key is authentication material; consider storing in config.yaml per AGENTS.md
       `CREATE TABLE IF NOT EXISTS ga_connections (
         id            TEXT PRIMARY KEY,
         project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
