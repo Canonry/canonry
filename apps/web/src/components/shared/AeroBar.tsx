@@ -27,6 +27,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
+import { InfoTooltip } from './InfoTooltip.js'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -435,7 +436,12 @@ export function AeroBar({ projectName }: AeroBarProps) {
           className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
-          <span className="font-medium text-strong">Aero needs an agent provider.</span>
+          {/* A bare product name told a first-run operator nothing, but this bar
+              is persistent, so the explanation belongs behind the affordance. */}
+          <span className="flex items-center gap-1.5 font-medium text-strong">
+            Aero needs an answer-engine provider.
+            <InfoTooltip text="Aero is the built-in AEO analyst. It reads your Canonry data with you once a provider is connected." />
+          </span>
           {canWrite ? (
             <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
               <Link to="/settings">Open Settings</Link>

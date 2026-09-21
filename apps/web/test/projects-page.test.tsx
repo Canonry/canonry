@@ -51,7 +51,7 @@ test('routes Add project through the explicit validated Site Health launchpad', 
 
   await waitFor(() => expect(router.state.location.pathname).toBe('/setup'))
   expect(router.state.location.search).toEqual({ experience: 'platform' })
-  expect(await screen.findByRole('heading', { name: 'Map your site' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
   expect(screen.getByLabelText('Website URL')).toBeTruthy()
   expect(screen.queryByLabelText('Canonical domain')).toBeNull()
   expect(requests.some(request => request.path === '/api/v1/projects' && request.method === 'POST')).toBe(false)

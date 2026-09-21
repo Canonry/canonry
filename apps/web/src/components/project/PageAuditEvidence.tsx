@@ -46,8 +46,11 @@ export function PageAuditEvidence({
   return (
     <section className="border-t border-default pt-5" aria-labelledby="site-health-page-audit-heading">
       <div>
+        {/* "Findings and fixes" sits directly under the SITE score and repeats
+            the same check names against one page, with different numbers. Say
+            whose numbers these are, or the two lists read as a contradiction. */}
         <h3 id="site-health-page-audit-heading" className="text-base font-semibold text-heading">
-          Findings and fixes
+          Findings and fixes for this page
         </h3>
       </div>
 

@@ -100,6 +100,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
+  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
@@ -1737,6 +1738,12 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
   )
 }
 
+/**
+ * Same window Site Health's own scan picker reads. Deep enough that a run of
+ * failures does not hide the completed scan underneath them.
+ */
+const MAP_SITE_SCAN_HISTORY_LIMIT = 20
+
 function ProjectPageContent({
   tab: requestedTab,
   model,
@@ -2284,6 +2291,37 @@ function ProjectPageContent({
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
+  // "Map site" invites the operator to do something that has not been done yet,
+  // so it needs the one fact the sweep-readiness flags never carry: whether
+  // this project already has a Site Health scan.
+  //
+  // Scan history, not the crawl summary. Without a `runId` the crawl summary
+  // deliberately resolves only a COMPLETE crawl of a COMPLETED run, because it
+  // answers "what is the current graph". A first run bounded by the page or
+  // duration budget lands as `partial`, so asking the crawl summary reports no
+  // scan for a project that plainly has one, and the button comes back. Scan
+  // history is the list of readable scans and already excludes probes.
+  const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
+  const siteAuditScansQuery = useQuery({
+    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { limit: MAP_SITE_SCAN_HISTORY_LIMIT },
+    }),
+    enabled: mapSiteCandidate && Boolean(projectName),
+    retry: false,
+  })
+  const hasReadableSiteAudit = siteAuditScansQuery.isSuccess
+    && siteAuditScansQuery.data.scans.some(
+      scan => scan.status === 'completed' || scan.status === 'partial',
+    )
+  // Absent evidence is not evidence of absence: offer the button only once the
+  // read has actually come back without a scan to open.
+  const showMapSite = mapSiteCandidate && siteAuditScansQuery.isSuccess && !hasReadableSiteAudit
+  // `/projects/:name` opens on AI Visibility, which for a project in this state
+  // is entirely empty, while the Page Health result the operator just waited
+  // for sits two tabs away. Point at the evidence they actually have.
+  const showViewPageHealth = mapSiteCandidate && hasReadableSiteAudit
   // The collection read returns [] when no schedule exists. This keeps fresh
   // projects quiet while still discovering a scheduled-but-never-run project
   // after queries or providers are removed.
@@ -2397,6 +2435,13 @@ function ProjectPageContent({
         experience: 'legacy',
         setupProject: projectName,
       },
+    })
+  }
+
+  function openSiteHealth() {
+    void navigate({
+      to: '/projects/$projectName/technical-aeo',
+      params: { projectName },
     })
   }
 
@@ -2677,6 +2722,15 @@ function ProjectPageContent({
           ) : (
             <div className="flex items-center gap-3">
               {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+              {showMapSite ? (
+                <WriteButton type="button" onClick={openSiteHealth}>
+                  Map site
+                </WriteButton>
+              ) : showViewPageHealth ? (
+                <WriteButton type="button" onClick={openSiteHealth}>
+                  View Page Health
+                </WriteButton>
+              ) : null}
               {/* Secondary, not primary. The schedule beside it is what actually
                   runs the sweep; this is the override for when you can't wait
                   for it. Deleting the project used to sit here too — an

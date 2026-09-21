@@ -112,6 +112,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   {
     path: ['technical-aeo', 'run'],
     usage: 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--wait] [--format json]',
+    help: 'Start a Site Health crawl. No answer-engine provider is required. --wait polls for up to 15 minutes. Dead-link checking is off unless --check-dead-links is set.',
     options: {
       'sitemap-url': stringOption(),
       limit: stringOption(),

@@ -258,3 +258,29 @@ describe('telemetryStatusDtoSchema', () => {
     }).success).toBe(false)
   })
 })
+
+describe('finish-step onboarding telemetry', () => {
+  const base = {
+    eventId: '00000000-0000-4000-8000-000000000001',
+    flowVersion: 1,
+    onboardingSessionId: '00000000-0000-4000-8000-000000000002',
+    surface: 'platform',
+  }
+
+  it('accepts the finish step as a view and as a chosen next action', () => {
+    expect(onboardingTelemetryEventSchema.safeParse({ ...base, event: 'onboarding.started', step: 'finish', resumed: false }).success).toBe(true)
+    expect(onboardingTelemetryEventSchema.safeParse({
+      ...base, event: 'onboarding.step_completed', step: 'finish', method: 'manual', nextAction: 'copy_agent_command',
+    }).success).toBe(true)
+  })
+
+  it('rejects a next action outside the allowlist, so nothing free-form can leave', () => {
+    expect(onboardingTelemetryEventSchema.safeParse({
+      ...base, event: 'onboarding.step_completed', step: 'finish', method: 'manual', nextAction: 'https://example.com',
+    }).success).toBe(false)
+  })
+
+  it('keeps events from before the finish step valid', () => {
+    expect(onboardingTelemetryEventSchema.safeParse({ ...base, event: 'onboarding.step_completed', step: 'run', method: 'skipped' }).success).toBe(true)
+  })
+})

@@ -70,8 +70,26 @@ export const onboardingStepSchema = z.enum([
   'queries',
   'competitors',
   'run',
+  // The "You're set" page every onboarding path now ends on. A new step value,
+  // not a new event name: the canonry.ai collector allowlists event names and
+  // silently drops unknown ones, while step is an open property there.
+  'finish',
 ])
 export type OnboardingStep = z.infer<typeof onboardingStepSchema>
+
+/** What the operator did from the finish step. Enum only; no URLs or names. */
+export const onboardingNextActionSchema = z.enum([
+  'copy_agent_command',
+  'connect_server_traffic',
+  'connect_search_console',
+  'connect_analytics',
+  'connect_business_profile',
+  'set_schedule',
+  'add_notification',
+  'open_project',
+  'review_page_health',
+])
+export type OnboardingNextAction = z.infer<typeof onboardingNextActionSchema>
 
 export const onboardingCountBucketSchema = z.enum([
   '0',
@@ -163,6 +181,8 @@ export const onboardingTelemetryEventSchema = z.discriminatedUnion('event', [
     step: onboardingStepSchema,
     method: z.enum(['existing', 'inline', 'manual', 'generated', 'skipped', 'automatic']),
     countBucket: onboardingCountBucketSchema.optional(),
+    /** Set only with `step: 'finish'`: the next action the operator chose. */
+    nextAction: onboardingNextActionSchema.optional(),
   }).strict(),
   onboardingEventBaseSchema.extend({
     event: z.literal('onboarding.blocked'),

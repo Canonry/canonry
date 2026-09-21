@@ -1,35 +1,30 @@
 import type { SetupState } from './setup-state.js'
 
 /**
- * Commands where the nudge would be noise: the ones that ARE the setup path,
- * the ones that manage it, and unknown input (the usage error is the message
- * there). Matched on the registered command root, so `settings.provider`
- * and every other `settings.*` stay exempt together.
+ * Page Health, runtime, and provider-config commands must not nag for a
+ * provider. Matched on the command root so aliases like `site-health.pages`
+ * stay exempt with `technical-aeo`.
  */
 const NUDGE_EXEMPT_ROOTS = new Set([
   'init',
   'serve',
+  'start',
+  'stop',
   'bootstrap',
   'settings',
   'telemetry',
+  'project',
+  'technical-aeo',
+  'site-health',
+  'doctor',
+  'demo',
+  'status',
   'unknown',
 ])
 
 /**
- * One stderr line for the install that is going nowhere.
- *
- * Half of new installs run `init` and never another command, and the largest
- * identified reason is running without a provider. There is no re-engagement
- * channel for an anonymous CLI, so the only place to catch a stalled setup is
- * the next command the user happens to run, whatever it is. This is that
- * touch: every human-mode command on an unconfigured install ends with one
- * line naming the blocker and the two ways to clear it.
- *
- * Deliberately unconditional while the state persists (no cooldown): an
- * install with zero providers cannot run a sweep at all, so the line is load
- * bearing, not promotional. It goes to stderr, and only when stderr is a TTY,
- * for the same reason as the upgrade banner: it must never pollute
- * `--format json` output or interleave into captured logs.
+ * TTY-only stderr line for visibility commands that need an answer-engine
+ * provider. Page Health does not.
  */
 export function buildSetupNudgeLine(input: {
   /** Resolved registry path, e.g. `status` or `settings.provider`. */
@@ -54,8 +49,8 @@ export function buildSetupNudgeLine(input: {
   if (!setupState) return null
   if (setupState.provider_count > 0) return null
   return (
-    '\n→ No AI provider is configured, so answer sweeps cannot run yet.\n' +
-    '  Finish setup in the dashboard:  canonry serve\n' +
-    '  Or by CLI:  canonry settings provider gemini --api-key <key>\n'
+    '\n→ AI Visibility needs an answer-engine provider. Page Health does not.\n' +
+    '  Add one in the dashboard after `canonry serve`, or:\n' +
+    '  canonry settings provider gemini --api-key <key>\n'
   )
 }
