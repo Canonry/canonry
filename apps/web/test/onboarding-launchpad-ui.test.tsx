@@ -417,6 +417,48 @@ test('the finish step shows a running scan as in progress, not complete', async 
   expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('Complete')
 })
 
+test('the finish step records its view and each next action once, inside the existing events', async () => {
+  const events: Array<Record<string, unknown>> = []
+  onTestFinished(mockFetch((url, init) => {
+    if (pathOf(url) === '/api/v1/telemetry/onboarding') {
+      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({ accepted: true }, 202)
+    }
+    return jsonResponse([])
+  }))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  await waitFor(() => {
+    expect(events.filter(event => event.event === 'onboarding.started')).toHaveLength(1)
+  })
+  // New step VALUE, never a new event NAME: the collector drops unknown names.
+  expect(events[0]).toMatchObject({ event: 'onboarding.started', step: 'finish', resumed: false, surface: 'platform', flowVersion: 1 })
+
+  // A second click on the same action (here, the copy button) records nothing new.
+  const writeText = vi.fn(async () => {})
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  onTestFinished(() => {
+    if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  fireEvent.click(await screen.findByRole('button', { name: 'Copied' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByRole('link', { name: 'Connect server-side traffic' }))
+  await waitFor(() => {
+    expect(events.filter(event => event.event === 'onboarding.step_completed')).toHaveLength(2)
+  })
+  const actions = events.filter(event => event.event === 'onboarding.step_completed')
+  expect(actions.map(event => event.nextAction)).toEqual(['copy_agent_command', 'connect_server_traffic'])
+  for (const action of actions) {
+    expect(action).toMatchObject({ step: 'finish', method: 'manual', surface: 'platform' })
+  }
+  // Nothing identifying rides along: no URL, project, or domain.
+  expect(JSON.stringify(events)).not.toContain('example-com')
+})
+
 test('resolveAutoResumeTarget agrees with the serve banner', () => {
   const projects = [
     { id: 'a', name: 'alpha', createdAt: '2026-01-01T00:00:00.000Z' },

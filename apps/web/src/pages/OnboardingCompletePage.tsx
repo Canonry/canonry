@@ -1,12 +1,13 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@ainyc/canonry-api-client/react-query'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction } from '@ainyc/canonry-contracts'
 import { ArrowRight, Bell, CalendarClock, Check, Copy, LineChart, MapPin, Search, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import { heyClient } from '../api.js'
+import { heyClient, recordOnboardingEvent } from '../api.js'
+import { createOnboardingEventId, getOrCreateOnboardingSessionId } from '../lib/onboarding-telemetry.js'
 import { addToast } from '../lib/toast-store.js'
 import { OnboardingProgress, type OnboardingStage, type OnboardingStageOutcome } from '../components/shared/OnboardingProgress.js'
 import { Button } from '../components/ui/button.js'
@@ -28,6 +29,37 @@ const AGENT_DOCS_URL = 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md
  * and the un-animated state is the finished frame, so nothing here depends on
  * motion to be read.
  */
+/**
+ * Finish-step telemetry. Rides the existing `onboarding.started` and
+ * `onboarding.step_completed` events with `step: 'finish'`, because the
+ * canonry.ai collector allowlists event NAMES and silently drops new ones.
+ * Tagged `platform`: every path here starts at the first-run launchpad, and
+ * the same session id ties it to that funnel. Each action is recorded once.
+ */
+function useFinishTelemetry() {
+  const onboardingSessionId = useRef(getOrCreateOnboardingSessionId()).current
+  const recorded = useRef(new Set<string>())
+  const send = useCallback((key: string, event: Record<string, unknown>) => {
+    if (recorded.current.has(key)) return
+    recorded.current.add(key)
+    void recordOnboardingEvent({
+      ...event,
+      flowVersion: ONBOARDING_FLOW_VERSION,
+      onboardingSessionId,
+      surface: 'platform',
+      eventId: createOnboardingEventId(),
+    } as Parameters<typeof recordOnboardingEvent>[0])
+  }, [onboardingSessionId])
+  useEffect(() => {
+    send('started', { event: 'onboarding.started', step: 'finish', resumed: false })
+  }, [send])
+  return useCallback((nextAction: OnboardingNextAction) => {
+    send(`action:${nextAction}`, { event: 'onboarding.step_completed', step: 'finish', method: 'manual', nextAction })
+  }, [send])
+}
+
+const TrackNextAction = createContext<(action: OnboardingNextAction) => void>(() => {})
+
 export function OnboardingCompletePage({
   projectName,
   skippedVisibility = false,
@@ -40,6 +72,7 @@ export function OnboardingCompletePage({
     retry: false,
   })
   const score = scoreQuery.data?.hasData ? scoreQuery.data : null
+  const trackNextAction = useFinishTelemetry()
   // Whether a scan happened is read from the project, not from how the operator
   // got here: every exit lands on this page, including ones before any scan.
   const scanRunsQuery = useQuery({
@@ -62,6 +95,7 @@ export function OnboardingCompletePage({
   }
 
   return (
+    <TrackNextAction.Provider value={trackNextAction}>
     <div className="page-container max-w-6xl py-8 md:py-10">
       <OnboardingProgress current="done" outcomes={outcomes} />
 
@@ -94,18 +128,19 @@ export function OnboardingCompletePage({
 
       <div className="onb-reveal mt-12 flex flex-col items-center gap-3 sm:flex-row sm:justify-center" style={delay(1000)}>
         <Button asChild className="h-11 rounded-full px-6 text-base md:h-11">
-          <Link to="/projects/$projectName" params={{ projectName }} replace>
+          <Link to="/projects/$projectName" params={{ projectName }} replace onClick={() => trackNextAction('open_project')}>
             Open {projectName}
             <ArrowRight className="size-4" aria-hidden="true" />
           </Link>
         </Button>
         <Button asChild variant="ghost" className="h-11 rounded-full px-5 md:h-11">
-          <Link to="/projects/$projectName/technical-aeo" params={{ projectName }} replace>
+          <Link to="/projects/$projectName/technical-aeo" params={{ projectName }} replace onClick={() => trackNextAction('review_page_health')}>
             Review page health
           </Link>
         </Button>
       </div>
     </div>
+    </TrackNextAction.Provider>
   )
 }
 
@@ -218,6 +253,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function AgentTile({ projectName }: { projectName: string }) {
+  const trackNextAction = useContext(TrackNextAction)
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -235,6 +271,7 @@ function AgentTile({ projectName }: { projectName: string }) {
       // `navigator.clipboard` is absent outside a secure context (plain http
       // on a LAN or Tailscale address), so reaching it can throw too.
       await navigator.clipboard.writeText(AGENT_MCP_INSTALL_COMMAND)
+      trackNextAction('copy_agent_command')
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
@@ -312,19 +349,21 @@ function AgentTile({ projectName }: { projectName: string }) {
 interface Destination {
   icon: LucideIcon
   label: string
+  action: OnboardingNextAction
   to: '/projects/$projectName/search-console' | '/projects/$projectName/activity' | '/projects/$projectName/local' | '/projects/$projectName/settings'
 }
 
 const DATA_SOURCES: readonly Destination[] = [
-  { icon: Search, label: 'Search Console', to: '/projects/$projectName/search-console' },
-  { icon: LineChart, label: 'Google Analytics', to: '/projects/$projectName/activity' },
-  { icon: MapPin, label: 'Business Profile', to: '/projects/$projectName/local' },
+  { icon: Search, label: 'Search Console', action: 'connect_search_console', to: '/projects/$projectName/search-console' },
+  { icon: LineChart, label: 'Google Analytics', action: 'connect_analytics', to: '/projects/$projectName/activity' },
+  { icon: MapPin, label: 'Business Profile', action: 'connect_business_profile', to: '/projects/$projectName/local' },
 ]
 
 /** Real AI crawler user agents, the traffic server-side tracking exists to see. */
 const AI_CRAWLERS = ['GPTBot', 'ClaudeBot', 'PerplexityBot'] as const
 
 function DataTile({ projectName }: { projectName: string }) {
+  const trackNextAction = useContext(TrackNextAction)
   return (
     <>
       <TileHeading id="onb-data-heading" eyebrow="Server-side traffic" title="See the AI bots.">
@@ -336,6 +375,7 @@ function DataTile({ projectName }: { projectName: string }) {
 
       <Link
         to="/traffic"
+        onClick={() => trackNextAction('connect_server_traffic')}
         aria-label="Connect server-side traffic"
         className="group flex items-center gap-3 rounded-xl border border-strong bg-surface-inset px-4 py-3 text-sm font-medium text-heading transition-colors hover:bg-surface-inset-hover"
       >
@@ -349,12 +389,13 @@ function DataTile({ projectName }: { projectName: string }) {
 
       <p className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">Also connect</p>
       <ul className="mt-1 divide-y divide-default">
-        {DATA_SOURCES.map(({ icon: Icon, label, to }) => (
+        {DATA_SOURCES.map(({ icon: Icon, label, action, to }) => (
           <li key={label}>
             <Link
               to={to}
               params={{ projectName }}
               aria-label={`Connect ${label}`}
+              onClick={() => trackNextAction(action)}
               className="group flex items-center gap-3 py-2.5 text-sm text-heading"
             >
               <Icon className="size-4 text-muted" aria-hidden="true" />
@@ -417,7 +458,7 @@ function ScheduleTile({ projectName }: { projectName: string }) {
           </li>
         ))}
       </ol>
-      <TileLink projectName={projectName} to="/projects/$projectName/settings" icon={CalendarClock} label="Set a schedule" />
+      <TileLink projectName={projectName} to="/projects/$projectName/settings" icon={CalendarClock} label="Set a schedule" action="set_schedule" />
     </>
   )
 }
@@ -438,7 +479,7 @@ function AlertsTile({ projectName, score }: { projectName: string; score: number
           <span className="text-secondary">{score === null ? 'sweep finished' : `page health ${score}`}</span>
         </span>
       </div>
-      <TileLink projectName={projectName} to="/projects/$projectName/settings" icon={Bell} label="Add a notification" />
+      <TileLink projectName={projectName} to="/projects/$projectName/settings" icon={Bell} label="Add a notification" action="add_notification" />
     </>
   )
 }
@@ -448,16 +489,20 @@ function TileLink({
   to,
   icon: Icon,
   label,
+  action,
 }: {
   projectName: string
   to: Destination['to']
   icon: LucideIcon
   label: string
+  action: OnboardingNextAction
 }) {
+  const trackNextAction = useContext(TrackNextAction)
   return (
     <Link
       to={to}
       params={{ projectName }}
+      onClick={() => trackNextAction(action)}
       className="group mt-6 inline-flex items-center gap-2 self-start text-sm font-medium text-link"
     >
       <Icon className="size-4" aria-hidden="true" />
