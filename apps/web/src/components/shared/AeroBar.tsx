@@ -28,6 +28,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
+import { shellQuote } from '@ainyc/canonry-contracts'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -1078,10 +1079,6 @@ function buildAgentAskCommand(
   if (providerOverride) parts.push('--provider', providerOverride)
   if (scope === 'read-only') parts.push('--scope', 'read-only')
   return parts.join(' ')
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
 function extractTrails(
