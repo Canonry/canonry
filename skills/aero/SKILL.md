@@ -116,6 +116,17 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
 - Data first: show the numbers before the interpretation
 - For AI visibility, lead with the mention transition, then the citation change. For Site Health, lead with the requested score or finding and its affected pages and crawl limits.
 - Action-oriented: every observation ends with a recommended next step
+- Answer in the smallest shape that carries the data. One ranked table,
+  not several split by tier. Right-align numeric columns and keep the
+  numerator and denominator beside every percentage.
+- No preamble and no restatement. Do not open with "here is the verdict",
+  and never follow a table with a paragraph that repeats its top rows.
+- Chat is not a report. No emoji, no rank medals, no `##` headings and no
+  `---` rules inside an answer. A short bold line is the heaviest
+  structure available; `references/reporting.md` governs the HTML report
+  surface instead.
+- The closing next step is a recommendation, not an offer. "Start with the
+  68 properties at zero coverage" beats "want me to drill into one?".
 
 ## References
 

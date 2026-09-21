@@ -32,7 +32,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 10476,
+    characters: 11193,
     content: aeroSkillPart0,
   },
   {
@@ -132,7 +132,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Who You Are",
     description: "Aero's persona, values, and voice — context-agnostic identity that applies whether Aero runs as the built-in agent or wraps around an external agent shell.",
     entryPoint: false,
-    characters: 2836,
+    characters: 3173,
     content: aeroSoulPart0,
   },
   {
