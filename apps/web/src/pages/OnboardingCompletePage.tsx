@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@ainyc/canonry-api-client/react-query'
-import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction } from '@ainyc/canonry-contracts'
+import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction, type RunKind } from '@ainyc/canonry-contracts'
 import { ArrowRight, Bell, CalendarClock, Check, Copy, LineChart, MapPin, Search, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -73,25 +73,14 @@ export function OnboardingCompletePage({
   })
   const score = scoreQuery.data?.hasData ? scoreQuery.data : null
   const trackNextAction = useFinishTelemetry()
-  // Whether a scan happened is read from the project, not from how the operator
-  // got here: every exit lands on this page, including ones before any scan.
-  const scanRunsQuery = useQuery({
-    ...getApiV1ProjectsByNameRunsOptions({
-      client: heyClient,
-      path: { name: projectName },
-      query: { kind: RunKinds['site-audit'], limit: 20 },
-    }),
-    retry: false,
-    // A scan still running when the operator got here finishes on its own;
-    // re-read until it does, so the step turns complete without a reload.
-    refetchInterval: (query) => siteScanOutcome(query.state.status === 'success'
-      ? { isSuccess: true, data: query.state.data }
-      : { isSuccess: false }) === 'pending' ? 5_000 : false,
-  })
-  const scanOutcome = siteScanOutcome(scanRunsQuery)
+  // What happened is read from the project's runs, not from how the operator
+  // got here: every exit lands on this page, including ones before any scan
+  // and ones taken while a sweep is still running.
+  const scanOutcome = useRunOutcome(projectName, RunKinds['site-audit'])
+  const sweepOutcome = useRunOutcome(projectName, RunKinds['answer-visibility'])
   const outcomes: Partial<Record<OnboardingStage, OnboardingStageOutcome>> = {
     ...(scanOutcome ? { site: scanOutcome, fixes: scanOutcome } : {}),
-    ...(skippedVisibility ? { visibility: 'skipped' as const } : {}),
+    ...visibilityOutcome(sweepOutcome, skippedVisibility),
   }
 
   return (
@@ -144,13 +133,45 @@ export function OnboardingCompletePage({
   )
 }
 
+/** The outcome of a project's runs of one kind, re-read while one is in flight. */
+function useRunOutcome(projectName: string, kind: RunKind): OnboardingStageOutcome | undefined {
+  const query = useQuery({
+    ...getApiV1ProjectsByNameRunsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { kind, limit: 20 },
+    }),
+    retry: false,
+    // A run still going when the operator got here finishes on its own;
+    // re-read until it does, so the step turns complete without a reload.
+    refetchInterval: (current) => runOutcome(current.state.status === 'success'
+      ? { isSuccess: true, data: current.state.data }
+      : { isSuccess: false }) === 'pending' ? 5_000 : false,
+  })
+  return runOutcome(query)
+}
+
 /**
- * How the site scan ended, or `undefined` when it finished. Only a completed or
+ * AI Visibility is done only when a sweep finished. Skipping it this visit
+ * reads "Skipped" unless an earlier sweep already finished; "Finish setup"
+ * pressed mid-sweep reads "In progress" until the sweep lands.
+ */
+export function visibilityOutcome(
+  sweep: OnboardingStageOutcome | undefined,
+  skipped: boolean,
+): Partial<Record<OnboardingStage, OnboardingStageOutcome>> {
+  if (sweep === undefined) return {}
+  if (skipped) return { visibility: 'skipped' }
+  return { visibility: sweep }
+}
+
+/**
+ * How a project's runs of one kind ended, or `undefined` when one finished. Only a completed or
  * partial scan earns a check: a queued or running one is still in progress, a
  * failed one did not finish, and a history read that has not answered (or
  * failed) proves nothing either way.
  */
-export function siteScanOutcome(query: {
+export function runOutcome(query: {
   isSuccess: boolean
   data?: ReadonlyArray<{ trigger: string; status: string }>
 }): OnboardingStageOutcome | undefined {

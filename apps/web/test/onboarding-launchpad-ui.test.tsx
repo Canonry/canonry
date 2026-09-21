@@ -18,7 +18,7 @@ import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-stor
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
-import { AGENT_MCP_INSTALL_COMMAND, siteScanOutcome } from '../src/pages/OnboardingCompletePage.js'
+import { AGENT_MCP_INSTALL_COMMAND, runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
 import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
@@ -388,24 +388,64 @@ test('only a finished scan counts as a completed scan step', () => {
   const run = (status: string, trigger = 'manual') => ({ status, trigger })
   const ok = (data: Array<{ status: string; trigger: string }>) => ({ isSuccess: true, data })
 
-  expect(siteScanOutcome(ok([run('completed')]))).toBeUndefined()
-  expect(siteScanOutcome(ok([run('partial')]))).toBeUndefined()
+  expect(runOutcome(ok([run('completed')]))).toBeUndefined()
+  expect(runOutcome(ok([run('partial')]))).toBeUndefined()
   // A newer failure does not undo an older finished scan.
-  expect(siteScanOutcome(ok([run('failed'), run('completed')]))).toBeUndefined()
-  expect(siteScanOutcome(ok([run('queued')]))).toBe('pending')
-  expect(siteScanOutcome(ok([run('running')]))).toBe('pending')
-  expect(siteScanOutcome(ok([run('failed'), run('cancelled')]))).toBe('incomplete')
-  expect(siteScanOutcome(ok([]))).toBe('skipped')
+  expect(runOutcome(ok([run('failed'), run('completed')]))).toBeUndefined()
+  expect(runOutcome(ok([run('queued')]))).toBe('pending')
+  expect(runOutcome(ok([run('running')]))).toBe('pending')
+  expect(runOutcome(ok([run('failed'), run('cancelled')]))).toBe('incomplete')
+  expect(runOutcome(ok([]))).toBe('skipped')
   // A probe is not a scan the operator ran.
-  expect(siteScanOutcome(ok([run('completed', 'probe')]))).toBe('skipped')
+  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('skipped')
   // No answer, or a failed read, proves nothing: never a check mark.
-  expect(siteScanOutcome({ isSuccess: false })).toBe('unknown')
+  expect(runOutcome({ isSuccess: false })).toBe('unknown')
+})
+
+test('AI Visibility is complete only when a sweep finished', () => {
+  // Finished sweep: complete, even if this visit skipped the step.
+  expect(visibilityOutcome(undefined, false)).toEqual({})
+  expect(visibilityOutcome(undefined, true)).toEqual({})
+  // "Finish setup" pressed while the sweep runs.
+  expect(visibilityOutcome('pending', false)).toEqual({ visibility: 'pending' })
+  expect(visibilityOutcome('incomplete', false)).toEqual({ visibility: 'incomplete' })
+  expect(visibilityOutcome('skipped', false)).toEqual({ visibility: 'skipped' })
+  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'skipped' })
+  expect(visibilityOutcome('unknown', false)).toEqual({ visibility: 'unknown' })
+})
+
+test('the finish step shows a sweep still running as in progress', async () => {
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path.startsWith('/api/v1/projects/example-com/runs?kind=site-audit')) {
+      return jsonResponse([{ id: 'scan', projectId: 'p', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    }
+    if (path.startsWith('/api/v1/projects/example-com/runs?kind=answer-visibility')) {
+      return jsonResponse([{ id: 'sweep', projectId: 'p', kind: 'answer-visibility', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    }
+    return jsonResponse([])
+  }))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => {
+    expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('In progress')
+  })
+  expect(within(progress).getAllByText('Complete')).toHaveLength(2)  // scan + page health
 })
 
 test('the finish step shows a running scan as in progress, not complete', async () => {
-  onTestFinished(mockFetch((url) => pathOf(url).startsWith('/api/v1/projects/example-com/runs')
-    ? jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
-    : jsonResponse([])))
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path.startsWith('/api/v1/projects/example-com/runs?kind=site-audit')) {
+      return jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    }
+    if (path.startsWith('/api/v1/projects/example-com/runs?kind=answer-visibility')) {
+      return jsonResponse([{ id: 'sweep_1', projectId: 'project-example', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    }
+    return jsonResponse([])
+  }))
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
 
