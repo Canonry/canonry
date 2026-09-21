@@ -4171,10 +4171,21 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     name: 'deepinfra-agent-default-model',
     // Move the previous agent default once. A later explicit GLM selection
     // must survive subsequent boots and session hydration.
-    statements: [
-      `UPDATE agent_sessions SET model_id = 'deepseek-ai/DeepSeek-V4-Flash'
-       WHERE model_provider = 'deepinfra' AND model_id = 'zai-org/GLM-5.2'`,
-    ],
+    //
+    // A run hook rather than a statement for two reasons. The statement
+    // allowlist is schema-shaped and this rewrites VALUES, and a supported
+    // legacy database can reach this version with no `agent_sessions` at
+    // all: one stamped in `_migrations` at a version above 38 resumes past
+    // the migration that introduces the table, so an unguarded UPDATE dies
+    // with `no such table`.
+    statements: [],
+    run: (tx) => {
+      if (!tableExists(tx, 'agent_sessions')) return
+      tx.run(sql.raw(
+        `UPDATE agent_sessions SET model_id = 'deepseek-ai/DeepSeek-V4-Flash' `
+        + `WHERE model_provider = 'deepinfra' AND model_id = 'zai-org/GLM-5.2'`,
+      ))
+    },
   },
 ]
 
