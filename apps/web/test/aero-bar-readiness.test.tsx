@@ -169,12 +169,18 @@ test.each([
 
 test.each([false, true])('managed=%s uses the effective Aero scope even with a saved write preference', async managed => {
   const { prompt, input } = await openAeroWithSavedWriteScope(managed)
+  // The context strip is gone in every mode, so neither the scope control nor
+  // the project/provider line it carried should render.
+  expect(screen.queryByRole('button', { name: /Can make changes|Read only/ })).toBeNull()
+  expect(screen.queryByText('Read only')).toBeNull()
+  // Managed deployments additionally hide the provider picker, and with it the
+  // title that named the exact model behind Aero.
+  const picker = screen.queryByRole('button', { name: 'Switch agent model' })
   if (managed) {
-    expect(screen.getByText('Read only')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /Can make changes|Read only/ })).toBeNull()
-    expect(screen.queryByTitle(/run sweep|allow writes/i)).toBeNull()
+    expect(picker).toBeNull()
+    expect(screen.queryByTitle(/OpenAI/)).toBeNull()
   } else {
-    expect(screen.getByRole('button', { name: 'Can make changes' })).toBeTruthy()
+    expect(picker).toBeTruthy()
   }
   fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
