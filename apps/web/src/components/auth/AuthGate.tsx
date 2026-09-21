@@ -468,7 +468,7 @@ export function AuthGate() {
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
                 <CardDescription>
-                  Stored on this Canonry install as a salted, one-way hash. Canonry cannot recover it.
+                  This password protects the dashboard on this computer.
                 </CardDescription>
               </CardHeader>
               <CardContent>

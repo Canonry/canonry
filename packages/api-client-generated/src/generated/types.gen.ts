@@ -8457,7 +8457,7 @@ export type OnboardingTelemetryEvent = {
     onboardingSessionId: string;
     surface?: 'wizard' | 'platform' | 'site_health';
     event: 'onboarding.started';
-    step: 'system' | 'project' | 'queries' | 'competitors' | 'run';
+    step: 'system' | 'project' | 'queries' | 'competitors' | 'run' | 'finish';
     resumed: boolean;
 } | {
     eventId: string;
@@ -8465,16 +8465,17 @@ export type OnboardingTelemetryEvent = {
     onboardingSessionId: string;
     surface?: 'wizard' | 'platform' | 'site_health';
     event: 'onboarding.step_completed';
-    step: 'system' | 'project' | 'queries' | 'competitors' | 'run';
+    step: 'system' | 'project' | 'queries' | 'competitors' | 'run' | 'finish';
     method: 'existing' | 'inline' | 'manual' | 'generated' | 'skipped' | 'automatic';
     countBucket?: '0' | '1' | '2-3' | '4-5' | '6-10' | '11+';
+    nextAction?: 'copy_agent_command' | 'connect_server_traffic' | 'connect_search_console' | 'connect_analytics' | 'connect_business_profile' | 'set_schedule' | 'add_notification' | 'open_project' | 'review_page_health';
 } | {
     eventId: string;
     flowVersion: 1;
     onboardingSessionId: string;
     surface?: 'wizard' | 'platform' | 'site_health';
     event: 'onboarding.blocked';
-    step: 'system' | 'project' | 'queries' | 'competitors' | 'run';
+    step: 'system' | 'project' | 'queries' | 'competitors' | 'run' | 'finish';
     action: 'continue' | 'configure_provider' | 'generate_queries' | 'save' | 'launch_run' | 'retry_run';
     reasonCode: 'api_unavailable' | 'database_unavailable' | 'worker_unavailable' | 'no_provider' | 'no_queries' | 'provider_save_failed' | 'project_create_failed' | 'query_save_failed' | 'run_rejected' | 'run_failed' | 'run_cancelled' | 'rate_limited' | 'provider_auth' | 'network' | 'unknown';
 } | {

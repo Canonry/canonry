@@ -1,5 +1,7 @@
+import { and, asc, eq, ne } from 'drizzle-orm'
+
 import { loadConfig } from '../config.js'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
@@ -9,7 +11,7 @@ import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
 import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
 
@@ -24,12 +26,70 @@ export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
   return !isLoopbackBindHost(host)
 }
 
-function existingProjectCount(db: ReturnType<typeof createClient>): number {
+/** Exported for the banner's tests; `serveCommand` is the only caller. */
+export function readServeOpenState(db: ReturnType<typeof createClient>): {
+  projectCount: number
+  firstProjectName?: string
+  hasSiteAudit: boolean
+} {
   try {
-    return db.select({ id: projects.id }).from(projects).all().length
+    const rows = db.select({
+      id: projects.id,
+      name: projects.name,
+      createdAt: projects.createdAt,
+    }).from(projects)
+      .orderBy(asc(projects.createdAt), asc(projects.name))
+      .all()
+    if (rows.length === 0) return { projectCount: 0, hasSiteAudit: false }
+    let scanned: Set<string>
+    try {
+      // Probe runs are excluded for the same reason the scan-history endpoint
+      // excludes them: a probe is not a scan the operator asked for, and it
+      // leaves nothing for them to read.
+      const audits = db.select({
+        projectId: runs.projectId,
+        status: runs.status,
+      }).from(runs)
+        .where(and(
+          eq(runs.kind, RunKinds['site-audit']),
+          ne(runs.trigger, RunTriggers.probe),
+        ))
+        .all()
+      scanned = new Set(
+        audits
+          .filter(run => run.status === RunStatuses.completed || run.status === RunStatuses.partial)
+          .map(run => run.projectId),
+      )
+    } catch {
+      // Without the run list there is no evidence this install is unscanned.
+      // Telling an operator who already has results to run their FIRST scan is
+      // a worse answer than sending them to the dashboard root.
+      return { projectCount: rows.length, firstProjectName: rows[0]?.name, hasSiteAudit: true }
+    }
+    const firstUnscanned = rows.find(row => !scanned.has(row.id))
+    if (firstUnscanned) {
+      return { projectCount: rows.length, firstProjectName: firstUnscanned.name, hasSiteAudit: false }
+    }
+    return { projectCount: rows.length, firstProjectName: rows[0]?.name, hasSiteAudit: true }
   } catch {
-    return 0
+    return { projectCount: 0, hasSiteAudit: false }
   }
+}
+
+/** First-run banner: empty installs and unscanned projects still point at Page Health. */
+export function buildServeOpenLine(input: {
+  url: string
+  projectCount: number
+  firstProjectName?: string
+  hasSiteAudit: boolean
+}): string {
+  if (input.projectCount === 0) {
+    return `Open ${input.url}/setup to map your site and run your first Page Health scan.`
+  }
+  if (!input.hasSiteAudit && input.firstProjectName) {
+    return `Open ${input.url}/setup?onboarding=site-health&setupProject=${encodeURIComponent(input.firstProjectName)} to run your first Page Health scan.`
+  }
+  return `Open ${input.url}`
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
@@ -121,11 +181,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     const url = operatorHttpUrl(host, port)
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
-      if (existingProjectCount(db) === 0) {
-        console.log(`Open ${url}/setup to map your site and run your first Page Health scan.`)
-      } else {
-        console.log(`Open ${url}`)
-      }
+      console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
       if (shouldWarnAboutRemoteSetup(host)) {
         console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
       }

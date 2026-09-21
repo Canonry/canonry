@@ -188,7 +188,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     throw new CliError({
       code: 'INIT_JSON_REQUIRES_NON_INTERACTIVE',
       message: '--format json requires non-interactive provider configuration via flags or environment variables.',
-      displayMessage: '--format json requires non-interactive provider configuration via flags or environment variables.',
+      displayMessage: '--format json requires provider flags or environment variables. For provider-free first-run setup, use "canonry bootstrap" instead.',
       details: {
         required: ['provider flags or environment variables'],
       },
@@ -278,7 +278,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     throw new CliError({
       code: 'INIT_PROVIDER_REQUIRED',
       message: 'At least one provider is required.',
-      displayMessage: '\nAt least one provider is required.',
+      displayMessage: '\nAt least one provider is required. For provider-free first-run setup, use "canonry bootstrap" instead.',
       details: {
         required: ['provider'],
       },

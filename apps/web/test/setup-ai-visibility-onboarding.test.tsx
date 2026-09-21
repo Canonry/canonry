@@ -33,6 +33,7 @@ afterEach(() => {
 
 function renderProjectSetup(options: {
   onboarding: boolean
+  onboardingFinish?: boolean
   complete?: boolean
   providerReady?: boolean
   projectProviders?: string[]
@@ -102,6 +103,7 @@ function renderProjectSetup(options: {
           <SetupPage
             visibilityProjectName={project.project.name}
             siteHealthOnboarding={options.onboarding}
+            {...(options.onboardingFinish === undefined ? {} : { onboardingFinish: options.onboardingFinish })}
           />
         </DashboardProvider>
       </AccountProvider>
@@ -124,7 +126,7 @@ function renderProjectSetup(options: {
   }
 }
 
-test('marks AI Visibility as the optional final onboarding stage and can skip to the project', async () => {
+test('marks AI Visibility as the optional final onboarding stage and can skip to the finish step', async () => {
   const { projectName } = renderProjectSetup({ onboarding: true })
 
   expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
@@ -140,8 +142,8 @@ test('marks AI Visibility as the optional final onboarding stage and can skip to
 
   await waitFor(() => {
     expect(navigate).toHaveBeenCalledWith({
-      to: '/projects/$projectName/technical-aeo',
-      params: { projectName },
+      to: '/setup',
+      search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
       replace: true,
     })
   })
@@ -395,21 +397,21 @@ test('keeps a stale project-list handoff scoped to the exact onboarding project'
   fireEvent.click(screen.getByRole('button', { name: 'Skip AI Visibility' }))
 
   expect(navigate).toHaveBeenCalledWith({
-    to: '/projects/$projectName/technical-aeo',
-    params: { projectName },
+    to: '/setup',
+    search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
     replace: true,
   })
 })
 
-test('finishing the project-scoped onboarding replaces the wizard with the project', async () => {
+test('finishing the project-scoped onboarding lands on the finish step', async () => {
   const { projectName } = renderProjectSetup({ onboarding: true, complete: true })
 
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Finish and open project' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Finish setup' }))
 
   expect(navigate).toHaveBeenCalledWith({
-    to: '/projects/$projectName/technical-aeo',
-    params: { projectName },
+    to: '/setup',
+    search: { onboarding: 'complete', setupProject: projectName },
     replace: true,
   })
 })
@@ -704,4 +706,19 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   }
   expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+test('a first run that skipped the site scan still ends on the finish step', async () => {
+  // "Set up without a site scan" hands off as onboarding=first-run: no Site
+  // Health progress bar, but it is still onboarding and must not drop into the
+  // project cold.
+  const { projectName } = renderProjectSetup({ onboarding: false, onboardingFinish: true })
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Finish without AI Visibility' }))
+
+  expect(navigate).toHaveBeenCalledWith({
+    to: '/setup',
+    search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
+    replace: true,
+  })
 })

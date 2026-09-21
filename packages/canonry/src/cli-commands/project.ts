@@ -26,6 +26,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
     usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
+    help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),

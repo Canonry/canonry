@@ -3,6 +3,7 @@ import type { HealthSnapshot } from '../view-models.js'
 
 const SESSION_KEY = 'canonry.onboarding-session.v1'
 const LAUNCHED_RUN_KEY = 'canonry.onboarding-launched-run.v1'
+const HANDOFF_KEY = 'canonry.onboarding-handoff.v1'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const STEP_NAMES: readonly OnboardingStep[] = [
@@ -175,6 +176,42 @@ export function markOnboardingRunHandled(runId: string): void {
     )
   } catch {
     // Same as above: best effort.
+  }
+}
+
+/**
+ * One-shot marker for the launchpad's hand-off into Site Health.
+ *
+ * Site Health used to report `resumed: Boolean(initialRunId)`, but the
+ * launchpad always hands off WITH the run it just started, so every first-run
+ * start read as a resume (14 of 14 in the data). The launchpad now marks the
+ * run it handed over; the Site Health page consumes the marker on arrival and
+ * reports a fresh start. A later reload finds no marker and is a real resume.
+ */
+export function markOnboardingHandoff(runId: string): void {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.setItem(HANDOFF_KEY, runId)
+  } catch {
+    // A telemetry marker must never break a launch.
+  }
+}
+
+/** Whether `runId` is the run the launchpad just handed over. Read-only. */
+export function isOnboardingHandoff(runId: string | undefined): boolean {
+  if (!runId) return false
+  try {
+    return typeof window !== 'undefined' && window.sessionStorage.getItem(HANDOFF_KEY) === runId
+  } catch {
+    return false
+  }
+}
+
+/** Spend the hand-off marker, so the next arrival for this run is a resume. */
+export function clearOnboardingHandoff(): void {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem(HANDOFF_KEY)
+  } catch {
+    // Best effort.
   }
 }
 

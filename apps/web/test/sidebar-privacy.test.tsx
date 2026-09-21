@@ -252,3 +252,14 @@ test('resets first-run focus after leaving setup', async () => {
   await waitFor(() => expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined())
   expect(container.querySelector('.app-shell-focus')).toBeNull()
 })
+
+test('keeps the onboarding finish step focused, including on a reload', async () => {
+  const { container, queryByRole } = await renderRoute(
+    '/setup?onboarding=complete&setupProject=project_citypoint',
+  )
+
+  expect(container.querySelector('.app-shell-focus')).not.toBeNull()
+  expect(container.querySelector('#desktop-sidebar')).toBeNull()
+  expect(container.querySelector('#mobile-nav')).toBeNull()
+  expect(queryByRole('button', { name: 'Open navigation' })).toBeNull()
+})

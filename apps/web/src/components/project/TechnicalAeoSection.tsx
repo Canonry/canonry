@@ -384,6 +384,9 @@ export function TechnicalAeoSection({
   const attentionFactorCount = score.factors.filter(
     (factor) => factor.pagesPartial + factor.pagesFailing > 0,
   ).length
+  // `partial` is what a run that hit any crawl budget lands as, which is the
+  // normal outcome of a bounded first scan rather than an exceptional one.
+  const partialScan = score.runStatus === 'partial'
   const hasAnyRecommendations = score.crossCuttingIssues.some(
     (issue) => issue.topRecommendations.length > 0,
   )
@@ -404,23 +407,35 @@ export function TechnicalAeoSection({
       {integrated ? (
         <section className="flex flex-col gap-3 border-b border-default pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-secondary">Site score</p>
+            {/* A crawl that stopped at a budget scored the pages it reached, not
+                the site. Labelling that "Site score / Pass" is the same claim
+                the agent instructions forbid ("never present a bounded first
+                scan as a full-site result"), so the label carries the caveat
+                rather than leaving it to a separate banner. */}
+            <p className="text-sm font-medium text-secondary">{partialScan ? 'Score so far' : 'Site score'}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span
-                aria-label={`Site score ${score.aggregateScore} out of 100`}
+                aria-label={partialScan
+                  ? `Score so far ${score.aggregateScore} out of 100, from a scan that did not cover the whole site`
+                  : `Site score ${score.aggregateScore} out of 100`}
                 className={`inline-flex items-baseline gap-1 font-mono tabular-nums ${scoreTextClass(score.aggregateScore)}`}
               >
                 <span className="text-3xl font-semibold">{score.aggregateScore}</span>
                 <span className="text-sm text-muted">/100</span>
               </span>
               <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
+              {partialScan ? <ToneBadge tone="caution">Part of the site</ToneBadge> : null}
               {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
             </div>
           </div>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums text-secondary">
             <span>{score.pagesAudited} page{score.pagesAudited === 1 ? '' : 's'} checked</span>
             <span aria-hidden="true" className="text-faint">·</span>
-            <span>{attentionFactorCount} check{attentionFactorCount === 1 ? '' : 's'} need{attentionFactorCount === 1 ? 's' : ''} attention</span>
+            {/* This counts checks with at least one page below pass, while the
+                Status column beside each check reports its AVERAGE. Both are
+                true, and "7 checks need attention" next to a table of Pass
+                badges reads as a contradiction unless the unit is named. */}
+            <span>{attentionFactorCount} check{attentionFactorCount === 1 ? '' : 's'} with pages below pass</span>
             {score.pagesErrored > 0 ? (
               <>
                 <span aria-hidden="true" className="text-faint">·</span>

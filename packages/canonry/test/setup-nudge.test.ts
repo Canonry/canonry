@@ -10,18 +10,21 @@ const unconfigured: SetupState = {
 }
 
 const base = {
-  command: 'status',
+  command: 'run',
   machineFormat: false,
   stderrIsTTY: true,
   getSetupState: () => unconfigured as SetupState | undefined,
 }
 
 describe('the stalled-setup nudge', () => {
-  it('shows for a human-mode command on a provider-less install', () => {
+  it('shows for a human-mode visibility command on a provider-less install', () => {
     const line = buildSetupNudgeLine(base)
-    expect(line).toContain('No AI provider is configured')
+    expect(line).toContain('AI Visibility needs an answer-engine provider')
+    expect(line).toContain('Page Health does not')
     expect(line).toContain('canonry serve')
     expect(line).toContain('canonry settings provider')
+    expect(line).not.toContain('Finish setup')
+    expect(line).not.toContain('answer sweeps cannot run')
   })
 
   it('never pollutes machine formats', () => {
@@ -47,12 +50,32 @@ describe('the stalled-setup nudge', () => {
     expect(buildSetupNudgeLine({ ...base, getSetupState: () => undefined })).toBeNull()
   })
 
-  it.each(['init', 'serve', 'bootstrap', 'telemetry', 'unknown'])(
-    'stays quiet on %s, which is or manages the setup path',
+  it.each([
+    'init',
+    'serve',
+    'start',
+    'stop',
+    'bootstrap',
+    'telemetry',
+    'project',
+    'technical-aeo',
+    'site-health',
+    'doctor',
+    'demo',
+    'status',
+    'unknown',
+  ])(
+    'stays quiet on %s, which is or manages the Page Health path',
     command => {
       expect(buildSetupNudgeLine({ ...base, command })).toBeNull()
     },
   )
+
+  it('exempts nested Page Health commands via the command root', () => {
+    expect(buildSetupNudgeLine({ ...base, command: 'technical-aeo.run' })).toBeNull()
+    expect(buildSetupNudgeLine({ ...base, command: 'site-health.pages' })).toBeNull()
+    expect(buildSetupNudgeLine({ ...base, command: 'project.create' })).toBeNull()
+  })
 
   it('exempts every settings subcommand via the command root', () => {
     // `settings.provider` is how the user FIXES the missing provider; nudging

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeft, Cloud, Globe, Triangle } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft, Bot, Check, Cloud, Copy, ExternalLink, Globe, Shield, Triangle } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 
 import { triggerServerTrafficBackfill } from '../../api.js'
@@ -10,10 +10,13 @@ import {
 } from '../../queries/server-traffic.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
+import { addToast } from '../../lib/toast-store.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { shellQuote } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
-type SourceType = 'wordpress' | 'cloud-run' | 'vercel'
+type SourceType = 'cloudflare' | 'wordpress' | 'cloud-run' | 'vercel'
 type Step = 'pick' | SourceType
 
 /**
@@ -55,6 +58,8 @@ export function ConnectSourceDrawer({
       <SheetContent>
         {step === 'pick' ? (
           <SourceTypePicker onPick={setStep} />
+        ) : step === 'cloudflare' ? (
+          <CloudflareGuide projectName={projectName} onBack={() => setStep('pick')} onClose={handleClose} />
         ) : step === 'wordpress' ? (
           <WordpressSourceForm
             projectName={projectName}
@@ -82,26 +87,33 @@ export function ConnectSourceDrawer({
 const SOURCE_TYPES: Array<{
   type: SourceType
   name: string
-  action: string
+  /** What the operator needs in hand, so they can pick before they commit. */
+  needs: string
   icon: typeof Globe
 }> = [
   {
-    type: 'wordpress',
-    name: 'WordPress',
-    action: 'Install the traffic plugin',
-    icon: Globe,
+    type: 'cloudflare',
+    name: 'Cloudflare',
+    needs: 'A zone you manage. Set up from the terminal.',
+    icon: Shield,
   },
   {
-    type: 'cloud-run',
-    name: 'Google Cloud Run',
-    action: 'Read request logs',
-    icon: Cloud,
+    type: 'wordpress',
+    name: 'WordPress',
+    needs: 'wp-admin access to install a plugin',
+    icon: Globe,
   },
   {
     type: 'vercel',
     name: 'Vercel',
-    action: 'Read request logs',
+    needs: 'A Vercel access token',
     icon: Triangle,
+  },
+  {
+    type: 'cloud-run',
+    name: 'Google Cloud Run',
+    needs: 'A service account that can read logs',
+    icon: Cloud,
   },
 ]
 
@@ -110,11 +122,13 @@ function SourceTypePicker({ onPick }: { onPick: (type: SourceType) => void }) {
     <>
       <SheetHeader>
         <SheetTitle>Connect a traffic source</SheetTitle>
-        <SheetDescription>Choose where Canonry should read traffic logs.</SheetDescription>
+        <SheetDescription>
+          Pick where your site runs. Canonry reads AI crawler visits and AI referrals from there.
+        </SheetDescription>
       </SheetHeader>
 
       <div className="mt-6 flex flex-col gap-3">
-        {SOURCE_TYPES.map(({ type, name, action, icon: Icon }) => (
+        {SOURCE_TYPES.map(({ type, name, needs, icon: Icon }) => (
           <button
             key={type}
             type="button"
@@ -124,13 +138,17 @@ function SourceTypePicker({ onPick }: { onPick: (type: SourceType) => void }) {
             <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-base bg-bg text-neutral group-hover:text-heading">
               <Icon className="size-4" />
             </span>
-            <span className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
+            <span className="flex min-w-0 flex-1 flex-col">
               <span className="text-sm font-medium text-heading">{name}</span>
-              <span className="text-sm text-secondary">{action}</span>
+              <span className="text-[13px] text-secondary">{needs}</span>
             </span>
           </button>
         ))}
       </div>
+
+      <p className="mt-6 text-[13px] text-secondary">
+        Your agent can set up any of these for you. Pick a source to copy instructions for it.
+      </p>
     </>
   )
 }
@@ -255,6 +273,7 @@ function ConnectSourceFormShell({
   onSubmit,
   isPending,
   error,
+  guide,
   children,
 }: {
   title: string
@@ -265,27 +284,32 @@ function ConnectSourceFormShell({
   onSubmit: () => Promise<void>
   isPending: boolean
   error: string | null
+  /** Agent handoff and prerequisites, shown before any field. */
+  guide: SourceGuide
   children: React.ReactNode
 }) {
   return (
     <>
       <WizardHeader title={title} description={description} onBack={onBack} />
 
+      {/* One scrolling body: the sheet clips overflow, and the guide plus the
+          form is taller than a laptop screen. */}
+      <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
+      <div className="flex flex-col gap-5">
+        <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+        <SetupSteps steps={guide.steps} />
+      </div>
+
       <form
         onSubmit={asyncHandler(async (e: React.FormEvent) => {
           e.preventDefault()
           await onSubmit()
         })}
-        className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1"
+        className="mt-6 flex flex-col gap-5 border-t border-default pt-5"
       >
-        <Field label="Project" description="Canonry project this source attaches to.">
-          <input
-            type="text"
-            value={projectName}
-            disabled
-            className="w-full rounded border border-strong bg-bg-elevated/50 px-2 py-1.5 text-sm text-neutral"
-          />
-        </Field>
+        <p className="text-sm font-medium text-heading">
+          Then connect it to <span className="font-mono text-[13px]">{projectName}</span>
+        </p>
 
         {children}
 
@@ -304,6 +328,7 @@ function ConnectSourceFormShell({
           </Button>
         </div>
       </form>
+      </div>
     </>
   )
 }
@@ -348,12 +373,12 @@ function WordpressSourceForm({
     <ConnectSourceFormShell
       title="Connect a WordPress site"
       description={
-        <>
-          Pulls request events from the Canonry Traffic Logger plugin. The Application Password is
-          stored in <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
-          dashboard.
-        </>
+        <span className="inline-flex items-center gap-1.5">
+          Reads AI crawler visits from the Canonry Traffic Logger plugin.
+          <InfoTooltip text={`${storageNote('Application Password')} Pages served from a full-page cache never reach the plugin, so exclude AI crawlers from your cache. The docs list the user agents.`} />
+        </span>
       }
+      guide={wordpressGuide(projectName, baseUrl)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -407,6 +432,7 @@ function WordpressSourceForm({
         />
       </Field>
 
+      <OptionalFields>
       <Field
         label="Display name (optional)"
         description="Friendly label shown in the dashboard. Defaults to the WordPress host."
@@ -419,6 +445,7 @@ function WordpressSourceForm({
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
+      </OptionalFields>
     </ConnectSourceFormShell>
   )
 }
@@ -470,12 +497,12 @@ function CloudRunSourceForm({
     <ConnectSourceFormShell
       title="Connect a Cloud Run service"
       description={
-        <>
-          v1 supports service-account JSON only. The private key is stored in{' '}
-          <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
-          dashboard.
-        </>
+        <span className="inline-flex items-center gap-1.5">
+          Reads AI crawler visits from your Cloud Run request logs.
+          <InfoTooltip text={storageNote('service-account private key')} />
+        </span>
       }
+      guide={cloudRunGuide(projectName, gcpProjectId)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -498,6 +525,33 @@ function CloudRunSourceForm({
         />
       </Field>
 
+      <Field
+        label="Service-account JSON"
+        description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
+        required
+      >
+        <textarea
+          value={keyJson}
+          onChange={(e) => setKeyJson(e.target.value)}
+          rows={6}
+          spellCheck={false}
+          autoComplete="off"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
+          required
+        />
+        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-sm text-secondary hover:text-strong">
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
+          />
+          <span className="rounded-md border border-base px-2 py-1">Or upload a key file</span>
+        </label>
+      </Field>
+
+      <OptionalFields>
       <Field
         label="Service name (optional)"
         description="Restrict log pulls to a specific Cloud Run service. Omit to pull all services in the project."
@@ -537,31 +591,7 @@ function CloudRunSourceForm({
         />
       </Field>
 
-      <Field
-        label="Service-account JSON"
-        description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
-        required
-      >
-        <textarea
-          value={keyJson}
-          onChange={(e) => setKeyJson(e.target.value)}
-          rows={6}
-          spellCheck={false}
-          autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-          placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
-          required
-        />
-        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-sm text-secondary hover:text-strong">
-          <input
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
-          />
-          <span className="rounded-md border border-base px-2 py-1">Or upload a key file</span>
-        </label>
-      </Field>
+      </OptionalFields>
     </ConnectSourceFormShell>
   )
 }
@@ -611,12 +641,12 @@ function VercelSourceForm({
     <ConnectSourceFormShell
       title="Connect a Vercel project"
       description={
-        <>
-          Pulls request logs straight from Vercel, no in-app instrumentation needed. The personal
-          access token is stored in <code>~/.canonry/config.yaml</code> on the server and never
-          echoed back to the dashboard.
-        </>
+        <span className="inline-flex items-center gap-1.5">
+          Reads AI crawler visits from Vercel request logs. Nothing to install on your site.
+          <InfoTooltip text={storageNote('access token')} />
+        </span>
       }
+      guide={vercelGuide(projectName)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -670,6 +700,7 @@ function VercelSourceForm({
         />
       </Field>
 
+      <OptionalFields>
       <Field
         label="Environment"
         description="Which deployment environment's request logs to pull."
@@ -696,6 +727,7 @@ function VercelSourceForm({
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
+      </OptionalFields>
     </ConnectSourceFormShell>
   )
 }
@@ -720,5 +752,330 @@ function Field({
       {children}
       <span className="text-[13px] leading-5 text-secondary">{description}</span>
     </label>
+  )
+}
+
+// ── Setup guides ────────────────────────────────────────────────────────────
+//
+// Each source needs something done OUTSIDE Canonry before its form can work
+// (a plugin installed, a token minted, a role granted). The form alone never
+// said so. A guide names those steps with direct links, and hands the whole job
+// to an agent for operators who would rather not do it by hand.
+
+const DOCS_BASE = 'https://github.com/Canonry/canonry/blob/main'
+const TRAFFIC_DOCS = `${DOCS_BASE}/skills/canonry/references/server-side-traffic.md`
+const CLOUDFLARE_DOCS = `${DOCS_BASE}/docs/cloudflare-traffic-setup.md`
+
+/**
+ * The plugin ships as a GitHub release of this repo. Pinned to the version in
+ * `packages/wordpress-traffic-logger-plugin/plugin/canonry-traffic-logger.php`,
+ * which a test keeps in step so the link never points at a missing asset.
+ */
+export const WORDPRESS_PLUGIN_VERSION = '1.1.1'
+export const WORDPRESS_PLUGIN_ZIP_URL =
+  `https://github.com/Canonry/canonry/releases/download/wp-traffic-logger-v${WORDPRESS_PLUGIN_VERSION}/canonry-traffic-logger-${WORDPRESS_PLUGIN_VERSION}.zip`
+
+export interface SetupStep {
+  title: string
+  detail?: string
+  link?: { label: string; href: string }
+}
+
+export interface SourceGuide {
+  steps: SetupStep[]
+  agentRequest: string
+  docsUrl: string
+}
+
+function storageNote(secret: string): string {
+  return `The ${secret} is stored in ~/.canonry/config.yaml on the Canonry server and never sent back to the dashboard.`
+}
+
+/** An agent request shares one safety rule: secrets never pass through the chat. */
+const SECRET_RULE = 'Never ask me to paste a password, token, or key into this chat. When a command needs one, give me the exact command to run myself, or read it from a file I point you to.'
+
+/** The WordPress admin pages for a site the operator has typed in, when it parses. */
+function wordpressAdminUrl(baseUrl: string, path: string): string | null {
+  try {
+    const url = new URL(baseUrl.trim())
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    // WordPress can live in a subdirectory (https://example.com/blog), and its
+    // admin then lives under it too, so keep the path, minus a trailing slash.
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}/wp-admin/${path}`
+  } catch {
+    return null
+  }
+}
+
+export function wordpressGuide(projectName: string, baseUrl: string): SourceGuide {
+  const project = shellQuote(projectName)
+  const uploadUrl = wordpressAdminUrl(baseUrl, 'plugin-install.php?tab=upload')
+  const profileUrl = wordpressAdminUrl(baseUrl, 'profile.php#application-passwords-section')
+  return {
+    docsUrl: `${TRAFFIC_DOCS}#connecting-a-wordpress-source`,
+    steps: [
+      {
+        title: 'Download the Canonry Traffic Logger plugin',
+        link: { label: `Download v${WORDPRESS_PLUGIN_VERSION} (.zip)`, href: WORDPRESS_PLUGIN_ZIP_URL },
+      },
+      {
+        title: 'Upload and activate it in wp-admin',
+        detail: 'Plugins → Add New → Upload Plugin, then Activate.',
+        ...(uploadUrl ? { link: { label: 'Open the upload page', href: uploadUrl } } : {}),
+      },
+      {
+        title: 'Create an Application Password',
+        detail: 'Users → Profile → Application Passwords. Name it “Canonry” and copy the password it shows once.',
+        ...(profileUrl ? { link: { label: 'Open your profile', href: profileUrl } } : {}),
+      },
+      {
+        title: 'Using a page cache or CDN? Exclude AI crawlers from it',
+        detail: 'Cached pages never reach the plugin, so crawler visits go uncounted.',
+        link: { label: 'User agents to exclude', href: `${TRAFFIC_DOCS}#connecting-a-wordpress-source` },
+      },
+    ],
+    agentRequest: `Help me connect my WordPress site to the Canonry project "${projectName}" for server-side traffic.
+
+Follow the WordPress section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-wordpress-source
+
+1. Ask me for the site URL and a WordPress admin username.
+2. Walk me through installing the Canonry Traffic Logger plugin: download ${WORDPRESS_PLUGIN_ZIP_URL}, then upload and activate it under Plugins → Add New → Upload Plugin. If you have shell or WP-CLI access to the site, you may install it yourself after I approve.
+3. Have me create an Application Password under Users → Profile → Application Passwords.
+4. Ask whether the site uses a page cache or CDN. If it does, tell me exactly which AI user agents to exclude from it, using the list in the docs.
+5. Give me the exact command to connect: cnry traffic connect wordpress ${project} --url <site-url> --username <user> --app-password '<app-password>'
+6. After it connects, run cnry traffic sources ${project} --format json and cnry doctor --project ${project} --check 'traffic.source.*' --format json, and tell me in plain words whether events are arriving.
+
+${SECRET_RULE}`,
+  }
+}
+
+export function vercelGuide(projectName: string): SourceGuide {
+  const project = shellQuote(projectName)
+  return {
+    docsUrl: `${TRAFFIC_DOCS}#connecting-a-vercel-source`,
+    steps: [
+      {
+        title: 'Create a Vercel access token',
+        detail: 'Give it access to the team that owns the project. Tokens can expire, so pick a long lifetime.',
+        link: { label: 'Open Vercel tokens', href: 'https://vercel.com/account/tokens' },
+      },
+      {
+        title: 'Find the project ID and team ID',
+        detail: 'Both are in the project’s Settings → General, or in .vercel/project.json (projectId and orgId) after vercel link.',
+      },
+    ],
+    agentRequest: `Help me connect my Vercel project to the Canonry project "${projectName}" for server-side traffic.
+
+Follow the Vercel section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-vercel-source
+
+1. Find the Vercel project ID and team ID. If this repo is linked, read projectId and orgId from .vercel/project.json. Otherwise ask me.
+2. Have me create an access token at https://vercel.com/account/tokens, scoped to that team, and save it to a file only I can read.
+3. Connect with: cnry traffic connect vercel ${project} --project-id <prj_...> --team-id <team_...> --token-file <path>
+4. Confirm the source with cnry traffic sources ${project} --format json and cnry doctor --project ${project} --check 'traffic.source.*' --format json. Vercel keeps about 14 days of request logs, so tell me before starting any history backfill.
+
+${SECRET_RULE}`,
+  }
+}
+
+export function cloudRunGuide(projectName: string, gcpProjectId: string): SourceGuide {
+  const project = shellQuote(projectName)
+  const gcpProject = gcpProjectId.trim()
+  const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${gcpProject ? `?project=${encodeURIComponent(gcpProject)}` : ''}`
+  return {
+    docsUrl: `${TRAFFIC_DOCS}#connecting-a-cloud-run-source`,
+    steps: [
+      {
+        title: 'Create a service account in the Google Cloud project',
+        detail: 'Grant it the Logs Viewer role (roles/logging.viewer). Nothing broader is needed.',
+        link: { label: 'Open service accounts', href: serviceAccountsUrl },
+      },
+      {
+        title: 'Create a JSON key for it',
+        detail: 'Keys → Add key → Create new key → JSON. Upload the file below.',
+      },
+    ],
+    agentRequest: `Help me connect my Cloud Run service to the Canonry project "${projectName}" for server-side traffic.
+
+Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-cloud-run-source
+
+1. Ask me for the Google Cloud project ID and, if there is more than one, the Cloud Run service name and region.
+2. If gcloud is installed and signed in, propose the exact commands to create a service account with only roles/logging.viewer and download a JSON key, and run them after I approve. Otherwise walk me through it in the Cloud Console.
+3. Connect with: cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> (add --service and --location to narrow it).
+4. Confirm with cnry doctor --project ${project} --check 'traffic.source.*' --format json and tell me in plain words whether logs are readable.
+
+${SECRET_RULE}`,
+  }
+}
+
+export function cloudflareGuide(projectName: string): SourceGuide {
+  const project = shellQuote(projectName)
+  return {
+    docsUrl: CLOUDFLARE_DOCS,
+    steps: [
+      {
+        title: 'Check your request volume first',
+        detail: 'The Worker runs on every request to your zone. A busy site can pass the Workers free allowance of 100,000 requests a day.',
+        link: { label: 'How to size it', href: `${CLOUDFLARE_DOCS}#before-you-start-size-the-request-volume` },
+      },
+      {
+        title: 'Find your zone ID and account ID',
+        detail: 'Both are on the zone’s Overview page in the Cloudflare dashboard, under API.',
+        link: { label: 'Open Cloudflare', href: 'https://dash.cloudflare.com/' },
+      },
+      {
+        title: 'Run the connect command where Canonry runs',
+        detail: `cnry traffic connect cloudflare ${project} --zone-id <zone-id> --account-id <account-id>`,
+      },
+    ],
+    agentRequest: `Help me connect my Cloudflare zone to the Canonry project "${projectName}" for server-side traffic.
+
+Follow the Canonry Cloudflare guide: ${CLOUDFLARE_DOCS}
+
+1. Before anything else, estimate the zone's daily request volume with me, as the guide's "size the request volume" section shows, and tell me whether it fits the Workers plan I am on.
+2. Ask me for the zone ID and account ID, and whether I want direct push or Queue pull. Recommend one and say why.
+3. Run cnry traffic connect cloudflare ${project} --zone-id <zone-id> --account-id <account-id> (plus the flags for the mode I chose). It writes the Worker and its config without deploying. Show me what it wrote.
+4. Deploy only after I approve, and attach the route with Fail open exactly as the guide says.
+5. Smoke-check with cnry traffic events ${project} --source <source-id> --format json and tell me whether events are arriving.
+
+${SECRET_RULE}`,
+  }
+}
+
+function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      // `navigator.clipboard` is absent outside a secure context.
+      await navigator.clipboard.writeText(request)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      addToast({
+        tone: 'negative',
+        title: 'Could not copy the setup request',
+        detail: 'Follow the steps below, or open the setup guide instead.',
+      })
+    }
+  }
+  return (
+    <section aria-labelledby="traffic-agent-heading" className="rounded-lg border border-default bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Bot className="size-4 text-positive" aria-hidden="true" />
+        <h3 id="traffic-agent-heading" className="flex-1 text-sm font-medium text-heading">
+          Have your agent set this up
+        </h3>
+        <Button type="button" variant="secondary" size="sm" onClick={() => { void copy() }}>
+          {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+          <span aria-live="polite">{copied ? 'Copied' : 'Copy setup request'}</span>
+        </Button>
+      </div>
+      <p className="mt-1.5 text-[13px] text-secondary">
+        Paste it into Claude Code, Codex, or any agent with a terminal. It follows the{' '}
+        <a href={docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
+          setup guide
+          <ExternalLink className="ml-0.5 inline size-3" aria-hidden="true" />
+        </a>{' '}
+        and never asks you to paste secrets into the chat.
+      </p>
+    </section>
+  )
+}
+
+function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep[]; heading?: string }) {
+  return (
+    <section aria-labelledby="traffic-steps-heading">
+      <h3 id="traffic-steps-heading" className="text-sm font-medium text-heading">{heading}</h3>
+      <ol className="mt-3 flex flex-col gap-3">
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex gap-3">
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full border border-default bg-surface-subtle text-xs font-semibold tabular-nums text-secondary"
+            >
+              {index + 1}
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <p className="text-sm text-heading">{step.title}</p>
+              {step.detail ? (
+                <p className={`mt-0.5 text-[13px] text-secondary ${step.detail.startsWith('cnry ') ? 'break-all font-mono' : ''}`}>
+                  {step.detail}
+                </p>
+              ) : null}
+              {step.link ? (
+                <a
+                  href={step.link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-link underline-offset-4 hover:underline"
+                >
+                  {step.link.label}
+                  <ExternalLink className="size-3" aria-hidden="true" />
+                </a>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+/** Fields most operators never need, kept out of the way until asked for. */
+function OptionalFields({ children }: { children: ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none text-sm font-medium text-secondary hover:text-heading">
+        <span className="group-open:hidden">Show more options</span>
+        <span className="hidden group-open:inline">Hide more options</span>
+      </summary>
+      <div className="mt-4 flex flex-col gap-5">{children}</div>
+    </details>
+  )
+}
+
+/**
+ * Cloudflare deploys a Worker on the operator's zone, which only the local CLI
+ * does (and deliberately never MCP), so this step is a guide, not a form.
+ */
+function CloudflareGuide({
+  projectName,
+  onBack,
+  onClose,
+}: {
+  projectName: string
+  onBack: () => void
+  onClose: () => void
+}) {
+  const guide = cloudflareGuide(projectName)
+  return (
+    <>
+      <WizardHeader
+        title="Connect a Cloudflare zone"
+        description={
+          <span className="inline-flex items-center gap-1.5">
+            A small Worker on your zone reports AI crawler visits. It is set up from the terminal.
+            <InfoTooltip text="Setting it up deploys a Worker to your Cloudflare account, so it runs from the Canonry CLI on the machine where Canonry runs, never from the browser." />
+          </span>
+        }
+        onBack={onBack}
+      />
+      <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="flex flex-col gap-5">
+          <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+          <SetupSteps steps={guide.steps} />
+        </div>
+        <div className="mt-6 flex items-center justify-end gap-2 border-t border-default pt-4">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="button" size="sm" asChild>
+            <a href={guide.docsUrl} target="_blank" rel="noreferrer">
+              Open the setup guide
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </a>
+          </Button>
+        </div>
+      </div>
+    </>
   )
 }
