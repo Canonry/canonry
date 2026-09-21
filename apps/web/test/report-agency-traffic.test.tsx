@@ -160,13 +160,13 @@ describe('GSC Performance', () => {
   test('clicks over time is a line chart named like the HTML chart, and is left out without trend data', () => {
     const report = fullReport()
     renderAgency(report)
-    expect(within(getReportSection(ReportSectionIds.gsc)).getByRole('img', { name: 'Clicks over time line chart' })).toBeTruthy()
+    expect(within(getReportSection(ReportSectionIds.gsc)).getByRole('application', { name: 'Clicks over time line chart' })).toBeTruthy()
 
     cleanupReportPage()
     report.gsc!.trend = []
     renderAgency(report)
     const section = getReportSection(ReportSectionIds.gsc)
-    expect(within(section).queryByRole('img', { name: 'Clicks over time line chart' })).toBeNull()
+    expect(within(section).queryByRole('application', { name: 'Clicks over time line chart' })).toBeNull()
     expect(readHeadings(section)).not.toContain('Clicks over time')
   })
 
@@ -298,7 +298,7 @@ describe('AI Referral Traffic', () => {
     const section = getReportSection(ReportSectionIds['ai-referrals'])
     expect(introText(section)).toBe('Traffic arriving from AI answer engines.')
     expect(readTiles(section)).toEqual([['Total sessions', '200']])
-    expect(within(section).getByRole('img', { name: 'AI referral sessions over time line chart' })).toBeTruthy()
+    expect(within(section).getByRole('application', { name: 'AI referral sessions over time line chart' })).toBeTruthy()
     expect(readShareBars(section, 'AI sessions by source')).toEqual([
       { label: 'chatgpt.com', value: '150 sessions · 75%', width: '75%', color: REPORT_CHART_COLORS.series[2] },
       { label: 'gemini.google.com', value: '50 sessions · 25%', width: '25%', color: REPORT_CHART_COLORS.series[3] },
@@ -321,6 +321,6 @@ describe('AI Referral Traffic', () => {
     const bare = getReportSection(ReportSectionIds['ai-referrals'])
     expect(headerCells(tableAfter(bare, 'Top AI landing pages'))).toEqual(['Page', 'Sessions'])
     expect(bodyRows(tableAfter(bare, 'Top AI landing pages'))).toEqual([])
-    expect(within(bare).queryByRole('img', { name: 'AI referral sessions over time line chart' })).toBeNull()
+    expect(within(bare).queryByRole('application', { name: 'AI referral sessions over time line chart' })).toBeNull()
   })
 })

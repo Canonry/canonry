@@ -154,7 +154,7 @@ test('charts are named like the HTML report charts and draw nothing without data
       <ReportBarChart title="Provider citation rate" rows={[{ label: 'gemini', value: 50, color: CHART_SERIES_COLORS[0], valueLabel: '50% (1/2)' }]} domainMax={100} track />
     </>,
   )
-  expect(screen.getByRole('img', { name: 'Clicks over time line chart' })).toBeTruthy()
+  expect(screen.getByRole('application', { name: 'Clicks over time line chart' })).toBeTruthy()
   expect(screen.getByRole('img', { name: 'Provider citation rate bar chart' })).toBeTruthy()
   expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Clicks over time', 'Provider citation rate'])
 

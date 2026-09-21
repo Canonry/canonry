@@ -3,7 +3,7 @@
  *
  * jsdom has no layout and no ResizeObserver, so a real ResponsiveContainer
  * renders nothing useful. Report charts are asserted through their
- * `role="img"` wrappers and accessible names instead. Every component
+ * accessible roles and names instead. Every component
  * ChartPrimitives imports from recharts is exported here.
  *
  * vi.mock is hoisted per test file, so each report test declares:
@@ -20,7 +20,9 @@ function Nothing() {
 }
 
 export const ResponsiveContainer = Passthrough
-export const ComposedChart = Passthrough
+export function ComposedChart({ children, 'aria-label': label }: { children?: ReactNode; 'aria-label'?: string }) {
+  return <div role="application" aria-label={label}>{children}</div>
+}
 export const BarChart = Passthrough
 export const Area = Nothing
 export const Bar = Nothing

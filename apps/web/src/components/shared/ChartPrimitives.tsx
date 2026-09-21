@@ -292,6 +292,7 @@ export function MultiAxisTrendChart({
   onSelectX,
   selectedX,
   accessibilityLayer = true,
+  ariaLabel,
 }: {
   data: readonly Record<string, unknown>[]
   xKey: string
@@ -303,14 +304,10 @@ export function MultiAxisTrendChart({
   onSelectX?: (value: string) => void
   /** x value to mark as currently drilled into. */
   selectedX?: string | null
-  /**
-   * Recharts' keyboard layer, which makes the chart surface a focusable
-   * `role="application"`. On by default, as recharts has it. Pass `false` when
-   * the caller already wraps the chart in its own `role="img"` element: the
-   * surface would then be an unnamed interactive node inside a presentational
-   * one, and a dead tab stop wherever the chart has no tooltip to reach.
-   */
+  /** Disable only when an alternative accessible view exposes the same data. */
   accessibilityLayer?: boolean
+  /** Accessible name of the keyboard-navigable chart surface. */
+  ariaLabel?: string
 }) {
   const axisIds = [...new Set(series.map((s) => s.axisId))]
   const formatters = new Map(series.map((s) => [s.label, s.formatValue]))
@@ -342,6 +339,7 @@ export function MultiAxisTrendChart({
       <ComposedChart
         data={rows}
         accessibilityLayer={accessibilityLayer}
+        aria-label={ariaLabel}
         margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
         // Recharts reports the active row on the CHART, not per-dot, so a click
         // anywhere in a day's column selects it — a 2px dot is not a target.

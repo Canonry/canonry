@@ -2497,19 +2497,15 @@ export function ReportLineChart({
   const formatters = dates ? reportChartDateFormatters(dates) : undefined
   return (
     <ReportCard title={title}>
-      <div role="img" aria-label={reportLineChartLabel(title)}>
-        <MultiAxisTrendChart
-          data={data}
-          xKey={xKey}
-          series={[{ dataKey, label: title, color, axisId: 'value', formatValue }]}
-          height={height}
-          xTickFormatter={formatters?.xTickFormatter}
-          labelFormatter={formatters?.labelFormatter}
-          // The `role="img"` wrapper above names this chart, so the chart's own
-          // focusable role="application" surface would nest one inside it.
-          accessibilityLayer={false}
-        />
-      </div>
+      <MultiAxisTrendChart
+        ariaLabel={reportLineChartLabel(title)}
+        data={data}
+        xKey={xKey}
+        series={[{ dataKey, label: title, color, axisId: 'value', formatValue }]}
+        height={height}
+        xTickFormatter={formatters?.xTickFormatter}
+        labelFormatter={formatters?.labelFormatter}
+      />
     </ReportCard>
   )
 }

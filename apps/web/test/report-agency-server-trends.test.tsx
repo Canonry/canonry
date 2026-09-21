@@ -210,7 +210,7 @@ describe('agency server activity', () => {
     ])
     expect(tile(section, 'Verified crawler hits (30d)').subtitle?.textContent).toBe('Up 100% vs prior 30 days (117 hits)')
     expect(headings(section)[0]).toBe('Verified crawler hits over time (last 30 days)')
-    expect(within(section).getByRole('img', { name: 'Verified crawler hits over time (last 30 days) line chart' })).toBeTruthy()
+    expect(within(section).getByRole('application', { name: 'Verified crawler hits over time (last 30 days) line chart' })).toBeTruthy()
     expect(headerCells(tables(section)[0]!)).toEqual(['Operator', 'Verified hits', 'Unverified', 'User fetches', 'Referral sessions', '30d delta'])
     expect(within(section).getByText('Pages AI bots fetched most often (verified only, last 30d).')).toBeTruthy()
   })
@@ -224,7 +224,7 @@ describe('agency server activity', () => {
     expect(note.getAttribute('aria-label')).toBe(copy.operatorsNote)
     expect(note.closest('h3')).toBeNull()
 
-    expect(within(section).getByRole('img', { name: 'Verified crawler hits over time (last 7 days) line chart' })).toBeTruthy()
+    expect(within(section).getByRole('application', { name: 'Verified crawler hits over time (last 7 days) line chart' })).toBeTruthy()
     expect(headings(section)).toEqual([
       'Verified crawler hits over time (last 7 days)',
       'Per AI operator',
@@ -398,7 +398,7 @@ describe('agency citations trend', () => {
     renderReportPage(report, { audience: 'agency' })
     const section = getReportSection(CITATIONS_TREND)
     expect(sectionIntro(section)).toBe('Citation coverage across recent checks.')
-    expect(within(section).getByRole('img', { name: 'Overall citation rate line chart' })).toBeTruthy()
+    expect(within(section).getByRole('application', { name: 'Overall citation rate line chart' })).toBeTruthy()
     const [breakdown] = tables(section)
     expect(headerCells(breakdown!)).toEqual(['Check', 'Cited queries', 'Per-engine rates'])
     // Check dates are run timestamps: the label is built the way the page builds it, in the viewer's timezone.
@@ -414,7 +414,7 @@ describe('agency citations trend', () => {
   test('the change-history report charts its four checks', () => {
     renderReportPage(reportWithChangeHistory(), { audience: 'agency' })
     const section = getReportSection(CITATIONS_TREND)
-    expect(within(section).getByRole('img', { name: 'Overall citation rate line chart' })).toBeTruthy()
+    expect(within(section).getByRole('application', { name: 'Overall citation rate line chart' })).toBeTruthy()
     expect(bodyRows(tables(section)[0]!)).toHaveLength(4)
   })
 
