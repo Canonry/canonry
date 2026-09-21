@@ -22,6 +22,13 @@ covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
 
+- **Establish the portfolio type before answering; never infer it.**
+  `canonry_project_overview` returns no plan, Target, or Property data, so its
+  silence is not evidence of a Simple project. Call
+  `canonry_measurement_plan_get` before stating that a project has no
+  Properties, no Advanced plan, or cannot break out per-Property performance.
+  For "which Property is best/worst", use
+  `canonry_measurement_portfolio_summary`.
 - **Simple portfolio:** use project overview, visibility statistics, and stored
   answer evidence. **Advanced portfolio:** read the active plan and use the
   measurement tools. Preserve Property/Target identity, market, plan revision,

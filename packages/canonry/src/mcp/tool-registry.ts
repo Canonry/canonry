@@ -1198,7 +1198,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate tools.',
+    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. Before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance, call canonry_measurement_plan_get to establish the portfolio type, and canonry_measurement_portfolio_summary to rank Properties.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
