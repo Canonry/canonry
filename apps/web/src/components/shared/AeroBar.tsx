@@ -173,10 +173,15 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [liveTrail, setLiveTrail] = useState<ToolTrail[]>([])
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [providerOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
+  const [preferredProviderOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
     const stored = readPreference(PROVIDER_PREF_KEY(projectName))
     return (stored as AgentProviderId | null) ?? null
   })
+  // A saved provider preference cannot steer a managed session. The picker is
+  // hidden in managed mode, so an override the operator can neither see nor
+  // clear would otherwise repin the session's provider on every prompt, and
+  // the server persists that pin. Keep it stored for operator deployments.
+  const providerOverride = managedSweeps ? null : preferredProviderOverride
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each

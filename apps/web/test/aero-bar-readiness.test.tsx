@@ -187,6 +187,39 @@ test.each([false, true])('managed=%s uses the effective Aero scope even with a s
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
 })
 
+async function openAeroWithSavedProvider(managedSweeps: boolean) {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => key.includes(':provider:') ? 'openai' : null,
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    clear: vi.fn(),
+  })
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  const prompt = vi.spyOn(aero, 'promptAero').mockResolvedValue(undefined)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  await waitFor(() => expect(transcript).toHaveBeenCalled())
+  return { prompt, input: screen.getByPlaceholderText('Ask Aero, or / for commands\u2026') }
+}
+
+// The managed dashboard hides the provider picker, so a preference saved
+// before managed mode was turned on is one the operator can neither see nor
+// clear. It must not keep steering the session: the server persists whatever
+// provider a prompt carries.
+test.each([false, true])('managed=%s honors a saved provider override only when the picker is visible', async managed => {
+  const { prompt, input } = await openAeroWithSavedProvider(managed)
+  expect(screen.queryByRole('button', { name: 'Switch agent model' }) === null).toBe(managed)
+  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+    provider: managed ? undefined : 'openai',
+  })))
+})
+
 test('operator mode retains the exact Aero sweep shortcut and saved write scope', async () => {
   const { prompt, input } = await openAeroWithSavedWriteScope(false)
   fireEvent.change(input, { target: { value: '/run-sweep' } })
