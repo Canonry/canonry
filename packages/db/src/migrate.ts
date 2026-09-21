@@ -4166,6 +4166,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE doctor_health_state ADD COLUMN failing_signature TEXT`,
     ],
   },
+  {
+    version: 158,
+    name: 'deepinfra-agent-default-model',
+    // Move the previous agent default once. A later explicit GLM selection
+    // must survive subsequent boots and session hydration.
+    statements: [
+      `UPDATE agent_sessions SET model_id = 'deepseek-ai/DeepSeek-V4-Flash'
+       WHERE model_provider = 'deepinfra' AND model_id = 'zai-org/GLM-5.2'`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

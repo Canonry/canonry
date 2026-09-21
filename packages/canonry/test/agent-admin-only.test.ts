@@ -216,6 +216,17 @@ describe('every Aero route carries the administrator gate itself', () => {
   describe.each([
     ['a read-only key', READ_ONLY_KEY_PRINCIPAL],
     ['a project-scoped key', PROJECT_KEY_PRINCIPAL],
+    ['an admin-delegated read-only key', {
+      ...READ_ONLY_KEY_PRINCIPAL,
+      delegatedUser: { id: 'admin', name: 'admin', role: 'admin' },
+    } satisfies AuthPrincipal],
+    ['an admin-delegated project key', {
+      ...PROJECT_KEY_PRINCIPAL,
+      delegatedUser: { id: 'admin', name: 'admin', role: 'admin' },
+    } satisfies AuthPrincipal],
+    ['an admin OAuth grant limited to read', {
+      ...principalFor('admin'), scopes: ['read'], viaCookie: false,
+    } satisfies AuthPrincipal],
   ])('%s', (_label, narrowKey) => {
     it.each(labelled(AGENT_ROUTES))('is refused on %s', async (_routeLabel, route) => {
       principal = narrowKey
@@ -229,6 +240,15 @@ describe('every Aero route carries the administrator gate itself', () => {
       expect(res.statusCode).toBe(403)
       expect(res.body).not.toContain('messages')
     })
+  })
+
+  it('allows a full-instance wildcard key delegated by an administrator', async () => {
+    principal = {
+      ...READ_ONLY_KEY_PRINCIPAL,
+      scopes: ['*'],
+      delegatedUser: { id: 'admin', name: 'admin', role: 'admin' },
+    }
+    expect((await call(['GET', '/projects/acme/agent/memory'])).statusCode).toBe(200)
   })
 
   it('refuses a viewer before it looks the project up', async () => {

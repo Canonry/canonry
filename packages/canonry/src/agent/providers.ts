@@ -188,46 +188,6 @@ export const PROVIDER_MODELS = {
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 
-/**
- * Model ids that must no longer drive a provider's AGENT tier.
- *
- * A session persists its model id, so bumping `PROVIDER_MODELS[x].agent` only
- * changes what NEW sessions get. Every install that already used that provider
- * keeps answering on the old model forever: the dashboard bar sends a provider
- * only once someone opens the picker for that project, so an ordinary turn
- * names neither provider nor model, and nothing on that path re-reads a stored
- * pin against the current tier. Listing the old id here makes the next hydrate
- * move it (see `resolveAgentModelPin`).
- *
- * Scoped to the agent tier on purpose. `zai-org/GLM-5.2` is retired as
- * DeepInfra's agent model but is still its analyze and classify model, so this
- * is not a statement that the model is gone — only that it must not be what
- * drives the agent loop.
- */
-export const RETIRED_AGENT_MODELS: Record<AgentProviderId, readonly string[]> = {
-  [AgentProviderIds.claude]: [],
-  [AgentProviderIds.openai]: [],
-  [AgentProviderIds.gemini]: [],
-  [AgentProviderIds.zai]: [],
-  // Was the agent tier before DeepSeek-V4-Flash, at roughly ten times the cost.
-  [AgentProviderIds.deepinfra]: ['zai-org/GLM-5.2'],
-}
-
-/**
- * Resolve a session's stored model id against its provider's current agent
- * tier, returning the id the session should actually run on.
- *
- * Only a RETIRED id is moved. An unrecognised id is left alone: an
- * OpenAI-compatible host serves any slug it hosts, so a model this registry has
- * never heard of is an explicit operator choice rather than a stale pin, and
- * silently rewriting it would be the same class of bug in the other direction.
- */
-export function resolveAgentModelPin(provider: string, storedModelId: string): string {
-  if (!isAgentProviderId(provider)) return storedModelId
-  if (!RETIRED_AGENT_MODELS[provider].includes(storedModelId)) return storedModelId
-  return AGENT_PROVIDERS[provider].defaultModel
-}
-
 // Explicitly typed as the widened entry record (not `as const satisfies`) so
 // `AGENT_PROVIDERS[id].openaiCompatible` is visible on every member — the
 // const-narrowed union would only expose it on the one entry that sets it.
@@ -494,14 +454,6 @@ export function validateAgentProviderRegistry(): void {
     }
     const entry = AGENT_PROVIDERS[provider]
     const agentModel = PROVIDER_MODELS[provider][LlmCapabilities.agent]
-    if (RETIRED_AGENT_MODELS[provider].includes(agentModel)) {
-      throw new Error(
-        `RETIRED_AGENT_MODELS[${provider}] lists '${agentModel}', which is still ` +
-          `PROVIDER_MODELS[${provider}].agent. A retired model cannot also be the ` +
-          `current agent tier, or every hydrate would rewrite the row to the value ` +
-          `it just rejected.`,
-      )
-    }
     if (entry.defaultModel !== agentModel) {
       throw new Error(
         `AGENT_PROVIDERS[${provider}].defaultModel ('${entry.defaultModel}') ` +

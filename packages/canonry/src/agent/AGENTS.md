@@ -15,7 +15,7 @@ consume Canonry through the external-agent webhook.
   model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN` or `providers.deepinfra.apiKey`,
   base URL overridable via `DEEPINFRA_BASE_URL` for proxy/LiteLLM-gateway routing).
   The agent tier is `deepseek-ai/DeepSeek-V4-Flash`; analyze and classify stay on
-  `zai-org/GLM-5.2` (see "Model tiers and retired pins").
+  `zai-org/GLM-5.2` (see "Model tiers and upgrades").
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up
@@ -187,9 +187,9 @@ rather than your own.
 ### Why the gate asks two questions
 
 `requireAdminSession` reads a role, and an API key carries none, so it passes
-every key. `requireInstanceAdministrator` adds the second question: a key must be
-the install's own full-instance wildcard key, not one confined to a project and
-not one carrying less than the wildcard. Without it, a project-scoped read-only
+every key. `requireInstanceAdministrator` also requires full-instance wildcard
+authority, including for credentials delegated by an administrator. Read-only
+and project-scoped grants fail this check. Without it, a project-scoped read-only
 key (the shape handed to an outside integration) would read the operator's
 conversation and memory, and a project-scoped wildcard key would reach the prompt
 route and drive the install root key from a credential deliberately narrowed to
@@ -232,7 +232,7 @@ does not cost the operator those events.
 mutually exclusive: absent (enabled and proactive), `prompt-only` (enabled, never
 self-starting), and `disabled` (off entirely).
 
-## Model tiers and retired pins
+## Model tiers and upgrades
 
 `PROVIDER_MODELS` maps each provider to an agent, analyze and classify model, and
 `AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
@@ -242,14 +242,12 @@ stay on `zai-org/GLM-5.2`, because those tiers suppress the reasoning trace
 through GLM's chat-template switch and that branch applies only to a model
 declared `reasoning: true`.
 
-A session persists its model id, so bumping the agent tier only changes what NEW
-sessions get: the dashboard bar sends a provider only once someone opens the
-picker, so an ordinary turn names neither provider nor model and nothing re-reads
-the stored pin. `RETIRED_AGENT_MODELS` lists ids that must no longer drive a
-provider's agent tier, and `resolveAgentModelPin` moves such a pin to the current
-default on the next hydrate, persisting it so the next process does not repeat
-the work. Only a retired id is moved: an unrecognised id is an explicit operator
-choice, since an OpenAI-compatible host serves any slug it hosts.
+A session persists its model id. Migration 158 moves existing DeepInfra GLM-5.2
+sessions to DeepSeek-V4-Flash once, without changing their transcript, queue, or
+activity timestamp. Session hydration preserves the stored model. An explicit
+model selected after the upgrade must survive subsequent boots, including a
+selection of the previous default. Future default-model upgrades use a new
+versioned migration rather than repeatedly replacing stored pins during hydration.
 
 ## External agents (webhook lifecycle)
 

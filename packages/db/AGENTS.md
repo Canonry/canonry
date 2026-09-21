@@ -22,6 +22,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 - **Scheduling**: schedules, notifications, webhooks
 - **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, gscDailyTotals (property-level daily totals — headline/trend source), gscQueryDailyTotals (per-query daily totals — the accurate per-query impressions/position source), urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, gaDailyTotals (property-level daily totals — deduplicated `users`, unlike the per-page snapshots), ga4AiReferrals, ga4Summaries, gaSocialReferrals
 - **System**: apiKeys, usageCounters
+- **Aero model upgrade**: migration 158 moves existing DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once. Later explicit selections survive subsequent migrations and hydration; transcript, queue, and activity timestamps stay intact.
 - **Delegated MCP identity**: `apiKeys.delegatedUserId` is internal, nullable for historical/ordinary keys, and cascade-deleted with its user (migration 154). It retains the originating account across the MCP-to-REST hop; never derive this identity from a key name or expose it as client-settable input.
 
 ## Patterns

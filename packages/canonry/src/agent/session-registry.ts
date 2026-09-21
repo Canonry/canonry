@@ -20,7 +20,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { getAgentProvider, resolveAgentModelPin } from './providers.js'
+import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -221,16 +221,9 @@ export class SessionRegistry {
       // Explicit caller preferences override the persisted values (and are
       // persisted back). This keeps `--provider` / `--model` flags meaningful
       // after the first session exists instead of silently ignoring them.
-      // A stored pin can name a model that is no longer its provider's agent
-      // tier, which is what every install carries after a tier bump. Hydrate is
-      // the one place that reads the pin on an ordinary turn, so the move has to
-      // happen here: `acquireForTurn` calls `alignModel` only when the caller
-      // named a provider or a model, and the dashboard bar names neither until
-      // someone opens the provider picker for that project.
-      const repinnedModelId = resolveAgentModelPin(row.modelProvider, row.modelId)
       const effectiveProvider = (preferences?.provider ?? row.modelProvider) as SupportedAgentProvider
-      const effectiveModelId = preferences?.modelId ?? repinnedModelId
-      if (preferences?.provider || preferences?.modelId || repinnedModelId !== row.modelId) {
+      const effectiveModelId = preferences?.modelId ?? row.modelId
+      if (preferences?.provider || preferences?.modelId) {
         this.opts.db
           .update(agentSessions)
           .set({

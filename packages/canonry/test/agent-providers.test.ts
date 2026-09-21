@@ -5,7 +5,6 @@ import {
   AGENT_PROVIDERS,
   AgentProviders,
   PROVIDER_MODELS,
-  RETIRED_AGENT_MODELS,
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   buildAgentProvidersResponse,
@@ -13,7 +12,6 @@ import {
   findByPiAiProvider,
   getAgentProvider,
   listAgentProviders,
-  resolveAgentModelPin,
   resolveApiKeyFor,
   resolveApiKeySource,
   resolveModelForCapability,
@@ -102,46 +100,6 @@ describe('agent provider registry', () => {
   it('resolveModelForProvider throws on a missing model id', () => {
     const anyProvider = listAgentProviders()[0] as SupportedAgentProvider
     expect(() => resolveModelForProvider(anyProvider, 'definitely-not-a-model-id')).toThrow()
-  })
-})
-
-describe('retired agent models', () => {
-  it('repins a stored model that is no longer the provider agent tier', () => {
-    expect(resolveAgentModelPin('deepinfra', 'zai-org/GLM-5.2'))
-      .toBe(getAgentProvider('deepinfra').defaultModel)
-  })
-
-  it('leaves the current agent model alone', () => {
-    const current = getAgentProvider('deepinfra').defaultModel
-    expect(resolveAgentModelPin('deepinfra', current)).toBe(current)
-  })
-
-  it('leaves a custom slug on an OpenAI-compatible host alone', () => {
-    // DeepInfra serves any slug it hosts, so an explicit pin is a real choice
-    // and not a stale one.
-    expect(resolveAgentModelPin('deepinfra', 'deepseek-ai/DeepSeek-V3.1'))
-      .toBe('deepseek-ai/DeepSeek-V3.1')
-  })
-
-  it('leaves an unknown provider alone', () => {
-    expect(resolveAgentModelPin('not-a-provider', 'zai-org/GLM-5.2')).toBe('zai-org/GLM-5.2')
-  })
-
-  it('never retires a model that is still a provider current agent tier', () => {
-    // Retiring the live default would make every hydrate rewrite the row to
-    // the value it had just rejected.
-    for (const provider of listAgentProviders()) {
-      expect(RETIRED_AGENT_MODELS[provider]).not.toContain(getAgentProvider(provider).defaultModel)
-    }
-    expect(() => validateAgentProviderRegistry()).not.toThrow()
-  })
-
-  it('keeps a retired agent model usable on the cheaper tiers it still serves', () => {
-    // Retirement is about the AGENT tier only. GLM-5.2 is still deepinfra's
-    // analyze and classify model, so it must not be treated as gone entirely.
-    expect(RETIRED_AGENT_MODELS.deepinfra).toContain('zai-org/GLM-5.2')
-    expect(PROVIDER_MODELS.deepinfra.analyze).toBe('zai-org/GLM-5.2')
-    expect(PROVIDER_MODELS.deepinfra.classify).toBe('zai-org/GLM-5.2')
   })
 })
 

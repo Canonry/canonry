@@ -258,8 +258,8 @@ export const NARROW_KEY_DENIED_MESSAGE =
  * Whether the caller is an administrator OF THE INSTALL, rather than merely a
  * credential authorized to read part of it.
  *
- * True for a signed-in administrator (directly, or behind a delegated
- * credential), and for the install's own full-instance wildcard key — what
+ * True for a signed-in administrator with full-instance wildcard authority,
+ * and for the install's own full-instance wildcard key — what
  * `canonry init` writes and what the CLI and MCP present. False for a signed-in
  * viewer, and false for a NARROW key: one confined to a project, or one
  * carrying anything less than the wildcard.
@@ -277,7 +277,7 @@ export function isInstanceAdministrator(request: FastifyRequest): boolean {
   const principal = request.principal
   if (!principal) return true
   const role = principal.kind === 'user' ? principal.role : principal.delegatedUser?.role
-  if (role) return role === UserRoles.admin
+  if (role && role !== UserRoles.admin) return false
   return !principal.projectId && principal.scopes.includes(WILDCARD_SCOPE)
 }
 

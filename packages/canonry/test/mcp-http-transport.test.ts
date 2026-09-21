@@ -257,7 +257,56 @@ describe('MCP over OAuth', () => {
   })
 
   afterEach(async () => {
+    vi.restoreAllMocks()
     await built.cleanup()
+  })
+
+  it('keeps Aero notes and provider details private for an admin read-only grant', async () => {
+    // The fixture binds a random port; route the MCP client's configured
+    // loopback URL back to that listener. Both authentication hops stay real.
+    const realFetch = globalThis.fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const original = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (original.startsWith('http://127.0.0.1:4100/')) {
+        const target = original.replace('http://127.0.0.1:4100', built.origin)
+        return realFetch(input instanceof Request ? new Request(target, input) : target, init)
+      }
+      return realFetch(input, init)
+    })
+    const rootHeaders = { authorization: `Bearer ${built.wildcardKey}` }
+    const project = await request(built, {
+      method: 'PUT', url: '/api/v1/projects/acme', headers: rootHeaders,
+      payload: { displayName: 'Acme', canonicalDomain: 'acme.example.com', country: 'US', language: 'en' },
+    })
+    expect(project.statusCode).toBe(201)
+    const note = await request(built, {
+      method: 'PUT', url: '/api/v1/projects/acme/agent/memory', headers: rootHeaders,
+      payload: { key: 'private-note', value: 'operator private strategy' },
+    })
+    expect(note.statusCode).toBe(200)
+
+    const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
+    const initialized = await initRequest(built, token)
+    expect(initialized.statusCode).toBe(200)
+    expect(built.sessionKeys()).toEqual([{ scopes: ['read'], revokedAt: null }])
+    const headers = {
+      authorization: `Bearer ${token}`, accept: MCP_ACCEPT,
+      'mcp-session-id': initialized.headers['mcp-session-id']!,
+    }
+    const memory = await request(built, {
+      method: 'POST', url: '/api/v1/mcp', headers,
+      payload: { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'canonry_memory_list', arguments: { project: 'acme' } } },
+    })
+    const frame = memory.body.split('\n').find(line => line.startsWith('data:'))
+    const result = JSON.parse((frame ?? memory.body).replace(/^data:\s*/, '')) as { result: { isError?: boolean } }
+    expect(result.result.isError).toBe(true)
+    expect(memory.body).not.toContain('operator private strategy')
+
+    const doctor = await request(built, {
+      method: 'POST', url: '/api/v1/mcp', headers,
+      payload: { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'canonry_doctor', arguments: { checks: ['config.agent-providers'] } } },
+    })
+    expect(doctor.body).toContain('agent-providers.restricted')
   })
 
   it('accepts explicit research consent without granting unrelated mutations', async () => {
