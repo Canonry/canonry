@@ -84,6 +84,11 @@ jobs:
       - name: Open or update refresh pull request
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
+        env:
+          # The action restores main before pushing the refresh branch, so the
+          # local pre-push hook sees a different tree. The gates above already
+          # validated the refresh; skip hooks only for this action.
+          HUSKY: '0'
         with:
           # Reuse the existing automation PAT until the org-wide token name is
           # available. GITHUB_TOKEN remains a fallback for forks.
