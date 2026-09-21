@@ -33,6 +33,7 @@ afterEach(() => {
 
 function renderProjectSetup(options: {
   onboarding: boolean
+  onboardingFinish?: boolean
   complete?: boolean
   providerReady?: boolean
   projectProviders?: string[]
@@ -102,6 +103,7 @@ function renderProjectSetup(options: {
           <SetupPage
             visibilityProjectName={project.project.name}
             siteHealthOnboarding={options.onboarding}
+            {...(options.onboardingFinish === undefined ? {} : { onboardingFinish: options.onboardingFinish })}
           />
         </DashboardProvider>
       </AccountProvider>
@@ -704,4 +706,19 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   }
   expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+test('a first run that skipped the site scan still ends on the finish step', async () => {
+  // "Set up without a site scan" hands off as onboarding=first-run: no Site
+  // Health progress bar, but it is still onboarding and must not drop into the
+  // project cold.
+  const { projectName } = renderProjectSetup({ onboarding: false, onboardingFinish: true })
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Finish without AI Visibility' }))
+
+  expect(navigate).toHaveBeenCalledWith({
+    to: '/setup',
+    search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
+    replace: true,
+  })
 })

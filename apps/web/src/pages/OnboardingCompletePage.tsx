@@ -8,7 +8,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { heyClient } from '../api.js'
 import { addToast } from '../lib/toast-store.js'
-import { OnboardingProgress, type OnboardingStage } from '../components/shared/OnboardingProgress.js'
+import { OnboardingProgress, type OnboardingStage, type OnboardingStageOutcome } from '../components/shared/OnboardingProgress.js'
 import { Button } from '../components/ui/button.js'
 
 export const AGENT_MCP_INSTALL_COMMAND = 'canonry mcp install --client claude-code'
@@ -49,19 +49,21 @@ export function OnboardingCompletePage({
       query: { kind: RunKinds['site-audit'], limit: 20 },
     }),
     retry: false,
+    // A scan still running when the operator got here finishes on its own;
+    // re-read until it does, so the step turns complete without a reload.
+    refetchInterval: (query) => siteScanOutcome(query.state.status === 'success'
+      ? { isSuccess: true, data: query.state.data }
+      : { isSuccess: false }) === 'pending' ? 5_000 : false,
   })
-  const scanStarted = scanRunsQuery.data?.some(run =>
-    run.trigger !== RunTriggers.probe
-    && run.status !== RunStatuses.failed
-    && run.status !== RunStatuses.cancelled) ?? true
-  const skipped: OnboardingStage[] = [
-    ...(scanStarted ? [] : (['site', 'fixes'] as const)),
-    ...(skippedVisibility ? (['visibility'] as const) : []),
-  ]
+  const scanOutcome = siteScanOutcome(scanRunsQuery)
+  const outcomes: Partial<Record<OnboardingStage, OnboardingStageOutcome>> = {
+    ...(scanOutcome ? { site: scanOutcome, fixes: scanOutcome } : {}),
+    ...(skippedVisibility ? { visibility: 'skipped' as const } : {}),
+  }
 
   return (
     <div className="page-container max-w-6xl py-8 md:py-10">
-      <OnboardingProgress current="done" skipped={skipped} />
+      <OnboardingProgress current="done" outcomes={outcomes} />
 
       <header className="relative mx-auto mt-12 max-w-2xl text-center md:mt-16">
         <CheckBadge />
@@ -105,6 +107,23 @@ export function OnboardingCompletePage({
       </div>
     </div>
   )
+}
+
+/**
+ * How the site scan ended, or `undefined` when it finished. Only a completed or
+ * partial scan earns a check: a queued or running one is still in progress, a
+ * failed one did not finish, and a history read that has not answered (or
+ * failed) proves nothing either way.
+ */
+export function siteScanOutcome(query: {
+  isSuccess: boolean
+  data?: ReadonlyArray<{ trigger: string; status: string }>
+}): OnboardingStageOutcome | undefined {
+  if (!query.isSuccess || !query.data) return 'unknown'
+  const scans = query.data.filter(run => run.trigger !== RunTriggers.probe)
+  if (scans.some(run => run.status === RunStatuses.completed || run.status === RunStatuses.partial)) return undefined
+  if (scans.some(run => run.status === RunStatuses.queued || run.status === RunStatuses.running)) return 'pending'
+  return scans.length > 0 ? 'incomplete' : 'skipped'
 }
 
 function delay(ms: number): CSSProperties {

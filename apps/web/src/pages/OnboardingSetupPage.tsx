@@ -710,6 +710,7 @@ export function OnboardingSetupPage() {
       <SetupPage
         visibilityProjectName={search.setupProject}
         siteHealthOnboarding={search.onboarding === 'site-health'}
+        onboardingFinish={search.onboarding === 'site-health' || search.onboarding === 'first-run'}
       />
     )
   }

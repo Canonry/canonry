@@ -146,11 +146,18 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
 interface SetupPageProps {
   visibilityProjectName?: string
   siteHealthOnboarding?: boolean
+  /**
+   * This visit is part of first-run onboarding, so finishing or skipping ends
+   * on its "You're set" step. True for the Site Health handoff and for the
+   * first run that skipped the site scan, which shares no other UI with it.
+   */
+  onboardingFinish?: boolean
 }
 
 export function SetupPage({
   visibilityProjectName,
   siteHealthOnboarding = false,
+  onboardingFinish = siteHealthOnboarding,
 }: SetupPageProps = {}) {
   const { canWrite } = useAccount()
   if (visibilityProjectName && canWrite) {
@@ -158,6 +165,7 @@ export function SetupPage({
       <SetupPageBody
         visibilityProjectName={visibilityProjectName}
         siteHealthOnboarding={siteHealthOnboarding}
+        onboardingFinish={onboardingFinish}
       />
     )
   }
@@ -166,12 +174,13 @@ export function SetupPage({
       <SetupPageBody
         visibilityProjectName={visibilityProjectName}
         siteHealthOnboarding={siteHealthOnboarding}
+        onboardingFinish={onboardingFinish}
       />
     </AdminOnly>
   )
 }
 
-function SetupPageBody({ visibilityProjectName, siteHealthOnboarding }: SetupPageProps) {
+function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboardingFinish }: SetupPageProps) {
   const contextDashboard = useInitialDashboard()
   const { isAdmin } = useAccount()
   // RootLayout and this page are separate observers of the same project query.
@@ -190,7 +199,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding }: SetupPag
       void navigate({ to: '/', replace: true })
       return
     }
-    if (siteHealthOnboarding) {
+    if (onboardingFinish) {
       void navigate({
         to: '/setup',
         search: { onboarding: 'complete', setupProject: visibilityProjectName, skipped: 'visibility' },
@@ -270,6 +279,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding }: SetupPag
       visibilityProjectName={visibilityProjectName}
       visibilityHeadingRef={visibilityHeadingRef}
       siteHealthOnboarding={siteHealthOnboarding}
+      onboardingFinish={onboardingFinish}
     />
   )
 }
@@ -282,6 +292,7 @@ function ReadySetupPage({
   visibilityProjectName,
   visibilityHeadingRef,
   siteHealthOnboarding,
+  onboardingFinish,
 }: {
   dashboard: DashboardVm
   initialHealth?: HealthSnapshot
@@ -290,6 +301,7 @@ function ReadySetupPage({
   visibilityProjectName?: string
   visibilityHeadingRef: RefCallback<HTMLHeadingElement>
   siteHealthOnboarding?: boolean
+  onboardingFinish?: boolean
 }) {
   const settings = safeDashboard.settings
   const { isAdmin } = useAccount()
@@ -395,7 +407,7 @@ function ReadySetupPage({
   // Leaving setup forward, as opposed to backing out of it: onboarding ends on
   // its own "You're set" step instead of dropping into the project cold.
   const finishSetup = (skippedVisibility = false) => {
-    if (!siteHealthOnboarding || !createdProjectName) {
+    if (!onboardingFinish || !createdProjectName) {
       openProjectDashboard()
       return
     }
@@ -1689,7 +1701,7 @@ function ReadySetupPage({
                     <p className="mt-0.5 text-sm text-secondary">completed engine checks</p>
                   </div>
                 </div>
-                {!siteHealthOnboarding && createdProjectName ? <NextSteps projectName={createdProjectName} /> : null}
+                {!onboardingFinish && createdProjectName ? <NextSteps projectName={createdProjectName} /> : null}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => finishSetup()}>

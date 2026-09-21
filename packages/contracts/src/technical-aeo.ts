@@ -1552,6 +1552,12 @@ export type SiteCrawlDeadLinksResponseDto = z.infer<typeof siteCrawlDeadLinksRes
 export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = 1_000
 export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
 /**
+ * The crawler's own depth limit when a request sets none
+ * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/aeo-audit`, which a test
+ * pins). Named here so the dashboard can say what "default" actually means.
+ */
+export const SITE_AUDIT_DEFAULT_MAX_DEPTH = 10
+/**
  * First-run Site Health budget. Onboarding is a bounded first look at the top
  * of the site, not the full audit: the scheduled scan keeps the page default.
  */

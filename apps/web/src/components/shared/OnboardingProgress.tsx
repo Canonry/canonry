@@ -18,13 +18,27 @@ const ONBOARDING_STAGES = [
   optional?: boolean
 }>
 
+/**
+ * How an EARLIER stage actually ended, when that is not simply "done".
+ * `skipped`: never started. `pending`: started and not finished yet.
+ * `incomplete`: started and failed. `unknown`: the evidence could not be read.
+ * None of them may render as complete.
+ */
+export type OnboardingStageOutcome = 'skipped' | 'pending' | 'incomplete' | 'unknown'
+
+const OUTCOME_LABELS: Record<OnboardingStageOutcome, string | null> = {
+  skipped: 'Skipped',
+  pending: 'In progress',
+  incomplete: 'Didn’t finish',
+  unknown: null,
+}
+
 export function OnboardingProgress({
   current,
-  skipped = [],
+  outcomes = {},
 }: {
   current: OnboardingStage
-  /** Earlier stages the operator did not do. They must not read as complete. */
-  skipped?: readonly OnboardingStage[]
+  outcomes?: Partial<Record<OnboardingStage, OnboardingStageOutcome>>
 }) {
   const currentIndex = ONBOARDING_STAGES.findIndex((stage) => stage.id === current)
 
@@ -34,9 +48,10 @@ export function OnboardingProgress({
       className="grid border-y border-default sm:grid-cols-4 sm:divide-x sm:divide-default"
     >
       {ONBOARDING_STAGES.map((stage, index) => {
-        const isSkipped = index < currentIndex && skipped.includes(stage.id)
-        const complete = index < currentIndex && !isSkipped
+        const outcome = index < currentIndex ? outcomes[stage.id] : undefined
+        const complete = index < currentIndex && outcome === undefined
         const active = index === currentIndex
+        const outcomeLabel = outcome ? OUTCOME_LABELS[outcome] : null
 
         return (
           <li
@@ -54,15 +69,15 @@ export function OnboardingProgress({
                     : 'border-default bg-surface-subtle text-muted'
               }`}
             >
-              {complete ? '✓' : isSkipped ? '–' : index + 1}
+              {complete ? '✓' : outcome === 'skipped' || outcome === 'incomplete' ? '–' : index + 1}
             </span>
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
               <span className={`text-sm font-medium ${active || complete ? 'text-heading' : 'text-secondary'}`}>
                 {stage.label}
               </span>
-              {isSkipped
-                ? <span className="text-[13px] text-secondary">Skipped</span>
-                : stage.optional ? <span className="text-[13px] text-secondary">Optional</span> : null}
+              {outcomeLabel
+                ? <span className="text-[13px] text-secondary">{outcomeLabel}</span>
+                : stage.optional && !outcome ? <span className="text-[13px] text-secondary">Optional</span> : null}
               {complete ? <span className="sr-only">Complete</span> : null}
             </span>
           </li>

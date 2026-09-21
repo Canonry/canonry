@@ -18,7 +18,7 @@ import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-stor
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
-import { AGENT_MCP_INSTALL_COMMAND } from '../src/pages/OnboardingCompletePage.js'
+import { AGENT_MCP_INSTALL_COMMAND, siteScanOutcome } from '../src/pages/OnboardingCompletePage.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -381,6 +381,40 @@ test('a failed copy of the agent install command says so instead of failing sile
   fireEvent.click(await screen.findByRole('button', { name: 'Copy' }))
 
   expect(await screen.findByText('Could not copy the command')).toBeTruthy()
+})
+
+test('only a finished scan counts as a completed scan step', () => {
+  const run = (status: string, trigger = 'manual') => ({ status, trigger })
+  const ok = (data: Array<{ status: string; trigger: string }>) => ({ isSuccess: true, data })
+
+  expect(siteScanOutcome(ok([run('completed')]))).toBeUndefined()
+  expect(siteScanOutcome(ok([run('partial')]))).toBeUndefined()
+  // A newer failure does not undo an older finished scan.
+  expect(siteScanOutcome(ok([run('failed'), run('completed')]))).toBeUndefined()
+  expect(siteScanOutcome(ok([run('queued')]))).toBe('pending')
+  expect(siteScanOutcome(ok([run('running')]))).toBe('pending')
+  expect(siteScanOutcome(ok([run('failed'), run('cancelled')]))).toBe('incomplete')
+  expect(siteScanOutcome(ok([]))).toBe('skipped')
+  // A probe is not a scan the operator ran.
+  expect(siteScanOutcome(ok([run('completed', 'probe')]))).toBe('skipped')
+  // No answer, or a failed read, proves nothing: never a check mark.
+  expect(siteScanOutcome({ isSuccess: false })).toBe('unknown')
+})
+
+test('the finish step shows a running scan as in progress, not complete', async () => {
+  onTestFinished(mockFetch((url) => pathOf(url).startsWith('/api/v1/projects/example-com/runs')
+    ? jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    : jsonResponse([])))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => {
+    expect(within(progress).getAllByText('In progress')).toHaveLength(2)
+  })
+  // Only AI Visibility, which this URL does not mark skipped, reads complete.
+  expect(within(progress).getAllByText('Complete')).toHaveLength(1)
+  expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('Complete')
 })
 
 test('resolveAutoResumeTarget agrees with the serve banner', () => {

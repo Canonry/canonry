@@ -3388,3 +3388,13 @@ test('managed viewer retains dead-link results', () => {
   expect(screen.getByText('Broken links: 3 found')).not.toBeNull()
   expect(screen.queryByRole('checkbox', { name: 'Check dead links' })).toBeNull()
 })
+
+test('the default crawl depth says what it is, and deeper limits exist', async () => {
+  const { CRAWL_DEPTH_CHOICES } = await import('../src/components/project/SiteHealthSection.js')
+  const { SITE_AUDIT_DEFAULT_MAX_DEPTH } = await import('@ainyc/canonry-contracts')
+  expect(CRAWL_DEPTH_CHOICES[0]).toEqual({ value: null, label: `Default (${SITE_AUDIT_DEFAULT_MAX_DEPTH} clicks)` })
+  // "Raise the crawl depth" must be possible from a default scan.
+  expect(CRAWL_DEPTH_CHOICES.some(choice => choice.value !== null && choice.value > SITE_AUDIT_DEFAULT_MAX_DEPTH)).toBe(true)
+  // Never past what the run request accepts.
+  expect(Math.max(...CRAWL_DEPTH_CHOICES.map(choice => choice.value ?? 0))).toBe(100)
+})

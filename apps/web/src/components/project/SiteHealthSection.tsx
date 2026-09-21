@@ -20,6 +20,7 @@ import {
 import {
   RunKinds,
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
+  SITE_AUDIT_DEFAULT_MAX_DEPTH,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
@@ -345,12 +346,18 @@ const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = 
   { value: 10_000, label: '10,000 pages' },
 ]
 
-const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
-  { value: null, label: 'Any depth' },
+// "No limit set" is not unlimited: the crawler stops at its own default. Name
+// it, and offer deeper limits, or "Raise the crawl depth" has nowhere to go
+// from a default scan.
+export const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
+  { value: null, label: `Default (${SITE_AUDIT_DEFAULT_MAX_DEPTH} clicks)` },
   { value: 1, label: '1 click from the home page' },
   { value: 2, label: '2 clicks' },
   { value: 3, label: '3 clicks' },
   { value: 5, label: '5 clicks' },
+  { value: 20, label: '20 clicks' },
+  { value: 50, label: '50 clicks' },
+  { value: 100, label: '100 clicks (maximum)' },
 ]
 
 /**
