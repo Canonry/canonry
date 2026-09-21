@@ -3,7 +3,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import { ConnectSourceDrawer } from '../src/components/server-traffic/ConnectSourceDrawer.js'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import {
+  ConnectSourceDrawer,
+  WORDPRESS_PLUGIN_VERSION,
+  WORDPRESS_PLUGIN_ZIP_URL,
+  cloudRunGuide,
+  cloudflareGuide,
+  vercelGuide,
+  wordpressGuide,
+} from '../src/components/server-traffic/ConnectSourceDrawer.js'
 
 const { navigateMock, connectVercelMock, connectWordpressMock, connectCloudRunMock, backfillMock } =
   vi.hoisted(() => ({
@@ -263,4 +274,92 @@ test('a backfill kickoff failure keeps the drawer open and surfaces the error', 
   })
   expect(screen.getByText('Connect a Cloud Run service')).toBeTruthy()
   expect(navigateMock).not.toHaveBeenCalled()
+})
+
+test('the plugin download link tracks the version the plugin itself declares', () => {
+  // The link points at a release asset. If the plugin is bumped without this,
+  // the download 404s for every operator who follows it.
+  const header = readFileSync(
+    resolve(import.meta.dirname, '../../../packages/wordpress-traffic-logger-plugin/plugin/canonry-traffic-logger.php'),
+    'utf8',
+  )
+  const declared = /^\s*\*\s*Version:\s*(\S+)/m.exec(header)?.[1]
+  expect(WORDPRESS_PLUGIN_VERSION).toBe(declared)
+  expect(WORDPRESS_PLUGIN_ZIP_URL).toBe(
+    `https://github.com/Canonry/canonry/releases/download/wp-traffic-logger-v${declared}/canonry-traffic-logger-${declared}.zip`,
+  )
+})
+
+test('the WordPress form says the plugin is required and links straight to it', () => {
+  renderDrawer()
+  fireEvent.click(screen.getByText('WordPress'))
+
+  const steps = screen.getByRole('region', { name: 'Or do it yourself' })
+  expect(within(steps).getByText('Download the Canonry Traffic Logger plugin')).toBeTruthy()
+  expect(within(steps).getByRole('link', { name: /Download v/ }).getAttribute('href')).toBe(WORDPRESS_PLUGIN_ZIP_URL)
+  // No site URL yet, so there is no wp-admin page to point at.
+  expect(within(steps).queryByRole('link', { name: /Open the upload page/ })).toBeNull()
+
+  // Once the operator types their site, the steps link to its own admin pages.
+  fireEvent.change(screen.getByPlaceholderText('https://example.com'), { target: { value: 'https://wp.example.com/blog' } })
+  expect(within(steps).getByRole('link', { name: /Open the upload page/ }).getAttribute('href'))
+    .toBe('https://wp.example.com/wp-admin/plugin-install.php?tab=upload')
+  expect(within(steps).getByRole('link', { name: /Open your profile/ }).getAttribute('href'))
+    .toBe('https://wp.example.com/wp-admin/profile.php#application-passwords-section')
+})
+
+test('every source hands the whole setup to an agent, with the real command and no secrets in chat', () => {
+  const guides = {
+    wordpress: wordpressGuide('acme', ''),
+    vercel: vercelGuide('acme'),
+    'cloud-run': cloudRunGuide('acme', ''),
+    cloudflare: cloudflareGuide('acme'),
+  }
+  for (const [type, guide] of Object.entries(guides)) {
+    expect(guide.agentRequest).toContain(`cnry traffic connect ${type} acme`)
+    expect(guide.agentRequest).toContain(guide.docsUrl.split('#')[0])
+    expect(guide.agentRequest).toContain('Never ask me to paste a password, token, or key into this chat.')
+  }
+  // Vercel reads the token from a file rather than a flag in shell history.
+  expect(guides.vercel.agentRequest).toContain('--token-file')
+})
+
+test('the agent request can be copied from a source form', async () => {
+  const writeText = vi.fn(async () => {})
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  try {
+    renderDrawer()
+    fireEvent.click(screen.getByText('Vercel'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy setup request' }))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(vercelGuide('test-project').agentRequest)
+    })
+    expect(await screen.findByText('Copied')).toBeTruthy()
+  } finally {
+    if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  }
+})
+
+test('Cloudflare is offered as a guided terminal setup, not a form', () => {
+  renderDrawer()
+  fireEvent.click(screen.getByText('Cloudflare'))
+
+  expect(screen.getByText('Connect a Cloudflare zone')).toBeTruthy()
+  // Deploying a Worker is CLI-only, so there is nothing to submit here.
+  expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull()
+  expect(screen.getByText('cnry traffic connect cloudflare test-project --zone-id <zone-id> --account-id <account-id>')).toBeTruthy()
+  expect(screen.getByRole('link', { name: /Open the setup guide/ }).getAttribute('href'))
+    .toBe('https://github.com/Canonry/canonry/blob/main/docs/cloudflare-traffic-setup.md')
+})
+
+test('optional fields stay out of the way until asked for', () => {
+  renderDrawer()
+  fireEvent.click(screen.getByText('Google Cloud Run'))
+
+  const summary = screen.getByText('Show more options')
+  const details = summary.closest('details')
+  expect(details?.open).toBe(false)
+  expect(within(details as HTMLElement).getByLabelText(/^Service name/i)).toBeTruthy()
 })
