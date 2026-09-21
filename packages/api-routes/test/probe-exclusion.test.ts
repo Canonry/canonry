@@ -5,6 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { RunKinds, RunStatuses, RunTriggers, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -283,6 +284,48 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     )
     const trendRunIds = new Set((body.citationsTrend?.points ?? []).map(p => p.runId))
     expect(trendRunIds.has(ctx.probeRunId)).toBe(false)
+  })
+
+  it('visibility-report never compares against a probe between two sweeps', async () => {
+    // A later real sweep makes the newer probe sit between two real sweeps.
+    const realRun = ctx.db.select().from(runs).where(eq(runs.id, ctx.realRunId)).get()!
+    const probeRun = ctx.db.select().from(runs).where(eq(runs.id, ctx.probeRunId)).get()!
+    const laterAt = new Date(Date.parse(probeRun.createdAt) + 60_000).toISOString()
+    const laterRunId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: laterRunId,
+      projectId: ctx.projectId,
+      kind: RunKinds['answer-visibility'],
+      status: RunStatuses.completed,
+      trigger: RunTriggers.manual,
+      createdAt: laterAt,
+      finishedAt: laterAt,
+    }).run()
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: laterRunId,
+      queryId: ctx.queryId,
+      provider: 'openai',
+      citationState: 'cited',
+      answerMentioned: true,
+      citedDomains: ['real-brand.example.com'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      answerText: 'real-brand.example.com remains the canonical AEO platform.',
+      createdAt: laterAt,
+    }).run()
+
+    const { status, body } = await get<VisibilityReportResponse>(`/api/v1/projects/probe-excl/visibility-report?queryClass=all`)
+    expect(status).toBe(200)
+    expect(body.selection.run.id).toBe(laterRunId)
+    // These planless runs have no frozen definition, so they are not comparable,
+    // but the previous sweep named is the real run. A leaked probe would be named.
+    const previousRun = { id: ctx.realRunId, createdAt: realRun.createdAt, completedAt: realRun.finishedAt }
+    expect(body.populations.map(population => population.comparison)).toEqual([
+      { state: 'unavailable', reason: 'legacy-unknown', previousRun },
+      { state: 'unavailable', reason: 'legacy-unknown', previousRun },
+      { state: 'unavailable', reason: 'legacy-unknown', previousRun },
+    ])
   })
 
   it('content/targets pulls recent answer-visibility runs without the probe', async () => {

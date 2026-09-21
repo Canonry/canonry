@@ -13,6 +13,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   ReferenceArea,
@@ -31,6 +32,7 @@ export {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   ReferenceArea,
@@ -198,9 +200,33 @@ export function formatChartDateTick(value: string): string {
   return `${parts.month}/${parts.day}`
 }
 
+/**
+ * Format a CALENDAR DATE without its year (e.g. "Sep 1"), for the start of a
+ * range that names its year once. No timezone is applied.
+ */
+export function formatChartDateMonthDay(value: string): string {
+  const parts = calendarParts(String(value))
+  if (!parts) return String(value)
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 /** Format a real instant in the VIEWER's timezone (07-20T01:52Z reads "Jul 19, 2026" in New York). */
 export function formatObservedInstantLabel(instant: ObservedInstant): string {
   return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** Format a real instant without its year (e.g. "Jul 19") in the viewer's timezone. */
+export function formatObservedInstantMonthDay(instant: ObservedInstant): string {
+  return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** The viewer's calendar year for a real instant, for deciding whether a date still needs one. */
+export function observedInstantYear(instant: ObservedInstant): number {
+  return new Date(instant).getFullYear()
 }
 
 /** Format a real instant as a compact axis tick in the viewer's timezone (e.g. "7/19"). */
@@ -265,6 +291,8 @@ export function MultiAxisTrendChart({
   labelFormatter,
   onSelectX,
   selectedX,
+  accessibilityLayer = true,
+  ariaLabel,
 }: {
   data: readonly Record<string, unknown>[]
   xKey: string
@@ -276,6 +304,10 @@ export function MultiAxisTrendChart({
   onSelectX?: (value: string) => void
   /** x value to mark as currently drilled into. */
   selectedX?: string | null
+  /** Disable only when an alternative accessible view exposes the same data. */
+  accessibilityLayer?: boolean
+  /** Accessible name of the keyboard-navigable chart surface. */
+  ariaLabel?: string
 }) {
   const axisIds = [...new Set(series.map((s) => s.axisId))]
   const formatters = new Map(series.map((s) => [s.label, s.formatValue]))
@@ -306,6 +338,8 @@ export function MultiAxisTrendChart({
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
         data={rows}
+        accessibilityLayer={accessibilityLayer}
+        aria-label={ariaLabel}
         margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
         // Recharts reports the active row on the CHART, not per-dot, so a click
         // anywhere in a day's column selects it — a 2px dot is not a target.

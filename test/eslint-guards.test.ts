@@ -45,6 +45,15 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     ],
   },
   {
+    // The report copy module holds the UI copy both report renderers show, so
+    // it carries the vocabulary guards the web tree does.
+    file: 'packages/contracts/src/report-sections.ts',
+    rules: [
+      'canonry-vocabulary/no-banned-metric-literal',
+      'canonry-vocabulary/no-question-ui-copy',
+    ],
+  },
+  {
     file: 'packages/canonry/src/commands/run.ts',
     rules: [
       'canonry-vocabulary/no-banned-metric-literal',

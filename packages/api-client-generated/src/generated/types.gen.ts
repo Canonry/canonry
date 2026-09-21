@@ -162,6 +162,61 @@ export type VisibilityReportResponse = {
                 comparedRunId: string | null;
             };
         }>;
+        comparison?: {
+            state: 'available';
+            previousRun: {
+                id: string;
+                createdAt: string;
+                completedAt: string | null;
+            };
+            mentionCoverage: {
+                state: 'available';
+                previous: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                delta: number;
+            } | {
+                state: 'unavailable';
+                reason: 'current-unavailable' | 'previous-unavailable' | 'not-applicable';
+            };
+            citationCoverage: {
+                state: 'available';
+                previous: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                delta: number;
+            } | {
+                state: 'unavailable';
+                reason: 'current-unavailable' | 'previous-unavailable' | 'not-applicable';
+            };
+            propertyReach: {
+                state: 'available';
+                previous: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                };
+                delta: number;
+            } | {
+                state: 'unavailable';
+                reason: 'current-unavailable' | 'previous-unavailable' | 'not-applicable';
+            };
+        } | {
+            state: 'unavailable';
+            reason: 'no-selected-run' | 'no-previous-run' | 'scoped-run' | 'partial-run' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
+            previousRun: {
+                id: string;
+                createdAt: string;
+                completedAt: string | null;
+            } | null;
+        };
         queries: {
             items: Array<{
                 queryKey: string;
@@ -314,6 +369,14 @@ export type QueryTrackingWorkspaceResponse = {
             targetKey: string;
             queryId: string;
         }>;
+    }>;
+    scopeOptions?: Array<{
+        id: string;
+        label: string;
+        kind: 'project' | 'group' | 'market' | 'property';
+        targetCount: number;
+        parentGroupIds?: Array<string>;
+        marketKeys?: Array<string>;
     }>;
     tracked: Array<{
         queryId: string;

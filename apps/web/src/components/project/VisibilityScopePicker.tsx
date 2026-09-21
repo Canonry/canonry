@@ -15,12 +15,14 @@ const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect, marketKey, label = 'Measurement scope', allowGroupSelect = true }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect, marketKey, label = 'Measurement scope', labelVisibility = 'visible', allowGroupSelect = true }: {
   options: VisibilityReportScopeOption[]
   selected: VisibilityReportScopeOption
   onSelect: (scope: VisibilityReportScopeOption, marketKey?: string) => void
   marketKey?: string
   label?: string
+  /** `sr-only` hides the label visually; it still names the trigger. */
+  labelVisibility?: 'visible' | 'sr-only'
   allowGroupSelect?: boolean
 }) {
   const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
@@ -132,7 +134,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   </details> : null
 
   return <div className="min-w-0">
-    <span id={`${id}-label`} className="mb-1 block text-sm font-medium text-heading">{label}</span>
+    <span id={`${id}-label`} className={labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-sm font-medium text-heading'}>{label}</span>
     <details ref={picker} className="relative" onToggle={event => {
       if (event.target === event.currentTarget && event.currentTarget.open) searchInput.current?.focus()
     }} onKeyDown={event => {

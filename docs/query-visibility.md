@@ -53,6 +53,14 @@ The published plan stores market edges in `reportingScopes`.
 Property and group selections constrain a selected market. They do not add every property in that market.
 Each market retains its own frozen engines, models, and search locations.
 
+Both reads return server-built scope choices in `scopeOptions`.
+Each choice has a `targetCount`: the number of distinct properties it selects. A market with several edges to one property counts that property once.
+The visibility report builds its choices from the frozen definition it measures. There, groups and properties list their linked markets in `marketKeys`.
+The query workspace builds its choices from the active plan. Tracked assignments have no market intersection, so its groups and properties carry no `marketKeys`. Markets keep their group parent in `parentGroupIds`.
+A simple site returns only the project choice.
+A report scope or market that is not in the frozen definition returns `400 VALIDATION_ERROR` with typed `details`.
+The `reason` is `retired-scope` for a group, market, or property scope, and `retired-market` for a market refinement. `kind` and `key` name the missing selection.
+
 Templates expand before publication. Each result retains its template version, bindings, and resolved query text.
 Duplicate matching prefers the query ID that the active plan already uses.
 Otherwise, matching uses normalized query text.
@@ -74,6 +82,14 @@ Branded and non-brand queries remain separate populations.
 **All classes** shows separate sections, not a pooled score.
 Historical simple results without a frozen classification appear under **Unclassified**.
 Unknown or incomplete evidence is not a measured zero.
+
+Each population also carries `comparison`, its change since the previous eligible sweep.
+That sweep is the whole-project sweep immediately before the selected run. Spot checks and probe runs never qualify.
+The date window and a selected run do not limit it, so the previous sweep can predate the date window.
+A change requires both sweeps to be complete, with a comparable definition and the same engines and models.
+Otherwise `comparison.reason` names the cause, such as `partial-run` or `model-changed`.
+Each available `delta` is the current rate minus the previous rate. An unavailable change is not a zero change.
+When the previous sweep cannot be read, `comparison` is absent and the rest of the report still loads.
 
 ## Revision continuity
 

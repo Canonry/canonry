@@ -82,6 +82,7 @@ export * from './trend-stability.js'
 export * from './share-of-voice.js'
 
 export * from './report-visibility.js'
+export * from './report-sections.js'
 export * from './operational-logs.js'
 export * from './log-redaction.js'
 export * from './semver.js'

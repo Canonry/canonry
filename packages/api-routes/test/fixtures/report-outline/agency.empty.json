@@ -1,0 +1,293 @@
+{
+  "sections": [
+    {
+      "id": "executive-summary",
+      "eyebrow": "Section 1",
+      "title": "Executive Summary",
+      "intro": "Citation = source list. Mention = answer text. They are independent signals.",
+      "items": [
+        {
+          "tile": "Citation trend"
+        },
+        {
+          "tile": "Mention coverage"
+        },
+        {
+          "tile": "Prioritized actions"
+        },
+        {
+          "tile": "Citation rate"
+        },
+        {
+          "tile": "Mention rate"
+        },
+        {
+          "tile": "Queries tracked"
+        }
+      ],
+      "content": [
+        {
+          "text": "Latest AI visibility check No AI citation data yet Run a check to populate the first citation and mention baseline."
+        },
+        {
+          "tile": "Citation trend — no queries"
+        },
+        {
+          "tile": "Mention coverage 0% no queries"
+        },
+        {
+          "tile": "Prioritized actions 0 Sorted for agency follow-up."
+        },
+        {
+          "tile": "Citation rate 0% — · no queries · 0 providers"
+        },
+        {
+          "tile": "Mention rate 0% no queries"
+        },
+        {
+          "tile": "Queries tracked 0 0 competitors tracked"
+        }
+      ]
+    },
+    {
+      "id": "whats-changed",
+      "eyebrow": "Section 2",
+      "title": "What's Changed",
+      "intro": "Building baseline (0 of 4 checks completed). Trends appear after a few more checks.",
+      "items": [
+        {
+          "empty": "Trends will appear after a few more checks."
+        }
+      ],
+      "content": [
+        {
+          "text": "Trends will appear after a few more checks."
+        }
+      ]
+    },
+    {
+      "id": "agency-action-plan",
+      "eyebrow": "Agency actions",
+      "title": "Agency Action Plan",
+      "intro": "The highest-leverage work, sorted by urgency and evidence strength.",
+      "items": [
+        {
+          "empty": "No prioritized actions yet."
+        }
+      ],
+      "content": [
+        {
+          "text": "No prioritized actions yet."
+        }
+      ]
+    },
+    {
+      "id": "agency-diagnostics",
+      "eyebrow": "Agency diagnostics",
+      "title": "Technical Diagnostics",
+      "intro": "Fast-read operator flags behind the action plan.",
+      "items": [
+        {
+          "empty": "No agency diagnostics available yet."
+        }
+      ],
+      "content": [
+        {
+          "text": "No agency diagnostics available yet."
+        }
+      ]
+    },
+    {
+      "id": "citation-scorecard",
+      "eyebrow": "Section 3",
+      "title": "Citation Scorecard",
+      "intro": "Per-engine citation and mention coverage from the latest check.",
+      "items": [
+        {
+          "empty": "Run a check to populate the citation matrix."
+        }
+      ],
+      "content": [
+        {
+          "text": "Run a check to populate the citation matrix."
+        }
+      ]
+    },
+    {
+      "id": "competitor-landscape",
+      "eyebrow": "Section 4",
+      "title": "Competitor Landscape",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No competitor data yet. Add competitors and run a check."
+        }
+      ],
+      "content": [
+        {
+          "text": "No competitor data yet. Add competitors and run a check."
+        }
+      ]
+    },
+    {
+      "id": "ai-source-origin",
+      "eyebrow": "Section 5",
+      "title": "AI Citation Sources",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No source data yet. Run a check first."
+        }
+      ],
+      "content": [
+        {
+          "text": "No source data yet. Run a check first."
+        }
+      ]
+    },
+    {
+      "id": "gsc",
+      "eyebrow": "Section 6",
+      "title": "GSC Performance",
+      "intro": null,
+      "items": [
+        {
+          "empty": "Connect Google Search Console to populate this section."
+        }
+      ],
+      "content": [
+        {
+          "text": "Connect Google Search Console to populate this section."
+        }
+      ]
+    },
+    {
+      "id": "ga",
+      "eyebrow": "Section 7",
+      "title": "GA4 Traffic",
+      "intro": null,
+      "items": [
+        {
+          "empty": "Connect Google Analytics 4 to populate this section."
+        }
+      ],
+      "content": [
+        {
+          "text": "Connect Google Analytics 4 to populate this section."
+        }
+      ]
+    },
+    {
+      "id": "social-referrals",
+      "eyebrow": "Section 8",
+      "title": "Social Referrals",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No social referral data yet."
+        }
+      ],
+      "content": [
+        {
+          "text": "No social referral data yet."
+        }
+      ]
+    },
+    {
+      "id": "ai-referrals",
+      "eyebrow": "Section 9",
+      "title": "AI Referral Traffic",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No AI referral traffic detected yet."
+        }
+      ],
+      "content": [
+        {
+          "text": "No AI referral traffic detected yet."
+        }
+      ]
+    },
+    {
+      "id": "server-activity",
+      "eyebrow": "Section 10",
+      "title": "AI Visibility — Server-Side",
+      "intro": "What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).",
+      "items": [
+        {
+          "empty": "Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs."
+        }
+      ],
+      "content": [
+        {
+          "text": "Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs."
+        }
+      ]
+    },
+    {
+      "id": "indexing-health",
+      "eyebrow": "Section 11",
+      "title": "Indexing Health",
+      "intro": null,
+      "items": [
+        {
+          "empty": "Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection."
+        }
+      ],
+      "content": [
+        {
+          "text": "Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection."
+        }
+      ]
+    },
+    {
+      "id": "citations-trend",
+      "eyebrow": "Section 12",
+      "title": "Citations Over Time",
+      "intro": null,
+      "items": [
+        {
+          "empty": "Run multiple checks to see a trend."
+        }
+      ],
+      "content": [
+        {
+          "text": "Run multiple checks to see a trend."
+        }
+      ]
+    },
+    {
+      "id": "insights",
+      "eyebrow": "Section 13",
+      "title": "Insights & Alerts",
+      "intro": null,
+      "items": [
+        {
+          "empty": "No insights yet — run a check to generate alerts."
+        }
+      ],
+      "content": [
+        {
+          "text": "No insights yet — run a check to generate alerts."
+        }
+      ]
+    },
+    {
+      "id": "recommended-next-steps",
+      "eyebrow": "Section 16",
+      "title": "Recommended Next Steps",
+      "intro": "Action items bucketed by timing.",
+      "items": [
+        {
+          "empty": "No outstanding actions."
+        }
+      ],
+      "content": [
+        {
+          "text": "No outstanding actions."
+        }
+      ]
+    }
+  ]
+}

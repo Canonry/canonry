@@ -38,8 +38,10 @@ import {
   VerificationStatuses,
   deltaPercent,
   effectiveBrandNames,
+  formatWholePercent,
   getProviderLocationHandling,
   parseReportPeriodDays,
+  reportCompactList,
   reportComparisonWindowDays,
   validationError,
   type CitationsTrendPoint,
@@ -1619,12 +1621,6 @@ function buildProviderLocationHandling(
   })
 }
 
-function compactList(items: readonly string[], limit = 3): string {
-  const visible = items.slice(0, limit)
-  const extra = items.length - visible.length
-  return extra > 0 ? `${visible.join(', ')}, +${extra} more` : visible.join(', ')
-}
-
 function contentActionVerb(action: ProjectReportDto['contentOpportunities'][number]['action']): string {
   switch (action) {
     case 'create': return 'Create'
@@ -1800,10 +1796,10 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
   if (input.gsc && (input.gsc.trackedButNoGsc.length > 0 || input.gsc.gscButNotTracked.length > 0)) {
     const evidence: string[] = []
     if (input.gsc.trackedButNoGsc.length > 0) {
-      evidence.push(`Tracked with no GSC demand: ${compactList(input.gsc.trackedButNoGsc)}`)
+      evidence.push(`Tracked with no GSC demand: ${reportCompactList(input.gsc.trackedButNoGsc)}`)
     }
     if (input.gsc.gscButNotTracked.length > 0) {
-      evidence.push(`Search demand not tracked in AEO: ${compactList(input.gsc.gscButNotTracked)}`)
+      evidence.push(`Search demand not tracked in AEO: ${reportCompactList(input.gsc.gscButNotTracked)}`)
     }
     actions.push({
       audience: 'agency',
@@ -1836,8 +1832,8 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
         'They are stronger evidence than a generic topic list because the model is already retrieving competing content.',
       ],
       evidence: [
-        `"${topGap.query}" missed at ${Math.round(topGap.missRate * 100)}% with ${topGap.competitorCount} competitor${topGap.competitorCount === 1 ? '' : 's'} cited`,
-        `Cited competitors: ${compactList(topGap.competitorDomains)}`,
+        `"${topGap.query}" missed at ${formatWholePercent(topGap.missRate)} with ${topGap.competitorCount} competitor${topGap.competitorCount === 1 ? '' : 's'} cited`,
+        `Cited competitors: ${reportCompactList(topGap.competitorDomains)}`,
       ],
       successMetric: 'The top content-gap query moves from missed to cited or mentioned after the recommended content work ships.',
       confidence: topGap.competitorCount >= 2 ? 'high' : 'medium',
@@ -1850,10 +1846,10 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       .map(p => p.provider)
     const evidence = [
       `Current report location: ${input.reportLocation.label}`,
-      `Other configured locations: ${compactList(input.reportLocation.otherConfiguredLabels)}`,
+      `Other configured locations: ${reportCompactList(input.reportLocation.otherConfiguredLabels)}`,
     ]
     if (ignoredProviders.length > 0) {
-      evidence.push(`Providers with weak/indirect location handling: ${compactList(ignoredProviders)}`)
+      evidence.push(`Providers with weak/indirect location handling: ${reportCompactList(ignoredProviders)}`)
     }
     actions.push({
       audience: 'agency',
@@ -2003,8 +1999,8 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
         : 'Tracked AEO queries and high-impression non-brand GSC queries are aligned for the current window.',
       severity: input.gsc.trackedButNoGsc.length > 0 || input.gsc.gscButNotTracked.length > 0 ? 'caution' : 'positive',
       evidence: [
-        ...(input.gsc.trackedButNoGsc.length > 0 ? [`Tracked with no GSC demand: ${compactList(input.gsc.trackedButNoGsc)}`] : []),
-        ...(input.gsc.gscButNotTracked.length > 0 ? [`GSC queries not tracked in AEO: ${compactList(input.gsc.gscButNotTracked)}`] : []),
+        ...(input.gsc.trackedButNoGsc.length > 0 ? [`Tracked with no GSC demand: ${reportCompactList(input.gsc.trackedButNoGsc)}`] : []),
+        ...(input.gsc.gscButNotTracked.length > 0 ? [`GSC queries not tracked in AEO: ${reportCompactList(input.gsc.gscButNotTracked)}`] : []),
       ],
     })
   }
@@ -2241,7 +2237,9 @@ function buildWhatsChanged(input: {
 function buildProjectReport(db: DatabaseClient, projectName: string, periodDays: number): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
-  const canonicalVisibility = readVisibilityReport(db, project, { queryClass: 'all', scope: 'project' })
+  // The report DTO keeps only summary and trend, so it skips the per-population
+  // change since the previous sweep and its predecessor read.
+  const canonicalVisibility = readVisibilityReport(db, project, { queryClass: 'all', scope: 'project' }, { includeComparison: false })
   const generatedAt = new Date().toISOString()
   const historyWindow = { from: new Date(Date.parse(generatedAt) - periodDays * 86_400_000).toISOString(), to: generatedAt }
   const visibility = {

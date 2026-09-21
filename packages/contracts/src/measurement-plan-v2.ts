@@ -571,8 +571,9 @@ export type MeasurementPropertyProviderRow = z.output<typeof measurementProperty
  * The buckets are DISJOINT and EXHAUSTIVE, so they always sum to `total` — a UI
  * can state the total beside them and a drift becomes visible rather than
  * quietly wrong. `citedOnly` is called out separately because it is the most
- * actionable group: the engine used the page as a source and still recommended
- * somebody else.
+ * actionable group: the engine used the page as a source without naming it in
+ * the answer. That is all it says — the partition reads this Property's own two
+ * signals and no competitor's, so it can never establish who was named instead.
  *
  * A Property is only classified into the four measured buckets when BOTH
  * signals were measured for it. One signal alone cannot support "mentioned but

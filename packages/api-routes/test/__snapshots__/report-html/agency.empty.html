@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Canonry agency report — Demo</title>
+<style>
+:root {
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #09090b;
+  color: #fafafa;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+.header {
+  border-bottom: 1px solid #27272a99;
+  padding-bottom: 32px;
+  margin-bottom: 48px;
+}
+.header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: 0;
+}
+.header .subtitle {
+  color: #a1a1aa;
+  font-size: 14px;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-size: 10px;
+  color: #71717a;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+section.report-section {
+  margin: 64px 0;
+}
+section.report-section h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 24px;
+  letter-spacing: 0;
+}
+section.report-section .section-intro {
+  color: #a1a1aa;
+  margin-bottom: 24px;
+  max-width: 760px;
+}
+.executive-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.headline-card {
+  background: #111827;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 28px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.headline-card .hero-kicker {
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.headline-card .hero-title {
+  font-size: 44px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 18px 0;
+}
+.headline-card .hero-subtitle {
+  color: #a1a1aa;
+  font-size: 15px;
+  max-width: 620px;
+}
+.hero-proof-grid {
+  display: grid;
+  gap: 12px;
+}
+.hero-proof {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 18px;
+}
+.hero-proof .mini-label {
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+.hero-proof .mini-value {
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 800;
+}
+.hero-proof .mini-copy {
+  color: #a1a1aa;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+.metric {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+.metric .label {
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-size: 10px;
+  color: #71717a;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.metric .value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.metric .delta {
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-top: 4px;
+}
+.findings {
+  margin-top: 24px;
+  display: grid;
+  gap: 12px;
+}
+.finding {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+.finding.tone-positive { border-left-color: #10b981; }
+.finding.tone-caution { border-left-color: #f59e0b; }
+.finding.tone-negative { border-left-color: #f43f5e; }
+.finding.tone-neutral { border-left-color: #71717a; }
+.finding strong { display: block; margin-bottom: 4px; }
+.finding span { color: #a1a1aa; font-size: 13px; }
+.market-scope-card { margin-top: 16px; }
+.market-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.scope-tile {
+  background: #09090b;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 14px;
+}
+.scope-tile .scope-label {
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+.scope-tile .scope-value {
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+.scope-tile .scope-copy {
+  color: #a1a1aa;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.scope-warning {
+  margin-top: 12px;
+  border: 1px solid #f59e0b55;
+  background: #f59e0b14;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+.scope-warning strong { color: #fafafa; display: block; margin-bottom: 4px; }
+.source-origin-headline { margin: 0 0 12px; font-size: 14px; color: #fafafa; }
+.source-origin-headline strong { color: #fafafa; }
+.source-bars { display: flex; flex-direction: column; gap: 6px; }
+.source-bar-row { display: grid; grid-template-columns: 220px 1fr 90px; align-items: center; gap: 12px; font-size: 13px; }
+.source-bar-label { color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-bar-track { height: 14px; background: #27272a99; border-radius: 3px; overflow: hidden; }
+.source-bar-fill { height: 100%; border-radius: 3px; }
+.source-bar-value { color: #fafafa; text-align: right; font-variant-numeric: tabular-nums; }
+.source-bar-pct { color: #71717a; font-size: 11px; }
+.driver-list { margin: 0; padding-left: 16px; font-size: 12px; color: #a1a1aa; }
+.driver-list li { margin: 2px 0; }
+.table-scroll { overflow-x: auto; }
+table.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.report-table th, table.report-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #27272a99;
+  vertical-align: top;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+table.report-table th {
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-size: 10px;
+}
+table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.report-table td.page-cell { max-width: 0; }
+table.insights-table { table-layout: fixed; min-width: 680px; }
+table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }
+table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }
+table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }
+table.insights-table th.col-title, table.insights-table td.col-title { width: 28%; }
+table.insights-table th.col-recommendation, table.insights-table td.col-recommendation { width: auto; }
+table.report-table td.page-cell .page-path {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #fafafa;
+}
+table.report-table td.page-cell .page-query {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: #a1a1aa;
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 999px;
+  cursor: help;
+}
+table.report-table td .badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid;
+}
+table.report-table td p.muted { margin: 2px 0 0; font-size: 12px; color: #a1a1aa; }
+.cell-cited { color: #10b981; font-weight: 600; }
+.cell-not-cited { color: #71717a; }
+.cell-pending { color: #71717a; font-style: italic; }
+.tone-positive { color: #10b981; }
+.tone-caution { color: #f59e0b; }
+.tone-negative { color: #f43f5e; }
+.tone-neutral { color: #71717a; }
+.badge.tone-positive { color: #10b981; border-color: #10b98140; background: #10b98114; }
+.badge.tone-caution { color: #f59e0b; border-color: #f59e0b40; background: #f59e0b14; }
+.badge.tone-negative { color: #f43f5e; border-color: #f43f5e40; background: #f43f5e14; }
+.badge.tone-neutral { color: #a1a1aa; border-color: #27272a99; background: transparent; }
+.chart-card {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.chart-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 16px;
+}
+.mention-branded-block {
+  margin-top: 20px;
+}
+.chart-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4b5563;
+  margin: 0 0 12px;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.empty-state {
+  background: #18181b4d;
+  border: 1px dashed #27272a99;
+  border-radius: 8px;
+  padding: 32px;
+  color: #a1a1aa;
+  text-align: center;
+  font-size: 13px;
+}
+.steps {
+  display: grid;
+  gap: 12px;
+}
+.step {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: grid;
+  gap: 4px;
+}
+.step .horizon {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: #71717a;
+  font-weight: 600;
+}
+.step .title { font-weight: 600; }
+.step .rationale { color: #a1a1aa; font-size: 13px; }
+.action-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.action-card {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.action-card .action-head {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.action-card .action-rank {
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fafafa;
+  background: #09090b;
+}
+.action-card .action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.action-card h3 {
+  font-size: 16px;
+  margin: 8px 0 0;
+}
+.action-card p {
+  margin: 0;
+  color: #a1a1aa;
+}
+.action-card ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+.action-card li { margin: 4px 0; }
+.proof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.proof-chip {
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: #a1a1aa;
+  font-size: 12px;
+  background: #09090b;
+}
+.action-details {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+.action-details summary {
+  cursor: pointer;
+  color: #fafafa;
+  font-weight: 600;
+}
+.action-card .success-metric {
+  color: #fafafa;
+  font-size: 13px;
+  border-top: 1px solid #27272a99;
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.client-notes {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+.client-note {
+  color: #a1a1aa;
+  font-size: 13px;
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.diagnostic-card {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
+.diagnostic-card p { margin: 0 0 8px; color: #a1a1aa; font-size: 13px; }
+.diagnostic-card ul { margin: 0; padding-left: 16px; color: #a1a1aa; font-size: 12px; }
+.diagnostic-card .proof-chips { margin-top: 10px; }
+.diagnostic-card.tone-positive { border-left-color: #10b981; }
+.diagnostic-card.tone-caution { border-left-color: #f59e0b; }
+.diagnostic-card.tone-negative { border-left-color: #f43f5e; }
+.diagnostic-card.tone-neutral { border-left-color: #71717a; }
+.opportunity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.opportunity-card {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 16px;
+}
+.opportunity-card .opportunity-score {
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.opportunity-card .opportunity-score-suffix {
+  font-size: 14px;
+  font-weight: 600;
+  color: #71717a;
+  margin-left: 4px;
+}
+.opportunity-card h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.opportunity-card p {
+  color: #a1a1aa;
+  font-size: 12px;
+  margin: 0;
+}
+.footer {
+  margin-top: 96px;
+  padding-top: 24px;
+  border-top: 1px solid #27272a99;
+  text-align: center;
+  color: #71717a;
+  font-size: 12px;
+}
+.client-hero {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 16px;
+  padding: 32px;
+  margin-bottom: 24px;
+}
+.client-hero .client-hero-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+}
+.client-hero .client-hero-number {
+  font-size: 80px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fafafa;
+  margin: 14px 0 18px;
+}
+.client-hero .client-hero-sentence {
+  font-size: 17px;
+  color: #d4d4d8;
+  max-width: 720px;
+  margin: 0;
+}
+.client-hero .client-hero-trend {
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.client-hero .client-hero-trend.tone-positive { color: #10b981; }
+.client-hero .client-hero-trend.tone-negative { color: #f43f5e; }
+.client-hero .client-hero-trend.tone-neutral { color: #a1a1aa; }
+.client-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.client-metric-tile {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 12px;
+  padding: 22px 24px;
+}
+.client-metric-tile .label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+  margin-bottom: 14px;
+}
+.client-metric-tile .value {
+  font-size: 48px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fafafa;
+}
+.client-metric-tile .subtitle {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #a1a1aa;
+}
+.client-card {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+.client-card h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.client-card .card-subtitle {
+  font-size: 12px;
+  color: #a1a1aa;
+  margin: 0 0 18px;
+}
+.client-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.client-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 130px;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+.client-bar-row .bar-label { color: #d4d4d8; }
+.client-bar-row .bar-track {
+  height: 10px;
+  background: #27272a99;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.client-bar-row .bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #10b981b3;
+}
+.client-bar-row .bar-fill.bar-fill-neutral { background: #a1a1aaaa; }
+.client-bar-row .bar-fill.bar-fill-sky { background: #38bdf8b3; }
+.client-bar-row .bar-value {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fafafa;
+  font-variant-numeric: tabular-nums;
+}
+.client-bar-row .bar-value-sub { color: #71717a; font-weight: 400; }
+.client-progress-number {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin: 12px 0 4px;
+}
+.client-progress-number.tone-positive { color: #10b981; }
+.client-progress-number.tone-caution { color: #f59e0b; }
+.client-progress-number.tone-negative { color: #f43f5e; }
+.client-progress-bar {
+  height: 12px;
+  background: #27272a99;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 12px 0 14px;
+}
+.client-progress-fill { height: 100%; border-radius: 999px; }
+.client-progress-fill.tone-positive { background: #10b981b3; }
+.client-progress-fill.tone-caution { background: #f59e0bb3; }
+.client-progress-fill.tone-negative { background: #f43f5eb3; }
+.client-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 16px;
+}
+.client-opportunity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.client-opportunity-list li {
+  background: #09090b;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.client-opportunity-list li .op-query {
+  font-weight: 500;
+  color: #fafafa;
+  font-size: 13px;
+}
+.client-opportunity-list li .op-action {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+.client-confidence-note {
+  background: #18181b4d;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-bottom: 6px;
+}
+.client-explainer {
+  background: #09090b;
+  border: 1px solid #27272a99;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+.client-explainer strong { color: #fafafa; }
+.client-explainer .term { color: #d4d4d8; font-weight: 500; }
+.client-questions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.client-questions-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #09090b;
+  border: 1px solid #27272a99;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #d4d4d8;
+}
+.client-questions-list li .qnum {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .container { padding: 32px 16px 72px; }
+  .executive-hero { grid-template-columns: 1fr; }
+  .headline-card .hero-title { font-size: 34px; }
+  .source-bar-row { grid-template-columns: 1fr; gap: 6px; }
+  .source-bar-value { text-align: left; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .client-hero .client-hero-number { font-size: 56px; }
+  .client-metric-tile .value { font-size: 36px; }
+  .client-bar-row { grid-template-columns: 100px 1fr 100px; gap: 10px; }
+}
+@media print {
+  @page { margin: 0.5in; }
+  html, body {
+    background: #09090b;
+    color: #fafafa;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .container { max-width: none; padding: 0; }
+  .table-scroll { overflow: visible; }
+  section.report-section,
+  .executive-hero,
+  .headline-card,
+  .hero-proof,
+  .client-hero,
+  .client-metric-tile,
+  .client-card,
+  .client-note,
+  .chart-card,
+  .action-card,
+  .insight-card,
+  .source-bar-row,
+  .client-bar-row,
+  tr,
+  table { break-inside: avoid; }
+  h1, h2, h3, .eyebrow { break-after: avoid; }
+  .footer { margin-top: 32px; }
+  .footer a { color: #fafafa; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <div class="eyebrow">AI Visibility Report</div>
+    <h1>Demo</h1>
+    <div class="subtitle">demo.example.com · US / EN · No market set · Last 30 days · Generated May 1, 2026</div>
+  </header>
+  <section class="report-section" id="executive-summary">
+    <div class="eyebrow">Section 1</div>
+    <h2>Executive Summary</h2>
+    <p class="section-intro">Citation = source list. Mention = answer text. They are independent signals.</p>
+    <div class="executive-hero">
+    <div class="headline-card">
+      <div>
+        <div class="hero-kicker">Latest AI visibility check</div>
+        <div class="hero-title">No AI citation data yet</div>
+      </div>
+      <div class="hero-subtitle">Run a check to populate the first citation and mention baseline.</div>
+    </div>
+    <div class="hero-proof-grid">
+      <div class="hero-proof">
+        <div class="mini-label">Citation trend</div>
+        <div class="mini-value tone-neutral">—</div>
+        <div class="mini-copy">no queries</div>
+      </div>
+      <div class="hero-proof">
+        <div class="mini-label">Mention coverage</div>
+        <div class="mini-value">0%</div>
+        <div class="mini-copy">no queries</div>
+      </div>
+      <div class="hero-proof">
+        <div class="mini-label">Prioritized actions</div>
+        <div class="mini-value">0</div>
+        <div class="mini-copy">Sorted for agency follow-up.</div>
+      </div>
+    </div>
+  </div><div class="metric-grid">
+    <div class="metric">
+      <div class="label">Citation rate</div>
+      <div class="value">0%</div>
+      <div class="delta"><span class="tone-neutral">—</span> · no queries · 0 providers</div>
+    </div><div class="metric">
+      <div class="label">Mention rate</div>
+      <div class="value">0%</div>
+      <div class="delta">no queries</div>
+    </div><div class="metric">
+      <div class="label">Queries tracked</div>
+      <div class="value">0</div>
+      <div class="delta">0 competitors tracked</div>
+    </div>
+  </div>
+  </section>
+
+<section class="report-section" id="whats-changed">
+    <div class="eyebrow">Section 2</div>
+    <h2>What&#39;s Changed</h2>
+    <p class="section-intro">Building baseline (0 of 4 checks completed). Trends appear after a few more checks.</p>
+    <div class="empty-state">Trends will appear after a few more checks.</div>
+  </section>
+<section class="report-section" id="agency-action-plan">
+    <div class="eyebrow">Agency actions</div>
+    <h2>Agency Action Plan</h2>
+    <p class="section-intro">The highest-leverage work, sorted by urgency and evidence strength.</p>
+    <div class="empty-state">No prioritized actions yet.</div>
+  </section>
+<section class="report-section" id="agency-diagnostics">
+    <div class="eyebrow">Agency diagnostics</div>
+    <h2>Technical Diagnostics</h2>
+    <p class="section-intro">Fast-read operator flags behind the action plan.</p>
+    <div class="empty-state">No agency diagnostics available yet.</div>
+  </section>
+<section class="report-section" id="citation-scorecard">
+    <div class="eyebrow">Section 3</div>
+    <h2>Citation Scorecard</h2>
+    <p class="section-intro">Per-engine citation and mention coverage from the latest check.</p>
+    
+    
+    <div class="empty-state">Run a check to populate the citation matrix.</div>
+  
+  </section>
+<section class="report-section" id="competitor-landscape">
+    <div class="eyebrow">Section 4</div>
+    <h2>Competitor Landscape</h2>
+    
+    <div class="empty-state">No competitor data yet. Add competitors and run a check.</div>
+  </section>
+<section class="report-section" id="ai-source-origin">
+    <div class="eyebrow">Section 5</div>
+    <h2>AI Citation Sources</h2>
+    
+    <div class="empty-state">No source data yet. Run a check first.</div>
+  </section>
+<section class="report-section" id="gsc">
+    <div class="eyebrow">Section 6</div>
+    <h2>GSC Performance</h2>
+    
+    <div class="empty-state">Connect Google Search Console to populate this section.</div>
+  </section>
+<section class="report-section" id="ga">
+    <div class="eyebrow">Section 7</div>
+    <h2>GA4 Traffic</h2>
+    
+    <div class="empty-state">Connect Google Analytics 4 to populate this section.</div>
+  </section>
+<section class="report-section" id="social-referrals">
+    <div class="eyebrow">Section 8</div>
+    <h2>Social Referrals</h2>
+    
+    <div class="empty-state">No social referral data yet.</div>
+  </section>
+<section class="report-section" id="ai-referrals">
+    <div class="eyebrow">Section 9</div>
+    <h2>AI Referral Traffic</h2>
+    
+    <div class="empty-state">No AI referral traffic detected yet.</div>
+  </section>
+<section class="report-section" id="server-activity">
+    <div class="eyebrow">Section 10</div>
+    <h2>AI Visibility — Server-Side</h2>
+    <p class="section-intro">What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).</p>
+    <div class="empty-state">Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.</div>
+  </section>
+<section class="report-section" id="indexing-health">
+    <div class="eyebrow">Section 11</div>
+    <h2>Indexing Health</h2>
+    
+    <div class="empty-state">Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection.</div>
+  </section>
+<section class="report-section" id="citations-trend">
+    <div class="eyebrow">Section 12</div>
+    <h2>Citations Over Time</h2>
+    
+    <div class="empty-state">Run multiple checks to see a trend.</div>
+  </section>
+<section class="report-section" id="insights">
+    <div class="eyebrow">Section 13</div>
+    <h2>Insights &amp; Alerts</h2>
+    
+    <div class="empty-state">No insights yet — run a check to generate alerts.</div>
+  </section>
+
+
+<section class="report-section" id="recommended-next-steps">
+    <div class="eyebrow">Section 16</div>
+    <h2>Recommended Next Steps</h2>
+    <p class="section-intro">Action items bucketed by timing.</p>
+    <div class="empty-state">No outstanding actions.</div>
+  </section>
+  <footer class="footer">Generated by <a href="https://canonry.ai">canonry</a> · 2026-05-01</footer>
+</div>
+<script type="application/json" id="canonry-report-data">{"meta":{"generatedAt":"2026-05-01T12:00:00.000Z","project":{"id":"p-1","name":"demo","displayName":"Demo","canonicalDomain":"demo.example.com","country":"US","language":"en"},"location":null,"providerLocationHandling":[],"periodStart":null,"periodEnd":null,"periodDays":30},"executiveSummary":{"citationRate":0,"citedQueryCount":0,"totalQueryCount":0,"mentionRate":0,"mentionedQueryCount":0,"trend":"unknown","queryCount":0,"competitorCount":0,"providerCount":0,"gsc":null,"ga":null,"findings":[]},"citationScorecard":{"queries":[],"providers":[],"matrix":[],"providerRates":[]},"competitorLandscape":{"projectCitationCount":0,"competitors":[]},"mentionLandscape":{"projectMentionCount":0,"totalAnswerSnapshots":0,"competitors":[],"scope":"non-brand","nonBrand":{"projectMentionCount":0,"totalAnswerSnapshots":0,"competitors":[]},"branded":{"projectMentionCount":0,"totalAnswerSnapshots":0,"competitors":[]}},"aiSourceOrigin":{"categories":[],"topDomains":[]},"gsc":null,"ga":null,"socialReferrals":null,"aiReferrals":null,"serverActivity":null,"indexingHealth":null,"citationsTrend":[],"whatsChanged":{"enoughHistory":false,"headline":"Building baseline (0 of 4 checks completed). Trends appear after a few more checks.","citationRate":null,"mentionRate":null,"citedQueryCount":null,"mentionedQueryCount":null,"gscClicksDelta":null,"aiReferralsDelta":null,"comparisonWindowDays":15,"providerMovements":[],"wins":[],"regressions":[]},"insights":[],"recommendedNextSteps":[],"actionPlan":[],"clientSummary":{"headline":"No tracked queries have completed a visibility sweep yet","overview":"No visibility data yet.","actionItems":[],"confidenceNotes":[]},"agencyDiagnostics":{"priorities":[],"diagnostics":[]},"contentOpportunities":[],"contentGaps":[],"groundingSources":[]}</script>
+</body>
+</html>

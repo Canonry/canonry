@@ -86,6 +86,7 @@ import {
   measurementRunExpectedSlots,
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
+import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
@@ -816,6 +817,8 @@ function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRout
       ...(group.parentGroupKey ? { parentGroupKey: group.parentGroupKey } : {}),
     })) ?? [],
     markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges, ...(scope.groupKey ? { groupKey: scope.groupKey } : {}) })) ?? [],
+    // Tracked assignments have no market intersection, so Groups and Properties carry no market links.
+    scopeOptions: plan ? planScopeOptions(plan, { marketLinks: false }) : simpleScopeOptions(),
     tracked: trackedRows(db, state, rows, plan, opts),
     savedSources: savedSources(db, state.project.id),
   })

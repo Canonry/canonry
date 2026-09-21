@@ -21,7 +21,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/analytics.ts` | Analytics and visibility score endpoints |
 | `src/visibility-stats.ts` / `src/visibility-compare.ts` | `GET /visibility-stats` and `GET /visibility-compare`; pure `computeVisibilityCompare` |
 | `src/visibility-attribution.ts` | `buildQueryAttribution` + `resolveCurrentQuery`: historical query attribution |
-| `src/report.ts` / `src/report-renderer.ts` | Client-facing AEO report bundle (JSON + HTML); `renderReportHtml(report)` |
+| `src/report.ts` / `src/report-renderer.ts` | Client-facing AEO report bundle (JSON + HTML); `renderReportHtml(report)`. Strings and shared display helpers come from `packages/contracts/src/report-sections.ts`, which the SPA report also renders from. It assembles its own ordered section list rather than reading one: `reportSectionOrder(report, audience)` encodes that same order for the SPA, and `test/report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree. That suite also pins the output bytes for both audiences and writes the outline goldens in `test/fixtures/report-outline/` the SPA must match; update a snapshot or golden only for an intended change, in the same commit. |
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
@@ -33,6 +33,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/doctor.ts` / `src/doctor/registry.ts` / `src/doctor/runner.ts` | `GET /doctor`, `GET /projects/:name/doctor` → `DoctorReport`; `ALL_CHECKS`; `runChecks()`, `matchesCheckId()` |
 | `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (rules: `src/doctor/AGENTS.md`) |
 | `src/bing.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools, WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
+| `src/visibility-report.ts` | Stored-evidence `GET /projects/:name/visibility-report`. `previousEligibleVisibilityRun` uses `notProbeRun()` and ignores the date window and pinned run. An unreadable predecessor omits `comparison`. |
+| `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
 
 ## Patterns
 

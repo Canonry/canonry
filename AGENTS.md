@@ -116,7 +116,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape.
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
-3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line.
+3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line. A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label (the dashboard's AI Visibility headline strip names the class once in its `h2`), but each figure still carries the class in its own accessible text via an `sr-only` suffix beside the value. A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
 5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum.
 6. `competitorOverlap` is legacy MIXED evidence (answer text, source links, or both). Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher.
@@ -171,6 +171,9 @@ The downloadable HTML report (`packages/api-routes/src/report-renderer.ts`, `can
 3. Tile labels, headlines, action-card copy, evidence-card titles, and chart axis labels match verbatim.
 4. Every SPA chart, progress bar, hero block, and badge has an HTML equivalent (inline SVG, CSS, or table).
 5. Update `packages/api-routes/test/report-renderer.test.ts` when client/agency copy or structure changes, and check the SPA visually.
+6. Copy both renderers show lives in shared modules: `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` plus copy functions such as `reportExecutiveHeadline` and `reportServerActivityHeading`) for section copy, `report-visibility.ts` for the visibility summary, and `share-of-voice.ts` for share of voice. Both renderers read all three; never write report copy inline in either one.
+7. `renderReportHtml` assembles its own ordered section list in `report-renderer.ts`, and `reportSectionOrder(report, audience)` encodes that same order for the SPA, which renders it through an exhaustive switch over `ReportSectionIds`. `report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree, so adding, removing or re-conditioning a section means editing both in the same commit.
+8. `packages/api-routes/test/report-renderer-bytes.test.ts` pins the HTML bytes and writes the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. `apps/web/test/report-page.test.tsx` holds the SPA to them, whole and for both audiences, through its `data-report-*` hooks, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones an outline does not record. Only the api-routes suite regenerates the goldens, and never to make a failing test pass.
 
 ### Agent & automation design principles
 

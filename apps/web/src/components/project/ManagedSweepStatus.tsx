@@ -10,7 +10,8 @@ export const MANAGED_SWEEPS_UNAVAILABLE_COPY = 'Next sweep unavailable'
 export const MANAGED_SWEEPS_RUNNING_COPY = 'Sweep running…'
 export const MANAGED_SWEEPS_NEXT_LABEL = 'Next sweep:'
 
-function managedSweepDate(iso: string, timezone: string | undefined): string | null {
+/** A scheduled sweep's calendar date in the schedule timezone, or null when it cannot be formatted. */
+export function managedSweepDate(iso: string, timezone: string | undefined): string | null {
   try {
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',

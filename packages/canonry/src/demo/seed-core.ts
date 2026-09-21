@@ -124,6 +124,10 @@ function harborPlan(context: DemoSeedContext, capturedAt: string): MeasurementPl
       stableKey: `market-${market.key}`,
       label: `${market.label} market`,
       kind: 'market' as const,
+      // Each demo Group holds exactly its market's properties, so the market
+      // links to its Group rather than sitting as an unrelated root option
+      // with an identical label (O5).
+      groupKey: `market-${market.key}`,
       usageEdges: usageEdges.filter(edge => edge.targetKey.includes(market.key)),
     })),
     compiledChecksum: '0'.repeat(64),

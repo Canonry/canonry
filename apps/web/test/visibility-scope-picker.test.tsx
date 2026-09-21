@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
 import { VisibilityScopePicker, MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 
@@ -233,5 +233,86 @@ describe('market context through property navigation', () => {
     expect(screen.queryByRole('button', { name: MARKET_SCOPE_COPY.select(marketScopes.find(scope => scope.id === 'center')!.label) })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(property.label) }))
     expect(onSelect).toHaveBeenCalledWith(property)
+  })
+
+  it('writes a single-market Group\'s market for a Property chosen inside it, but not for the Group itself', () => {
+    const options: VisibilityReportScopeOption[] = [
+      { id: 'project', kind: 'project', label: 'Project', targetCount: 2 },
+      { id: 'coastal', kind: 'group', label: 'Coastal Maine', targetCount: 2, marketKeys: ['coastal-market'] },
+      { id: 'coastal-market', kind: 'market', label: 'Coastal Maine', targetCount: 2, parentGroupIds: ['coastal'] },
+      { id: 'harbor', kind: 'property', label: 'Harbor House', targetCount: 1, parentGroupIds: ['coastal'], marketKeys: ['coastal-market'] },
+      { id: 'dune', kind: 'property', label: 'Dune Inn', targetCount: 1, parentGroupIds: ['coastal'], marketKeys: ['coastal-market'] },
+    ]
+    const [project, group, , harbor] = options
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={options} selected={project!} onSelect={onSelect} />)
+    const trigger = view.container.querySelector('summary')!
+
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select('Harbor House') }))
+    expect(onSelect.mock.lastCall).toStrictEqual([harbor, 'coastal-market'])
+
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
+    fireEvent.click(within(screen.getByText('All properties in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    expect(onSelect.mock.lastCall).toStrictEqual([group])
+
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    expect(onSelect.mock.lastCall).toStrictEqual([group])
+    expect(onSelect).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('trigger label and naming', () => {
+  it.each([
+    ['group with one property', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1 }, 'Metro Beta · 1 property'],
+    ['group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · 15 properties'],
+    ['market', { id: 'metro-beta', kind: 'market', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · Market'],
+  ] as const)('names a selected %s by label and kind', (_name, selected, text) => {
+    render(<VisibilityScopePicker options={[scopes[0]!, selected]} selected={selected} onSelect={vi.fn()} />)
+    expect(screen.getByText(text, { selector: 'summary' })).toBeTruthy()
+  })
+
+  it.each(['visible', 'sr-only'] as const)('keeps a %s label naming the trigger and returns focus when search closes', labelVisibility => {
+    const view = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility={labelVisibility} />)
+    const label = screen.getByText('Measurement scope')
+    const trigger = screen.getByText('Whole site', { selector: 'summary' })
+    expect(label.id).not.toBe('')
+    expect(trigger.getAttribute('aria-labelledby')).toBe(`${label.id} ${trigger.id}`)
+    expect(label.className).toBe(labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-sm font-medium text-heading')
+    const picker = trigger.closest('details')!
+    picker.open = true
+    const search = screen.getByRole('searchbox', { name: 'Search scopes' })
+    search.focus()
+    fireEvent.keyDown(search, { key: 'Escape' })
+    expect(picker.open).toBe(false)
+    expect(document.activeElement).toBe(trigger)
+    view.unmount()
+  })
+
+  it('defaults to a visible label and never changes the trigger classes', () => {
+    const visible = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} />)
+    expect(screen.getByText('Measurement scope').className).toBe('mb-1 block text-sm font-medium text-heading')
+    const visibleTriggerClass = visible.container.querySelector('summary')!.className
+    visible.unmount()
+    const hidden = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility="sr-only" />)
+    expect(hidden.container.querySelector('summary')!.className).toBe(visibleTriggerClass)
+    expect(visibleTriggerClass.split(' ')).toContain('visibility-scope-trigger')
+  })
+
+  it('distinguishes a property group from a market query context with the same label', () => {
+    const options: VisibilityReportScopeOption[] = [
+      { id: 'project', label: 'Whole site', kind: 'project', targetCount: 15 },
+      { id: 'metro-alpha', label: 'Metro Alpha', kind: 'group', targetCount: 15 },
+      { id: 'market-alpha', label: 'Metro Alpha', kind: 'market', targetCount: 15 },
+      { id: 'p1', label: 'Northstar One', kind: 'property', targetCount: 1 },
+    ]
+    render(<VisibilityScopePicker options={options} selected={options[0]!} onSelect={vi.fn()} />)
+    screen.getByText('Whole site', { selector: 'summary' }).closest('details')!.open = true
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Metro Alpha' } })
+    expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 properties')
+    expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
   })
 })
