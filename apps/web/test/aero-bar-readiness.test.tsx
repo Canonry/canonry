@@ -169,16 +169,85 @@ test.each([
 
 test.each([false, true])('managed=%s uses the effective Aero scope even with a saved write preference', async managed => {
   const { prompt, input } = await openAeroWithSavedWriteScope(managed)
+  // The context strip is gone in every mode, so neither the scope control nor
+  // the project/provider line it carried should render.
+  expect(screen.queryByRole('button', { name: /Can make changes|Read only/ })).toBeNull()
+  expect(screen.queryByText('Read only')).toBeNull()
+  // Managed deployments additionally hide the provider picker, and with it the
+  // title that named the exact model behind Aero.
+  const picker = screen.queryByRole('button', { name: 'Switch agent model' })
   if (managed) {
-    expect(screen.getByText('Read only')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /Can make changes|Read only/ })).toBeNull()
-    expect(screen.queryByTitle(/run sweep|allow writes/i)).toBeNull()
+    expect(picker).toBeNull()
+    expect(screen.queryByTitle(/OpenAI/)).toBeNull()
   } else {
-    expect(screen.getByRole('button', { name: 'Can make changes' })).toBeTruthy()
+    expect(picker).toBeTruthy()
   }
   fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
+})
+
+// react-markdown is CommonMark-only: without remark-gfm a piped table has no
+// table node at all and renders as one run-on paragraph, which is what the
+// styled table/thead/th/td overrides in AeroMarkdown were silently missing.
+test('renders a markdown table in an Aero answer', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    messages: [{
+      role: 'assistant',
+      timestamp: 1,
+      content: [{
+        type: 'text',
+        text: '| Property | Mention |\n|---|---|\n| Harbor North | 100% |\n| Lakeside | 58% |',
+      }],
+    }],
+    modelProvider: null,
+    modelId: null,
+    updatedAt: null,
+  } as never)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+
+  expect(await screen.findByRole('table')).toBeTruthy()
+  expect(screen.getByRole('columnheader', { name: 'Property' })).toBeTruthy()
+  expect(screen.getByRole('cell', { name: 'Harbor North' })).toBeTruthy()
+  expect(screen.getByRole('cell', { name: '58%' })).toBeTruthy()
+})
+
+async function openAeroWithSavedProvider(managedSweeps: boolean) {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => key.includes(':provider:') ? 'openai' : null,
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    clear: vi.fn(),
+  })
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  const prompt = vi.spyOn(aero, 'promptAero').mockResolvedValue(undefined)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  await waitFor(() => expect(transcript).toHaveBeenCalled())
+  return { prompt, input: screen.getByPlaceholderText('Ask Aero, or / for commands\u2026') }
+}
+
+// The managed dashboard hides the provider picker, so a preference saved
+// before managed mode was turned on is one the operator can neither see nor
+// clear. It must not keep steering the session: the server persists whatever
+// provider a prompt carries.
+test.each([false, true])('managed=%s honors a saved provider override only when the picker is visible', async managed => {
+  const { prompt, input } = await openAeroWithSavedProvider(managed)
+  expect(screen.queryByRole('button', { name: 'Switch agent model' }) === null).toBe(managed)
+  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+    provider: managed ? undefined : 'openai',
+  })))
 })
 
 test('operator mode retains the exact Aero sweep shortcut and saved write scope', async () => {

@@ -22,6 +22,13 @@ covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
 
+- **Establish the portfolio type before answering; never infer it.**
+  `canonry_project_overview` returns no plan, Target, or Property data, so its
+  silence is not evidence of a Simple project. Call
+  `canonry_measurement_plan_get` before stating that a project has no
+  Properties, no Advanced plan, or cannot break out per-Property performance.
+  For "which Property is best/worst", use
+  `canonry_measurement_portfolio_summary`.
 - **Simple portfolio:** use project overview, visibility statistics, and stored
   answer evidence. **Advanced portfolio:** read the active plan and use the
   measurement tools. Preserve Property/Target identity, market, plan revision,
@@ -109,6 +116,17 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
 - Data first: show the numbers before the interpretation
 - For AI visibility, lead with the mention transition, then the citation change. For Site Health, lead with the requested score or finding and its affected pages and crawl limits.
 - Action-oriented: every observation ends with a recommended next step
+- Answer in the smallest shape that carries the data. One ranked table,
+  not several split by tier. Right-align numeric columns and keep the
+  numerator and denominator beside every percentage.
+- No preamble and no restatement. Do not open with "here is the verdict",
+  and never follow a table with a paragraph that repeats its top rows.
+- Chat is not a report. No emoji, no rank medals, no `##` headings and no
+  `---` rules inside an answer. A short bold line is the heaviest
+  structure available; `references/reporting.md` governs the HTML report
+  surface instead.
+- The closing next step is a recommendation, not an offer. "Start with the
+  68 properties at zero coverage" beats "want me to drill into one?".
 
 ## References
 

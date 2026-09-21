@@ -18,6 +18,7 @@ import {
 import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
@@ -173,15 +174,20 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [liveTrail, setLiveTrail] = useState<ToolTrail[]>([])
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [providerOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
+  const [preferredProviderOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
     const stored = readPreference(PROVIDER_PREF_KEY(projectName))
     return (stored as AgentProviderId | null) ?? null
   })
+  // A saved provider preference cannot steer a managed session. The picker is
+  // hidden in managed mode, so an override the operator can neither see nor
+  // clear would otherwise repin the session's provider on every prompt, and
+  // the server persists that pin. Keep it stored for operator deployments.
+  const providerOverride = managedSweeps ? null : preferredProviderOverride
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
   // visit, but key by project so the choice doesn't leak across tenants.
-  const [preferredScope, setScope] = useState<AeroToolScope>(() => {
+  const [preferredScope] = useState<AeroToolScope>(() => {
     const stored = readPreference(SCOPE_PREF_KEY(projectName))
     return stored === 'all' ? 'all' : 'read-only'
   })
@@ -253,15 +259,6 @@ export function AeroBar({ projectName }: AeroBarProps) {
     },
     [projectName],
   )
-
-  const toggleScope = useCallback(() => {
-    if (managedSweeps) return
-    setScope((prev) => {
-      const next: AeroToolScope = prev === 'all' ? 'read-only' : 'all'
-      writePreference(SCOPE_PREF_KEY(projectName), next)
-      return next
-    })
-  }, [projectName, managedSweeps])
 
   // Escape key collapses expanded → compact first, then closes.
   useEffect(() => {
@@ -491,13 +488,18 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                <ProviderPicker
-                  providers={providersQuery.data?.providers ?? []}
-                  active={activeProvider}
-                  override={providerOverride}
-                  onPick={pickProvider}
-                  disabled={streaming}
-                />
+                {/* Managed deployments do not name the answering provider: the
+                    client is buying an outcome, not choosing an engine. The
+                    picker, and the model behind it, stays operator-only. */}
+                {!managedSweeps && (
+                  <ProviderPicker
+                    providers={providersQuery.data?.providers ?? []}
+                    active={activeProvider}
+                    override={providerOverride}
+                    onPick={pickProvider}
+                    disabled={streaming}
+                  />
+                )}
                 <button
                   type="button"
                   onClick={asyncHandler(handleReset)}
@@ -578,14 +580,6 @@ export function AeroBar({ projectName }: AeroBarProps) {
               )}
             </div>
 
-            <ContextPills
-              projectName={projectName}
-              activeProvider={activeProvider}
-              scope={scope}
-              onToggleScope={toggleScope}
-              scopeLocked={managedSweeps}
-              disabled={streaming}
-            />
             <div className="relative">
               {paletteMatches.length > 0 && (
                 <SlashPalette
@@ -797,53 +791,6 @@ function ProviderPicker({
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-/**
- * Compact context bar between the transcript and composer.
- */
-function ContextPills({
-  projectName,
-  activeProvider,
-  scope,
-  onToggleScope,
-  scopeLocked,
-  disabled,
-}: {
-  projectName: string
-  activeProvider: AgentProviderOption | null
-  scope: AeroToolScope
-  onToggleScope: () => void
-  scopeLocked?: boolean
-  disabled?: boolean
-}) {
-  const providerLabel = activeProvider?.label.replace(/\s+\(.+\)$/, '') ?? null
-  const writeMode = scope === 'all'
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-mono-800/70 bg-bg/80 px-3 pt-2 text-sm text-secondary">
-      <span className="font-medium text-strong">{projectName}</span>
-      {providerLabel && (
-        <><span aria-hidden="true">·</span><span>{providerLabel}</span></>
-      )}
-      {scopeLocked ? <span className="ml-auto">Read only</span> : <button
-        type="button"
-        onClick={onToggleScope}
-        disabled={disabled}
-        className={`ml-auto inline-flex items-center rounded-md border px-2 py-1 text-sm font-medium transition disabled:opacity-50 ${
-          writeMode
-            ? 'border-caution-800/60 bg-caution-950/40 text-caution hover:border-caution-700 hover:text-caution-200'
-            : 'border-base bg-bg-elevated/70 text-secondary hover:border-strong hover:text-strong'
-        }`}
-        title={
-          writeMode
-            ? 'Aero can invoke write tools (run sweep, dismiss insight, etc). Click to restrict.'
-            : 'Aero is restricted to read-only tools. Click to allow writes.'
-        }
-      >
-        {writeMode ? 'Can make changes' : 'Read only'}
-      </button>}
     </div>
   )
 }
@@ -1200,6 +1147,9 @@ function AeroMarkdown({ content }: { content: string }) {
   return (
     <div className="text-heading">
       <ReactMarkdown
+        // GFM, or the table overrides below are dead code: CommonMark has no
+        // table node, so a piped table renders as one run-on paragraph.
+        remarkPlugins={[remarkGfm]}
         components={{
           h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-primary" />,
           h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-primary" />,
