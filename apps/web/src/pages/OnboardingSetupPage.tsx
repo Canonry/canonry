@@ -36,6 +36,9 @@ import {
   createOnboardingEventId,
   getOrCreateOnboardingSessionId,
   markOnboardingRunHandled,
+  clearOnboardingHandoff,
+  isOnboardingHandoff,
+  markOnboardingHandoff,
   markOnboardingRunLaunched,
   onboardingErrorReason,
   readOnboardingLaunchedRun,
@@ -419,6 +422,12 @@ function SiteHealthOnboardingPageBody({
     refetchOnMount: 'always',
   })
   const { onboardingSessionId, emit } = useOnboardingTelemetry('site_health')
+  // Read on arrival, then spent in an effect (not in the initializer, which
+  // StrictMode runs twice): spending it is what makes a later reload a resume.
+  const [freshHandoff] = useState(() => isOnboardingHandoff(initialRunId))
+  useEffect(() => {
+    if (freshHandoff) clearOnboardingHandoff()
+  }, [freshHandoff])
 
   // Before every early return below, so the funnel records that the handoff
   // from the launchpad actually landed. Reaching this page without a project
@@ -430,9 +439,11 @@ function SiteHealthOnboardingPageBody({
       onboardingSessionId,
       event: 'onboarding.started',
       step: 'run',
-      resumed: Boolean(initialRunId),
+      // A run is only a resume when this page was not just handed it by the
+      // launchpad (a reload, the serve banner URL, or the auto-resume redirect).
+      resumed: Boolean(initialRunId) && !freshHandoff,
     }, 'onboarding.started')
-  }, [emit, initialRunId, onboardingSessionId, projectName])
+  }, [emit, freshHandoff, initialRunId, onboardingSessionId, projectName])
 
   // Claim the handed-off scan for this onboarding session, so its outcome is
   // reported once rather than on every remount of a page whose run is already
@@ -857,6 +868,7 @@ function PlatformSetupPageBody({
           providerCountBucket: '0',
           queryCountBucket: '0',
         })
+        markOnboardingHandoff(settlement.run.runId)
         await openSiteHealthSetup(project, settlement.run.runId)
         return
       }

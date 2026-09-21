@@ -19,6 +19,7 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
 import { AGENT_MCP_INSTALL_COMMAND, siteScanOutcome } from '../src/pages/OnboardingCompletePage.js'
+import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -457,6 +458,37 @@ test('the finish step records its view and each next action once, inside the exi
   }
   // Nothing identifying rides along: no URL, project, or domain.
   expect(JSON.stringify(events)).not.toContain('example-com')
+})
+
+async function siteHealthStartEvent(markHandoff: boolean) {
+  const events: Array<Record<string, unknown>> = []
+  onTestFinished(mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/telemetry/onboarding') {
+      events.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({ accepted: true }, 202)
+    }
+    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
+    return jsonResponse([])
+  }))
+  window.sessionStorage.removeItem('canonry.onboarding-handoff.v1')
+  if (markHandoff) markOnboardingHandoff('run_handed_over')
+  await renderSetup('/setup?onboarding=site-health&setupProject=example-com&siteHealthRunId=run_handed_over')
+  await waitFor(() => {
+    expect(events.some(event => event.event === 'onboarding.started' && event.step === 'run')).toBe(true)
+  })
+  return events.find(event => event.event === 'onboarding.started' && event.step === 'run')
+}
+
+test('a scan the launchpad just handed over is a fresh start, not a resume', async () => {
+  expect(await siteHealthStartEvent(true)).toMatchObject({ surface: 'site_health', resumed: false })
+  // The marker is spent on arrival, so the next visit to the same run resumes.
+  await waitFor(() => expect(isOnboardingHandoff('run_handed_over')).toBe(false))
+})
+
+test('arriving at a scan without the launchpad hand-off is a resume', async () => {
+  // A reload, the serve banner URL, or the auto-resume redirect.
+  expect(await siteHealthStartEvent(false)).toMatchObject({ surface: 'site_health', resumed: true })
 })
 
 test('resolveAutoResumeTarget agrees with the serve banner', () => {
@@ -1247,6 +1279,15 @@ test('creates once, queues the canonical Site Health run, and hands off with exa
   const siteAudit = requests.find((request) => request.path.endsWith('/technical-aeo/runs') && request.method === 'POST')
   expect(siteAudit).toBeDefined()
   expect(JSON.parse(siteAudit?.body ?? '{}')).toEqual({ checkDeadLinks: true, maxPages: 100 })
+  // The hand-off is a first-run start, not a resume: the Site Health page's
+  // start event must say so (it once reported resumed on every hand-off).
+  await waitFor(() => {
+    const start = requests
+      .filter((request) => request.path === '/api/v1/telemetry/onboarding')
+      .map((request) => JSON.parse(request.body) as Record<string, unknown>)
+      .find((event) => event.surface === 'site_health' && event.event === 'onboarding.started')
+    expect(start).toMatchObject({ step: 'run', resumed: false })
+  })
 })
 
 test('preserves a created project with retry and setup recovery when dispatch fails', async () => {
