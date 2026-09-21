@@ -310,15 +310,27 @@ export interface ExternalMcpServerConfig {
 
 export interface AgentConfigEntry {
   /**
-   * Agent mode. `'disabled'` turns the built-in Aero agent OFF entirely — the
-   * proactive auto-wake on run completion does not fire, the `SessionRegistry`
-   * is not constructed, and the interactive agent routes (`/projects/:name/
-   * agent/*`) plus the `canonry agent ask` CLI (a thin client of those routes)
-   * are not served. Absent (the default) leaves Aero enabled. Resolved, with
-   * the `CANONRY_AGENT_DISABLED` env override, by `resolveAgentEnabled` in
-   * agent-config.ts.
+   * Agent mode. Three states, held on ONE field so they stay mutually
+   * exclusive: there is no way to write down "off, but still waking itself".
+   *
+   *  - `'disabled'` turns the built-in Aero agent OFF entirely — the proactive
+   *    auto-wake on run completion does not fire, the `SessionRegistry` is not
+   *    constructed, and the interactive agent routes (`/projects/:name/agent/*`)
+   *    plus the `canonry agent ask` CLI (a thin client of those routes) are not
+   *    served. Resolved, with the `CANONRY_AGENT_DISABLED` env override, by
+   *    `resolveAgentEnabled`.
+   *  - `'prompt-only'` keeps every interactive surface and removes ONLY the
+   *    proactive wake: Aero answers when asked and never starts a turn by
+   *    itself, so it costs nothing while nobody is talking to it and never
+   *    writes into the transcript unattended. Resolved, with the
+   *    `CANONRY_AGENT_PROMPT_ONLY` env override, by
+   *    `resolveAgentProactiveEnabled`.
+   *  - absent (the default) leaves Aero enabled AND proactive, which is the
+   *    behaviour every existing install already has.
+   *
+   * Both resolvers live in agent-config.ts.
    */
-  mode?: 'disabled'
+  mode?: 'disabled' | 'prompt-only'
 }
 
 export interface DashboardConfigEntry {

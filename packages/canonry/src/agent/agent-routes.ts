@@ -17,6 +17,7 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
+import { requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
 import {
@@ -63,6 +64,49 @@ function resolveProject(db: DatabaseClient, name: string): { id: string; name: s
  *   POST   /projects/:name/agent/prompt      — send a message, SSE stream back
  *   DELETE /projects/:name/agent/transcript  — reset the conversation
  *
+ * AUTHORIZATION — every route here is administrator-only.
+ *
+ * Aero is an operator tool. On an install where the customer's analysts hold
+ * viewer accounts, the dashboard can hide the command bar, but hiding it is
+ * presentation: a viewer still holds a session cookie and can call these paths
+ * directly. `requireInstanceAdministrator` is the boundary; the hidden bar is
+ * only courtesy.
+ *
+ * That gate asks TWO questions, and both are load-bearing here.
+ * `requireAdminSession` alone would answer only the first: it reads a role, so
+ * it refuses a viewer but passes every API key, since a key carries no role at
+ * all. A narrow key — read-only, or confined to one project — would still reach
+ * every read. So the gate also refuses any key narrower than the install, and a
+ * project-scoped read-only key is exactly the credential an operator hands to a
+ * client integration.
+ *
+ * The prompt route is where it matters most. Aero's tools execute with the
+ * INSTALL ROOT key (server.ts builds its ApiClient from `config.apiKey`, which
+ * carries the wildcard scope), and the per-turn tool scope is read off the
+ * request body. So a caller who reached this route would not be acting with
+ * their own authority — they would be driving the operator's, whatever their
+ * own credential was narrowed to.
+ *
+ * The reads are refused outright rather than redacted, deliberately. There is
+ * exactly one Aero session per project, so the transcript is not metadata about
+ * a conversation, it is the operator's conversation: what they asked, what Aero
+ * found, and whatever the tools returned along the way. Memory is the same
+ * material — operator notes, plus the compaction summaries Aero writes OF that
+ * transcript. Stripping model provenance would have hidden which model answered
+ * while still handing over everything it said. Redaction is the right shape for
+ * a field that leaks; it is the wrong shape for a body that was never the
+ * reader's to see.
+ *
+ * Which model answers is administrator knowledge for the same reason, so the
+ * provider catalog is refused too rather than trimmed: naming which providers
+ * exist and which one is configured is most of the answer. The doctor check
+ * `config.agent-providers` guards the same fact on a route that is NOT
+ * administrator-only, via `callerIsInstanceAdministrator`.
+ *
+ * The gate runs BEFORE `resolveProject` on purpose: a refused caller gets the
+ * same 403 whether or not the project exists, so the refusal cannot be used to
+ * probe which projects an install has.
+ *
  * SSE envelope: each line is `data: <JSON AgentEvent>\n\n`. Two control frames
  * wrap the stream — `stream_open` immediately after headers flush (so clients
  * can show "connected" UX) and `stream_close` just before `reply.raw.end()`
@@ -72,13 +116,15 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
       if (!row) {
         return { messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
       }
+      const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       return {
-        messages: parseJsonColumn<AgentMessage[]>(row.messages, []),
+        messages,
         modelProvider: row.modelProvider,
         modelId: row.modelId,
         updatedAt: row.updatedAt,
@@ -94,6 +140,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/providers',
     async (request) => {
+      requireInstanceAdministrator(request)
       resolveProject(opts.db, request.params.name)
       return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
     },
@@ -102,6 +149,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.delete<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       // `reset` (not `evict`) — wipes the in-memory pending follow-up
       // buffer too. Otherwise a system message queued on a hot session
@@ -120,6 +168,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     Params: { name: string }
     Body: AgentPromptBody
   }>('/projects/:name/agent/prompt', async (request, reply) => {
+    requireInstanceAdministrator(request)
     const project = resolveProject(opts.db, request.params.name)
     const body = request.body as unknown as AgentPromptBody | undefined
     const promptText = (body?.prompt ?? '').trim()
@@ -216,6 +265,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/memory',
     async (request): Promise<AgentMemoryListResponse> => {
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       return { entries: listMemoryEntries(opts.db, project.id) }
     },
@@ -224,6 +274,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.put<{ Params: { name: string }; Body: unknown }>(
     '/projects/:name/agent/memory',
     async (request) => {
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const parsed = agentMemoryUpsertRequestSchema.safeParse(request.body)
       if (!parsed.success) {
@@ -251,6 +302,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   app.delete<{ Params: { name: string }; Body: unknown }>(
     '/projects/:name/agent/memory',
     async (request) => {
+      requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const parsed = agentMemoryDeleteRequestSchema.safeParse(request.body)
       if (!parsed.success) {

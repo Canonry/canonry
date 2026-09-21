@@ -153,6 +153,18 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // the delete removes exactly those, so a re-run selects nothing and
   // `dead_links_checked` cannot be reduced twice.
   140,
+  // v158 only rewrites `agent_sessions.model_id` VALUES for rows still on the
+  // retired DeepInfra agent default; it makes no schema change. Downgrade-safe:
+  // `model_id` has existed since the table was introduced and both values are
+  // ordinary provider model ids, so an older binary reads a rewritten row
+  // exactly as it reads one a user selected by hand. It uses run() because the
+  // statement allowlist is schema-shaped, and because a supported legacy
+  // database can reach this version with no `agent_sessions` table at all (one
+  // stamped above v38 resumes past the migration that creates it), so the
+  // rewrite must be guarded by a table check. Idempotent via the
+  // `model_id = 'zai-org/GLM-5.2'` predicate, which also stops it overwriting a
+  // later explicit selection.
+  158,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

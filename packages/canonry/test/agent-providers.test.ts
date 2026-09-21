@@ -390,12 +390,20 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     expect(entry.openaiCompatible?.apiKeyEnvVar).toBe('DEEPINFRA_TOKEN')
   })
 
-  it('runs GLM-5.2 on all three tiers (agent, analyze, classify)', () => {
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.agent]).toBe('zai-org/GLM-5.2')
+  it('runs DeepSeek-V4-Flash on the agent tier and GLM-5.2 on the cheap tiers', () => {
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.agent]).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    // analyze + classify stay on GLM: their thinking suppression rides GLM's
+    // chat-template switch, which needs a reasoning model to apply.
     expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.analyze]).toBe('zai-org/GLM-5.2')
     expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.classify]).toBe('zai-org/GLM-5.2')
-    // defaultModel mirrors the agent tier (covered generically elsewhere too).
-    expect(getAgentProvider('deepinfra').defaultModel).toBe('zai-org/GLM-5.2')
+  })
+
+  it('never lets the picker or the default silently land on GLM', () => {
+    // The dashboard picker sends a provider and NO model, so whatever this
+    // says is what a session gets pinned to.
+    expect(getAgentProvider('deepinfra').defaultModel).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    // defaultModel and the agent tier must not drift apart.
+    expect(() => validateAgentProviderRegistry()).not.toThrow()
   })
 
   it('builds an openai-completions model pointed at DeepInfra for every capability', () => {
@@ -430,8 +438,13 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
   })
 
   it('applies per-slug known-model metadata and falls back for unknown slugs', () => {
-    // GLM-5.2 is a known model → its published cost/reasoning metadata.
-    const glm = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
+    // The agent tier is DeepSeek-V4-Flash → DeepInfra's published rates.
+    const deepseek = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
+    expect(deepseek.id).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    expect(deepseek.cost.input).toBe(0.09)
+    expect(deepseek.cost.output).toBe(0.18)
+    // GLM-5.2 still backs the cheap tiers, with its own metadata.
+    const glm = resolveModelForCapability('deepinfra', LlmCapabilities.analyze) as unknown as CompletionsModel
     expect(glm.reasoning).toBe(true)
     expect(glm.cost.input).toBe(0.95)
     expect(glm.cost.output).toBe(3.0)
@@ -477,7 +490,7 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
       const di = res.providers.find((p) => p.id === 'deepinfra')
       expect(di).toBeDefined()
       expect(di?.label).toBe('DeepInfra (GLM / DeepSeek)')
-      expect(di?.defaultModel).toBe('zai-org/GLM-5.2')
+      expect(di?.defaultModel).toBe('deepseek-ai/DeepSeek-V4-Flash')
       expect(di?.configured).toBe(true)
       expect(di?.keySource).toBe('env')
     } finally {
@@ -487,7 +500,7 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
   })
 
   it("reports DeepInfra's real 1M (fp4) context window for the shipped tiers", () => {
-    // All three tiers run GLM-5.2, which serves at 1,048,576 (fp4) on DeepInfra.
+    // Both shipped slugs serve at 1,048,576 (fp4) on DeepInfra.
     for (const capability of LLM_CAPABILITIES) {
       const model = resolveModelForCapability('deepinfra', capability) as unknown as { contextWindow: number }
       expect(model.contextWindow).toBe(1_048_576)

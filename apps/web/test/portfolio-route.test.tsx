@@ -1818,7 +1818,11 @@ test('fresh project settings use the empty collection instead of a noisy schedul
   )
 
   expect(await page.findByRole('heading', { name: 'Scheduled runs' })).toBeTruthy()
-  expect(page.getByText('No schedule configured. Set one to automatically trigger visibility sweeps.')).toBeTruthy()
+  // Awaited, not synchronous: this copy appears only once the schedules query
+  // settles, and nothing before it waits on that query. The heading above can
+  // resolve first, so a synchronous read here is a race that only passed while
+  // an unrelated component happened to keep the tree re-rendering.
+  expect(await page.findByText('No schedule configured. Set one to automatically trigger visibility sweeps.')).toBeTruthy()
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.some(path => path.endsWith('/schedules'))).toBe(true)
   expect(observed.some(path => path.endsWith('/schedule'))).toBe(false)
