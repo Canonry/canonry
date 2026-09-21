@@ -1,4 +1,4 @@
-export type OnboardingStage = 'site' | 'fixes' | 'visibility'
+export type OnboardingStage = 'site' | 'fixes' | 'visibility' | 'done'
 
 /**
  * The path from setup to a result used five names for one crawl: "Site audit"
@@ -11,22 +11,31 @@ const ONBOARDING_STAGES = [
   { id: 'site', label: 'Scan site', optional: false },
   { id: 'fixes', label: 'Page health', optional: false },
   { id: 'visibility', label: 'AI Visibility', optional: true },
+  { id: 'done', label: 'Next steps', optional: false },
 ] as const satisfies ReadonlyArray<{
   id: OnboardingStage
   label: string
   optional?: boolean
 }>
 
-export function OnboardingProgress({ current }: { current: OnboardingStage }) {
+export function OnboardingProgress({
+  current,
+  skipped = [],
+}: {
+  current: OnboardingStage
+  /** Earlier stages the operator did not do. They must not read as complete. */
+  skipped?: readonly OnboardingStage[]
+}) {
   const currentIndex = ONBOARDING_STAGES.findIndex((stage) => stage.id === current)
 
   return (
     <ol
       aria-label="Onboarding progress"
-      className="grid border-y border-default sm:grid-cols-3 sm:divide-x sm:divide-default"
+      className="grid border-y border-default sm:grid-cols-4 sm:divide-x sm:divide-default"
     >
       {ONBOARDING_STAGES.map((stage, index) => {
-        const complete = index < currentIndex
+        const isSkipped = index < currentIndex && skipped.includes(stage.id)
+        const complete = index < currentIndex && !isSkipped
         const active = index === currentIndex
 
         return (
@@ -45,13 +54,15 @@ export function OnboardingProgress({ current }: { current: OnboardingStage }) {
                     : 'border-default bg-surface-subtle text-muted'
               }`}
             >
-              {complete ? '✓' : index + 1}
+              {complete ? '✓' : isSkipped ? '–' : index + 1}
             </span>
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
               <span className={`text-sm font-medium ${active || complete ? 'text-heading' : 'text-secondary'}`}>
                 {stage.label}
               </span>
-              {stage.optional ? <span className="text-[13px] text-secondary">Optional</span> : null}
+              {isSkipped
+                ? <span className="text-[13px] text-secondary">Skipped</span>
+                : stage.optional ? <span className="text-[13px] text-secondary">Optional</span> : null}
               {complete ? <span className="sr-only">Complete</span> : null}
             </span>
           </li>

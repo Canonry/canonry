@@ -78,7 +78,9 @@ type SearchParams = {
   runWindow?: string
   runQuery?: string
   /** Durable first-run handoff state; a Site Health run remains authoritative when present. */
-  onboarding?: 'site-health' | 'first-run'
+  onboarding?: 'site-health' | 'first-run' | 'complete'
+  /** Onboarding step the operator chose to skip, so the finish step does not claim it. */
+  skipped?: 'visibility'
   /** Explicit setup surface, independent of the instance rollout default. */
   experience?: 'legacy' | 'platform'
   /** Create the project without consenting to or starting a Site Health scan. */
@@ -132,13 +134,14 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     runProject: typeof search.runProject === 'string' ? search.runProject : undefined,
     runWindow: typeof search.runWindow === 'string' ? search.runWindow : undefined,
     runQuery: typeof search.runQuery === 'string' ? search.runQuery : undefined,
-    onboarding: search.onboarding === 'site-health' || search.onboarding === 'first-run'
+    onboarding: search.onboarding === 'site-health' || search.onboarding === 'first-run' || search.onboarding === 'complete'
       ? search.onboarding
       : undefined,
     experience: search.experience === 'legacy' || search.experience === 'platform'
       ? search.experience
       : undefined,
     siteScan: search.siteScan === 'skip' ? 'skip' : undefined,
+    skipped: search.skipped === 'visibility' ? 'visibility' : undefined,
     setupProject: typeof search.setupProject === 'string' ? search.setupProject : undefined,
     scope: typeof search.scope === 'string' ? search.scope : undefined,
     class: typeof search.class === 'string' ? search.class : undefined,

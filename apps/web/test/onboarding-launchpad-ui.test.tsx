@@ -18,6 +18,7 @@ import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-stor
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
+import { AGENT_MCP_INSTALL_COMMAND } from '../src/pages/OnboardingCompletePage.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -227,6 +228,161 @@ test('auto resume leaves a scanned install on the wizard instead of reopening fi
   expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
 })
 
+test('auto resume reads the whole scan history, not the runs endpoint\'s 30-day default', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
+  const runListUrls: string[] = []
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects') return jsonResponse([AUTO_RESUME_PROJECT])
+    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) {
+      runListUrls.push(path)
+      // A scan older than 30 days: without `since` the server would drop it.
+      return jsonResponse([
+        { id: 'run_old', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2025-01-01T00:00:00.000Z' },
+      ])
+    }
+    return jsonResponse([])
+  }))
+
+  await renderSetup('/setup')
+
+  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(runListUrls.length).toBeGreaterThan(0)
+  for (const url of runListUrls) {
+    const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+    expect(query.get('kind')).toBe('site-audit')
+    expect(query.get('since')).toBe('2000-01-01T00:00:00.000Z')
+  }
+})
+
+test('auto resume decides once, so a refetch mid-wizard does not redirect out of it', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'auto' } }
+  const projects: unknown[] = [AUTO_RESUME_PROJECT]
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects') return jsonResponse(projects)
+    if (path === '/api/v1/runs' || path.startsWith('/api/v1/runs?')) {
+      return jsonResponse([
+        { id: 'run_done', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' },
+      ])
+    }
+    return jsonResponse([])
+  }))
+
+  const { router, queryClient } = await renderSetup('/setup')
+  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+
+  // The wizard creates a project (never scanned), which refreshes both lists.
+  projects.push({ ...AUTO_RESUME_PROJECT, id: 'project-new', name: 'new-com', createdAt: '2026-03-01T00:00:00.000Z' })
+  await queryClient.invalidateQueries()
+  await waitFor(() => {
+    expect(queryClient.isFetching()).toBe(0)
+  })
+
+  expect(screen.getByText(/Step \d of 5/)).toBeTruthy()
+  expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
+})
+
+test('the finish step leads with the agent and server-side traffic, with real links', async () => {
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path === '/api/v1/projects/example-com/technical-aeo') {
+      return jsonResponse({ project: 'example-com', hasData: true, aggregateScore: 72, pagesAudited: 56 })
+    }
+    return jsonResponse([])
+  }))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'You’re set.' })).toBeTruthy()
+  const progress = screen.getByRole('list', { name: 'Onboarding progress' })
+  expect(within(progress).getByText('Next steps').closest('[aria-current="step"]')).toBeTruthy()
+
+  const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href')
+  // Server-side traffic is the differentiator, so it is the primary data action.
+  expect(href('Connect server-side traffic')).toBe('/traffic')
+  expect(href('Connect Search Console')).toBe('/projects/example-com/search-console')
+  expect(href('Connect Google Analytics')).toBe('/projects/example-com/activity')
+  expect(href('Connect Business Profile')).toBe('/projects/example-com/local')
+  expect(href('Set a schedule')).toBe('/projects/example-com/settings')
+  expect(href('Add a notification')).toBe('/projects/example-com/settings')
+  expect(href('Open example-com')).toBe('/projects/example-com')
+  expect(screen.getByText(AGENT_MCP_INSTALL_COMMAND)).toBeTruthy()
+
+  // The agent window shows the agent doing work, one example at a time, and
+  // a reader can pick any of them.
+  const sessions = screen.getByRole('tablist', { name: 'Example agent sessions' })
+  expect(within(sessions).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Diagnose', 'Fix', 'Automate'])
+  expect(screen.getByText('canonry_insights_list')).toBeTruthy()
+  fireEvent.click(within(sessions).getByRole('tab', { name: 'Automate' }))
+  expect(within(sessions).getByRole('tab', { name: 'Automate' }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.getByText('canonry_schedule_set')).toBeTruthy()
+  expect(screen.queryByText('canonry_insights_list')).toBeNull()
+
+  // The notification preview quotes the project's real page health.
+  expect(await screen.findByText('page health 72')).toBeTruthy()
+})
+
+test('the finish step never invents a score for an unscanned project', async () => {
+  onTestFinished(mockFetch((url) => pathOf(url) === '/api/v1/projects/example-com/technical-aeo'
+    ? jsonResponse({ project: 'example-com', hasData: false, aggregateScore: 0, pagesAudited: 0 })
+    : jsonResponse([])))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+
+  expect(await screen.findByText('sweep finished')).toBeTruthy()
+  expect(screen.queryByText('page health 0')).toBeNull()
+})
+
+test('the finish step marks skipped stages as skipped, never complete', async () => {
+  // No site-audit run at all: the operator reached the finish without a scan.
+  onTestFinished(mockFetch((url) => pathOf(url) === '/api/v1/projects/example-com/technical-aeo'
+    ? jsonResponse({ project: 'example-com', hasData: false, aggregateScore: 0, pagesAudited: 0 })
+    : jsonResponse([])))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => {
+    expect(within(progress).getAllByText('Skipped')).toHaveLength(3)
+  })
+  expect(within(progress).queryByText('Complete')).toBeNull()
+})
+
+test('the finish step credits a scan that ran and an AI Visibility step that was not skipped', async () => {
+  onTestFinished(mockFetch((url) => {
+    const path = pathOf(url)
+    if (path.startsWith('/api/v1/projects/example-com/runs')) {
+      return jsonResponse([{ id: 'run_1', projectId: 'project-example', kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2026-02-02T00:00:00.000Z' }])
+    }
+    return jsonResponse([])
+  }))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => {
+    expect(within(progress).getAllByText('Complete')).toHaveLength(3)
+  })
+  expect(within(progress).queryByText('Skipped')).toBeNull()
+})
+
+test('a failed copy of the agent install command says so instead of failing silently', async () => {
+  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  // Outside a secure context there is no clipboard API at all.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  onTestFinished(() => {
+    if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  })
+  onTestFinished(mockFetch(() => jsonResponse([])))
+
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy' }))
+
+  expect(await screen.findByText('Could not copy the command')).toBeTruthy()
+})
+
 test('resolveAutoResumeTarget agrees with the serve banner', () => {
   const projects = [
     { id: 'a', name: 'alpha', createdAt: '2026-01-01T00:00:00.000Z' },
@@ -332,7 +488,7 @@ test('a malformed AI Visibility handoff never falls back to the first project', 
   expect(screen.queryByText('Step 3 of 5')).toBeNull()
 })
 
-test('the explicit Site Health handoff can be skipped to the mapped project', async () => {
+test('the explicit Site Health handoff can be skipped to the finish step', async () => {
   const restore = mockFetch((url) => pathOf(url) === '/api/v1/projects'
     ? jsonResponse([{
         id: 'project-example',
@@ -351,9 +507,11 @@ test('the explicit Site Health handoff can be skipped to the mapped project', as
   fireEvent.click(await screen.findByRole('button', { name: 'Skip onboarding' }))
 
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/projects/example-com/technical-aeo')
-    expect(router.state.location.search).toEqual({})
+    expect(router.state.location.pathname).toBe('/setup')
+    expect(router.state.location.search).toEqual({ onboarding: 'complete', setupProject: 'example-com', skipped: 'visibility' })
   })
+  // Skipping still ends on the finish step, never cold in the project.
+  expect(await screen.findByRole('heading', { name: 'You’re set.' })).toBeTruthy()
 })
 
 test('continues a mapped project into focused AI Visibility setup', async () => {
@@ -783,9 +941,13 @@ test('the setup request cannot strand an agent or point it at the wrong install'
   // Neither `score` nor `pages` carries the termination reason.
   expect(AGENT_SETUP_REQUEST).toContain('technical-aeo crawl')
   expect(AGENT_SETUP_REQUEST).toContain('only one of these commands that carries `termination`')
-  // `--wait` has no timeout, and rerunning the scan is the wrong recovery.
+  // `--wait` gives up after 15 minutes and exits 0 with a non-terminal status,
+  // which must not read as a finished scan. Rerunning is the wrong recovery.
+  expect(AGENT_SETUP_REQUEST).toContain('polls for up to 15 minutes')
+  expect(AGENT_SETUP_REQUEST).toContain('the scan has not finished')
+  expect(AGENT_SETUP_REQUEST).not.toContain('no timeout')
   expect(AGENT_SETUP_REQUEST).toContain('technical-aeo progress')
-  expect(AGENT_SETUP_REQUEST).toContain('do not rerun the scan')
+  expect(AGENT_SETUP_REQUEST).toContain('do not rerun it')
   // A time limit needs a SMALLER scan, which is the counterintuitive direction.
   expect(AGENT_SETUP_REQUEST).toContain('a time limit needs a smaller scan')
   expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')

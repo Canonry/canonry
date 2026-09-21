@@ -46,6 +46,7 @@ import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { Button } from '../components/ui/button.js'
 import { SetupPage } from './SetupPage.js'
+import { OnboardingCompletePage } from './OnboardingCompletePage.js'
 
 const LazySiteHealthSection = lazy(async () => {
   const module = await import('../components/project/SiteHealthSection.js')
@@ -71,7 +72,7 @@ Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only i
 2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
 3. Confirm the API is reachable. \`cnry doctor --format json\` reports it, and any project read exits non-zero with \`CONNECTION_ERROR\` when it is not. If it is unreachable, propose \`cnry start\` and wait for approval. Use \`cnry start\`, which is the background daemon, and not \`cnry serve\`, which runs in the foreground and will block you until I stop it, even though some error messages suggest it. Stop anything you started with \`cnry stop\`.
 4. List projects with the connected project tool or \`cnry project list --format json\`, and reuse one whose domain matches. Confirm the proposed name is not already assigned to a different domain. To find out whether a project has already been scanned, run \`cnry technical-aeo score <project> --format json\` with no \`--run-id\`, which reports the latest run. Read the \`hasData\` field, not the score: this command exits 0 and reports \`aggregateScore: 0\` for a project that has never been scanned, so reading the score alone would have you tell me my site scored zero. If \`hasData\` is true and \`runStatus\` is \`completed\` or \`partial\`, read that scan instead of starting a new one. If no project matches, show the exact create operation and wait for approval.
-5. Propose a bounded Site Health scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry technical-aeo run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` has no timeout and returns only the run id and status. If it outruns your tool timeout, do not rerun the scan: recover the run id with \`cnry technical-aeo score <project> --format json\` and poll \`cnry technical-aeo progress <project> --run-id <run-id> --format json\`.
+5. Propose a bounded Site Health scan: \`--max-pages 100\` for a first look, plus whether dead-link checking is on (it is off unless you pass \`--check-dead-links\`). Show the connected operation or the exact \`cnry technical-aeo run <project> --max-pages 100 --wait --format json\` command with the project name filled in, and wait for separate approval before scanning. \`--wait\` polls for up to 15 minutes and returns only the run id and status. If the status it returns is still \`queued\` or \`running\`, the scan has not finished: do not rerun it or report results, poll \`cnry technical-aeo progress <project> --run-id <run-id> --format json\` until it is terminal. If \`--wait\` outruns your own tool timeout first, recover the run id with \`cnry technical-aeo score <project> --format json\` and poll the same way.
 6. When the run is \`completed\` or \`partial\`, read \`cnry technical-aeo crawl <project> --run-id <run-id> --format json\` first. It is the only one of these commands that carries \`termination\` and \`complete\`; the score and pages commands do not. Then read \`cnry technical-aeo score <project> --run-id <run-id> --format json\` and \`cnry technical-aeo pages <project> --run-id <run-id> --sort score-asc --limit 10 --format jsonl\`. Tell me the termination reason in plain words and whether the scan covered the whole site or stopped at a page, link, depth, or time limit. A \`partial\` run scored the pages it reached and not my site, so never present it as a full-site result. If it stopped early, the fix depends on the reason, so say which: a page or depth limit needs a larger budget, a time limit needs a smaller scan (a lower \`--max-pages\` or \`--max-depth\`). If the run failed or was cancelled, inspect the run error and stop.
 7. Summarize only completed evidence, then propose AI Visibility setup. Ask before you add queries, connect providers, start a provider-backed or quota-consuming run, edit files, or publish.`
 
@@ -98,6 +99,11 @@ export function resolveOnboardingSurface(
   if (projectList.state === 'error') return 'retry'
   return 'loading'
 }
+
+/** Before any Canonry install could exist: the whole scan history. */
+const AUTO_RESUME_HISTORY_SINCE = '2000-01-01T00:00:00.000Z'
+/** The runs endpoint's own maximum. Newest-first, so older scans fall off last. */
+const AUTO_RESUME_HISTORY_LIMIT = 5000
 
 /** The shape `resolveAutoResumeTarget` needs from a site-audit run. */
 export interface AutoResumeRun {
@@ -577,8 +583,8 @@ function SiteHealthOnboardingPageBody({
       method: 'skipped',
     }, 'onboarding.step_completed:run')
     void navigate({
-      to: '/projects/$projectName/technical-aeo',
-      params: { projectName: project.name },
+      to: '/setup',
+      search: { onboarding: 'complete', setupProject: project.name, skipped: 'visibility' },
       replace: true,
     })
   }
@@ -624,6 +630,10 @@ export function OnboardingSetupPage() {
       ? 'platform'
       : configuredMode
   const [platformLatched, setPlatformLatched] = useState(false)
+  // `undefined` = not decided yet. The decision is made once per mount and then
+  // held: re-deciding on every refetch would redirect an operator out of the
+  // legacy wizard the moment it creates a project, taking its steps with it.
+  const [autoResumeDecision, setAutoResumeDecision] = useState<AutoResumeTarget | null | undefined>(undefined)
   const projectsQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: mode === 'auto',
@@ -634,8 +644,14 @@ export function OnboardingSetupPage() {
   })
   // Scoped to site-audit for the same reason the dashboard scopes its own run
   // list: an unscoped read fills the server's row cap with integration syncs.
+  // `since` is explicit because the endpoint otherwise returns only the last
+  // 30 days, and a project scanned before that would read as never scanned.
+  // `serve` reads all history; the two must agree.
   const siteAuditRunsQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient, query: { kind: RunKinds['site-audit'] } }),
+    ...getApiV1RunsOptions({
+      client: heyClient,
+      query: { kind: RunKinds['site-audit'], since: AUTO_RESUME_HISTORY_SINCE, limit: AUTO_RESUME_HISTORY_LIMIT },
+    }),
     enabled: mode === 'auto',
     retry: false,
     refetchOnMount: 'always',
@@ -662,6 +678,9 @@ export function OnboardingSetupPage() {
       ? 'platform'
       : resolveOnboardingSurface(mode, projectList)
 
+  if (search.onboarding === 'complete' && search.setupProject) {
+    return <OnboardingCompletePage projectName={search.setupProject} skippedVisibility={search.skipped === 'visibility'} />
+  }
   if (missingSiteHealthProject || explicitSiteHealthOnboarding) {
     return <SiteHealthOnboardingPage projectName={search.setupProject} initialRunId={search.siteHealthRunId} />
   }
@@ -669,15 +688,20 @@ export function OnboardingSetupPage() {
     && surface === 'legacy'
     && !search.setupProject
     && projectsQuery.isSuccess
-  // Deciding without the scan history would mean guessing that every project is
-  // unscanned, which is the wrong guess in exactly the case that matters. Wait
-  // instead of flashing the wizard and redirecting out of it a moment later.
-  if (autoResumeEligible && (siteAuditRunsQuery.isPending || siteAuditRunsQuery.isFetching)) {
+  if (autoResumeEligible && autoResumeDecision === undefined) {
+    // Only the mount-time read counts: a cached list can predate a CLI scan.
+    // A failed read is no evidence anything is unscanned, so it keeps the wizard.
+    if (siteAuditRunsQuery.isError) {
+      setAutoResumeDecision(null)
+    } else if (siteAuditRunsQuery.isSuccess && siteAuditRunsQuery.isFetchedAfterMount) {
+      setAutoResumeDecision(resolveAutoResumeTarget(projectsQuery.data, siteAuditRunsQuery.data))
+    }
+    // Deciding without the scan history would mean guessing that every project
+    // is unscanned, which is the wrong guess in exactly the case that matters.
+    // Wait instead of flashing the wizard and redirecting out of it a moment later.
     return <AutoModeLoading />
   }
-  const autoResume = autoResumeEligible && siteAuditRunsQuery.isSuccess
-    ? resolveAutoResumeTarget(projectsQuery.data, siteAuditRunsQuery.data)
-    : null
+  const autoResume = autoResumeEligible ? autoResumeDecision : null
   if (autoResume) {
     return <AutoResumeSiteHealthRedirect projectName={autoResume.projectName} runId={autoResume.runId} />
   }

@@ -532,6 +532,14 @@
     background: color-mix(in oklab, var(--color-accent) 12%, transparent);
     color: var(--color-accent);
   }
+
+  /* On an accent fill (the primary button) the rule above paints selected
+     text in the fill's own color, so it vanishes. Invert it there. */
+  .bg-accent::selection,
+  .bg-accent *::selection {
+    background: color-mix(in oklab, var(--color-on-inverse) 20%, transparent);
+    color: var(--color-on-inverse);
+  }
 }
 
 @layer components {
@@ -3170,3 +3178,45 @@
   .demo-banner-panel-agent { display: block; margin-bottom: 12px; color: var(--color-text-strong); }
   .demo-banner-features { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 }
+
+/* ── Onboarding step 4 ("You're set") ──
+   The resting state of every rule outside the media query is the finished
+   frame, so reduced-motion users see the same page, just without the motion. */
+.onb-check-ring { stroke: var(--color-positive-border); }
+.onb-check-mark { stroke: var(--color-positive-text); }
+.onb-flow { stroke: var(--color-border-strong); stroke-dasharray: 4 6; }
+.onb-day { background: var(--color-positive-text); }
+.onb-tile { transition: transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 400ms, box-shadow 400ms; }
+.onb-tile:hover { transform: translateY(-3px); border-color: var(--color-border-strong); box-shadow: 0 20px 48px var(--color-shadow-panel); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .onb-reveal { animation: onb-rise 800ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--onb-delay, 0ms) both; }
+  .onb-check { animation: onb-pop 700ms cubic-bezier(0.34, 1.56, 0.64, 1) 50ms both; }
+  .onb-check-ring { stroke-dasharray: 1; animation: onb-draw 700ms cubic-bezier(0.65, 0, 0.35, 1) 100ms both; }
+  .onb-check-mark { stroke-dasharray: 1; animation: onb-draw 450ms cubic-bezier(0.65, 0, 0.35, 1) 650ms both; }
+  /* A clip-path reveal, not a width one: the line wraps normally, so a long
+     prompt on a narrow screen is never left cut off once the reveal ends. */
+  .onb-type { animation: onb-typing 1100ms steps(40, end) var(--onb-delay, 0ms) both; }
+  .onb-line { animation: onb-rise 500ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--onb-delay, 0ms) both; }
+  .onb-caret { animation: onb-rise 300ms var(--onb-delay, 0ms) both, onb-blink 1s steps(1) calc(var(--onb-delay, 0ms) + 300ms) infinite; }
+  .onb-flow { animation: onb-flow-dash 1.6s linear var(--onb-delay, 0ms) infinite; }
+  .onb-hub { animation: onb-hub-pulse 2.4s ease-in-out 1.2s infinite; }
+  .onb-day { animation: onb-day 3.5s ease-in-out var(--onb-delay, 0ms) infinite; }
+  .onb-bell { animation: onb-ring 4s ease-in-out 1.6s infinite; transform-origin: 50% 10%; }
+  .onb-toast { animation: onb-toast 4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.6s infinite both; }
+}
+
+@keyframes onb-rise { from { opacity: 0; transform: translateY(16px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes onb-pop { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes onb-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes onb-typing { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes onb-blink { 50% { opacity: 0; } }
+@keyframes onb-flow-dash { to { stroke-dashoffset: -20; } }
+@keyframes onb-hub-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 25%, transparent); } 50% { box-shadow: 0 0 0 10px transparent; } }
+@keyframes onb-day { 0%, 12% { background: var(--color-surface-inset); transform: scale(1); } 20% { background: var(--color-positive-text); transform: scale(1.35); } 40%, 100% { background: var(--color-positive-text); transform: scale(1); } }
+@keyframes onb-ring { 0%, 8%, 100% { transform: rotate(0); } 2% { transform: rotate(14deg); } 4% { transform: rotate(-12deg); } 6% { transform: rotate(6deg); } }
+@keyframes onb-toast { 0% { opacity: 0; transform: translateX(-12px) scale(0.96); } 8%, 80% { opacity: 1; transform: none; } 92%, 100% { opacity: 0; transform: translateX(8px); } }
+@media (prefers-reduced-motion: no-preference) {
+  .onb-bot { animation: onb-bot-pulse 2.4s ease-in-out var(--onb-delay, 0ms) infinite; }
+}
+@keyframes onb-bot-pulse { 0%, 100% { border-color: var(--color-border); } 40% { border-color: var(--color-positive-border); color: var(--color-positive-text); } }

@@ -1013,9 +1013,12 @@ test('states the bounded first-run budget during onboarding and not on a regular
 
     const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
     if (surface === 'onboarding') {
-      expect(scanProgress.textContent).toContain('First look, not a full audit.')
+      expect(scanProgress.textContent).toContain('A quick scan to find your first fixes.')
+      // A pinned run may have come from the CLI with any budget, so the
+      // banner must not claim this section's 100-page first look.
+      expect(scanProgress.innerHTML).not.toContain('reads up to 100 pages')
     } else {
-      expect(scanProgress.textContent).not.toContain('First look, not a full audit.')
+      expect(scanProgress.textContent).not.toContain('A quick scan to find your first fixes.')
     }
 
     cleanup()
@@ -1772,7 +1775,11 @@ test('labels a usable partial onboarding audit without claiming full completion'
   const stoppedBanner = screen.getByRole('status')
   expect(stoppedBanner.textContent).toContain('This scan stopped at the page limit, so some pages were not checked.')
   // Naming the limit without naming the remedy leaves nothing to act on.
-  expect(stoppedBanner.textContent).toContain('Raise the page budget in Scan settings')
+  // Onboarding hides Scan settings (its first-look budget is fixed), so the
+  // remedy points at where the setting lives after setup.
+  expect(stoppedBanner.textContent).toContain("Raise the page budget in Site Health's Scan settings after setup.")
+  expect(screen.queryByText('Scan settings', { selector: 'summary' })).toBeNull()
+  expect(screen.queryByRole('combobox', { name: 'Page budget' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site audit finished with partial coverage' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site audit complete' })).toBeNull()
   expect(screen.queryByRole('tablist', { name: 'Site Health views' })).toBeNull()

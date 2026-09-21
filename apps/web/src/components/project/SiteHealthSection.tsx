@@ -368,9 +368,14 @@ const TERMINATION_REMEDY: Partial<Record<SiteCrawlTermination, string>> = {
   'max-depth': 'Raise the crawl depth in Scan settings.',
 }
 
-function terminationRemedy(termination: string | null): string | null {
+function terminationRemedy(termination: string | null, onboarding = false): string | null {
   if (!termination) return null
-  return TERMINATION_REMEDY[termination as SiteCrawlTermination] ?? null
+  const remedy = TERMINATION_REMEDY[termination as SiteCrawlTermination] ?? null
+  // Onboarding hides Scan settings because its first-look budget is fixed, so
+  // point at where the setting lives once setup is done.
+  return remedy && onboarding
+    ? `${remedy.replace(/ in Scan settings\.$/, '')} in Site Health's Scan settings after setup.`
+    : remedy
 }
 
 function terminationCopy(termination: string | null): string {
@@ -1333,6 +1338,7 @@ function ActiveScanState({
   progressError,
   onRetryProgress,
   pageHealthDestination = false,
+  firstLook = false,
   boundedPageLimit,
   livePageHealthPreview,
   livePageHealthError = false,
@@ -1344,7 +1350,12 @@ function ActiveScanState({
   progressError?: boolean
   onRetryProgress?: () => void
   pageHealthDestination?: boolean
-  /** Set when this scan was dispatched with a smaller first-run budget. */
+  /** Onboarding: this result is an introduction, not a full audit. */
+  firstLook?: boolean
+  /**
+   * Set only when the scan is known to have been dispatched with the smaller
+   * first-run budget. A scan pinned from the CLI may have run with any budget.
+   */
   boundedPageLimit?: number
   livePageHealthPreview?: LivePageHealthPreviewView | null
   livePageHealthError?: boolean
@@ -1372,14 +1383,17 @@ function ActiveScanState({
             ? 'Arranging map. The scan is complete and its map is being published.'
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
-      {boundedPageLimit ? (
-        // The single most important caveat about the result it is introducing,
-        // previously set in the smallest and faintest type on the screen. It
-        // also named only the page budget, when a first scan on a real site
-        // usually stops at the time budget instead.
-        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-caution bg-caution-soft px-4 py-2 text-sm text-caution">
-          First look, not a full audit.
-          <InfoTooltip text={`This first scan reads up to ${boundedPageLimit} pages, or stops sooner at the time limit. Raise the budget in Scan settings once you have a result.`} />
+      {firstLook ? (
+        // Said to someone who may not know what Canonry is yet: name what the
+        // scan is FOR, not what it is not. Neutral, because the panel around
+        // it is already the caution tone and this is not a warning. The
+        // tooltip names the time limit too, since a first scan on a real site
+        // usually stops there before the page budget.
+        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-default bg-bg px-4 py-2 text-sm text-primary">
+          A quick scan to find your first fixes.
+          <InfoTooltip text={boundedPageLimit
+            ? `Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
+            : 'Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
         </p>
       ) : null}
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
@@ -1632,6 +1646,8 @@ export function SiteHealthSection({
   // `null` on both = send nothing and take the server's defaults.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
   const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
+  // True once this section dispatched an onboarding scan, so its budget is known.
+  const [dispatchedBoundedScan, setDispatchedBoundedScan] = useState(false)
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilterId>('all')
   /**
    * The map opens on content links only. Nav and footer links repeat on every
@@ -2039,6 +2055,7 @@ export function SiteHealthSection({
     setSelectedRunId(null)
     setSelectedNodeKey(null)
     if (initialRunId) onReleaseInitialRun?.()
+    if (explicitOnboarding) setDispatchedBoundedScan(true)
     runMutation.mutate({
       projectName,
       projectId,
@@ -2263,7 +2280,7 @@ export function SiteHealthSection({
           {/* Naming the limit without naming the remedy leaves the operator
               looking at a result they have been told is incomplete with
               nothing to do about it. The budget lives in Scan settings. */}
-          {!embedded && !managedScanForViewer ? terminationRemedy(crawl.termination) : null}
+          {!embedded && !managedScanForViewer ? terminationRemedy(crawl.termination, explicitOnboarding) : null}
         </div>
       )}
       {!activeAudit && newestRunStatus === 'failed' && !selectedRunId && (
@@ -2290,7 +2307,8 @@ export function SiteHealthSection({
             progressError={activeProgressQuery.isError}
             onRetryProgress={() => { void activeProgressQuery.refetch() }}
             pageHealthDestination={explicitOnboarding}
-            boundedPageLimit={explicitOnboarding ? SITE_AUDIT_ONBOARDING_PAGE_LIMIT : undefined}
+            firstLook={explicitOnboarding}
+            boundedPageLimit={explicitOnboarding && dispatchedBoundedScan ? SITE_AUDIT_ONBOARDING_PAGE_LIMIT : undefined}
             livePageHealthPreview={livePageHealthPreviewQuery.data}
             livePageHealthError={livePageHealthPreviewQuery.isError}
             livePageHealthRunId={exactProgressRunId}

@@ -441,7 +441,9 @@ export function RootLayout() {
   // no longer identifies the visit as first-run setup. Ordinary project-scoped
   // setup has no marker and retains the operator shell.
   const isExplicitFirstRunSetup = isSetupRoute
-    && (location.search.onboarding === 'site-health' || location.search.onboarding === 'first-run')
+    && (location.search.onboarding === 'site-health'
+      || location.search.onboarding === 'first-run'
+      || location.search.onboarding === 'complete')
   const [firstRunSetupLatched, setFirstRunSetupLatched] = useState(isEmptySetup)
   useEffect(() => {
     if (!isSetupRoute) {
