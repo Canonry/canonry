@@ -11,6 +11,18 @@ import {
 
 const MAX_TOOL_RESULT_CHARS = 20_000
 const TRUNCATION_NOTE = '... (truncated — result too large)'
+/**
+ * Ceiling on the input `trimNestedArrays` will attempt. That path drops one
+ * nested collection per iteration, and each iteration re-walks the whole
+ * document (serializing every candidate array to size it) and re-serializes
+ * the copy, with a binary search doing so again per step. The cost is
+ * quadratic in the number of collections, so a pathological payload spent
+ * 289s of the server's single thread to emit the same 19,397 characters a
+ * plain slice produces. Above this size, fall through to the marked slice:
+ * the structure-aware path exists to keep evidence rows parseable, and at
+ * this scale it is discarding almost everything regardless.
+ */
+const MAX_STRUCTURED_TRUNCATION_CHARS = 2_000_000
 
 /** Pretty JSON, exactly what the model reads in the tool-result text. */
 function serializeResult(value: unknown): string {
@@ -171,8 +183,10 @@ export function truncateToolResult(details: unknown): string {
       // already blow the cap (nothing structured left to drop).
       if (out.length <= MAX_TOOL_RESULT_CHARS) return out
     }
-    const nested = trimNestedArrays(full)
-    if (nested !== undefined) return nested
+    if (full.length <= MAX_STRUCTURED_TRUNCATION_CHARS) {
+      const nested = trimNestedArrays(full)
+      if (nested !== undefined) return nested
+    }
   }
 
   return full.slice(0, MAX_TOOL_RESULT_CHARS) + '\n' + TRUNCATION_NOTE

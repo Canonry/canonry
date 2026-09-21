@@ -163,6 +163,41 @@ describe('SessionRegistry', () => {
     expect(persisted).toHaveLength(inMemoryCount)
   })
 
+  it('persists the tool-result text but not its programmatic details', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+
+    // A tool result as the adapter builds it: truncated model-facing text
+    // beside a large programmatic payload nothing reads back.
+    const bulky = { rows: Array.from({ length: 200 }, (_, i) => ({ i, blob: 'x'.repeat(200) })) }
+    agent.state.messages.push({
+      role: 'toolResult',
+      toolCallId: 'call_1',
+      toolName: 'canonry_runs_latest',
+      content: [{ type: 'text', text: '{"ok":true}' }],
+      details: bulky,
+      isError: false,
+      timestamp: 1,
+    } as unknown as AgentMessage)
+
+    registry.save('demo')
+
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    const persisted = parseJsonColumn<AgentMessage[]>(row!.messages, [])
+    const stored = persisted.find((m) => (m as unknown as { role: string }).role === 'toolResult') as
+      unknown as Record<string, unknown>
+
+    expect(stored).toBeTruthy()
+    expect(stored.content).toEqual([{ type: 'text', text: '{"ok":true}' }])
+    expect('details' in stored).toBe(false)
+    // The live message keeps details for the streaming UI.
+    const inMemory = agent.state.messages.at(-1) as unknown as Record<string, unknown>
+    expect(inMemory.details).toEqual(bulky)
+    // The stored row is bounded by the text, not the payload.
+    expect(row!.messages.length).toBeLessThan(JSON.stringify(bulky).length)
+  })
+
   it('records per-turn LLM usage tied to the durable Aero session', async () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })

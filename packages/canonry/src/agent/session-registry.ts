@@ -116,6 +116,26 @@ function escapeMemoryFragment(value: string): string {
   return value.replace(/<(\/?)memory>/gi, '<$1\u200Cmemory>')
 }
 
+/**
+ * Tool results carry a programmatic `details` payload beside the truncated
+ * model-facing text. It is built for the live turn and nothing reads it back:
+ * the model only ever sees `content`, and no server or dashboard code path
+ * reads `details` off a persisted message. Persisting it anyway made the
+ * transcript row grow without bound — one real session stored 22.5 MB of
+ * `details` against 99 KB of `content` — and every save re-stringified all of
+ * it while the dashboard re-fetched it on a poll. Strip it on the way to the
+ * database only; the in-memory message keeps `details` for the live UI.
+ */
+function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
+  return messages.map((message) => {
+    if (!message || typeof message !== 'object') return message
+    const row = message as Record<string, unknown>
+    if (row.role !== 'toolResult' || !('details' in row)) return message
+    const { details: _omitted, ...rest } = row
+    return rest
+  })
+}
+
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
@@ -520,7 +540,7 @@ export class SessionRegistry {
     if (!agent) return
     const projectId = this.resolveProjectId(projectName)
     this.updateRow(projectId, {
-      messages: JSON.stringify(agent.state.messages),
+      messages: JSON.stringify(withoutPersistedToolDetails(agent.state.messages)),
     })
   }
 
@@ -740,7 +760,7 @@ export class SessionRegistry {
         systemPrompt: params.systemPrompt,
         modelProvider: params.provider ?? params.modelProvider ?? AgentProviderIds.claude,
         modelId: params.modelId ?? 'claude-opus-4-7',
-        messages: JSON.stringify(params.messages),
+        messages: JSON.stringify(withoutPersistedToolDetails(params.messages)),
         followUpQueue: JSON.stringify(params.followUpQueue),
         createdAt: now,
         updatedAt: now,

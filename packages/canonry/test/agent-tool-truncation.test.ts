@@ -154,4 +154,37 @@ describe('truncateToolResult (OSS-C)', () => {
     expect(out.length).toBeLessThanOrEqual(CAP + 50)
     expect(out).toContain('truncated')
   })
+
+  // The nested-collection path drops one collection per iteration and re-walks
+  // (and re-serializes) the whole document each time, so its cost is quadratic
+  // in the number of collections. A real 20 MB run payload spent 289 seconds of
+  // the server's single thread to emit the same ~19k characters a slice gives.
+  // Above the ceiling the marked slice is taken instead.
+  it('falls back to the marked slice instead of walking a pathological payload', () => {
+    const payload = {
+      run: {
+        id: 'run-1',
+        snapshots: Array.from({ length: 6_000 }, (_, i) => ({
+          id: `snap-${i}`,
+          queryId: `q-${i}`,
+          answerText: 'y'.repeat(400),
+        })),
+      },
+    }
+    // Precondition: no TOP-LEVEL array (so the largest-array path cannot take
+    // it) and past the structured-truncation ceiling.
+    expect(Array.isArray(payload)).toBe(false)
+    expect(Object.values(payload).some((v) => Array.isArray(v))).toBe(false)
+    expect(JSON.stringify(payload, null, 2).length).toBeGreaterThan(2_000_000)
+
+    const started = Date.now()
+    const out = truncateToolResult(payload)
+    const elapsedMs = Date.now() - started
+
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    // The marked slice ends with the truncation note; the structure-aware path
+    // would instead return JSON carrying __truncated, so this discriminates.
+    expect(out.trimEnd().endsWith('result too large)')).toBe(true)
+    expect(elapsedMs).toBeLessThan(3_000)
+  })
 })
