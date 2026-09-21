@@ -18,6 +18,7 @@ import {
 import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
@@ -1146,6 +1147,9 @@ function AeroMarkdown({ content }: { content: string }) {
   return (
     <div className="text-heading">
       <ReactMarkdown
+        // GFM, or the table overrides below are dead code: CommonMark has no
+        // table node, so a piped table renders as one run-on paragraph.
+        remarkPlugins={[remarkGfm]}
         components={{
           h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-primary" />,
           h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-primary" />,

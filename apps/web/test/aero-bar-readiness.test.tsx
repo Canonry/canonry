@@ -187,6 +187,36 @@ test.each([false, true])('managed=%s uses the effective Aero scope even with a s
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
 })
 
+// react-markdown is CommonMark-only: without remark-gfm a piped table has no
+// table node at all and renders as one run-on paragraph, which is what the
+// styled table/thead/th/td overrides in AeroMarkdown were silently missing.
+test('renders a markdown table in an Aero answer', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    messages: [{
+      role: 'assistant',
+      timestamp: 1,
+      content: [{
+        type: 'text',
+        text: '| Property | Mention |\n|---|---|\n| Harbor North | 100% |\n| Lakeside | 58% |',
+      }],
+    }],
+    modelProvider: null,
+    modelId: null,
+    updatedAt: null,
+  } as never)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+
+  expect(await screen.findByRole('table')).toBeTruthy()
+  expect(screen.getByRole('columnheader', { name: 'Property' })).toBeTruthy()
+  expect(screen.getByRole('cell', { name: 'Harbor North' })).toBeTruthy()
+  expect(screen.getByRole('cell', { name: '58%' })).toBeTruthy()
+})
+
 async function openAeroWithSavedProvider(managedSweeps: boolean) {
   window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
   vi.stubGlobal('localStorage', {
