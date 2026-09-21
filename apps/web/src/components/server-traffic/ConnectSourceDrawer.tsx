@@ -12,6 +12,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { shellQuote } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -798,13 +799,16 @@ function wordpressAdminUrl(baseUrl: string, path: string): string | null {
   try {
     const url = new URL(baseUrl.trim())
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-    return `${url.origin}/wp-admin/${path}`
+    // WordPress can live in a subdirectory (https://example.com/blog), and its
+    // admin then lives under it too, so keep the path, minus a trailing slash.
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}/wp-admin/${path}`
   } catch {
     return null
   }
 }
 
 export function wordpressGuide(projectName: string, baseUrl: string): SourceGuide {
+  const project = shellQuote(projectName)
   const uploadUrl = wordpressAdminUrl(baseUrl, 'plugin-install.php?tab=upload')
   const profileUrl = wordpressAdminUrl(baseUrl, 'profile.php#application-passwords-section')
   return {
@@ -838,14 +842,15 @@ Follow the WordPress section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-w
 2. Walk me through installing the Canonry Traffic Logger plugin: download ${WORDPRESS_PLUGIN_ZIP_URL}, then upload and activate it under Plugins → Add New → Upload Plugin. If you have shell or WP-CLI access to the site, you may install it yourself after I approve.
 3. Have me create an Application Password under Users → Profile → Application Passwords.
 4. Ask whether the site uses a page cache or CDN. If it does, tell me exactly which AI user agents to exclude from it, using the list in the docs.
-5. Give me the exact command to connect: cnry traffic connect wordpress ${projectName} --url <site-url> --username <user> --app-password '<app-password>'
-6. After it connects, run cnry traffic sources ${projectName} --format json and cnry doctor --project ${projectName} --check 'traffic.source.*' --format json, and tell me in plain words whether events are arriving.
+5. Give me the exact command to connect: cnry traffic connect wordpress ${project} --url <site-url> --username <user> --app-password '<app-password>'
+6. After it connects, run cnry traffic sources ${project} --format json and cnry doctor --project ${project} --check 'traffic.source.*' --format json, and tell me in plain words whether events are arriving.
 
 ${SECRET_RULE}`,
   }
 }
 
 export function vercelGuide(projectName: string): SourceGuide {
+  const project = shellQuote(projectName)
   return {
     docsUrl: `${TRAFFIC_DOCS}#connecting-a-vercel-source`,
     steps: [
@@ -865,16 +870,17 @@ Follow the Vercel section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-verc
 
 1. Find the Vercel project ID and team ID. If this repo is linked, read projectId and orgId from .vercel/project.json. Otherwise ask me.
 2. Have me create an access token at https://vercel.com/account/tokens, scoped to that team, and save it to a file only I can read.
-3. Connect with: cnry traffic connect vercel ${projectName} --project-id <prj_...> --team-id <team_...> --token-file <path>
-4. Confirm the source with cnry traffic sources ${projectName} --format json and cnry doctor --project ${projectName} --check 'traffic.source.*' --format json. Vercel keeps about 14 days of request logs, so tell me before starting any history backfill.
+3. Connect with: cnry traffic connect vercel ${project} --project-id <prj_...> --team-id <team_...> --token-file <path>
+4. Confirm the source with cnry traffic sources ${project} --format json and cnry doctor --project ${project} --check 'traffic.source.*' --format json. Vercel keeps about 14 days of request logs, so tell me before starting any history backfill.
 
 ${SECRET_RULE}`,
   }
 }
 
 export function cloudRunGuide(projectName: string, gcpProjectId: string): SourceGuide {
-  const project = gcpProjectId.trim()
-  const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${project ? `?project=${encodeURIComponent(project)}` : ''}`
+  const project = shellQuote(projectName)
+  const gcpProject = gcpProjectId.trim()
+  const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${gcpProject ? `?project=${encodeURIComponent(gcpProject)}` : ''}`
   return {
     docsUrl: `${TRAFFIC_DOCS}#connecting-a-cloud-run-source`,
     steps: [
@@ -894,14 +900,15 @@ Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-c
 
 1. Ask me for the Google Cloud project ID and, if there is more than one, the Cloud Run service name and region.
 2. If gcloud is installed and signed in, propose the exact commands to create a service account with only roles/logging.viewer and download a JSON key, and run them after I approve. Otherwise walk me through it in the Cloud Console.
-3. Connect with: cnry traffic connect cloud-run ${projectName} --gcp-project <project-id> --service-account-key <path/to/key.json> (add --service and --location to narrow it).
-4. Confirm with cnry doctor --project ${projectName} --check 'traffic.source.*' --format json and tell me in plain words whether logs are readable.
+3. Connect with: cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> (add --service and --location to narrow it).
+4. Confirm with cnry doctor --project ${project} --check 'traffic.source.*' --format json and tell me in plain words whether logs are readable.
 
 ${SECRET_RULE}`,
   }
 }
 
 export function cloudflareGuide(projectName: string): SourceGuide {
+  const project = shellQuote(projectName)
   return {
     docsUrl: CLOUDFLARE_DOCS,
     steps: [
@@ -917,7 +924,7 @@ export function cloudflareGuide(projectName: string): SourceGuide {
       },
       {
         title: 'Run the connect command where Canonry runs',
-        detail: `cnry traffic connect cloudflare ${projectName} --zone-id <zone-id> --account-id <account-id>`,
+        detail: `cnry traffic connect cloudflare ${project} --zone-id <zone-id> --account-id <account-id>`,
       },
     ],
     agentRequest: `Help me connect my Cloudflare zone to the Canonry project "${projectName}" for server-side traffic.
@@ -926,9 +933,9 @@ Follow the Canonry Cloudflare guide: ${CLOUDFLARE_DOCS}
 
 1. Before anything else, estimate the zone's daily request volume with me, as the guide's "size the request volume" section shows, and tell me whether it fits the Workers plan I am on.
 2. Ask me for the zone ID and account ID, and whether I want direct push or Queue pull. Recommend one and say why.
-3. Run cnry traffic connect cloudflare ${projectName} --zone-id <zone-id> --account-id <account-id> (plus the flags for the mode I chose). It writes the Worker and its config without deploying. Show me what it wrote.
+3. Run cnry traffic connect cloudflare ${project} --zone-id <zone-id> --account-id <account-id> (plus the flags for the mode I chose). It writes the Worker and its config without deploying. Show me what it wrote.
 4. Deploy only after I approve, and attach the route with Fail open exactly as the guide says.
-5. Smoke-check with cnry traffic events ${projectName} --source <source-id> --format json and tell me whether events are arriving.
+5. Smoke-check with cnry traffic events ${project} --source <source-id> --format json and tell me whether events are arriving.
 
 ${SECRET_RULE}`,
   }

@@ -301,11 +301,18 @@ test('the WordPress form says the plugin is required and links straight to it', 
   expect(within(steps).queryByRole('link', { name: /Open the upload page/ })).toBeNull()
 
   // Once the operator types their site, the steps link to its own admin pages.
-  fireEvent.change(screen.getByPlaceholderText('https://example.com'), { target: { value: 'https://wp.example.com/blog' } })
+  fireEvent.change(screen.getByPlaceholderText('https://example.com'), { target: { value: 'https://wp.example.com' } })
   expect(within(steps).getByRole('link', { name: /Open the upload page/ }).getAttribute('href'))
     .toBe('https://wp.example.com/wp-admin/plugin-install.php?tab=upload')
   expect(within(steps).getByRole('link', { name: /Open your profile/ }).getAttribute('href'))
     .toBe('https://wp.example.com/wp-admin/profile.php#application-passwords-section')
+
+  // WordPress installed in a subdirectory keeps its admin under that path.
+  fireEvent.change(screen.getByPlaceholderText('https://example.com'), { target: { value: 'https://example.com/blog/' } })
+  expect(within(steps).getByRole('link', { name: /Open the upload page/ }).getAttribute('href'))
+    .toBe('https://example.com/blog/wp-admin/plugin-install.php?tab=upload')
+  expect(within(steps).getByRole('link', { name: /Open your profile/ }).getAttribute('href'))
+    .toBe('https://example.com/blog/wp-admin/profile.php#application-passwords-section')
 })
 
 test('every source hands the whole setup to an agent, with the real command and no secrets in chat', () => {
@@ -362,4 +369,20 @@ test('optional fields stay out of the way until asked for', () => {
   const details = summary.closest('details')
   expect(details?.open).toBe(false)
   expect(within(details as HTMLElement).getByLabelText(/^Service name/i)).toBeTruthy()
+})
+
+test('a project name with a space stays one shell argument in every command', () => {
+  const guides = [wordpressGuide('Acme UK', ''), vercelGuide('Acme UK'), cloudRunGuide('Acme UK', ''), cloudflareGuide('Acme UK')]
+  for (const guide of guides) {
+    // Every cnry command names the project quoted, never split in two.
+    const commands = guide.agentRequest.match(/cnry [^\n(]*/g) ?? []
+    expect(commands.length).toBeGreaterThan(0)
+    for (const command of commands) {
+      expect(command).not.toMatch(/ Acme UK(\s|$)/)
+      expect(command).toContain("'Acme UK'")
+    }
+  }
+  expect(cloudflareGuide('Acme UK').steps.at(-1)?.detail).toBe(
+    "cnry traffic connect cloudflare 'Acme UK' --zone-id <zone-id> --account-id <account-id>",
+  )
 })
