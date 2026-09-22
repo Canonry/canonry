@@ -1,3 +1,4 @@
+import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
   useMemo,
@@ -1922,6 +1923,7 @@ export function SiteHealthSection({
     [graphPages, inventoryPage, selectedNodeKey, selectionFilteredOut],
   )
   const effectiveSelectedNodeKey = selectedPage?.nodeKey ?? null
+  usePublishAeroView(projectName, { view: 'site-health', page: { ...(resolvedRunId ? { runId: resolvedRunId } : {}), ...(effectiveSelectedNodeKey ? { nodeKey: effectiveSelectedNodeKey } : {}) } })
   /**
    * A page whose own row could not be read is NOT a page with nothing to say.
    * Without this the inspector renders a hidden page with no reasons and no

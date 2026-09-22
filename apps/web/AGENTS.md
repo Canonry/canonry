@@ -491,3 +491,14 @@ Keep fixture dates and behavior checks independent of display wording.
 - Root `PRODUCT.md` / `DESIGN.md` — product and design contract (hierarchy, copy, typography, controls)
 - `packages/contracts/` — DTOs returned by the API
 - `packages/api-routes/` — backend endpoints the UI calls
+
+
+### Aero view context
+
+`AeroViewProvider` carries effective Property/Site Health selection to the native
+bar. URL-backed report filters use `aero-view.ts`; publish component-owned run/page
+selection with `usePublishAeroView`. Never send a carried filter a page does not
+apply. Context is frozen per prompt and included in Copy as CLI. The server
+validates it; it cannot grant tool access. Join tool events by call ID, retain
+intermediate messages, and avoid transcript polling over an active turn. Stop
+preserves partial output; interrupted write-capable turns require prompt review.

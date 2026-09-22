@@ -31,6 +31,9 @@ import {
 } from './tools.js'
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
+import { configureAeroRuntime } from './runtime.js'
+import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
+import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')
@@ -61,6 +64,9 @@ export interface SessionPreferences {
   toolScope?: AeroToolScope
   /** Optional profile that narrows tools for a workflow. Default 'default'. */
   toolProfile?: AeroToolProfile
+  context?: AgentViewContext
+  limits?: AgentTurnLimits
+  signal?: AbortSignal
 }
 
 interface AgentSessionRow {
@@ -151,6 +157,8 @@ export class SessionRegistry {
    * awaits the same promise instead of kicking off a duplicate LLM call.
    */
   private readonly compactions = new Map<string, Promise<void>>()
+  /** Holds scope/model alignment and evidence reads until the caller can start its turn. */
+  private readonly acquisitions = new Set<string>()
   /**
    * Read-only tools loaded once from the injected remote MCP servers (OSS-A).
    * The server set is static config, so we connect + adapt a single time and
@@ -207,6 +215,11 @@ export class SessionRegistry {
     const additions = external.filter((t) => !present.has(t.name))
     if (additions.length === 0) return
     agent.state.tools = [...current, ...additions]
+  }
+
+  /** Preparation and model execution both reserve the project session. */
+  isBusy(projectName: string): boolean {
+    return this.acquisitions.has(projectName) || this.live.get(projectName)?.state.isStreaming === true
   }
 
   /** Read-only access to the config snapshot the registry was built with. */
@@ -400,29 +413,43 @@ export class SessionRegistry {
    * stay on it unless overridden again.
    */
   async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
+    preferences?.signal?.throwIfAborted()
+    if (this.acquisitions.has(projectName)) throw agentBusy(projectName)
     const agent = this.getOrCreate(projectName)
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
     }
-    const projectId = this.resolveProjectId(projectName)
-    const row = this.loadRow(projectId)
-    const systemPrompt = loadAeroSystemPrompt()
-    if (row && row.systemPrompt !== systemPrompt) {
-      this.persistPromptSnapshot(projectId, systemPrompt)
-      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
+    this.acquisitions.add(projectName)
+    try {
+      const projectId = this.resolveProjectId(projectName)
+      const row = this.loadRow(projectId)
+      const systemPrompt = loadAeroSystemPrompt()
+      if (row && row.systemPrompt !== systemPrompt) {
+        this.persistPromptSnapshot(projectId, systemPrompt)
+        agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
+      }
+      this.alignToolSurface(projectName, agent, {
+        scope: preferences?.toolScope ?? AeroToolScopes.all,
+        profile: preferences?.toolProfile ?? AeroToolProfiles.default,
+      })
+      if (preferences?.provider || preferences?.modelId) {
+        this.alignModel(projectName, agent, preferences)
+      }
+      // Merge injected remote MCP read-only tools (OSS-A) AFTER scope alignment,
+      // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
+      await this.mergeExternalTools(agent)
+      const view = { client: this.opts.client, projectName, basePath: this.opts.config.basePath, context: preferences?.context }
+      const evidence = preferences?.context ? await readAeroViewEvidence(view) : undefined
+      preferences?.signal?.throwIfAborted()
+      await this.maybeCompact(projectName, agent)
+      preferences?.signal?.throwIfAborted()
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt) + aeroViewPrompt(preferences?.context)
+      const progressive = (preferences?.toolProfile ?? AeroToolProfiles.default) === AeroToolProfiles.default
+      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive)
+      return agent
+    } finally {
+      this.acquisitions.delete(projectName)
     }
-    this.alignToolSurface(projectName, agent, {
-      scope: preferences?.toolScope ?? AeroToolScopes.all,
-      profile: preferences?.toolProfile ?? AeroToolProfiles.default,
-    })
-    if (preferences?.provider || preferences?.modelId) {
-      this.alignModel(projectName, agent, preferences)
-    }
-    // Merge injected remote MCP read-only tools (OSS-A) AFTER scope alignment,
-    // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
-    await this.mergeExternalTools(agent)
-    await this.maybeCompact(projectName, agent)
-    return agent
   }
 
   /**
@@ -490,12 +517,6 @@ export class SessionRegistry {
     agent: Agent,
     want: { scope: AeroToolScope; profile: AeroToolProfile },
   ): void {
-    if (
-      this.scopes.get(projectName) === want.scope &&
-      this.profiles.get(projectName) === want.profile
-    ) {
-      return
-    }
     const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
     this.projectIds.set(projectName, projectId)
     const toolCtx = { client: this.opts.client, projectName }

@@ -1,3 +1,4 @@
+import { agentViewContextSchema, agentTurnLimitsSchema, describeError, type AgentViewContext } from '@ainyc/canonry-contracts'
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
 import { agentProviders } from '../commands/agent-providers.js'
@@ -18,15 +19,18 @@ const AGENT_ASK_SCOPES: readonly AgentAskScope[] = ['all', 'read-only']
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent', 'ask'],
-    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--format json]`,
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
       scope: stringOption(),
       profile: stringOption(),
+      context: stringOption(),
+      'max-tool-calls': stringOption(),
+      'timeout-ms': stringOption(),
     },
     run: async (input) => {
-      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--format json]`
+      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`
       const project = requireProject(input, 'agent.ask', usage)
       const prompt = input.positionals.slice(1).join(' ').trim()
       if (!prompt) {
@@ -74,7 +78,21 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
           },
         })
       }
+      let context: AgentViewContext | undefined
+      try {
+        const rawContext = getString(input.values, 'context')
+        if (rawContext) context = agentViewContextSchema.parse(JSON.parse(rawContext))
+      } catch (error) {
+        throw usageError(`Invalid --context: ${describeError(error)}`, { message: 'Invalid Aero view context' })
+      }
+      const parsedLimits = agentTurnLimitsSchema.safeParse({
+        ...(getString(input.values, 'max-tool-calls') ? { maxToolCalls: Number(getString(input.values, 'max-tool-calls')) } : {}),
+        ...(getString(input.values, 'timeout-ms') ? { timeoutMs: Number(getString(input.values, 'timeout-ms')) } : {}),
+      })
+      if (!parsedLimits.success) throw usageError('Invalid Aero turn limits', { message: parsedLimits.error.message })
       await agentAsk({
+        context,
+        limits: parsedLimits.data,
         project,
         prompt,
         provider: coerceAgentProvider(providerInput),

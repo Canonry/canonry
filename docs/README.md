@@ -24,6 +24,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`architecture.md`](architecture.md) | current | engineers | System architecture, dependency graph, run lifecycle, provider system |
 | [`data-model.md`](data-model.md) | current | engineers | ER diagram, table groups, JSON column shapes |
 | [`deployment.md`](deployment.md) | current | operators | Current deployment and runtime guidance |
+| [`aero-evaluation.md`](aero-evaluation.md) | current | contributors | Analyst replay tests and offline evaluation of captured native turns |
 | [`testing.md`](testing.md) | current | contributors | Validation and test workflow guidance |
 | [`../apps/vals/ai-visibility-check/README.md`](../apps/vals/ai-visibility-check/README.md) | current | contributors, operators | Public Val Town sample, local Deno validation, and manual release order |
 | [`../apps/vals/brand-perception-check/AGENTS.md`](../apps/vals/brand-perception-check/AGENTS.md) | current | contributors, operators | The branded-question Val: verdict-with-verbatim-evidence rules, its one-phase budget, and the release order that gates its first deploy |

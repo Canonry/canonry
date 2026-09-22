@@ -9,7 +9,8 @@ metadata:
 # Aero Orchestration Skill
 
 Use Canonry's stored evidence to explain AI visibility and site readiness. In
-built-in Aero, call the available `canonry_*` tools directly. Project-scoped
+built-in Aero, use `aero_list_toolkits` and `aero_load_toolkit` to load relevant
+tools, then call the available `canonry_*` tools directly. Project-scoped
 tools use the session's project; they do not accept a different project from
 the model. External agents can use connected MCP or `cnry <command> --format
 json`. CLI examples in the references are for hosts with a shell; built-in
@@ -41,13 +42,19 @@ covering that work; an existing explicit authorization remains valid.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals
   are not zero. Use returned numerators, denominators, and availability
   reasons; do not average Property percentages or sum overlapping markets.
-- The dashboard chat supplies the project and message, not its selected
-  Property, market, filters, or graph page. Resolve explicit names/URLs from
-  stored data. If "this Property" or "this page" remains ambiguous, ask which
-  one before making a scoped claim. State the scope used for broad questions.
+- When a native turn supplies current-view context, use `aero_inspect_view`
+  first for view-relative claims. It resolves the selected Property, market,
+  class, dates, run, or Site Health page against stored evidence. Context is
+  a selection, not permission. Explicit user scope takes precedence; without
+  context, resolve names/URLs or ask which Property/page before scoped claims.
+- Link the returned evidence beside findings. State measurement time separately
+  from retrieval time, each class's numerator/denominator, missing-data reasons,
+  and comparison limits. Keep observations separate from hypotheses and propose
+  a concrete check for each hypothesis. Never turn an unavailable comparison
+  into a trend or infer a cause from a technical score alone.
 - Read `references/agent-operations.md` for shared vocabulary, evidence,
   comparison, and authority rules. Its MCP onboarding instructions apply to
-  external hosts; built-in Aero already has its tool catalog and skill-doc
+  external hosts; built-in Aero loads its authorized toolkits and has skill-doc
   readers. Tool descriptions define the parameters actually available.
 
 Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.

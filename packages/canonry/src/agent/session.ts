@@ -31,6 +31,8 @@ import {
   recordLlmUsageEvent,
 } from './llm-usage.js'
 import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
+import { configureAeroRuntime } from './runtime.js'
+import { buildAeroViewTool, AERO_RUNTIME_PROMPT } from './view-context.js'
 import { createAeroToolUsageHooks } from './tool-usage.js'
 
 export type { SupportedAgentProvider } from './providers.js'
@@ -89,7 +91,7 @@ export function loadAeroSystemPrompt(pkgDir?: string): string {
   const base = fs.existsSync(soulPath)
     ? `${fs.readFileSync(soulPath, 'utf-8').trimEnd()}\n\n---\n\n${skillBody}`
     : skillBody
-  return appendSystemPromptExtras(base)
+  return appendSystemPromptExtras(base + AERO_RUNTIME_PROMPT)
 }
 
 /**
@@ -179,7 +181,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   // Skill-doc tools ride in both scopes — they're pure reads of bundled
   // assets, no project state involved.
   const stateTools = buildAeroStateTools(toolCtx, { scope: toolScope, profile: toolProfile })
-  const defaultTools = [...stateTools, ...buildSkillDocTools()]
+  const defaultTools = [...stateTools, ...buildSkillDocTools(), ...(toolProfile === AeroToolProfiles.default ? [buildAeroViewTool({ ...toolCtx, basePath: opts.config.basePath })] : [])]
   const tools = opts.tools ?? defaultTools
   const toolUsageHooks = opts.db
     ? createAeroToolUsageHooks({
@@ -203,6 +205,8 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
     ...toolUsageHooks,
     getApiKey: buildApiKeyResolver(opts.config),
   })
+
+  configureAeroRuntime(agent, tools, undefined, !opts.tools && toolProfile === AeroToolProfiles.default)
 
   const telemetryDb = opts.db
   if (telemetryDb) {

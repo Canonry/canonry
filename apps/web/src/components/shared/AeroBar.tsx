@@ -1,3 +1,6 @@
+import type { AgentViewContext } from '@ainyc/canonry-contracts'
+import { useAeroView } from '../../contexts/aero-view-context.js'
+import { aeroViewFromLocation } from '../../lib/aero-view.js'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
@@ -14,6 +17,7 @@ import {
   AlertTriangle,
   Wrench,
   Copy,
+  Square,
 } from 'lucide-react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -29,7 +33,7 @@ import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
-import { shellQuote } from '@ainyc/canonry-contracts'
+import { shellQuote, describeError } from '@ainyc/canonry-contracts'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -54,14 +58,18 @@ interface ToolTrail {
   id: string
   name: string
   args: unknown
-  startedAt: number
+  label?: string
+  startedAt?: number
+  durationMs?: number
   endedAt?: number
   isError?: boolean
+  interrupted?: boolean
   result?: unknown
 }
 
 interface AeroBarProps {
   projectName: string
+  context?: AgentViewContext
 }
 
 const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
@@ -160,7 +168,7 @@ function removePreference(key: string): void {
   }
 }
 
-export function AeroBar({ projectName }: AeroBarProps) {
+export function AeroBar({ projectName, context }: AeroBarProps) {
   const managedSweeps = isDashboardManagedSweeps()
   const { canWrite } = useAccount()
   const [open, setOpen] = useState(false)
@@ -174,6 +182,9 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [liveTrail, setLiveTrail] = useState<ToolTrail[]>([])
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [retry, setRetry] = useState<{ prompt: string; context?: AgentViewContext } | null>(null)
+  const mounted = useRef(true)
   const [preferredProviderOverride, setProviderOverride] = useState<AgentProviderId | null>(() => {
     const stored = readPreference(PROVIDER_PREF_KEY(projectName))
     return (stored as AgentProviderId | null) ?? null
@@ -194,6 +205,9 @@ export function AeroBar({ projectName }: AeroBarProps) {
   // A saved write preference cannot turn the managed dashboard into a sweep
   // control. Keep it stored for operator deployments, but use read tools here.
   const scope = managedSweeps ? 'read-only' : preferredScope
+  const lastPersistedAt = useRef<string | null>(null)
+  const awaitingPersistence = useRef<{ previous: string | null } | null>(null)
+  const partialRef = useRef<AeroAssistantMessage | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const { ref: transcriptRef } = useChatScroll<HTMLDivElement>([messages, streamingText, liveTrail])
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -284,10 +298,14 @@ export function AeroBar({ projectName }: AeroBarProps) {
       if (cancelled || streaming) return
       fetchAeroTranscript(projectName)
         .then((t) => {
-          if (!cancelled) setMessages(t.messages)
+          if (!cancelled && !t.isStreaming && (awaitingPersistence.current === null || (t.updatedAt && t.updatedAt !== awaitingPersistence.current.previous))) {
+            setMessages(t.messages)
+            lastPersistedAt.current = t.updatedAt
+            awaitingPersistence.current = null
+          }
         })
         .catch((err: unknown) => {
-          if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load transcript')
+          if (!cancelled) setError(describeError(err))
         })
     }
 
@@ -302,12 +320,14 @@ export function AeroBar({ projectName }: AeroBarProps) {
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {
+    mounted.current = true
     return () => {
+      mounted.current = false
       abortRef.current?.abort()
     }
   }, [projectName])
 
-  async function send(promptText: string) {
+  async function send(promptText: string, turnContext = context) {
     const trimmed = promptText.trim()
     if (!trimmed || streaming || !activeProvider) return
     if (managedSweeps && /^\/run-sweep(?:\s|$)/i.test(trimmed)) {
@@ -315,14 +335,18 @@ export function AeroBar({ projectName }: AeroBarProps) {
       return
     }
     setError(null)
+    setNotice(null)
+    setRetry({ prompt: trimmed, context: turnContext })
     setDraft('')
     setStreaming(true)
     setStreamingText('')
+    partialRef.current = null
     // Wipe the live trail on a new prompt — any prior turn's trail is now
     // part of the persisted transcript and will be reconstructed from there.
     setLiveTrail([])
 
-    const optimistic: AeroMessage = { role: 'user', content: trimmed, timestamp: Date.now() }
+    awaitingPersistence.current = { previous: lastPersistedAt.current }
+    const optimistic: AeroMessage = { role: 'user', content: trimmed, timestamp: Date.now(), aeroContext: turnContext }
     setMessages((prev) => [...prev, optimistic])
 
     const ctrl = new AbortController()
@@ -334,38 +358,62 @@ export function AeroBar({ projectName }: AeroBarProps) {
         prompt: trimmed,
         provider: providerOverride ?? undefined,
         scope,
+        context: turnContext,
         signal: ctrl.signal,
         onEvent: handleEvent,
       })
       // Final transcript reload ensures we're in sync with the server
       // (covers edge cases like events landing after the last message_end).
       const latest = await fetchAeroTranscript(projectName)
-      setMessages(latest.messages)
-    } catch (err: unknown) {
-      if ((err as Error).name !== 'AbortError') {
-        setError(err instanceof Error ? err.message : 'Prompt failed')
+      if (mounted.current && !latest.isStreaming) {
+        setMessages(latest.messages)
+        lastPersistedAt.current = latest.updatedAt
+        awaitingPersistence.current = null
       }
+    } catch (err: unknown) {
+      if (!mounted.current) return
+      const partial = partialRef.current
+      if (partial && extractAssistantText(partial).trim()) setMessages(previous => [...previous, partial])
+      if (ctrl.signal.aborted) setNotice('Stopped. Partial response preserved. An action already dispatched may still finish.')
+      else setError(describeError(err))
     } finally {
-      setStreaming(false)
-      setStreamingText('')
-      // Leave liveTrail populated so the final assistant bubble still shows
-      // what tools were run this turn. It clears on the next send().
+      if (mounted.current) {
+        setStreaming(false)
+        setStreamingText('')
+        setLiveTrail(trails => trails.map(trail => trail.endedAt === undefined ? { ...trail, interrupted: true } : trail))
+      }
+      // Timing metadata is joined by toolCallId, never rendered a second time.
       abortRef.current = null
     }
   }
 
   function handleEvent(event: AeroEvent) {
+    if (!mounted.current) return
     switch (event.type) {
       case 'message_update':
+        if (event.message.role === 'assistant') partialRef.current = event.message
         setStreamingText(extractAssistantText(event.message))
         break
       case 'message_end':
-        if (event.message.role === 'assistant') setStreamingText('')
+        if (event.message.role !== 'user') {
+          const message = event.message
+          setMessages(previous => [...previous, message])
+        }
+        if (event.message.role === 'assistant') {
+          partialRef.current = null
+          setStreamingText('')
+          if (event.message.errorMessage) setError(event.message.errorMessage)
+        }
+        break
+      case 'aero_turn_status':
+        if (event.status?.reason === 'tool-limit') setNotice('Tool-call limit reached. Partial response preserved.')
+        else if (event.status?.reason === 'time-limit') setNotice('Time limit reached. Partial response preserved.')
+        else if (event.status?.reason === 'completed') setRetry(null)
         break
       case 'tool_execution_start':
         setLiveTrail((prev) => [
           ...prev,
-          { id: event.toolCallId, name: event.toolName, args: event.args, startedAt: Date.now() },
+          { id: event.toolCallId, name: event.toolName, label: event.label, args: event.args, startedAt: Date.now() },
         ])
         break
       case 'tool_execution_end':
@@ -384,13 +432,18 @@ export function AeroBar({ projectName }: AeroBarProps) {
   }
 
   async function handleReset() {
+    if (streaming) return
     abortRef.current?.abort()
     try {
       await resetAeroTranscript(projectName)
+      awaitingPersistence.current = null
       setMessages([])
+      setLiveTrail([])
+      setNotice(null)
+      setRetry(null)
       setError(null)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Reset failed')
+      setError(describeError(err))
     }
   }
 
@@ -503,6 +556,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 <button
                   type="button"
                   onClick={asyncHandler(handleReset)}
+                  disabled={streaming}
                   className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label="Reset conversation"
                   title="Reset conversation"
@@ -537,11 +591,6 @@ export function AeroBar({ projectName }: AeroBarProps) {
             </div>
 
             <div ref={transcriptRef} className={transcriptClasses}>
-              {error && (
-                <div className="mb-2 rounded-md border border-negative-700/40 bg-negative-950/40 px-3 py-2 text-xs text-negative-200">
-                  {error}
-                </div>
-              )}
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
                   <p className="text-sm text-secondary">
@@ -561,14 +610,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   </div>
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope)}
-              {liveTrail.length > 0 && (
-                <div className="mt-3 space-y-1.5">
-                  {liveTrail.map((trail) => (
-                    <ToolTrailRow key={trail.id} trail={trail} />
-                  ))}
-                </div>
-              )}
+              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -579,6 +621,16 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 <TypingIndicator />
               )}
             </div>
+
+              {(error || notice) && (
+                <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 rounded-md border border-base bg-surface px-3 py-2 text-sm text-secondary">
+                  <span className="flex-1">{error ?? notice}</span>
+                  {retry && !streaming && <Button variant="outline" size="sm" onClick={() => {
+                    if (scope === 'all') { setDraft(retry.prompt); textareaRef.current?.focus() }
+                    else void send(retry.prompt, retry.context)
+                  }}>{scope === 'all' ? 'Review prompt' : 'Retry'}</Button>}
+                </div>
+              )}
 
             <div className="relative">
               {paletteMatches.length > 0 && (
@@ -649,18 +701,19 @@ export function AeroBar({ projectName }: AeroBarProps) {
                     }
                   }}
                   placeholder="Ask Aero, or / for commands…"
-                  disabled={streaming}
+                  aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
                   className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
                 />
-                <button
-                  type="submit"
-                  disabled={streaming || !draft.trim()}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-positive-500 text-accent-fg transition hover:bg-positive-400 disabled:opacity-40"
-                  aria-label="Send"
-                >
-                  <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
+                {streaming ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()} aria-label="Stop Aero">
+                    <Square className="h-3.5 w-3.5" aria-hidden="true" /> Stop
+                  </Button>
+                ) : (
+                  <Button type="submit" size="sm" disabled={!draft.trim()} aria-label="Send">
+                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                )}
               </form>
             </div>
           </div>
@@ -880,6 +933,8 @@ function renderTranscript(
   projectName: string,
   providerOverride: AgentProviderId | null,
   scope: AeroToolScope,
+  liveTrail: ToolTrail[],
+  streaming: boolean,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -896,6 +951,7 @@ function renderTranscript(
           projectName={projectName}
           providerOverride={providerOverride}
           scope={scope}
+          context={msg.aeroContext}
         />,
       )
       continue
@@ -912,21 +968,25 @@ function renderTranscript(
         results.set(r.toolCallId, r)
         cursor++
       }
-      const trails = extractTrails(msg, results, msg.timestamp ?? 0)
+      const trails = extractTrails(msg, results).map(trail => {
+        const live = liveTrail.find(item => item.id === trail.id)
+        const merged = { ...trail, ...live }
+        return { ...merged, interrupted: merged.endedAt === undefined && (!streaming || merged.interrupted) }
+      })
       const text = extractAssistantText(msg)
       nodes.push(
         <Fragment key={key}>
+          {text.trim() && (
+            <div className="mt-3">
+              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
+              <AeroMarkdown content={text} />
+            </div>
+          )}
           {trails.length > 0 && (
             <div className="mt-3 space-y-1.5">
               {trails.map((trail) => (
                 <ToolTrailRow key={trail.id} trail={trail} />
               ))}
-            </div>
-          )}
-          {text.trim() && (
-            <div className="mt-3">
-              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
-              <AeroMarkdown content={text} />
             </div>
           )}
         </Fragment>,
@@ -953,17 +1013,19 @@ function UserMessageRow({
   projectName,
   providerOverride,
   scope,
+  context,
 }: {
   text: string
   projectName: string
   providerOverride: AgentProviderId | null
   scope: AeroToolScope
+  context?: AgentViewContext
 }) {
   const [copied, setCopied] = useState(false)
 
   const cliCommand = useMemo(
-    () => buildAgentAskCommand(projectName, text, providerOverride, scope),
-    [projectName, text, providerOverride, scope],
+    () => buildAgentAskCommand(projectName, text, providerOverride, scope, context),
+    [projectName, text, providerOverride, scope, context],
   )
 
   async function handleCopy() {
@@ -1021,17 +1083,18 @@ function buildAgentAskCommand(
   prompt: string,
   providerOverride: AgentProviderId | null,
   scope: AeroToolScope,
+  context?: AgentViewContext,
 ): string {
   const parts = ['canonry', 'agent', 'ask', shellQuote(projectName), shellQuote(prompt)]
   if (providerOverride) parts.push('--provider', providerOverride)
   if (scope === 'read-only') parts.push('--scope', 'read-only')
+  if (context) parts.push('--context', shellQuote(JSON.stringify(context)))
   return parts.join(' ')
 }
 
 function extractTrails(
   assistant: AeroAssistantMessage,
   results: Map<string, AeroToolResultMessage>,
-  fallbackStartedAt: number,
 ): ToolTrail[] {
   const trails: ToolTrail[] = []
   for (const block of assistant.content) {
@@ -1042,7 +1105,8 @@ function extractTrails(
       id: toolCall.id,
       name: toolCall.name,
       args: toolCall.arguments,
-      startedAt: fallbackStartedAt,
+      label: result?.aeroToolLabel,
+      durationMs: result?.aeroDurationMs,
       endedAt: result?.timestamp,
       isError: result?.isError,
       result: result?.content,
@@ -1059,9 +1123,9 @@ function extractTrails(
  */
 function ToolTrailRow({ trail }: { trail: ToolTrail }) {
   const [expanded, setExpanded] = useState(false)
-  const running = trail.endedAt === undefined
+  const running = trail.endedAt === undefined && !trail.interrupted
   const failed = !running && trail.isError === true
-  const durationMs = trail.endedAt != null ? trail.endedAt - trail.startedAt : null
+  const durationMs = trail.durationMs ?? (trail.endedAt != null && trail.startedAt != null ? trail.endedAt - trail.startedAt : null)
   const durationLabel =
     durationMs == null || durationMs < 0 ? null : durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
 
@@ -1073,7 +1137,7 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
   const bgClass = failed ? 'bg-negative-950/20' : running ? 'bg-positive-950/20' : 'bg-surface-hover'
 
   return (
-    <div className={`rounded-md border ${borderClass} ${bgClass} font-mono`}>
+    <div className={`rounded-md border ${borderClass} ${bgClass}`}>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -1089,13 +1153,13 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
             <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-[11px] font-semibold text-heading">{trail.name}</span>
+        <span className="text-sm font-medium text-heading">{trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')}</span>
         <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
           {running ? (
             <span className="text-positive-400">running…</span>
           ) : (
             <>
-              <span>{failed ? 'failed' : 'ok'}</span>
+              <span>{trail.interrupted ? 'interrupted' : failed ? 'failed' : 'done'}</span>
               {durationLabel && <span>{durationLabel}</span>}
             </>
           )}
@@ -1107,8 +1171,9 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
       </button>
       {expanded && (
         <div className="border-t border-default px-2.5 py-2 text-[11px] text-secondary">
-          <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">Args</div>
-          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-neutral">
+          <div className="mb-2 text-xs text-secondary">{trail.name}</div>
+          <div className="mb-1 text-xs text-secondary">Inputs</div>
+          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
             {formatJsonPreview(trail.args)}
           </pre>
           {!running && trail.result !== undefined && (
@@ -1116,7 +1181,7 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
               <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">
                 {failed ? 'Error' : 'Result'}
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-neutral">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
                 {formatJsonPreview(trail.result)}
               </pre>
             </>
@@ -1249,12 +1314,13 @@ export function AeroBarHost() {
     staleTime: 60_000,
   })
 
-  if (!urlSegment) return null
-  if (!isAdmin) return null
+  const fallback = aeroViewFromLocation(location.pathname, location.search)
   const projects = projectsQuery.data ?? []
   const resolved =
     projects.find((p) => p.id === urlSegment) ?? projects.find((p) => p.name === urlSegment)
 
-  if (!resolved) return null
-  return <AeroBar key={resolved.name} projectName={resolved.name} />
+  const viewContext = useAeroView(resolved?.name ?? urlSegment ?? '', fallback)
+
+  if (!urlSegment || !isAdmin || !resolved) return null
+  return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} />
 }

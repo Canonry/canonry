@@ -40,7 +40,31 @@ consume Canonry through the external-agent webhook.
   avoid orphaning tool calls from their results. Concurrent compaction
   runs for the same project dedupe via an in-flight promise map.
 
-Tool surface has two layers:
+## Current view and bounded execution
+
+`runtime.ts` starts the default profile with authorized core tools, skill readers,
+`aero_inspect_view`, and `aero_list_toolkits` / `aero_load_toolkit`. Loading a
+kit updates the active pi context before the next model request. Rebuild the
+catalog every turn, including permission downgrades; never preserve a loaded
+write tool across a read-only turn. Remote read tools remain available.
+The narrow `ads-operator` catalog stays eager.
+
+`AgentPromptRequest` carries typed per-turn context and execution limits through
+REST, CLI flags, and dashboard Copy as CLI. Resolve context through public API
+reads before generation/compaction. Invalid identities must fail without silently
+widening the selection. `view-context.ts` packs report/API evidence without
+calculating metrics, preserves class denominators and missing states, and links
+the selected evidence. Do not persist context into the system-prompt snapshot.
+
+Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
+600 seconds. Count attempted calls, including invalid ones. Abort stops future
+calls; dispatched work may settle. SSE emits `aero_turn_status`; CLI and UI treat
+missing `stream_close` as failure. Observe socket closure during acquisition too.
+Transcript reads expose `isStreaming` so polling cannot erase live partial text.
+Tool results persist small labels/durations, not full `details` payloads.
+
+Tool surface:
+
 - **Canonry state** (`src/agent/tools.ts` → `mcp-to-agent-tool.ts`) — every
   tool from `src/mcp/tool-registry.ts` minus the `AERO_EXCLUDED_MCP_TOOLS`
   set, adapted into pi-agent-core `AgentTool`s. The adapter strips the
@@ -61,8 +85,8 @@ Tool surface has two layers:
   The Aero-only framing is a preface added by the generator, not guide text, so
   external hosts reading the guide, `skills/canonry/SKILL.md`, or the MCP
   resource never see Aero internals.
-- **Aero tool profiles** (`src/agent/tools.ts`) — the default profile exposes
-  the full local MCP-derived tool surface for the requested scope. The
+- **Aero tool profiles** (`src/agent/tools.ts`) — the default profile progressively exposes
+  the local MCP-derived tool surface for the requested scope. The
   `ads-operator` profile narrows local state tools to an explicit typed
   allow-list for ads reads, durable lifecycle writes, and prep, and prepends `canonry_ads_operator_context`, an
   Aero-only context-packing helper that composes existing project overview,
@@ -272,6 +296,8 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 
 ## Key files
 
+- `packages/canonry/src/agent/runtime.ts` — progressive schemas and execution budgets
+- `packages/canonry/src/agent/view-context.ts` — authoritative view evidence
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
 - `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`

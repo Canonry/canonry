@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify'
 import {
-  AGENT_PROVIDER_IDS,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
@@ -7310,42 +7309,10 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent/prompt',
     summary: 'Send a prompt to Aero and stream events back as SSE',
     description:
-      'Posts a prompt into the project\'s Aero session and streams `AgentEvent` frames as `text/event-stream`. Each frame is `data: <JSON>\\n\\n`. The server brackets the stream with `{"type":"stream_open"}` and `{"type":"stream_close"}` control frames; `{"type":"error","message":"..."}` surfaces in-stream failures without collapsing the stream. Returns 409 `AGENT_BUSY` if another turn is already in flight for this project. Body field `scope` accepts "all" | "read-only"; omitted defaults to "read-only" (safe dashboard surface). Body field `profile` accepts "default" | "ads-operator"; omitted keeps the default full Canonry operator surface. The CLI passes "all" to keep write tools available. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403. Tools execute with the install root key, so this route is an operator surface regardless of the scope requested.',
+      'Posts a prompt into the project\'s Aero session and streams `AgentEvent` frames as `text/event-stream`. Each frame is `data: <JSON>\\n\\n`. The server brackets the stream with `{"type":"stream_open"}` and `{"type":"stream_close"}` control frames; `{"type":"error","message":"..."}` surfaces in-stream failures without collapsing the stream. Returns 409 `AGENT_BUSY` if another turn is already in flight for this project. Body field `scope` accepts "all" | "read-only"; omitted defaults to "read-only" (safe dashboard surface). Body field `profile` accepts "default" | "ads-operator"; omitted keeps the default Canonry operator surface with progressive toolkit loading. Optional context carries the displayed view and is resolved through project-scoped stored reads before generation. Optional limits lower or raise bounded tool-call/time limits (defaults 30 calls/180 seconds, maxima 100/600 seconds). The aero_turn_status event reports terminal reason and call counts. Disconnecting cancels generation; an already-dispatched operation may still settle. The CLI passes "all" to keep write tools available. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403. Tools execute with the install root key, so this route is an operator surface regardless of the scope requested.',
     tags: ['agent'],
     parameters: [nameParameter],
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            required: ['prompt'],
-            properties: {
-              prompt: { type: 'string', description: "The user's message for Aero." },
-              provider: {
-                type: 'string',
-                enum: [...AGENT_PROVIDER_IDS],
-                description: 'Override the persisted LLM provider for this and subsequent turns.',
-              },
-              modelId: {
-                type: 'string',
-                description: 'Override the persisted model id for this and subsequent turns.',
-              },
-              scope: {
-                type: 'string',
-                enum: ['all', 'read-only'],
-                description: 'Tool surface scope. Default "read-only". Set "all" to enable write tools.',
-              },
-              profile: {
-                type: 'string',
-                enum: ['default', 'ads-operator'],
-                description: 'Tool profile. Default "default". Set "ads-operator" to use the narrower ads SaaS operator surface plus the ads context tool.',
-              },
-            },
-          },
-        },
-      },
-    },
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentPromptRequest' } } } },
     responses: {
       // Returns text/event-stream — codegen consumers should treat as a stream.
       200: { description: 'SSE stream of AgentEvent frames.', content: { 'text/event-stream': { schema: { type: 'string' } } } },

@@ -10,22 +10,22 @@ import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   MemorySources,
   agentMemoryDeleteRequestSchema,
+  agentPromptRequestSchema,
+  type AgentPromptRequest,
   agentMemoryUpsertRequestSchema,
   notFound,
   validationError,
   type AgentMemoryListResponse,
   describeError,
 } from '@ainyc/canonry-contracts'
-import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
+import type { Agent, AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import { requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
-import type { SupportedAgentProvider } from './session.js'
+import { aeroTurnStatus } from './runtime.js'
 import {
   AeroToolProfiles,
   AeroToolScopes,
   isAeroToolProfile,
-  type AeroToolProfile,
-  type AeroToolScope,
 } from './tools.js'
 import { buildAgentProvidersResponse } from './providers.js'
 import {
@@ -35,13 +35,7 @@ import {
   upsertMemoryEntry,
 } from './memory-store.js'
 
-type AgentPromptBody = Partial<{
-  prompt: string
-  provider?: SupportedAgentProvider
-  modelId?: string
-  scope?: AeroToolScope
-  profile?: AeroToolProfile
-}>
+type AgentPromptBody = AgentPromptRequest
 
 export interface AgentRoutesOptions {
   db: DatabaseClient
@@ -125,6 +119,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       return {
         messages,
+        isStreaming: opts.sessionRegistry.isBusy(project.name),
         modelProvider: row.modelProvider,
         modelId: row.modelId,
         updatedAt: row.updatedAt,
@@ -170,9 +165,10 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   }>('/projects/:name/agent/prompt', async (request, reply) => {
     requireInstanceAdministrator(request)
     const project = resolveProject(opts.db, request.params.name)
-    const body = request.body as unknown as AgentPromptBody | undefined
-    const promptText = (body?.prompt ?? '').trim()
-    if (!promptText) throw validationError('"prompt" is required')
+    const parsed = agentPromptRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError(parsed.error.issues.map(issue => issue.message).join('; '))
+    const body = parsed.data
+    const promptText = body.prompt
 
     // Tool-scope policy:
     //   - Dashboard (no `scope` / `read-only`) — default. Prevents the bar
@@ -190,12 +186,33 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // scope / model mutation, so a second request against a busy Agent
     // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
     // tools or model. Safe to call concurrently from CLI + dashboard.
-    const agent = await opts.sessionRegistry.acquireForTurn(project.name, {
-      provider: body?.provider,
-      modelId: body?.modelId,
-      toolScope: requestedScope,
-      toolProfile: requestedProfile,
-    })
+    const disconnected = new AbortController()
+    let agent: Agent | undefined
+    // Observe closure during context validation/compaction too, before SSE opens.
+    const onClose = () => {
+      if (!reply.raw.writableEnded) {
+        disconnected.abort()
+        agent?.abort()
+      }
+    }
+    reply.raw.once('close', onClose)
+    try {
+      agent = await opts.sessionRegistry.acquireForTurn(project.name, {
+        provider: body.provider,
+        modelId: body.modelId,
+        toolScope: requestedScope,
+        toolProfile: requestedProfile,
+        context: body.context,
+        limits: body.limits,
+        signal: disconnected.signal,
+      })
+    } catch (err) {
+      reply.raw.off('close', onClose)
+      if (disconnected.signal.aborted) return reply
+      throw err
+    }
+    if (disconnected.signal.aborted) return reply
+    const acquiredAgent = agent
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -204,7 +221,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       'X-Accel-Buffering': 'no',
     })
 
-    const write = (payload: AgentEvent | { type: 'stream_open' } | { type: 'stream_close' } | { type: 'error'; message: string }): void => {
+    const write = (payload: AgentEvent | { type: 'stream_open' } | { type: 'stream_close' } | { type: 'error'; message: string } | { type: 'aero_turn_status'; status: ReturnType<typeof aeroTurnStatus> }): void => {
       if (reply.raw.writableEnded) return
       try {
         reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`)
@@ -215,37 +232,37 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
 
     write({ type: 'stream_open' })
     const unsubscribe = agent.subscribe((event) => {
-      write(event)
+      if (event.type === 'tool_execution_start') {
+        const labelled = { ...event, label: acquiredAgent.state.tools.find(tool => tool.name === event.toolName)?.label }
+        write(labelled)
+      } else write(event)
     })
 
-    // Abort the run if the client disconnects mid-stream. Listen on the
-    // response raw (not the request raw) because for a POST the request
-    // stream fires 'close' as soon as the body finishes uploading — long
-    // before the response stream matters. Response-side 'close' fires when
-    // the underlying socket actually goes away. `once` so we don't leak a
-    // listener if the socket emits multiple close events.
-    reply.raw.once('close', () => {
-      if (!reply.raw.writableEnded) {
-        agent.abort()
-      }
-    })
-
+    let failed = false
     try {
       const pending = opts.sessionRegistry.consumePending(project.name)
       const userMessage: AgentMessage = {
         role: 'user',
         content: promptText,
         timestamp: Date.now(),
+        ...(body.context ? { aeroContext: body.context } : {}),
       } as AgentMessage
       const batch = pending.length > 0 ? [...pending, userMessage] : userMessage
 
       await agent.prompt(batch)
       await agent.waitForIdle()
-      opts.sessionRegistry.save(project.name)
     } catch (err) {
+      failed = true
       write({ type: 'error', message: describeError(err) })
     } finally {
+      try { opts.sessionRegistry.save(project.name) } catch (err) {
+        failed = true
+        write({ type: 'error', message: describeError(err) })
+      }
+      const status = aeroTurnStatus(agent)
+      write({ type: 'aero_turn_status', status: status && failed ? { ...status, reason: 'error' } : status })
       unsubscribe()
+      reply.raw.off('close', onClose)
       write({ type: 'stream_close' })
       if (!reply.raw.writableEnded) {
         reply.raw.end()

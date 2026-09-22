@@ -1,3 +1,4 @@
+import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { ApiError, handleAuthExpired } from './api.js'
 import type { AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
 
@@ -39,11 +40,14 @@ export type AeroAssistantMessage = {
   timestamp?: number
 }
 export type AeroUserMessage = {
+  aeroContext?: AgentViewContext
   role: 'user'
   content: string | Array<{ type: string; [k: string]: unknown }>
   timestamp?: number
 }
 export type AeroToolResultMessage = {
+  aeroToolLabel?: string
+  aeroDurationMs?: number
   role: 'toolResult'
   content: Array<{ type: string; [k: string]: unknown }>
   toolCallId: string
@@ -53,6 +57,7 @@ export type AeroToolResultMessage = {
 export type AeroMessage = AeroUserMessage | AeroAssistantMessage | AeroToolResultMessage
 
 export type AeroEvent =
+  | { type: 'aero_turn_status'; status?: { reason: 'completed' | 'stopped' | 'tool-limit' | 'time-limit' | 'error'; toolCalls: number; modelCalls: number; durationMs: number } }
   | { type: 'stream_open' }
   | { type: 'stream_close' }
   | { type: 'error'; message: string }
@@ -63,11 +68,12 @@ export type AeroEvent =
   | { type: 'message_start'; message: AeroMessage }
   | { type: 'message_update'; message: AeroMessage; assistantMessageEvent: Record<string, unknown> }
   | { type: 'message_end'; message: AeroMessage }
-  | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown }
+  | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown; label?: string }
   | { type: 'tool_execution_update'; toolCallId: string; toolName: string; args: unknown; partialResult: unknown }
   | { type: 'tool_execution_end'; toolCallId: string; toolName: string; result: unknown; isError: boolean }
 
 export interface AeroTranscript {
+  isStreaming?: boolean
   messages: AeroMessage[]
   modelProvider: string | null
   modelId: string | null
@@ -143,6 +149,8 @@ export interface PromptAeroArgs {
   scope?: AeroToolScope
   /** Optional narrower tool profile for specialized workflows. */
   profile?: AeroToolProfile
+  context?: AgentViewContext
+  limits?: AgentTurnLimits
   signal?: AbortSignal
   onEvent: (event: AeroEvent) => void
 }
@@ -160,6 +168,8 @@ export async function promptAero({
   modelId,
   scope,
   profile,
+  context,
+  limits,
   signal,
   onEvent,
 }: PromptAeroArgs): Promise<void> {
@@ -168,6 +178,8 @@ export async function promptAero({
   if (modelId) body.modelId = modelId
   if (scope) body.scope = scope
   if (profile) body.profile = profile
+  if (context) body.context = context
+  if (limits) body.limits = limits
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/prompt`, {
     method: 'POST',
     credentials: 'include',
@@ -181,6 +193,7 @@ export async function promptAero({
     throw new ApiError(errBody.error?.message ?? `prompt failed: ${res.status}`, res.status, errBody.error?.code)
   }
 
+  let closed = false
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -191,6 +204,7 @@ export async function promptAero({
     reader.cancel().catch(() => {})
   }
   signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) onAbort()
 
   try {
     while (true) {
@@ -206,15 +220,16 @@ export async function promptAero({
           if (!line.startsWith('data:')) continue
           const payload = line.slice(5).trim()
           if (!payload) continue
-          try {
-            onEvent(JSON.parse(payload) as AeroEvent)
-          } catch {
-            /* ignore malformed frame */
-          }
+          let event: AeroEvent
+          try { event = JSON.parse(payload) as AeroEvent } catch { continue }
+          if (event.type === 'stream_close') closed = true
+          onEvent(event)
         }
         boundary = buffer.indexOf('\n\n')
       }
     }
+    if (signal?.aborted) throw new DOMException('Turn stopped', 'AbortError')
+    if (!closed) throw new Error('Connection ended before Aero finished. Review the partial answer before retrying.')
   } finally {
     signal?.removeEventListener('abort', onAbort)
     try {

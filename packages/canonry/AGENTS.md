@@ -661,3 +661,10 @@ Site Health, backlinks, configuration, audit records, and usage accounting remai
 ### Public sample server
 
 `canonry demo` starts a separate in-memory, synthetic, view-only runtime. It must never use the normal server factory, personal config/database paths, provider callbacks, or background workers. The exact GET/HEAD allowlist in `src/demo/access.ts` is intentional; new route registrations are denied until explicitly audited. Startup has no MCP parity because it controls a host listener. See `docs/public-demo.md`.
+
+
+Native `agent ask` supports `--context <json>`, `--max-tool-calls`, and
+`--timeout-ms`, sharing `AgentPromptRequest` with REST/dashboard. Context is per
+turn; it does not widen tool scope. Preserve terminal `aero_turn_status` in JSON
+output and fail unexpected SSE EOF. See `src/agent/AGENTS.md` and
+`docs/aero-evaluation.md` for runtime boundaries and captured-turn evaluation.

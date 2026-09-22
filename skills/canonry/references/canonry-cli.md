@@ -1199,14 +1199,12 @@ drive Canonry from Claude Code / Codex / a custom agent.
 # One-shot turn — Aero picks its own tools, streams events to stdout.
 cnry agent ask <project> "<prompt>"
 cnry agent ask <project> "<prompt>" --format json      # JSON event stream
-cnry agent ask --all "<prompt>"                        # fan out the same prompt across every project
-cnry agent ask <project> "<prompt>" --trace            # emit tool-execution detail for debugging
 
 # Select a specific provider / model (otherwise auto-detected from config).
-cnry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
-cnry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
+cnry agent ask <project> "<prompt>" --provider claude
+cnry agent ask <project> "<prompt>" --provider zai
 cnry agent ask <project> "<prompt>" --provider openai
-cnry agent ask <project> "<prompt>" --provider google
+cnry agent ask <project> "<prompt>" --provider gemini
 cnry agent ask <project> "<prompt>" --provider deepinfra   # agent tier defaults to deepseek-ai/DeepSeek-V4-Flash (key: DEEPINFRA_TOKEN)
 
 # Restrict the tool surface. Default is --scope all (full read+write surface).
@@ -1214,6 +1212,11 @@ cnry agent ask <project> "<prompt>" --provider deepinfra   # agent tier defaults
 # commands can't enable writes the UI turn couldn't perform.
 cnry agent ask <project> "<prompt>" --scope read-only
 cnry agent ask <project> "<prompt>" --scope all
+
+# Carry the selected view (also included by dashboard Copy as CLI).
+cnry agent ask <project> "Explain this Property" --scope read-only --context '{"view":"property","selection":{"scope":"property","scopeKey":"hotel","queryClass":"non-brand","runId":"run-3"}}'
+cnry agent ask <project> "Explain this page" --scope read-only --context '{"view":"site-health","page":{"runId":"scan-1","nodeKey":"page-2"}}'
+cnry agent ask <project> "Top insights" --max-tool-calls 15 --timeout-ms 120000
 
 # Session + provider introspection
 cnry agent providers <project>                # list provider keys Aero will pick from + the resolved default
@@ -1227,8 +1230,8 @@ cnry agent memory set <project> --key <k> --value <v>     # 2 KB cap per value
 cnry agent memory forget <project> --key <k>
 ```
 
-**Provider detection order** when `--provider` is omitted: `anthropic` →
-`openai` → `google` → `zai` → `deepinfra`, whichever has an API key present
+**Provider detection order** when `--provider` is omitted: `claude` →
+`openai` → `gemini` → `zai` → `deepinfra`, whichever has an API key present
 first (from `~/.canonry/config.yaml` providers block, or the matching env var
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY` /
 `DEEPINFRA_TOKEN`). `deepinfra` (DeepSeek-V4-Flash for the agent, GLM-5.2 for
@@ -1239,6 +1242,19 @@ useful when the agent / analyze / classify tiers must avoid PRC-hosted GLM
 Conversations **persist per project** — `cnry agent ask` continues the
 same rolling thread each invocation. Reset with `cnry agent reset <project>`
 or via the dashboard bar's reset button.
+
+Aero starts with core tools and loads authorized toolkits as needed. The
+`ads-operator` profile keeps its explicit narrow catalog. Loading tools never
+changes the caller's scope. Defaults are 30 tool calls and 180,000 ms of agent
+execution; overrides allow 1–100 calls and 1,000–600,000 ms. The SSE/JSON stream
+includes `aero_turn_status` with reason, call counts, duration, and limits.
+Invalid context is rejected before generation. Context is per turn; it is not
+an authorization grant or a persistent filter.
+
+Stop with Ctrl-C in the CLI or Stop in the dashboard. Partial messages persist;
+an action already dispatched may still finish. Inspect the transcript before
+repeating a write. The dashboard offers Retry for read-only turns and prompt
+review for write-capable turns. Unexpected stream EOF is an error.
 
 ### External agents (webhook)
 

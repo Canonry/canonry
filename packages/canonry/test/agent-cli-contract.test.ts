@@ -167,3 +167,18 @@ describe('agent CLI contract', () => {
     expect(parsed.error.details.flag).toBe('value')
   })
 })
+
+
+it('passes scoped context and validated turn limits from CLI flags', async () => {
+  const { agentAsk } = await import('../src/commands/agent-ask.js')
+  const context = { view: 'site-health', page: { runId: 'scan-1', nodeKey: 'page-2' } }
+  const result = await invokeAgentCli(['agent', 'ask', 'demo', 'Explain this page', '--context', JSON.stringify(context), '--max-tool-calls', '4', '--timeout-ms', '10000'])
+  expect(result.exitCode).toBeUndefined()
+  expect(agentAsk).toHaveBeenLastCalledWith(expect.objectContaining({ context, limits: { maxToolCalls: 4, timeoutMs: 10000 } }))
+})
+
+it.each([['--context', '{bad'], ['--max-tool-calls', '101'], ['--timeout-ms', '0']])('refuses invalid %s with a machine-readable usage error', async (flag, value) => {
+  const result = await invokeAgentCli(['agent', 'ask', 'demo', 'Explain', flag, value, '--format', 'json'])
+  expect(result.exitCode).toBe(1)
+  expect(JSON.parse(result.stderr).error.code).toBe('CLI_USAGE_ERROR')
+})

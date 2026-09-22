@@ -1,3 +1,4 @@
+import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import {
   CliError,
@@ -33,6 +34,8 @@ export interface AgentAskOptions {
   scope?: AgentAskScope
   profile?: AgentAskProfile
   format?: string
+  context?: AgentViewContext
+  limits?: AgentTurnLimits
 }
 
 /**
@@ -59,6 +62,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
   process.on('SIGINT', onSigint)
 
   let sawStreamError = false
+  let streamClosed = false
 
   try {
     const client = createApiClient()
@@ -69,6 +73,8 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
         provider: opts.provider,
         modelId: opts.modelId,
         scope: opts.scope ?? 'all',
+        ...(opts.context ? { context: opts.context } : {}),
+        ...(opts.limits ? { limits: opts.limits } : {}),
         ...(opts.profile ? { profile: opts.profile } : {}),
       },
       controller.signal,
@@ -82,15 +88,19 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
     }
 
     for await (const event of parseSse(res.body)) {
+      if (event.type === 'stream_close') streamClosed = true
       renderEvent(event, isJson)
       if (event.type === 'message_end' && event.message.role === 'assistant') {
         const msg = event.message as unknown as { stopReason?: string; errorMessage?: string }
         if (msg.stopReason === 'error' || msg.errorMessage) sawStreamError = true
+      } else if (event.type === 'aero_turn_status' && event.status?.reason !== 'completed') {
+        sawStreamError = true
       } else if (event.type === 'error') {
         sawStreamError = true
       }
     }
 
+    if (!streamClosed) throw new CliError({ code: 'API_ERROR', message: 'Connection ended before Aero finished. Inspect the transcript before retrying.', exitCode: EXIT_SYSTEM_ERROR })
     if (sawStreamError) process.exitCode = EXIT_SYSTEM_ERROR
   } catch (err) {
     printCliError(err, format)
@@ -103,6 +113,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
 
 type CliStreamEvent =
   | AgentEvent
+  | { type: 'aero_turn_status'; status?: { reason: string; toolCalls: number; modelCalls: number; durationMs: number } }
   | { type: 'stream_open' }
   | { type: 'stream_close' }
   | { type: 'error'; message: string }
@@ -166,6 +177,9 @@ function renderEvent(event: CliStreamEvent, isJson: boolean): void {
       }
       break
     }
+    case 'aero_turn_status':
+      if (event.status && event.status.reason !== 'completed') console.error(`Aero stopped: ${event.status.reason} (${event.status.toolCalls} tool calls).`)
+      break
     case 'error':
       console.error(`Agent stream error: ${event.message}`)
       break

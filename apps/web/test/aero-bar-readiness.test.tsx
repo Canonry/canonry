@@ -258,3 +258,53 @@ test('operator mode retains the exact Aero sweep shortcut and saved write scope'
     prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.', scope: 'all',
   })))
 })
+
+const READY_AERO = {
+  providers: [{ id: 'openai' as const, label: 'OpenAI', defaultModel: 'model', configured: true, keySource: 'config' as const }],
+  defaultProvider: 'openai' as const,
+}
+const EMPTY_TRANSCRIPT = { messages: [], modelProvider: 'openai', modelId: 'model', updatedAt: null }
+
+test('keeps intermediate responses and renders a completed tool call once', async () => {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    const assistant: aero.AeroAssistantMessage = { role: 'assistant', timestamp: 1, content: [
+      { type: 'text', text: 'Checking the selected market.' },
+      { type: 'toolCall', id: 'call-1', name: 'canonry_insights_list', arguments: {} },
+    ] }
+    const tool: aero.AeroToolResultMessage = { role: 'toolResult', timestamp: 2, toolCallId: 'call-1', content: [{ type: 'text', text: '[]' }] }
+    const answer: aero.AeroAssistantMessage = { role: 'assistant', timestamp: 3, content: [{ type: 'text', text: 'No active insights.' }] }
+    onEvent({ type: 'message_end', message: assistant })
+    onEvent({ type: 'tool_execution_start', toolCallId: 'call-1', toolName: 'canonry_insights_list', label: 'Read insights', args: {} })
+    onEvent({ type: 'tool_execution_end', toolCallId: 'call-1', toolName: 'canonry_insights_list', isError: false, result: [] })
+    onEvent({ type: 'message_end', message: tool })
+    onEvent({ type: 'message_end', message: answer })
+    onEvent({ type: 'aero_turn_status', status: { reason: 'completed', toolCalls: 1, modelCalls: 2, durationMs: 2 } })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: [assistant, tool, answer] })
+  })
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Check this market' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByText('No active insights.')
+  expect(screen.getAllByText('Read insights')).toHaveLength(1)
+  expect(screen.getByText('Checking the selected market.')).toBeTruthy()
+})
+
+test('Stop preserves a partial answer and offers an explicit retry', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent, signal }) => {
+    onEvent({ type: 'message_update', message: { role: 'assistant', content: [{ type: 'text', text: 'The measured change is' }] }, assistantMessageEvent: {} })
+    await new Promise<void>((_resolve, reject) => signal?.addEventListener('abort', () => reject(new DOMException('Stopped', 'AbortError')), { once: true }))
+  })
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Explain this change' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByText('The measured change is')
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Aero' }))
+  await screen.findByText(/Stopped. Partial response preserved/)
+  expect(screen.getByText('The measured change is')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  expect(prompt).toHaveBeenCalledTimes(1)
+})
