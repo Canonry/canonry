@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { ScheduleDto } from '@ainyc/canonry-contracts'
-import { printSchedule } from '../src/commands/schedule.js'
+import { formatNextRun, printSchedule } from '../src/commands/schedule.js'
 
 describe('printSchedule (text-mode output)', () => {
   let logSpy: ReturnType<typeof vi.spyOn>
@@ -66,6 +66,14 @@ describe('printSchedule (text-mode output)', () => {
     expect(lines.some(line => line.startsWith('  Cron:'))).toBe(false)
   })
 
+  // A bare ISO timestamp made a wrong timezone invisible: the operator had to
+  // convert in their head to notice a run was hours off. Local first (what was
+  // asked for), UTC second (what the scheduler stores).
+  it('renders the next run in the schedule timezone beside UTC', () => {
+    printSchedule(baseSchedule({ timezone: 'Etc/GMT-2', nextRunAt: '2026-09-23T09:00:00.000Z' }))
+    expect(lines).toContain('  Next run:  2026-09-23 11:00 (+02:00) / 09:00Z')
+  })
+
   it('renders sourceId only for traffic-sync schedules', () => {
     printSchedule(baseSchedule({ kind: 'traffic-sync', sourceId: 'src_abc' }))
     expect(lines.some(l => l === '  Source:    src_abc')).toBe(true)
@@ -74,5 +82,28 @@ describe('printSchedule (text-mode output)', () => {
   it('omits sourceId for answer-visibility schedules even when present', () => {
     printSchedule(baseSchedule({ kind: 'answer-visibility', sourceId: 'src_abc' }))
     expect(lines.some(l => l.startsWith('  Source:'))).toBe(false)
+  })
+})
+
+describe('formatNextRun', () => {
+  it('renders local time, offset, and UTC', () => {
+    expect(formatNextRun('2026-09-23T09:00:00.000Z', 'Etc/GMT-2')).toBe('2026-09-23 11:00 (+02:00) / 09:00Z')
+    expect(formatNextRun('2026-09-23T12:00:00.000Z', 'America/New_York')).toBe('2026-09-23 08:00 (-04:00) / 12:00Z')
+  })
+
+  it('follows the zone across a DST change rather than a fixed offset', () => {
+    // Same stored instant, either side of the European transition.
+    expect(formatNextRun('2026-10-21T09:00:00.000Z', 'Europe/Berlin')).toBe('2026-10-21 11:00 (+02:00) / 09:00Z')
+    expect(formatNextRun('2026-11-04T09:00:00.000Z', 'Europe/Berlin')).toBe('2026-11-04 10:00 (+01:00) / 09:00Z')
+  })
+
+  it('renders UTC schedules without inventing an offset', () => {
+    expect(formatNextRun('2026-09-23T09:00:00.000Z', 'UTC')).toBe('2026-09-23 09:00 (+00:00) / 09:00Z')
+  })
+
+  it('falls back to the raw value rather than throwing', () => {
+    // `schedule show` must never crash on a malformed row or an unknown zone.
+    expect(formatNextRun('not-a-date', 'UTC')).toBe('not-a-date')
+    expect(formatNextRun('2026-09-23T09:00:00.000Z', 'Not/AZone')).toBe('2026-09-23T09:00:00.000Z')
   })
 })
