@@ -1,3 +1,4 @@
+import { AeroViewProvider } from '../contexts/aero-view-context.js'
 import { createRootRouteWithContext, createRoute, lazyRouteComponent, redirect, Outlet } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 
@@ -117,7 +118,7 @@ type SearchParams = {
 function RootLayoutWithErrorBoundary() {
   return (
     <ErrorBoundary>
-      <RootLayout />
+      <AeroViewProvider><RootLayout /></AeroViewProvider>
     </ErrorBoundary>
   )
 }

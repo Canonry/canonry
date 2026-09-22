@@ -3,8 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { agentAsk } from '../src/commands/agent-ask.js'
-import { AeroToolProfiles, AeroToolScopes, type AeroToolProfile, type AeroToolScope } from '../src/agent/tools.js'
+import { agentAsk, type AgentAskOptions } from '../src/commands/agent-ask.js'
+import { AeroToolProfiles, AeroToolScopes } from '../src/agent/tools.js'
 
 /**
  * The dashboard AeroBar can run in `read-only` mode; the CLI defaults to
@@ -43,14 +43,14 @@ describe('agent ask scope parity', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  async function captureBody(opts: { scope?: AeroToolScope; profile?: AeroToolProfile }): Promise<string> {
+  async function captureBody(opts: Pick<AgentAskOptions, 'scope' | 'profile' | 'context' | 'limits'>): Promise<string> {
     let captured = ''
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.endsWith('/api/v1/projects/demo/agent/prompt')) {
         captured = String(init?.body ?? '')
         // Return a trivially-closed SSE stream so the command exits cleanly.
-        return new Response('', {
+        return new Response('data: {"type":"stream_close"}\n\n', {
           status: 200,
           headers: { 'content-type': 'text/event-stream' },
         })
@@ -58,9 +58,15 @@ describe('agent ask scope parity', () => {
       return new Response('not found', { status: 404 })
     }) as typeof globalThis.fetch
 
-    await agentAsk({ project: 'demo', prompt: 'hi', scope: opts.scope, profile: opts.profile })
+    await agentAsk({ project: 'demo', prompt: 'hi', ...opts })
     return captured
   }
+
+  it('forwards the same scoped context and limits as the dashboard', async () => {
+    const context = { view: 'site-health' as const, page: { runId: 'scan-1', nodeKey: 'page-2' } }
+    const limits = { maxToolCalls: 4, timeoutMs: 20_000 }
+    expect(JSON.parse(await captureBody({ scope: 'read-only', context, limits }))).toMatchObject({ context, limits, scope: 'read-only' })
+  })
 
   it('omitted scope defaults to "all" so CLI turns keep write capability', async () => {
     const body = await captureBody({})

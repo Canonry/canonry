@@ -1,3 +1,4 @@
+import { usePublishAeroView } from '../contexts/aero-view-context.js'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
@@ -821,6 +822,7 @@ export function MeasurementPropertyPage() {
   const selectedClassError = queryClass === 'branded' ? brandedQuery.isError : nonBrandQuery.isError
   const selectedClassUnavailable = selectedClassError && selectedRow === undefined
   const displayedRunId = selected?.measurement.displayedRunId
+  usePublishAeroView(project, { view: 'property', selection: { mode: 'advanced', scope: 'property', scopeKey: property, queryClass, limit: 10, ...(displayedRunId ? { runId: displayedRunId } : {}) } })
 
   // The engine COUNT is gone from this page: the engine table below states it by
   // listing one row per engine, and a card above restating it was one of the

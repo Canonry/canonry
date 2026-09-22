@@ -36,16 +36,15 @@ import {
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 
-// Aero registers every MCP tool except the exclusion set, plus 2 bundled
-// skill-doc tools. Computing from the registry keeps the assertions stable
-// as new tools are added — the contract is "all reads + skill-docs" and
-// "all reads + writes + skill-docs", not a hardcoded count.
-const SKILL_DOC_TOOL_COUNT = 2
+// Initial schemas contain authorized core tools, two skill readers, two
+// toolkit controls, and the current-view evidence reader. Non-core tools load
+// during the turn; telemetry reports the catalog actually sent to the model.
+const SKILL_DOC_TOOL_COUNT = 5
 const AERO_READ_TOOL_COUNT =
-  canonryMcpTools.filter((t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length +
+  canonryMcpTools.filter((t) => t.tier === 'core' && t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length +
   SKILL_DOC_TOOL_COUNT
 const AERO_ALL_TOOL_COUNT =
-  canonryMcpTools.filter((t) => !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
+  canonryMcpTools.filter((t) => t.tier === 'core' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
 const AERO_ADS_OPERATOR_READ_TOOL_COUNT =
   canonryMcpTools.filter(
     (t) =>
@@ -54,13 +53,13 @@ const AERO_ADS_OPERATOR_READ_TOOL_COUNT =
       !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
   ).length +
   1 +
-  SKILL_DOC_TOOL_COUNT
+  2
 const AERO_ADS_OPERATOR_ALL_TOOL_COUNT =
   canonryMcpTools.filter(
     (t) => AERO_ADS_OPERATOR_MCP_TOOL_NAMES.has(t.name) && !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
   ).length +
   1 +
-  SKILL_DOC_TOOL_COUNT
+  2
 
 function stubClient(): ApiClient {
   return {} as unknown as ApiClient

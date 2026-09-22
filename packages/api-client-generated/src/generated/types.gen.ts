@@ -672,6 +672,45 @@ export type QueryTrackingCommitResponse = {
     };
 };
 
+export type AgentPromptRequest = {
+    prompt: string;
+    provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+    modelId?: string;
+    scope?: 'all' | 'read-only';
+    profile?: 'default' | 'ads-operator';
+    context?: {
+        view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health';
+        unavailableReason?: string;
+        selection?: {
+            mode: 'auto' | 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: 'project' | 'group' | 'market' | 'property';
+            scopeKey?: string;
+            marketKey?: string;
+            provider?: string;
+            model?: string;
+            location?: string;
+            from?: string;
+            to?: string;
+            revision?: number;
+            runId?: string;
+            queryKey?: string;
+            queryId?: string;
+            search?: string;
+            cursor?: string;
+            limit: number;
+        };
+        page?: {
+            runId?: string;
+            nodeKey?: string;
+        };
+    };
+    limits?: {
+        maxToolCalls: number;
+        timeoutMs: number;
+    };
+};
+
 export type AgentProvidersResponseDto = {
     providers: Array<{
         id: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';

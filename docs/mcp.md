@@ -374,3 +374,11 @@ A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rej
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.
 
 Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Ordinary tool results retain their legacy JSON text and also provide MCP `structuredContent`: object responses stay objects, top-level arrays are wrapped as `{ "items": [...] }`, and scalars as `{ "value": ... }`. Canonry API/client errors and Zod input-validation errors return MCP tool results with `isError: true` and the same structured `{ "error": { "code", "message", "details" } }` envelope in both text and `structuredContent` (`VALIDATION_ERROR` for bad input, with `details.issues` listing the per-field problems). Malformed JSON-RPC and unknown tools remain MCP protocol errors.
+
+
+Native Aero uses the same authorized registry, starting with core tools and
+loading toolkits on demand. `aero_inspect_view` composes existing visibility
+report or Site Health API reads; external agents use those public reads directly.
+The native prompt remains an `excluded-protocol` SSE operation: external agents
+call Canonry tools directly rather than recursively delegate to Aero. Native
+view context and execution limits are available through REST and `agent ask`.
