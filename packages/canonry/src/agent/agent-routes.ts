@@ -1,3 +1,4 @@
+import { agentBusy } from '@ainyc/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -19,7 +20,7 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import type { Agent, AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
-import { requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
+import { registerAgentConversationRoutes, requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { aeroTurnStatus } from './runtime.js'
 import {
@@ -107,6 +108,7 @@ function resolveProject(db: DatabaseClient, name: string): { id: string; name: s
  * (so clients can distinguish clean closes from network drops).
  */
 export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptions): void {
+  registerAgentConversationRoutes(app, { db: opts.db, runtime: opts.sessionRegistry })
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
@@ -114,11 +116,12 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
       if (!row) {
-        return { messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
+        return { conversationId: null, messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
       }
       const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       return {
         messages,
+        conversationId: row.id,
         isStreaming: opts.sessionRegistry.isBusy(project.name),
         modelProvider: row.modelProvider,
         modelId: row.modelId,
@@ -146,6 +149,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     async (request) => {
       requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
+      if (opts.sessionRegistry.isBusy(project.name)) throw agentBusy(project.name)
       // `reset` (not `evict`) — wipes the in-memory pending follow-up
       // buffer too. Otherwise a system message queued on a hot session
       // would leak into the next prompt after this reset.
@@ -168,6 +172,10 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     const parsed = agentPromptRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError(parsed.error.issues.map(issue => issue.message).join('; '))
     const body = parsed.data
+    if (body.conversationId !== undefined) {
+      const current = opts.db.select({ id: agentSessions.id }).from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
+      if ((current?.id ?? null) !== body.conversationId) throw validationError('The active conversation changed. Reload the conversation before sending.')
+    }
     const promptText = body.prompt
 
     // Tool-scope policy:

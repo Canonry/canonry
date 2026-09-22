@@ -1,3 +1,5 @@
+import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type UsageSurface } from '@ainyc/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
@@ -714,6 +716,8 @@ export type TelemetryDto = TelemetryStatusDto
 
 /** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */
 export interface AgentTranscriptDto {
+  conversationId?: string | null
+  isStreaming?: boolean
   messages: Array<{ role: string; content: unknown; timestamp?: number; [k: string]: unknown }>
   modelProvider: string | null
   modelId: string | null
@@ -1056,6 +1060,26 @@ export class ApiClient {
   // generated SDK and we route them through `invoke()` like every other
   // endpoint. The SSE `POST /agent/prompt` is intentionally not here — it
   // stays on `streamPost()` below since the SDK can't represent SSE cleanly.
+
+  async listAgentConversations(project: string, query?: { offset?: number; limit?: number }): Promise<AgentConversationList> {
+    return this.invoke<AgentConversationList>(() => getApiV1ProjectsByNameAgentConversations({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async getAgentConversation(project: string, id: string): Promise<AgentConversation> {
+    return this.invoke<AgentConversation>(() => getApiV1ProjectsByNameAgentConversationsById({ client: this.heyClient, path: { name: project, id } }))
+  }
+
+  async createAgentConversation(project: string, id: string): Promise<AgentConversation> {
+    return this.invoke<AgentConversation>(() => postApiV1ProjectsByNameAgentConversations({ client: this.heyClient, path: { name: project }, body: { id } }))
+  }
+
+  async resumeAgentConversation(project: string, id: string): Promise<AgentConversation> {
+    return this.invoke<AgentConversation>(() => postApiV1ProjectsByNameAgentConversationsByIdResume({ client: this.heyClient, path: { name: project, id } }))
+  }
+
+  async deleteAgentConversation(project: string, id: string): Promise<AgentConversationDelete> {
+    return this.invoke<AgentConversationDelete>(() => deleteApiV1ProjectsByNameAgentConversationsById({ client: this.heyClient, path: { name: project, id } }))
+  }
 
   async getAgentTranscript(project: string): Promise<AgentTranscriptDto> {
     return this.invoke<AgentTranscriptDto>(() =>

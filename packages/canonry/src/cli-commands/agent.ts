@@ -1,4 +1,5 @@
-import { agentViewContextSchema, agentTurnLimitsSchema, describeError, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { agentConversations, type ConversationAction } from '../commands/agent-conversations.js'
+import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, type AgentViewContext } from '@ainyc/canonry-contracts'
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
 import { agentProviders } from '../commands/agent-providers.js'
@@ -17,20 +18,35 @@ import { usageError } from '../cli-error.js'
 const AGENT_ASK_SCOPES: readonly AgentAskScope[] = ['all', 'read-only']
 
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  ...(['list', 'new', 'show', 'resume', 'delete'] as const).map((action: ConversationAction): CliCommandSpec => ({
+    path: ['agent', 'conversations', action],
+    usage: `canonry agent conversations ${action} <project> [--id <conversation-id>] [--offset <n>] [--limit <n>] [--format json]`,
+    options: { id: stringOption(), offset: stringOption(), limit: stringOption() },
+    run: async input => {
+      const usage = `canonry agent conversations ${action} <project>`
+      const project = requireProject(input, `agent.conversations.${action}`, usage)
+      const id = action === 'new' || action === 'list' ? getString(input.values, 'id')
+        : requireStringOption(input, 'id', { command: `agent.conversations.${action}`, usage, message: '--id is required' })
+      const query = agentConversationListQuerySchema.safeParse({ offset: getString(input.values, 'offset'), limit: getString(input.values, 'limit') })
+      if (!query.success) throw usageError('Invalid history pagination', { message: query.error.message })
+      await agentConversations({ project, action, id, ...query.data, format: input.format })
+    },
+  })),
   {
     path: ['agent', 'ask'],
-    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`,
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
       scope: stringOption(),
       profile: stringOption(),
       context: stringOption(),
+      conversation: stringOption(),
       'max-tool-calls': stringOption(),
       'timeout-ms': stringOption(),
     },
     run: async (input) => {
-      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`
+      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`
       const project = requireProject(input, 'agent.ask', usage)
       const prompt = input.positionals.slice(1).join(' ').trim()
       if (!prompt) {
@@ -92,6 +108,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       if (!parsedLimits.success) throw usageError('Invalid Aero turn limits', { message: parsedLimits.error.message })
       await agentAsk({
         context,
+        conversationId: getString(input.values, 'conversation'),
         limits: parsedLimits.data,
         project,
         prompt,

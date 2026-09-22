@@ -85,3 +85,8 @@ MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / repo
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.
 - `canonry serve --embed` is not an `/api/v1` operation, so it has no MCP tool (same precedent as `--base-path`).
 - Cloudflare connect: see "Adapter rules" above.
+
+Aero history is exposed through five `canonry_agent_conversations_*` tools in the
+agent toolkit. API/CLI implement the same operations. New requires a UUID for
+retry identity. The native agent excludes new/resume/delete; HTTP enforces
+instance-administrator authority on reads and writes alike.

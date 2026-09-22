@@ -7191,6 +7191,42 @@ const routeCatalog: OpenApiOperation[] = [
  */
 export const canonryLocalRouteCatalog: OpenApiOperation[] = [
   {
+    method: 'get', path: '/api/v1/projects/{name}/agent/conversations',
+    summary: 'List Aero conversation history',
+    description: 'Instance administrators only. Shared project notes survive conversation changes. A caller-supplied UUID identifies a create request; retries return that conversation without changing the active one again. Mutations of an active conversation are refused while Aero is busy.',
+    tags: ['agent'], parameters: [nameParameter, { name: 'offset', in: 'query', description: 'Archived conversations to skip.', schema: { type: 'integer', minimum: 0 } }, { name: 'limit', in: 'query', description: 'Archive page size (1–100, default 50).', schema: { type: 'integer', minimum: 1, maximum: 100 } }],
+    responses: { 200: jsonResponse('Conversation result.', 'AgentConversationList'), 400: errorResponse('Invalid request.'), 403: errorResponse('Instance administrator required.'), 404: errorResponse('Project or conversation not found.'), 409: errorResponse('Aero is busy or the ID is already in use.') },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/agent/conversations',
+    summary: 'Start a new Aero conversation and preserve the previous one',
+    description: 'Instance administrators only. Shared project notes survive conversation changes. A caller-supplied UUID identifies a create request; retries return that conversation without changing the active one again. Mutations of an active conversation are refused while Aero is busy.',
+    tags: ['agent'], parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentConversationCreate' } } } },
+    responses: { 200: jsonResponse('Conversation result.', 'AgentConversation'), 400: errorResponse('Invalid request.'), 403: errorResponse('Instance administrator required.'), 404: errorResponse('Project or conversation not found.'), 409: errorResponse('Aero is busy or the ID is already in use.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/agent/conversations/{id}',
+    summary: 'Read an Aero conversation',
+    description: 'Instance administrators only. Shared project notes survive conversation changes. A caller-supplied UUID identifies a create request; retries return that conversation without changing the active one again. Mutations of an active conversation are refused while Aero is busy.',
+    tags: ['agent'], parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Project-owned conversation ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Conversation result.', 'AgentConversation'), 400: errorResponse('Invalid request.'), 403: errorResponse('Instance administrator required.'), 404: errorResponse('Project or conversation not found.'), 409: errorResponse('Aero is busy or the ID is already in use.') },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/agent/conversations/{id}/resume',
+    summary: 'Resume an Aero conversation',
+    description: 'Instance administrators only. Shared project notes survive conversation changes. A caller-supplied UUID identifies a create request; retries return that conversation without changing the active one again. Mutations of an active conversation are refused while Aero is busy.',
+    tags: ['agent'], parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Project-owned conversation ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Conversation result.', 'AgentConversation'), 400: errorResponse('Invalid request.'), 403: errorResponse('Instance administrator required.'), 404: errorResponse('Project or conversation not found.'), 409: errorResponse('Aero is busy or the ID is already in use.') },
+  },
+  {
+    method: 'delete', path: '/api/v1/projects/{name}/agent/conversations/{id}',
+    summary: 'Delete an Aero conversation and its compaction summaries',
+    description: 'Instance administrators only. Shared project notes survive conversation changes. A caller-supplied UUID identifies a create request; retries return that conversation without changing the active one again. Mutations of an active conversation are refused while Aero is busy.',
+    tags: ['agent'], parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Project-owned conversation ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Conversation result.', 'AgentConversationDelete'), 400: errorResponse('Invalid request.'), 403: errorResponse('Instance administrator required.'), 404: errorResponse('Project or conversation not found.'), 409: errorResponse('Aero is busy or the ID is already in use.') },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/agent/transcript',
     summary: 'Get the rolling Aero transcript for this project',

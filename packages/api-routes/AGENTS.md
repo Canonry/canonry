@@ -652,3 +652,13 @@ and viewer opt-in. MCP's internal `delegatedUserId` retains user attribution and
 viewer-only restrictions but must not change the principal's API-key kind:
 paid-read and broad-instance credential gates must still run. Clients cannot
 set that identity through key creation or forge it through a key name.
+
+### Aero conversation history
+
+`agent-conversations.ts` registers through the native host's authenticated scope,
+using injected runtime hooks. All five operations require instance-administrator
+authority before project lookup. New/resume snapshot pending work, atomically
+archive/swap rows with the audit entry, then invalidate the runtime cache. Busy
+turns cannot switch. Create `id` is identity (UUID, reused on retry); history
+`offset`/`limit` are read pagination. Summaries omit message payloads. Deleting a
+conversation deletes only its own compaction summaries, retaining shared notes.

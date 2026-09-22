@@ -877,6 +877,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Internal Aero tool-call ledger for long-session observability; not exposed as a public DTO.',
   },
+  agentConversations: {
+    kind: 'internal-only',
+    reason: 'Archived runtime state. Public conversation composites omit prompts, queues, and project IDs.',
+  },
   agentSessions: {
     kind: 'internal-only',
     reason: 'Aero session state (transcript + queue). Exposed via the agent transcript composite, not as a direct row DTO.',

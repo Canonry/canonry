@@ -382,3 +382,14 @@ report or Site Health API reads; external agents use those public reads directly
 The native prompt remains an `excluded-protocol` SSE operation: external agents
 call Canonry tools directly rather than recursively delegate to Aero. Native
 view context and execution limits are available through REST and `agent ask`.
+
+### Aero conversation history
+
+The `agent` toolkit includes `canonry_agent_conversations_list`, `_get`, `_new`,
+`_resume`, and `_delete`. These mirror `agent conversations` CLI commands and
+`/projects/:name/agent/conversations` routes. Supply a UUID `id` when creating;
+reuse it for retries. List returns `nextOffset` for archive pagination. All calls
+require full instance-administrator authority; a read-only or project-scoped key
+cannot read private conversations. New/resume preserve the prior conversation.
+Delete removes its transcript and compaction notes, retaining shared project
+notes. Native Aero can read history but cannot invoke conversation mutations.

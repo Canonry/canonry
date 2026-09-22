@@ -28,6 +28,7 @@ import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema
 import {
   agentProvidersResponseDtoSchema,
   agentPromptRequestSchema,
+  agentConversationSchema, agentConversationListSchema, agentConversationCreateSchema, agentConversationDeleteSchema,
   apiKeyDtoSchema,
   apiKeyListDtoSchema,
   auditLogEntrySchema,
@@ -307,6 +308,10 @@ const SCHEMA_TABLE = {
   QueryTrackingCommitRequest: queryTrackingCommitRequestSchema,
   QueryTrackingCommitResponse: queryTrackingCommitResponseSchema,
   AgentPromptRequest: agentPromptRequestSchema,
+  AgentConversation: agentConversationSchema,
+  AgentConversationList: agentConversationListSchema,
+  AgentConversationCreate: agentConversationCreateSchema,
+  AgentConversationDelete: agentConversationDeleteSchema,
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
   AdsAccountDto: adsAccountDtoSchema,
   AdsActivateTreeResponse: adsActivateTreeResponseSchema,

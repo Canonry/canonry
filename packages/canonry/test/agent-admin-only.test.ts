@@ -57,6 +57,11 @@ const ADMIN_ONLY = 'Only an administrator account can use this.'
  * error before any LLM turn runs, so these tests never spend a provider call.
  */
 const AGENT_ROUTES: ReadonlyArray<readonly [string, string, unknown?]> = [
+  ['GET', '/projects/acme/agent/conversations'],
+  ['GET', '/projects/acme/agent/conversations/missing'],
+  ['POST', '/projects/acme/agent/conversations', {}],
+  ['POST', '/projects/acme/agent/conversations/missing/resume'],
+  ['DELETE', '/projects/acme/agent/conversations/missing'],
   ['GET', '/projects/acme/agent/transcript'],
   ['GET', '/projects/acme/agent/providers'],
   ['GET', '/projects/acme/agent/memory'],
