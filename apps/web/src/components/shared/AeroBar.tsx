@@ -1153,7 +1153,7 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
             <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-sm font-medium text-heading">{trail.label ?? trail.name.replace(/^(canonry|aero)_/, '').replace(/_/g, ' ')}</span>
+        <span className="text-sm font-medium text-heading">{trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')}</span>
         <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
           {running ? (
             <span className="text-positive-400">running…</span>
