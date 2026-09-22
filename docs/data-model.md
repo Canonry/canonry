@@ -82,7 +82,8 @@ erDiagram
   traffic_sources ||--o{ ai_referral_events_hourly : "rolls up"
   traffic_sources ||--o{ raw_event_samples : "samples"
 
-  projects ||--o| agent_sessions : "has (1:1)"
+  projects ||--o| agent_sessions : "active conversation"
+  projects ||--o{ agent_conversations : "saved conversations"
   projects ||--o{ agent_memory : has
 
   projects ||--o{ discovery_sessions : has
@@ -353,8 +354,9 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 | Table | Purpose |
 |-------|---------|
-| **agent_sessions** | One rolling Aero session per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
-| **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Hydrated into every new session's system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
+| **agent_sessions** | One active Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
+| **agent_conversations** | Inactive Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. FK: projectId → projects |
+| **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Shared notes and only the active conversation's compaction summaries hydrate its system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
 ### Discovery (three-ring model)
 

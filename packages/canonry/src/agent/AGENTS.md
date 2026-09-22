@@ -22,11 +22,18 @@ consume Canonry through the external-agent webhook.
   into the project's session after every `run.completed`; `SessionRegistry.drainNow`
   wakes the agent unprompted so insights/failures get analyzed without a
   user click.
-- **Persistence**: one `agent_sessions` row per project. Transcript + queued
-  follow-ups survive `canonry serve` restarts. See `docs/data-model.md`.
+- **Persistence**: one active `agent_sessions` row per project, with inactive
+  conversations in `agent_conversations`. New/resume atomically archive the
+  current transcript, model, and follow-ups; delete removes only that conversation
+  and its compaction notes. Shared project notes survive. Migration 159 keeps the
+  existing active transcript intact. Busy acquisition/streaming blocks switching.
+  History routes live in `api-routes/agent-conversations.ts`, with injected runtime
+  hooks. CLI: `agent conversations list|new|show|resume|delete`; MCP: the five
+  `canonry_agent_conversations_*` tools. Native Aero excludes the three mutations
+  so it cannot switch/delete its own context. See `docs/data-model.md`.
 - **Memory**: durable project-scoped notes in `agent_memory` (key/value +
   source). Written via `remember` tool (or CLI / API), read via `recall`, and
-  the N most-recent rows are injected into every new session's system prompt
+  the N most-recent shared notes and active-conversation summaries are injected into the system prompt
   under a `<memory>` block so notes take effect immediately on next session.
   Hydrate is capped at 20 rows / 32 KB, oldest-first truncation. Keys with
   the `compaction:` prefix are reserved for summarized transcript slices.

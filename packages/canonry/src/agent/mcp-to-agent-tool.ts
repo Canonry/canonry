@@ -319,6 +319,9 @@ export function mcpToAgentTool(
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
   CanonryMcpToolNames.canonry_agent_clear,
+  CanonryMcpToolNames.canonry_agent_conversations_new,
+  CanonryMcpToolNames.canonry_agent_conversations_resume,
+  CanonryMcpToolNames.canonry_agent_conversations_delete,
   CanonryMcpToolNames.canonry_results_clear,
 ])
 

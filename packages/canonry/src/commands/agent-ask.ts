@@ -29,6 +29,7 @@ export type AgentAskProfile = AeroToolProfile
 export interface AgentAskOptions {
   project: string
   prompt: string
+  conversationId?: string
   provider?: SupportedAgentProvider
   modelId?: string
   scope?: AgentAskScope
@@ -70,6 +71,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
       `/projects/${encodeURIComponent(opts.project)}/agent/prompt`,
       {
         prompt: opts.prompt,
+        ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
         provider: opts.provider,
         modelId: opts.modelId,
         scope: opts.scope ?? 'all',

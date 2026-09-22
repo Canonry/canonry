@@ -13,6 +13,7 @@ import {
 import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@ainyc/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
+import * as api from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
@@ -307,4 +308,43 @@ test('Stop preserves a partial answer and offers an explicit retry', async () =>
   expect(screen.getByText('The measured change is')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expect(prompt).toHaveBeenCalledTimes(1)
+})
+
+
+test('new conversation preserves history; reopen and explicit delete use distinct controls', async () => {
+  const { input } = await openAeroWithSavedWriteScope(true)
+  const archived = { id: 'old', title: 'London Property diagnosis', active: false, modelProvider: 'openai', modelId: 'test', createdAt: '2026-09-21T10:00:00Z', updatedAt: '2026-09-21T10:00:00Z' }
+  const create = vi.spyOn(api, 'createAgentConversation').mockResolvedValue({ ...archived, id: 'new', active: true, messages: [], isStreaming: false })
+  const list = vi.spyOn(api, 'listAgentConversations').mockResolvedValue({ conversations: [archived], currentConversationId: 'new', nextOffset: null })
+  const resume = vi.spyOn(api, 'resumeAgentConversation').mockResolvedValue({ ...archived, active: true, messages: [], isStreaming: false })
+  const remove = vi.spyOn(api, 'deleteAgentConversation').mockResolvedValue({ id: 'old', status: 'deleted' })
+  expect(screen.queryByRole('button', { name: 'Reset conversation' })).toBeNull()
+  fireEvent.change(input, { target: { value: 'Unsent draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  await waitFor(() => expect(create).toHaveBeenCalledWith(PROJECT_NAME, expect.stringMatching(/^[a-f0-9-]{36}$/)))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'History' }).hasAttribute('disabled')).toBe(false))
+  expect((input as HTMLTextAreaElement).value).toBe('Unsent draft')
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  await screen.findByRole('button', { name: /London Property diagnosis.*2026/ })
+  expect(screen.getByLabelText('Message Aero').hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: /London Property diagnosis.*2026/ }))
+  await waitFor(() => expect(resume).toHaveBeenCalledWith(PROJECT_NAME, 'old'))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'History' }).hasAttribute('disabled')).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete conversation: London Property diagnosis' }))
+  expect(remove).not.toHaveBeenCalled()
+  expect(screen.getByText('Delete this conversation permanently? Shared project notes will be kept.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(remove).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Delete conversation: London Property diagnosis' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Delete conversation' }))
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(PROJECT_NAME, 'old'))
+  expect(list).toHaveBeenCalled()
+})
+
+test('history failures remain visible', async () => {
+  await openAeroWithSavedWriteScope(true)
+  vi.spyOn(api, 'listAgentConversations').mockRejectedValue(new Error('History unavailable'))
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'History unavailable')
 })

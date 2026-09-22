@@ -166,6 +166,11 @@ const expectedToolNames = [
   'canonry_memory_list',
   'canonry_memory_set',
   'canonry_memory_forget',
+  'canonry_agent_conversations_list',
+  'canonry_agent_conversations_get',
+  'canonry_agent_conversations_new',
+  'canonry_agent_conversations_resume',
+  'canonry_agent_conversations_delete',
   'canonry_agent_clear',
   'canonry_agent_webhook_attach',
   'canonry_agent_webhook_detach',
@@ -641,8 +646,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(221)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(148)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(226)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(150)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -689,7 +694,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gtm')).toBe(7)
     expect(counts.get('conversion-tracking')).toBe(3)
     expect(counts.get('traffic')).toBe(10)
-    expect(counts.get('agent')).toBe(5)
+    expect(counts.get('agent')).toBe(10)
     expect(counts.get('discovery')).toBe(11)
   })
 
@@ -1273,7 +1278,7 @@ describe('Dynamic tool catalog', () => {
     // surviving subset rather than `empty`.
     const result = catalog.loadToolkit('agent')
     expect(result.status).toBe('loaded')
-    expect(result.tools).toEqual(['canonry_memory_list'])
+    expect(result.tools).toEqual(['canonry_memory_list', 'canonry_agent_conversations_list', 'canonry_agent_conversations_get'])
   })
 
   it('emits exactly one tools/list_changed per loadToolkit batch', () => {
@@ -1583,6 +1588,11 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_memory_list', input: projectInput, methods: ['listAgentMemory'] },
   { tool: 'canonry_memory_set', input: { project: 'acme', key: 'pref', value: 'note' }, methods: ['setAgentMemory'] },
   { tool: 'canonry_memory_forget', input: { project: 'acme', key: 'pref' }, methods: ['forgetAgentMemory'] },
+  { tool: 'canonry_agent_conversations_list', input: { project: 'acme' }, methods: ['listAgentConversations'] },
+  { tool: 'canonry_agent_conversations_get', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['getAgentConversation'] },
+  { tool: 'canonry_agent_conversations_new', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['createAgentConversation'] },
+  { tool: 'canonry_agent_conversations_resume', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['resumeAgentConversation'] },
+  { tool: 'canonry_agent_conversations_delete', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['deleteAgentConversation'] },
   { tool: 'canonry_agent_clear', input: projectInput, methods: ['resetAgentTranscript'] },
   { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
   { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },

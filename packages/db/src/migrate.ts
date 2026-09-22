@@ -4187,6 +4187,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       ))
     },
   },
+  {
+    version: 159,
+    name: 'agent-conversation-history',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_conversations (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL, system_prompt TEXT NOT NULL, model_provider TEXT NOT NULL, model_id TEXT NOT NULL,
+        messages TEXT NOT NULL DEFAULT '[]', follow_up_queue TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_conversations_project_updated ON agent_conversations(project_id, updated_at)`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {
