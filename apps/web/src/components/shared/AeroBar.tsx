@@ -649,7 +649,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                     {history.conversations.map(conversation => (
                       <li key={conversation.id} className="py-2">
                         <div className="flex items-center gap-2">
-                          <button className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-positive" disabled={streaming || serverBusy || changingConversation} onClick={() => { if (conversation.active) setHistoryOpen(false); else void changeConversation(() => resumeAgentConversation(projectName, conversation.id)) }}>
+                          <button className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-positive-500" disabled={streaming || serverBusy || changingConversation} onClick={() => { if (conversation.active) setHistoryOpen(false); else void changeConversation(() => resumeAgentConversation(projectName, conversation.id)) }}>
                             <span className="block truncate text-sm text-heading">{conversation.title}</span>
                             <span className="text-xs text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
                           </button>
