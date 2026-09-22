@@ -154,4 +154,81 @@ describe('truncateToolResult (OSS-C)', () => {
     expect(out.length).toBeLessThanOrEqual(CAP + 50)
     expect(out).toContain('truncated')
   })
+
+  // Both structured paths re-serialize the enclosing document per step, so the
+  // shape of the payload, not just its size, decides the cost. These two shapes
+  // each stalled the server thread for seconds before the traversals were
+  // bounded: 5.2s for the top-level array, 2.1s for many small collections.
+  it('bounds a large top-level array without a per-row re-serialization', () => {
+    const payload = {
+      run: { id: 'run-1', status: 'completed' },
+      snapshots: Array.from({ length: 2_400 }, (_, i) => ({
+        id: `snap-${i}`, provider: 'openai', answerText: 'y'.repeat(900),
+      })),
+    }
+    expect(JSON.stringify(payload, null, 2).length).toBeGreaterThan(2_000_000)
+
+    const started = Date.now()
+    const out = truncateToolResult(payload)
+    const elapsedMs = Date.now() - started
+
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    expect(elapsedMs).toBeLessThan(1_500)
+  })
+
+  it('bounds many small collections that sit under the byte ceiling', () => {
+    const data: Record<string, unknown> = {}
+    for (let g = 0; g < 800; g++) {
+      data[`group_${g}`] = {
+        label: `g${g}`,
+        rows: Array.from({ length: 4 }, (_, i) => ({
+          id: `r-${g}-${i}`, provider: 'openai', answerText: 'y'.repeat(380),
+        })),
+      }
+    }
+    const payload = { data }
+    // Deliberately UNDER the byte ceiling: size is not what makes this slow.
+    const bytes = JSON.stringify(payload, null, 2).length
+    expect(bytes).toBeLessThan(2_000_000)
+
+    const started = Date.now()
+    const out = truncateToolResult(payload)
+    const elapsedMs = Date.now() - started
+
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    expect(elapsedMs).toBeLessThan(1_500)
+  })
+
+  // The nested-collection path drops one collection per iteration and re-walks
+  // (and re-serializes) the whole document each time, so its cost is quadratic
+  // in the number of collections. A real 20 MB run payload spent 289 seconds of
+  // the server's single thread to emit the same ~19k characters a slice gives.
+  // Above the ceiling the marked slice is taken instead.
+  it('falls back to the marked slice instead of walking a pathological payload', () => {
+    const payload = {
+      run: {
+        id: 'run-1',
+        snapshots: Array.from({ length: 6_000 }, (_, i) => ({
+          id: `snap-${i}`,
+          queryId: `q-${i}`,
+          answerText: 'y'.repeat(400),
+        })),
+      },
+    }
+    // Precondition: no TOP-LEVEL array (so the largest-array path cannot take
+    // it) and past the structured-truncation ceiling.
+    expect(Array.isArray(payload)).toBe(false)
+    expect(Object.values(payload).some((v) => Array.isArray(v))).toBe(false)
+    expect(JSON.stringify(payload, null, 2).length).toBeGreaterThan(2_000_000)
+
+    const started = Date.now()
+    const out = truncateToolResult(payload)
+    const elapsedMs = Date.now() - started
+
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    // The marked slice ends with the truncation note; the structure-aware path
+    // would instead return JSON carrying __truncated, so this discriminates.
+    expect(out.trimEnd().endsWith('result too large)')).toBe(true)
+    expect(elapsedMs).toBeLessThan(3_000)
+  })
 })

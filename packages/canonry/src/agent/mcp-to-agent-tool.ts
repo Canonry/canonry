@@ -11,6 +11,25 @@ import {
 
 const MAX_TOOL_RESULT_CHARS = 20_000
 const TRUNCATION_NOTE = '... (truncated — result too large)'
+/**
+ * Ceiling on the input `trimNestedArrays` will attempt. That path drops one
+ * nested collection per iteration, and each iteration re-walks the whole
+ * document (serializing every candidate array to size it) and re-serializes
+ * the copy, with a binary search doing so again per step. The cost is
+ * quadratic in the number of collections, so a pathological payload spent
+ * 289s of the server's single thread to emit the same 19,397 characters a
+ * plain slice produces. Above this size, fall through to the marked slice:
+ * the structure-aware path exists to keep evidence rows parseable, and at
+ * this scale it is discarding almost everything regardless.
+ */
+const MAX_STRUCTURED_TRUNCATION_CHARS = 2_000_000
+/**
+ * Hard bound on trimming passes in the nested path. Byte size alone does not
+ * bound this work: 800 collections inside 1.6 MB (under the ceiling above)
+ * cost 2.1s, because every pass re-walks the whole document. A real result
+ * settles in a handful of passes.
+ */
+const MAX_TRUNCATION_PASSES = 32
 
 /** Pretty JSON, exactly what the model reads in the tool-result text. */
 function serializeResult(value: unknown): string {
@@ -34,11 +53,22 @@ function largestArrayKey(obj: Record<string, unknown>): string | undefined {
 
 /** Drop WHOLE trailing rows until `render(kept)` fits the cap (or nothing is left). */
 function trimRowsToFit(rows: readonly unknown[], render: (kept: unknown[]) => string): unknown[] {
-  let kept = rows.slice()
-  while (kept.length > 0 && render(kept).length > MAX_TOOL_RESULT_CHARS) {
-    kept = kept.slice(0, -1)
+  // Binary search, not a one-row-at-a-time walk: each render is a full
+  // serialization of the enclosing document, so dropping a single row per
+  // iteration was quadratic and cost 5.2s on a 2.6 MB run-shaped result.
+  // Serialized length grows monotonically with row count, so the search lands
+  // on the same prefix the linear walk did.
+  if (rows.length === 0) return []
+  const all = rows.slice()
+  if (render(all).length <= MAX_TOOL_RESULT_CHARS) return all
+  let low = 0
+  let high = rows.length - 1
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (render(rows.slice(0, middle)).length <= MAX_TOOL_RESULT_CHARS) low = middle
+    else high = middle - 1
   }
-  return kept
+  return rows.slice(0, low)
 }
 
 interface NestedArrayCandidate {
@@ -90,7 +120,14 @@ function trimNestedArrays(full: string): string | undefined {
   const copy = parsed as Record<string, unknown>
   copy.__truncated = true
   let out = serializeResult(copy)
+  // The per-pass re-walk is load-bearing: it lets a leaf collection be dropped
+  // before the group owning it, and keeps scalar identity arrays out of reach
+  // until groups are droppable. So bound the NUMBER of passes rather than
+  // restructuring the search. A pathological payload exhausts the budget and
+  // takes the marked slice; a normal one never approaches it.
+  let passes = 0
   while (out.length > MAX_TOOL_RESULT_CHARS) {
+    if (++passes > MAX_TRUNCATION_PASSES) return undefined
     const candidate = nestedArrayCandidates(copy).at(0)
     if (!candidate) return undefined
     const { owner, key, rows } = candidate
@@ -141,6 +178,15 @@ function trimNestedArrays(full: string): string | undefined {
 export function truncateToolResult(details: unknown): string {
   const full = serializeResult(details)
   if (full.length <= MAX_TOOL_RESULT_CHARS) return full
+
+  // Bound the work BEFORE any structured path. Each of them re-serializes the
+  // enclosing document per step, so a guard in front of only the nested path
+  // left the top-level-array and largest-array paths exposed. Past this size
+  // they discard nearly everything they walk, so the walk is cost without
+  // benefit.
+  if (full.length > MAX_STRUCTURED_TRUNCATION_CHARS) {
+    return full.slice(0, MAX_TOOL_RESULT_CHARS) + '\n' + TRUNCATION_NOTE
+  }
 
   // Top-level array: trim whole elements, wrap with the marker (always fits, an
   // empty `items` is tiny).
