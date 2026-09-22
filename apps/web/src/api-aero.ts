@@ -73,6 +73,7 @@ export type AeroEvent =
   | { type: 'tool_execution_end'; toolCallId: string; toolName: string; result: unknown; isError: boolean }
 
 export interface AeroTranscript {
+  conversationId?: string | null
   isStreaming?: boolean
   messages: AeroMessage[]
   modelProvider: string | null
@@ -138,6 +139,7 @@ export type AeroToolProfile = 'default' | 'ads-operator'
 export interface PromptAeroArgs {
   project: string
   prompt: string
+  conversationId?: string | null
   /** Override Aero's auto-detected provider for this turn. */
   provider?: AgentProviderId
   /** Override the provider's default model for this turn. */
@@ -164,6 +166,7 @@ export interface PromptAeroArgs {
 export async function promptAero({
   project,
   prompt,
+  conversationId,
   provider,
   modelId,
   scope,
@@ -174,6 +177,7 @@ export async function promptAero({
   onEvent,
 }: PromptAeroArgs): Promise<void> {
   const body: Record<string, unknown> = { prompt }
+  if (conversationId !== undefined) body.conversationId = conversationId
   if (provider) body.provider = provider
   if (modelId) body.modelId = modelId
   if (scope) body.scope = scope

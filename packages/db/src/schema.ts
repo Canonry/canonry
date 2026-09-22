@@ -1835,9 +1835,8 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
  * The live pi-agent-core Agent instance (listeners, AbortController) lives
  * in memory and is reconstructed from this row after a restart.
  *
- * One row per project (enforced by UNIQUE on project_id). Single rolling
- * thread per project — we intentionally do not support many concurrent
- * threads per project (see `project_aero_ui_direction` memory).
+ * One row per project (enforced by UNIQUE on project_id). The active conversation stays
+ * here; inactive conversations live in agent_conversations.
  */
 export const agentSessions = sqliteTable('agent_sessions', {
   id: text('id').primaryKey(),
@@ -1853,6 +1852,20 @@ export const agentSessions = sqliteTable('agent_sessions', {
   index('idx_agent_sessions_project').on(table.projectId),
   index('idx_agent_sessions_updated').on(table.updatedAt),
 ])
+
+/** Inactive Aero conversations; the existing active slot stays backward compatible. */
+export const agentConversations = sqliteTable('agent_conversations', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  systemPrompt: text('system_prompt').notNull(),
+  modelProvider: text('model_provider').notNull(),
+  modelId: text('model_id').notNull(),
+  messages: text('messages', { mode: 'json' }).$type<Array<{ role: string; content?: unknown; [key: string]: unknown }>>().notNull().default([]),
+  followUpQueue: text('follow_up_queue', { mode: 'json' }).$type<Array<{ role: string; content?: unknown; [key: string]: unknown }>>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [index('idx_agent_conversations_project_updated').on(table.projectId, table.updatedAt)])
 
 export const ccReleaseSyncs = sqliteTable('cc_release_syncs', {
   id: text('id').primaryKey(),

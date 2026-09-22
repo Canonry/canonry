@@ -350,7 +350,7 @@ export class SessionRegistry {
    * escape the `<memory>` wrapper are neutralized before interpolation.
    */
   buildHydratedSystemPrompt(projectId: string, basePrompt: string): string {
-    const entries = loadRecentForHydrate(this.opts.db, projectId, MAX_HYDRATE_NOTES)
+    const entries = loadRecentForHydrate(this.opts.db, projectId, MAX_HYDRATE_NOTES, this.loadRow(projectId)?.id ?? null)
     if (entries.length === 0) return basePrompt
 
     let totalBytes = 0
@@ -553,6 +553,14 @@ export class SessionRegistry {
       })
       .where(eq(agentSessions.projectId, projectId))
       .run()
+  }
+
+  /** Snapshot pending work without consuming it before an atomic conversation switch. */
+  prepareConversationChange(projectName: string): void {
+    if (this.isBusy(projectName)) throw agentBusy(projectName)
+    this.save(projectName)
+    const pending = this.pending.get(projectName)
+    if (pending?.length) this.updateRow(this.resolveProjectId(projectName), { followUpQueue: JSON.stringify(pending) })
   }
 
   /** Persist a session's transcript back to the DB. Call after any run settles. */

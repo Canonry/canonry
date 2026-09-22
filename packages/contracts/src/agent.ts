@@ -162,6 +162,7 @@ export type AgentMemoryDeleteRequest = z.infer<typeof agentMemoryDeleteRequestSc
 
 export const agentPromptRequestSchema = z.object({
   prompt: z.string().trim().min(1),
+  conversationId: z.string().min(1).nullable().optional(),
   provider: agentProviderIdSchema.optional(),
   modelId: z.string().trim().min(1).optional(),
   scope: z.enum(['all', 'read-only']).optional(),
@@ -170,3 +171,45 @@ export const agentPromptRequestSchema = z.object({
   limits: agentTurnLimitsSchema.optional(),
 })
 export type AgentPromptRequest = z.infer<typeof agentPromptRequestSchema>
+
+// Message payloads are extensible pi-agent records; the envelope is stable.
+export const agentConversationMessageSchema = z.looseObject({ role: z.string(), content: z.unknown().optional() })
+export const agentConversationSummarySchema = z.object({
+  id: z.string(), title: z.string(), active: z.boolean(),
+  modelProvider: z.string(), modelId: z.string(),
+  createdAt: z.string(), updatedAt: z.string(),
+})
+export const agentConversationSchema = agentConversationSummarySchema.extend({
+  messages: z.array(agentConversationMessageSchema), isStreaming: z.boolean(),
+})
+export const agentConversationListSchema = z.object({
+  conversations: z.array(agentConversationSummarySchema),
+  currentConversationId: z.string().nullable(), nextOffset: z.number().int().nullable(),
+})
+export const agentConversationCreateSchema = z.object({
+  id: z.uuid(),
+}).strict()
+export const agentConversationDeleteSchema = z.object({ id: z.string(), status: z.literal('deleted') })
+export type AgentConversationSummary = z.infer<typeof agentConversationSummarySchema>
+export type AgentConversation = z.infer<typeof agentConversationSchema>
+export type AgentConversationList = z.infer<typeof agentConversationListSchema>
+export type AgentConversationDelete = z.infer<typeof agentConversationDeleteSchema>
+
+/** A deterministic title: no provider call, and no proactive system prompt as a title. */
+export function agentConversationTitle(messages: Array<{ role: string; content?: unknown }>): string {
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    const content = message.content
+    const text = typeof content === 'string' ? content : Array.isArray(content)
+      ? content.flatMap((block: unknown) => typeof block === 'object' && block !== null && 'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string' ? [block.text] : []).join(' ')
+      : ''
+    const title = text.replace(/\s+/g, ' ').trim()
+    if (title && !title.startsWith('[system]')) return title.length > 80 ? title.slice(0, 79) + '…' : title
+  }
+  return 'New conversation'
+}
+
+export const agentConversationListQuerySchema = z.object({
+  offset: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+}).strict()

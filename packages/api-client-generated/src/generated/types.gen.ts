@@ -674,6 +674,7 @@ export type QueryTrackingCommitResponse = {
 
 export type AgentPromptRequest = {
     prompt: string;
+    conversationId?: string | null;
     provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
     modelId?: string;
     scope?: 'all' | 'read-only';
@@ -709,6 +710,45 @@ export type AgentPromptRequest = {
         maxToolCalls: number;
         timeoutMs: number;
     };
+};
+
+export type AgentConversation = {
+    id: string;
+    title: string;
+    active: boolean;
+    modelProvider: string;
+    modelId: string;
+    createdAt: string;
+    updatedAt: string;
+    messages: Array<{
+        role: string;
+        content?: unknown;
+        [key: string]: unknown | string | undefined;
+    }>;
+    isStreaming: boolean;
+};
+
+export type AgentConversationList = {
+    conversations: Array<{
+        id: string;
+        title: string;
+        active: boolean;
+        modelProvider: string;
+        modelId: string;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    currentConversationId: string | null;
+    nextOffset: number | null;
+};
+
+export type AgentConversationCreate = {
+    id: string;
+};
+
+export type AgentConversationDelete = {
+    id: string;
+    status: 'deleted';
 };
 
 export type AgentProvidersResponseDto = {
@@ -27070,6 +27110,237 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewRespon
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponse = GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses[keyof GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses];
+
+export type GetApiV1ProjectsByNameAgentConversationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Archived conversations to skip.
+         */
+        offset?: number;
+        /**
+         * Archive page size (1–100, default 50).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent/conversations';
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Instance administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or conversation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Aero is busy or the ID is already in use.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsError = GetApiV1ProjectsByNameAgentConversationsErrors[keyof GetApiV1ProjectsByNameAgentConversationsErrors];
+
+export type GetApiV1ProjectsByNameAgentConversationsResponses = {
+    /**
+     * Conversation result.
+     */
+    200: AgentConversationList;
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsResponse = GetApiV1ProjectsByNameAgentConversationsResponses[keyof GetApiV1ProjectsByNameAgentConversationsResponses];
+
+export type PostApiV1ProjectsByNameAgentConversationsData = {
+    body: AgentConversationCreate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/conversations';
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Instance administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or conversation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Aero is busy or the ID is already in use.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsError = PostApiV1ProjectsByNameAgentConversationsErrors[keyof PostApiV1ProjectsByNameAgentConversationsErrors];
+
+export type PostApiV1ProjectsByNameAgentConversationsResponses = {
+    /**
+     * Conversation result.
+     */
+    200: AgentConversation;
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsResponse = PostApiV1ProjectsByNameAgentConversationsResponses[keyof PostApiV1ProjectsByNameAgentConversationsResponses];
+
+export type DeleteApiV1ProjectsByNameAgentConversationsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Project-owned conversation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/conversations/{id}';
+};
+
+export type DeleteApiV1ProjectsByNameAgentConversationsByIdErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Instance administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or conversation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Aero is busy or the ID is already in use.
+     */
+    409: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameAgentConversationsByIdError = DeleteApiV1ProjectsByNameAgentConversationsByIdErrors[keyof DeleteApiV1ProjectsByNameAgentConversationsByIdErrors];
+
+export type DeleteApiV1ProjectsByNameAgentConversationsByIdResponses = {
+    /**
+     * Conversation result.
+     */
+    200: AgentConversationDelete;
+};
+
+export type DeleteApiV1ProjectsByNameAgentConversationsByIdResponse = DeleteApiV1ProjectsByNameAgentConversationsByIdResponses[keyof DeleteApiV1ProjectsByNameAgentConversationsByIdResponses];
+
+export type GetApiV1ProjectsByNameAgentConversationsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Project-owned conversation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/conversations/{id}';
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsByIdErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Instance administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or conversation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Aero is busy or the ID is already in use.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsByIdError = GetApiV1ProjectsByNameAgentConversationsByIdErrors[keyof GetApiV1ProjectsByNameAgentConversationsByIdErrors];
+
+export type GetApiV1ProjectsByNameAgentConversationsByIdResponses = {
+    /**
+     * Conversation result.
+     */
+    200: AgentConversation;
+};
+
+export type GetApiV1ProjectsByNameAgentConversationsByIdResponse = GetApiV1ProjectsByNameAgentConversationsByIdResponses[keyof GetApiV1ProjectsByNameAgentConversationsByIdResponses];
+
+export type PostApiV1ProjectsByNameAgentConversationsByIdResumeData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Project-owned conversation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/conversations/{id}/resume';
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsByIdResumeErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Instance administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or conversation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Aero is busy or the ID is already in use.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsByIdResumeError = PostApiV1ProjectsByNameAgentConversationsByIdResumeErrors[keyof PostApiV1ProjectsByNameAgentConversationsByIdResumeErrors];
+
+export type PostApiV1ProjectsByNameAgentConversationsByIdResumeResponses = {
+    /**
+     * Conversation result.
+     */
+    200: AgentConversation;
+};
+
+export type PostApiV1ProjectsByNameAgentConversationsByIdResumeResponse = PostApiV1ProjectsByNameAgentConversationsByIdResumeResponses[keyof PostApiV1ProjectsByNameAgentConversationsByIdResumeResponses];
 
 export type DeleteApiV1ProjectsByNameAgentTranscriptData = {
     body?: never;

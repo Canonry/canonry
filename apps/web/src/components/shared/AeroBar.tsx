@@ -1,4 +1,4 @@
-import type { AgentViewContext } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentConversationList, AgentConversation } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -6,7 +6,8 @@ import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
   Radio,
   X,
-  RotateCcw,
+  Plus,
+  History,
   ArrowUp,
   Maximize2,
   Minimize2,
@@ -23,7 +24,7 @@ import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { heyClient, isDashboardManagedSweeps } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgentConversation, resumeAgentConversation, deleteAgentConversation } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
@@ -38,7 +39,6 @@ import {
   extractAssistantText,
   fetchAeroTranscript,
   promptAero,
-  resetAeroTranscript,
   type AeroAssistantMessage,
   type AeroEvent,
   type AeroMessage,
@@ -82,13 +82,13 @@ const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
 /**
  * Pre-baked prompts and actions the composer palette surfaces when the user
  * types `/`. `prompt` is what gets sent to Aero; `action` (when set) runs a
- * client-side handler instead of dispatching a prompt — used for `/clear`
- * so picking it from the palette wipes the transcript directly. Each entry
+ * client-side handler instead of dispatching a prompt — used for `/new`
+ * to preserve the current conversation and open another. Each entry
  * sets exactly one of `prompt` or `action`.
  */
 type SlashCommand =
   | { command: string; label: string; prompt: string; action?: undefined }
-  | { command: string; label: string; action: 'clear'; prompt?: undefined }
+  | { command: string; label: string; action: 'new'; prompt?: undefined }
 
 const SLASH_COMMANDS: Array<SlashCommand> = [
   {
@@ -132,9 +132,9 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
     prompt: 'List this project\'s tracked competitors and call out which ones are showing up in answer citations.',
   },
   {
-    command: '/clear',
-    label: 'Clear conversation',
-    action: 'clear',
+    command: '/new',
+    label: 'New conversation (save current)',
+    action: 'new',
   },
 ]
 
@@ -174,6 +174,15 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
+  const [conversationId, setConversationId] = useState<string | null | undefined>(undefined)
+  const historyRequest = useRef(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<AgentConversationList | null>(null)
+  const [changingConversation, setChangingConversation] = useState(false)
+  const [serverBusy, setServerBusy] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const conversationOperation = useRef(false)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
   // Live trail for the in-flight turn. Persisted until the next user send so
@@ -279,12 +288,13 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (expanded) setExpanded(false)
+      if (historyOpen) setHistoryOpen(false)
+      else if (expanded) setExpanded(false)
       else setOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, expanded])
+  }, [open, expanded, historyOpen])
 
   // Load transcript when opened / when the project changes, and poll while
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
@@ -295,9 +305,12 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     setError(null)
 
     const load = () => {
-      if (cancelled || streaming) return
+      if (cancelled || streaming || conversationOperation.current) return
       fetchAeroTranscript(projectName)
         .then((t) => {
+          if (cancelled || conversationOperation.current) return
+          setServerBusy(t.isStreaming ?? false)
+          setConversationId(t.conversationId ?? null)
           if (!cancelled && !t.isStreaming && (awaitingPersistence.current === null || (t.updatedAt && t.updatedAt !== awaitingPersistence.current.previous))) {
             setMessages(t.messages)
             lastPersistedAt.current = t.updatedAt
@@ -316,7 +329,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [open, projectName, streaming, activeProvider])
+  }, [open, projectName, streaming, activeProvider, changingConversation])
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {
@@ -329,7 +342,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
 
   async function send(promptText: string, turnContext = context) {
     const trimmed = promptText.trim()
-    if (!trimmed || streaming || !activeProvider) return
+    if (!trimmed || historyOpen || streaming || changingConversation || conversationOperation.current || serverBusy || !activeProvider) return
     if (managedSweeps && /^\/run-sweep(?:\s|$)/i.test(trimmed)) {
       setError(MANAGED_SWEEPS_COPY)
       return
@@ -356,6 +369,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       await promptAero({
         project: projectName,
         prompt: trimmed,
+        conversationId,
         provider: providerOverride ?? undefined,
         scope,
         context: turnContext,
@@ -366,6 +380,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       // (covers edge cases like events landing after the last message_end).
       const latest = await fetchAeroTranscript(projectName)
       if (mounted.current && !latest.isStreaming) {
+        setConversationId(latest.conversationId ?? null)
         setMessages(latest.messages)
         lastPersistedAt.current = latest.updatedAt
         awaitingPersistence.current = null
@@ -431,19 +446,57 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     }
   }
 
-  async function handleReset() {
-    if (streaming) return
-    abortRef.current?.abort()
+  async function changeConversation(action: () => Promise<AgentConversation | void>, keepHistory = false) {
+    if (streaming || serverBusy || conversationOperation.current) return
+    conversationOperation.current = true
+    setChangingConversation(true)
+    setError(null)
     try {
-      await resetAeroTranscript(projectName)
+      const result = await action()
+      if (result && !managedSweeps) {
+        const provider = providersQuery.data?.providers.find(option => option.id === result.modelProvider)
+        if (provider) pickProvider(provider.id)
+      }
+      const latest = await fetchAeroTranscript(projectName)
+      if (!mounted.current) return
       awaitingPersistence.current = null
-      setMessages([])
+      lastPersistedAt.current = latest.updatedAt
+      setConversationId(latest.conversationId ?? null)
+      setMessages(latest.messages)
       setLiveTrail([])
+      setStreamingText('')
       setNotice(null)
       setRetry(null)
-      setError(null)
+      setDeleteId(null)
+      setHistoryOpen(keepHistory)
+      setHistory(keepHistory ? await listAgentConversations(projectName) : null)
+      textareaRef.current?.focus()
     } catch (err: unknown) {
-      setError(describeError(err))
+      if (mounted.current) setError(describeError(err))
+    } finally {
+      conversationOperation.current = false
+      if (mounted.current) setChangingConversation(false)
+    }
+  }
+
+  async function handleNewConversation() {
+    await changeConversation(() => createAgentConversation(projectName, crypto.randomUUID()))
+  }
+
+  async function loadHistory(append = false) {
+    if (conversationOperation.current || historyRequest.current) return
+    historyRequest.current = true
+    setHistoryLoading(true)
+    setHistoryOpen(true)
+    setError(null)
+    try {
+      const next = await listAgentConversations(projectName, { offset: append ? history?.nextOffset ?? 0 : 0 })
+      if (mounted.current) setHistory(previous => append && previous ? { ...next, conversations: [...previous.conversations, ...next.conversations] } : next)
+    } catch (err: unknown) {
+      if (mounted.current) setError(describeError(err))
+    } finally {
+      historyRequest.current = false
+      if (mounted.current) setHistoryLoading(false)
     }
   }
 
@@ -537,7 +590,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                 <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
                 <span className="text-sm font-medium text-heading">Aero</span>
                 <span className="text-[10px] uppercase tracking-wider text-muted">
-                  {streaming ? 'working…' : projectName}
+                  {streaming || serverBusy ? 'working…' : projectName}
                 </span>
               </div>
               <div className="flex items-center gap-1">
@@ -553,16 +606,6 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                     disabled={streaming}
                   />
                 )}
-                <button
-                  type="button"
-                  onClick={asyncHandler(handleReset)}
-                  disabled={streaming}
-                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
-                  aria-label="Reset conversation"
-                  title="Reset conversation"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
                 <button
                   type="button"
                   onClick={() => setExpanded((v) => !v)}
@@ -590,7 +633,44 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
               </div>
             </div>
 
-            <div ref={transcriptRef} className={transcriptClasses}>
+            <div className="flex flex-wrap items-center gap-2 border-b border-subtle px-4 py-2">
+              <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title="Save this conversation and start fresh. Shared project notes are kept.">
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New conversation
+              </Button>
+              <Button variant="ghost" size="sm" aria-expanded={historyOpen} aria-controls="aero-history" disabled={changingConversation} onClick={() => { if (historyOpen) setHistoryOpen(false); else void loadHistory() }}>
+                <History className="h-3.5 w-3.5" aria-hidden="true" /> History
+              </Button>
+            </div>
+            {historyOpen ? (
+              <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
+                <h3 className="mb-2 text-sm font-medium text-heading">Conversations in {projectName}</h3>
+                {!history ? <p className="text-sm text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-sm text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
+                  <ul className="divide-y divide-default">
+                    {history.conversations.map(conversation => (
+                      <li key={conversation.id} className="py-2">
+                        <div className="flex items-center gap-2">
+                          <button className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-positive-500" disabled={streaming || serverBusy || changingConversation} onClick={() => { if (conversation.active) setHistoryOpen(false); else void changeConversation(() => resumeAgentConversation(projectName, conversation.id)) }}>
+                            <span className="block truncate text-sm text-heading">{conversation.title}</span>
+                            <span className="text-xs text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
+                          </button>
+                          <Button variant="ghost" size="sm" disabled={streaming || serverBusy || changingConversation} aria-label={`Delete conversation: ${conversation.title}`} onClick={() => setDeleteId(conversation.id)}>Delete</Button>
+                        </div>
+                        {deleteId === conversation.id && (
+                          <div role="group" aria-label="Confirm conversation deletion" className="mt-2 rounded-md border border-default p-3 text-sm text-secondary">
+                            <p>Delete this conversation permanently? Shared project notes will be kept.</p>
+                            <div className="mt-2 flex gap-2">
+                              <Button variant="destructive" size="sm" disabled={changingConversation} onClick={() => { void changeConversation(async () => { await deleteAgentConversation(projectName, conversation.id) }, true) }}>Delete conversation</Button>
+                              <Button variant="ghost" size="sm" disabled={changingConversation} onClick={() => setDeleteId(null)}>Cancel</Button>
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {history?.nextOffset != null && <Button variant="ghost" size="sm" disabled={historyLoading} onClick={() => { void loadHistory(true) }}>{historyLoading ? 'Loading…' : 'Load more'}</Button>}
+              </div>
+            ) : <div ref={transcriptRef} className={transcriptClasses}>
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
                   <p className="text-sm text-secondary">
@@ -620,7 +700,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
               {streaming && !streamingText && liveTrail.every((t) => t.endedAt !== undefined) && (
                 <TypingIndicator />
               )}
-            </div>
+            </div>}
 
               {(error || notice) && (
                 <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 rounded-md border border-base bg-surface px-3 py-2 text-sm text-secondary">
@@ -633,7 +713,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
               )}
 
             <div className="relative">
-              {paletteMatches.length > 0 && (
+              {!historyOpen && paletteMatches.length > 0 && (
                 <SlashPalette
                   matches={paletteMatches}
                   selectedIndex={paletteIndex}
@@ -641,7 +721,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                   onPick={(cmd) => {
                     setDraft('')
                     textareaRef.current?.focus()
-                    if (cmd.action === 'clear') void handleReset()
+                    if (cmd.action === 'new') void handleNewConversation()
                     else void send(cmd.prompt)
                   }}
                 />
@@ -653,7 +733,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                   if (paletteMatches.length > 0) {
                     const cmd = paletteMatches[paletteIndex]
                     setDraft('')
-                    if (cmd.action === 'clear') void handleReset()
+                    if (cmd.action === 'new') void handleNewConversation()
                     else void send(cmd.prompt)
                     return
                   }
@@ -693,14 +773,15 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                       if (paletteMatches.length > 0) {
                         const cmd = paletteMatches[paletteIndex]
                         setDraft('')
-                        if (cmd.action === 'clear') void handleReset()
+                        if (cmd.action === 'new') void handleNewConversation()
                         else void send(cmd.prompt)
                       } else {
                         void send(draft)
                       }
                     }
                   }}
-                  placeholder="Ask Aero, or / for commands…"
+                  disabled={historyOpen || changingConversation}
+                  placeholder={historyOpen ? 'Open a conversation to continue…' : 'Ask Aero, or / for commands…'}
                   aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
                   className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
@@ -710,7 +791,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                     <Square className="h-3.5 w-3.5" aria-hidden="true" /> Stop
                   </Button>
                 ) : (
-                  <Button type="submit" size="sm" disabled={!draft.trim()} aria-label="Send">
+                  <Button type="submit" size="sm" disabled={!draft.trim() || historyOpen || changingConversation || serverBusy} aria-label="Send">
                     <ArrowUp className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 )}

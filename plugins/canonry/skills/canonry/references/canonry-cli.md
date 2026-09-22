@@ -1240,8 +1240,19 @@ useful when the agent / analyze / classify tiers must avoid PRC-hosted GLM
 (`zai`).
 
 Conversations **persist per project** — `cnry agent ask` continues the
-same rolling thread each invocation. Reset with `cnry agent reset <project>`
-or via the dashboard bar's reset button.
+active conversation each invocation. Use `cnry agent conversations list <project>`
+to list saved conversations, `new <project>` to save the current one and start
+fresh, `show <project> --id <id>` to read one, `resume <project> --id <id>` to
+continue it, and `delete <project> --id <id>` to remove it permanently. All support
+`--format json`; list accepts `--limit 1..100` and `--offset` from `nextOffset`.
+Creation accepts `--id <uuid>` for retry-safe callers (otherwise the CLI generates
+one). `agent ask --conversation <id>` rejects a stale selection.
+
+The dashboard exposes New conversation and History, with a separate delete
+confirmation. Shared project notes survive; compaction summaries follow their
+conversation and are deleted with it. One conversation is active per project,
+shared across administrators. Older transcripts erased by the legacy reset
+cannot be recovered. `agent reset`/`clear` retain their legacy destructive behavior.
 
 Aero starts with core tools and loads authorized toolkits as needed. The
 `ads-operator` profile keeps its explicit narrow catalog. Loading tools never

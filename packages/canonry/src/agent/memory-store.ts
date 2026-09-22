@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, desc, eq, like, sql } from 'drizzle-orm'
+import { and, desc, eq, like, sql, or } from 'drizzle-orm'
 import { agentMemory, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
@@ -138,8 +138,14 @@ export function loadRecentForHydrate(
   db: DatabaseClient,
   projectId: string,
   limit: number,
+  sessionId?: string | null,
 ): AgentMemoryEntryDto[] {
-  return listMemoryEntries(db, projectId, { limit })
+  if (sessionId === undefined) return listMemoryEntries(db, projectId, { limit })
+  // Apply the scope before LIMIT so other conversations cannot crowd out project notes.
+  const sessionPrefix = `compaction:${sessionId ?? ''}:`
+  return db.select().from(agentMemory).where(and(eq(agentMemory.projectId, projectId),
+    or(sql`substr(${agentMemory.key}, 1, ${COMPACTION_KEY_PREFIX.length}) <> ${COMPACTION_KEY_PREFIX}`, sessionId ? sql`substr(${agentMemory.key}, 1, ${sessionPrefix.length}) = ${sessionPrefix}` : undefined),
+  )).orderBy(desc(agentMemory.updatedAt)).limit(limit).all().map(rowToDto)
 }
 
 export interface WriteCompactionNoteArgs {

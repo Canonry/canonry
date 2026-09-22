@@ -502,3 +502,9 @@ apply. Context is frozen per prompt and included in Copy as CLI. The server
 validates it; it cannot grant tool access. Join tool events by call ID, retain
 intermediate messages, and avoid transcript polling over an active turn. Stop
 preserves partial output; interrupted write-capable turns require prompt review.
+
+Aero's New conversation action preserves the current transcript; History lists
+and reopens saved conversations. Delete is a separate confirmed action. These
+controls use generated SDK operations and are disabled during context changes
+or active turns. A prompt carries the displayed conversation ID, so a stale tab
+cannot silently send into a different conversation.

@@ -1,3 +1,4 @@
+export { registerAgentConversationRoutes } from './agent-conversations.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@ainyc/canonry-db'

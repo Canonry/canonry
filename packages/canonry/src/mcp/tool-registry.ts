@@ -1,3 +1,4 @@
+import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
@@ -2897,9 +2898,49 @@ export const canonryMcpTools = [
     handler: (client, input) => client.forgetAgentMemory(input.project, input.key),
   }),
   defineTool({
+    name: 'canonry_agent_conversations_list', title: 'List Aero conversations',
+    description: 'List Aero conversations. Instance administrators only. New and resume preserve the previous conversation; shared project notes are retained. Creation requires a UUID that must be reused on retries.',
+    access: 'read', tier: 'agent', inputSchema: projectInputSchema.extend({ offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(100).optional() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/agent/conversations'],
+    handler: (client, input) => client.listAgentConversations(input.project, { offset: input.offset, limit: input.limit }),
+  }),
+  defineTool({
+    name: 'canonry_agent_conversations_get', title: 'Read an Aero conversation',
+    description: 'Read an Aero conversation. Instance administrators only. New and resume preserve the previous conversation; shared project notes are retained. Creation requires a UUID that must be reused on retries.',
+    access: 'read', tier: 'agent', inputSchema: projectInputSchema.extend({ id: z.string().min(1) }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/agent/conversations/{id}'],
+    handler: (client, input) => client.getAgentConversation(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_agent_conversations_new', title: 'Start a new Aero conversation',
+    description: 'Start a new Aero conversation. Instance administrators only. New and resume preserve the previous conversation; shared project notes are retained. Creation requires a UUID that must be reused on retries.',
+    access: 'write', tier: 'agent', inputSchema: projectInputSchema.extend(agentConversationCreateSchema.shape),
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/agent/conversations'],
+    handler: (client, input) => client.createAgentConversation(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_agent_conversations_resume', title: 'Resume an Aero conversation',
+    description: 'Resume an Aero conversation. Instance administrators only. New and resume preserve the previous conversation; shared project notes are retained. Creation requires a UUID that must be reused on retries.',
+    access: 'write', tier: 'agent', inputSchema: projectInputSchema.extend({ id: z.string().min(1) }),
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/agent/conversations/{id}/resume'],
+    handler: (client, input) => client.resumeAgentConversation(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_agent_conversations_delete', title: 'Delete an Aero conversation',
+    description: 'Delete an Aero conversation. Instance administrators only. New and resume preserve the previous conversation; shared project notes are retained. Creation requires a UUID that must be reused on retries.',
+    access: 'write', tier: 'agent', inputSchema: projectInputSchema.extend({ id: z.string().min(1) }),
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/agent/conversations/{id}'],
+    handler: (client, input) => client.deleteAgentConversation(input.project, input.id),
+  }),
+  defineTool({
     name: 'canonry_agent_clear',
     title: 'Clear agent transcript',
-    description: 'Clear the rolling Aero conversation for a project — wipes the transcript, the in-memory pending follow-up buffer, and the persisted follow-up queue. Memory entries (canonry_memory_*) are preserved. Use when starting a fresh dialogue or when the operator wants to reset context.',
+    description: 'Clear the rolling Aero conversation for a project — wipes the transcript, the in-memory pending follow-up buffer, and the persisted follow-up queue. Memory entries (canonry_memory_*) are preserved. Destructive legacy operation. Prefer canonry_agent_conversations_new to start fresh while preserving history.',
     access: 'write',
     tier: 'agent',
     inputSchema: projectInputSchema,
