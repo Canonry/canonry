@@ -218,7 +218,7 @@ export class SnapshotService {
     if (ctx.manualQueries.length === 0) {
       throw new Error(
         'Automatic category-query generation requires a configured API provider. ' +
-        'Add OpenAI, Claude, Gemini, Perplexity, or Local, or pass --queries manually.',
+        'Add OpenAI, Claude, Gemini, Perplexity, Muse, or Local, or pass --queries manually.',
       )
     }
 
