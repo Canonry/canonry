@@ -487,8 +487,12 @@ export async function fillRun(runId: string, opts: { providers?: string[]; dryRu
     }
     completeness = await client.getRunCompleteness(runId)
     if (!isMachineFormat(opts.format)) process.stderr.write('.')
-    const fill = completeness.latestFill
-    if (fill?.id === fillId && fill.status !== 'queued' && fill.status !== 'running') break
+    // Wait on the run, not only on this attempt: another client may retry
+    // after ours ends, and then ours is never the latest fill again. Done once
+    // the run is whole, or once no fill for it is still working.
+    const latest = completeness.latestFill
+    const working = latest !== null && (latest.status === 'queued' || latest.status === 'running')
+    if (completeness.status === 'completed' || !working) break
   }
   if (!isMachineFormat(opts.format)) process.stderr.write('\n')
 

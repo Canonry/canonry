@@ -1083,6 +1083,14 @@ export class JobRunner {
         }
         return superseded
       }
+      let removed = false
+      const attemptRemoved = (): boolean => {
+        if (!removed && this.db.select({ status: runFills.status }).from(runFills).where(eq(runFills.id, fillId)).get()?.status !== 'running') {
+          removed = true
+          log.warn('fill.attempt-removed', { fillId, runId })
+        }
+        return removed
+      }
       const slotRecorded = (provider: ProviderName, executionId: string): boolean => this.db
         .select({ id: querySnapshots.id })
         .from(querySnapshots)
@@ -1103,7 +1111,8 @@ export class JobRunner {
         providerErrors,
         onInserted: () => { filled++ },
         fill: {
-          shouldSkip: (provider, executionId) => stopped.has(provider) || newerSweepExists() || slotRecorded(provider, executionId),
+          shouldSkip: (provider, executionId) =>
+            stopped.has(provider) || attemptRemoved() || newerSweepExists() || slotRecorded(provider, executionId),
           onOutcome: (provider, ok) => {
             if (ok) {
               consecutiveFailures.set(provider, 0)
@@ -1127,8 +1136,16 @@ export class JobRunner {
       const unitsFor = (registered: RegisteredProvider): PlanExecutionUnit[] => unitsByProvider.get(registered.adapter.name) ?? []
       const apiProviders = dispatchable.filter(p => !isBrowserProvider(p.adapter.name))
       const browserProviders = dispatchable.filter(p => isBrowserProvider(p.adapter.name))
+      // Pulled, not queued up front: at most the provider's concurrency sits in
+      // its gate at once, so a stop (breaker, newer sweep, removed attempt)
+      // takes effect on the very next slot instead of after every queued one
+      // has cycled through the rate limiter.
       await runWithConcurrency(apiProviders, resolveProviderFanout(), async (registered) => {
-        await Promise.all(unitsFor(registered).map(unit => this.executePlanSlot(ctx, registered, unit)))
+        await runWithConcurrency(
+          unitsFor(registered),
+          Math.max(1, registered.config.quotaPolicy.maxConcurrency),
+          unit => this.executePlanSlot(ctx, registered, unit),
+        )
       })
       for (const registered of browserProviders) {
         for (const unit of unitsFor(registered)) await this.executePlanSlot(ctx, registered, unit)
@@ -1246,6 +1263,10 @@ export class JobRunner {
       ? { status: 'applied' as const, resolved: requestedContext }
       : null
 
+    // A fill checks before joining the provider's queue: a slot it skips must
+    // not take a rate-limit token that this fill, or another run sharing the
+    // gate, is waiting on.
+    if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
     try {
       await gate.run(async () => {
         this.throwIfRunCancelled(ctx.runId)

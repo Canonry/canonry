@@ -36,6 +36,7 @@ import {
 } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { Notifier } from '../src/notifier.js'
+import { ProviderExecutionGate } from '../src/provider-execution-gate.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
 const NOW = '2026-08-01T00:00:00.000Z'
@@ -387,5 +388,56 @@ describe('review follow-ups', () => {
     const { db, runId } = await partialSweep(2)
     db.update(runs).set({ measurementManifest: { schemaVersion: 99 } as unknown as Record<string, unknown> }).where(eq(runs.id, runId)).run()
     expect(readRunCompleteness(db, runRow(db, runId))).toMatchObject({ readable: false, fillable: false, refusal: { code: 'manifest_unreadable' } })
+  })
+})
+
+describe('second review follow-ups', () => {
+  it('a stopped provider takes no further place in its rate-limited queue', async () => {
+    const { db, runId } = await partialSweep(8)
+    const admitted = queueRunFill(db, runId)
+    if (admitted.kind !== 'queued') throw new Error(admitted.kind)
+    const gateRuns = vi.spyOn(ProviderExecutionGate.prototype, 'run')
+    onTestFinished(() => gateRuns.mockRestore())
+    const calls: Call[] = []
+    await new JobRunner(db, registry([adapter('openai', calls, () => true), adapter('gemini', [])])).executeRunFill(admitted.fill.id)
+    // Three failures trip the breaker; the five remaining slots never join the gate.
+    expect(calls).toHaveLength(3)
+    expect(gateRuns).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops paying for calls once its run is cleared underneath it', async () => {
+    const { db, runId } = await partialSweep(4)
+    const admitted = queueRunFill(db, runId)
+    if (admitted.kind !== 'queued') throw new Error(admitted.kind)
+    const calls: Call[] = []
+    const clearing: ProviderAdapter = {
+      ...adapter('openai', calls),
+      async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
+        const result = await adapter('openai', calls).executeTrackedQuery(input, config)
+        // The run (and, by cascade, the fill attempt) is deleted while this call is in flight.
+        if (calls.length === 2) db.delete(runs).where(eq(runs.id, runId)).run()
+        return result
+      },
+    }
+    await new JobRunner(db, registry([clearing, adapter('gemini', [])])).executeRunFill(admitted.fill.id)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('refuses to clear a run a fill is still working on', async () => {
+    const { db, runId } = await partialSweep(2)
+    const admitted = queueRunFill(db, runId)
+    if (admitted.kind !== 'queued') throw new Error(admitted.kind)
+    const app = Fastify()
+    app.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) return reply.status(error.statusCode).send(error.toJSON())
+      return reply.status(500).send(error)
+    })
+    await app.register(apiRoutes, { db, skipAuth: true })
+    await app.ready()
+    onTestFinished(() => app.close())
+    const cleared = await app.inject({ method: 'POST', url: '/api/v1/projects/planned/results/clear', payload: { runIds: [runId], researchRunIds: [], confirm: true } })
+    expect(cleared.statusCode).toBe(409)
+    expect(cleared.json().error).toMatchObject({ code: 'RUN_FILL_IN_PROGRESS', details: { fillId: admitted.fill.id } })
+    expect(runRow(db, runId)).toBeTruthy()
   })
 })

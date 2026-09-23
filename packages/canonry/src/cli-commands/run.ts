@@ -117,13 +117,14 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: RUN_FILL_USAGE,
     options: {
       provider: stringOption(),
-      'dry-run': { type: 'boolean', default: false },
       wait: { type: 'boolean', default: false },
     },
+    supportsDryRun: true,
     run: async (input) => {
       // Same rule as `run trigger`: a project named after a keyword must stay
       // runnable, so `canonry run fill` with nothing after it sweeps "fill".
-      if (input.positionals.length === 0) return triggerRunCommand({ ...input, positionals: ['fill'] }, 'run')
+      // Never with --dry-run: a preview must not fall through to a real sweep.
+      if (input.positionals.length === 0 && !input.dryRun) return triggerRunCommand({ ...input, positionals: ['fill'] }, 'run')
       const runId = requirePositional(input, 0, {
         command: 'run.fill',
         usage: RUN_FILL_USAGE,
@@ -132,7 +133,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const provider = getString(input.values, 'provider')
       await fillRun(runId, {
         providers: provider ? provider.split(',').map(value => value.trim()).filter(Boolean) : undefined,
-        dryRun: getBoolean(input.values, 'dry-run'),
+        dryRun: input.dryRun,
         wait: getBoolean(input.values, 'wait'),
         format: input.format,
       })
