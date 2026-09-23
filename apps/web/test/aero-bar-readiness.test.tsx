@@ -154,6 +154,26 @@ test('managed sweeps hides the Aero sweep shortcut while retaining read shortcut
   expect(screen.queryByText('Run sweep now')).toBeNull()
 })
 
+test('offers analysis starters, not failed-run or schedule shortcuts', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  })
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  for (const label of ['Status', 'What changed', 'Biggest gaps', 'Top insights']) {
+    expect(await screen.findByRole('button', { name: label })).toBeTruthy()
+  }
+  expect(screen.queryByRole('button', { name: 'Last failed run' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Schedule' })).toBeNull()
+
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
+  expect(screen.getByText('/changes')).toBeTruthy()
+  expect(screen.getByText('/gaps')).toBeTruthy()
+  expect(screen.queryByText('/last-failed')).toBeNull()
+  expect(screen.queryByText('/schedule')).toBeNull()
+})
+
 async function openAeroWithSavedWriteScope(managedSweeps: boolean) {
   window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps } }
   vi.stubGlobal('localStorage', { getItem: (key: string) => key.includes(':scope:') ? 'all' : null, setItem: vi.fn(), clear: vi.fn() })

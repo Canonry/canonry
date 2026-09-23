@@ -56,6 +56,12 @@ export interface SessionRegistryOptions {
    * the caller alone would let that one through the first time someone typed.
    */
   proactive?: boolean
+  /**
+   * True when the install manages sweeps. Every session this registry builds
+   * withholds the sweep and schedule writes, whatever scope the caller asked
+   * for, so the dashboard, the API and `canonry agent ask` share one rule.
+   */
+  managedSweeps?: boolean
 }
 
 export interface SessionPreferences {
@@ -281,6 +287,7 @@ export class SessionRegistry {
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
         toolProfile: preferences?.toolProfile,
+        managedSweeps: this.opts.managedSweeps,
         db: this.opts.db,
         projectId,
         agentSessionId: row.id,
@@ -316,6 +323,7 @@ export class SessionRegistry {
       systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
       toolProfile: preferences?.toolProfile,
+      managedSweeps: this.opts.managedSweeps,
       db: this.opts.db,
       projectId,
       agentSessionId: sessionId,
@@ -534,7 +542,7 @@ export class SessionRegistry {
     this.projectIds.set(projectName, projectId)
     const toolCtx = { client: this.opts.client, projectName }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
-    const stateTools = buildAeroStateTools(toolCtx, want)
+    const stateTools = buildAeroStateTools(toolCtx, { ...want, managedSweeps: this.opts.managedSweeps })
     agent.state.tools = [...stateTools, ...buildSkillDocTools()]
     this.scopes.set(projectName, want.scope)
     this.profiles.set(projectName, want.profile)

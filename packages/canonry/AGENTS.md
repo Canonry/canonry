@@ -546,9 +546,13 @@ Insight date ranges:
   `schedulableRunKindSchema`; an unknown kind names the key and refuses boot.
   The legacy boolean maps to answer-visibility only. Inject `managedRunKinds`
   only when non-empty so an unset deployment's client config stays identical.
-  This is presentation only: managed sweeps hide all dashboard launches; managed
-  scans hide viewer launches and keep admin controls. Never use this setting in
-  authorization. See `docs/deployment.md`.
+  Otherwise this is presentation only: managed sweeps hide all dashboard
+  launches; managed scans hide viewer launches and keep admin controls. One
+  exception, which must stay: when `answer-visibility` is managed, `server.ts`
+  passes `managedSweeps: true` to `SessionRegistry`, and every Aero session
+  withholds `AERO_MANAGED_SWEEP_MCP_TOOLS` and refuses to cancel a sweep
+  (`src/agent/mcp-to-agent-tool.ts`) in every scope and profile. Do not use
+  this setting for any other authorization. See `docs/deployment.md`.
 
 - `CANONRY_RESEARCH_ALLOW_VIEWERS` overrides `research.allowViewers` and
   defaults to false. Inject the client research block only when true, including

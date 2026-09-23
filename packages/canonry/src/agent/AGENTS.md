@@ -74,7 +74,11 @@ Tool surface:
 
 - **Canonry state** (`src/agent/tools.ts` → `mcp-to-agent-tool.ts`) — every
   tool from `src/mcp/tool-registry.ts` minus the `AERO_EXCLUDED_MCP_TOOLS`
-  set, adapted into pi-agent-core `AgentTool`s. The adapter strips the
+  set, adapted into pi-agent-core `AgentTool`s. When the install manages
+  answer-visibility sweeps (`SessionRegistry` `managedSweeps`, set by
+  `server.ts`), every scope and profile also withholds
+  `AERO_MANAGED_SWEEP_MCP_TOOLS` (run trigger and fill, schedule set and
+  delete, apply config), and `canonry_run_cancel` refuses sweeps. The adapter strips the
   top-level `project` property from each tool's JSON schema and injects
   `ctx.projectName` at call time, so the LLM never sees raw project ids and
   cannot target the wrong project. Result: **adding a new tool to the MCP
@@ -310,7 +314,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `src/agent/compaction.ts` — transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
 - `src/agent/token-counter.ts` — `estimateMessageTokens` / `estimateTranscriptTokens`: chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits.
 - `src/agent/tools.ts` — thin wrapper around `mcp-to-agent-tool.ts`: `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file.
-- `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript).
+- `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). `AERO_MANAGED_SWEEP_MCP_TOOLS` is withheld as well when `managedSweeps` is set, and on those installs `canonry_run_cancel` looks the run up and refuses answer-visibility sweeps.
 - `src/agent/remote-mcp.ts` — `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" in `src/agent/AGENTS.md`).
 - `src/agent/skill-tools.ts` — 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`): progressive disclosure of bundled reference playbooks. Ride in every scope.
 

@@ -73,10 +73,10 @@ interface AeroBarProps {
 }
 
 const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
-  { label: 'Status', prompt: 'Quick status overview for this project — latest runs, current health, anything unusual.' },
+  { label: 'Status', prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.' },
+  { label: 'What changed', prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
+  { label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
   { label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
-  { label: 'Last failed run', prompt: 'If the latest run failed, dig into it and tell me what went wrong plus how to fix it.' },
-  { label: 'Schedule', prompt: 'What is the current sweep schedule, and is it appropriate given recent volatility?' },
 ]
 
 /**
@@ -94,7 +94,17 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/status',
     label: 'Status',
-    prompt: 'Quick status overview for this project — latest runs, current health, anything unusual.',
+    prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.',
+  },
+  {
+    command: '/changes',
+    label: 'What changed',
+    prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.',
+  },
+  {
+    command: '/gaps',
+    label: 'Biggest gaps',
+    prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.',
   },
   {
     command: '/insights',
@@ -104,22 +114,12 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/last-run',
     label: 'Last run',
-    prompt: 'Summarize the latest run for this project — provider mix, visibility changes, and anything that moved.',
-  },
-  {
-    command: '/last-failed',
-    label: 'Last failed run',
-    prompt: 'If the latest run failed, dig into it and tell me what went wrong plus how to fix it.',
+    prompt: 'Summarize the latest run for this project: which engines answered, what moved in mentions and citations, and anything that failed.',
   },
   {
     command: '/run-sweep',
     label: 'Run sweep now',
     prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.',
-  },
-  {
-    command: '/schedule',
-    label: 'Schedule',
-    prompt: 'What is the current sweep schedule, and is it appropriate given recent volatility?',
   },
   {
     command: '/queries',
@@ -129,7 +129,7 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/competitors',
     label: 'Competitors',
-    prompt: 'List this project\'s tracked competitors and call out which ones are showing up in answer citations.',
+    prompt: 'Which competitors do engines name most often on queries where we are not named, and on which engines?',
   },
   {
     command: '/new',

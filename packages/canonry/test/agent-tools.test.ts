@@ -3,12 +3,15 @@ import type { AgentTool } from '@mariozechner/pi-agent-core'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import {
   AERO_EXCLUDED_MCP_TOOLS,
+  AERO_MANAGED_SWEEP_MCP_TOOLS,
+  MANAGED_SWEEP_CANCEL_REFUSAL,
   buildMcpAgentTools,
   mcpToAgentTool,
 } from '../src/agent/mcp-to-agent-tool.js'
 import {
   AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME,
   AERO_ADS_OPERATOR_MCP_TOOL_NAMES,
+  AeroToolProfiles,
   AeroToolScopes,
   buildAdsOperatorTools,
   buildAllTools,
@@ -274,6 +277,73 @@ describe('buildAeroStateTools', () => {
       .toEqual(buildReadTools(ctx).map((t) => t.name))
     expect(buildAeroStateTools(ctx, { scope: AeroToolScopes.all }).map((t) => t.name))
       .toEqual(buildAllTools(ctx).map((t) => t.name))
+  })
+
+  it('withholds sweep and schedule writes in every scope and profile when sweeps are managed', () => {
+    const calls: CallLog[] = []
+    const ctx = ctxFor(recordingClient(calls))
+    const withheld = [...AERO_MANAGED_SWEEP_MCP_TOOLS]
+
+    for (const scope of [AeroToolScopes.all, AeroToolScopes.readOnly]) {
+      for (const profile of [AeroToolProfiles.default, AeroToolProfiles.adsOperator]) {
+        const names = buildAeroStateTools(ctx, { scope, profile, managedSweeps: true }).map((t) => t.name)
+        for (const name of withheld) expect(names).not.toContain(name)
+      }
+    }
+  })
+
+  it('removes only the managed set, leaving reads and other writes in place', () => {
+    const calls: CallLog[] = []
+    const ctx = ctxFor(recordingClient(calls))
+    const unmanaged = buildAeroStateTools(ctx, { scope: AeroToolScopes.all }).map((t) => t.name)
+    const managed = buildAeroStateTools(ctx, { scope: AeroToolScopes.all, managedSweeps: true }).map((t) => t.name)
+
+    expect(unmanaged).toEqual(expect.arrayContaining([
+      CanonryMcpToolNames.canonry_run_trigger,
+      CanonryMcpToolNames.canonry_schedule_set,
+    ]))
+    expect(unmanaged.filter((name) => !managed.includes(name)).sort())
+      .toEqual([...AERO_MANAGED_SWEEP_MCP_TOOLS].sort())
+    expect(managed).toContain(CanonryMcpToolNames.canonry_schedule_get)
+    expect(managed).toContain(CanonryMcpToolNames.canonry_run_get)
+  })
+})
+
+describe('run cancel on a managed install', () => {
+  function cancelTool(kind: string, managedSweeps: boolean, calls: CallLog[]) {
+    const client = new Proxy({}, {
+      get(_target, property) {
+        return (...args: unknown[]) => {
+          calls.push({ method: String(property), args })
+          if (property === 'getRun') return { id: args[0], kind }
+          return { status: 'cancelled' }
+        }
+      },
+    }) as ApiClient
+    const tool = buildAeroStateTools(ctxFor(client), { scope: AeroToolScopes.all, managedSweeps })
+      .find((t) => t.name === CanonryMcpToolNames.canonry_run_cancel)
+    if (!tool) throw new Error('canonry_run_cancel missing')
+    return tool
+  }
+
+  it('refuses to cancel an answer-visibility sweep and never calls cancel', async () => {
+    const calls: CallLog[] = []
+    await expect(cancelTool('answer-visibility', true, calls).execute('call-1', { runId: 'run-1' }))
+      .rejects.toThrow(MANAGED_SWEEP_CANCEL_REFUSAL)
+    expect(calls.map((c) => c.method)).toEqual(['getRun'])
+  })
+
+  it('still cancels runs of other kinds', async () => {
+    const calls: CallLog[] = []
+    await cancelTool('site-audit', true, calls).execute('call-1', { runId: 'run-2' })
+    expect(calls.map((c) => c.method)).toEqual(['getRun', 'cancelRun'])
+    expect(calls[1]?.args).toEqual(['run-2'])
+  })
+
+  it('cancels a sweep without a lookup when the install does not manage sweeps', async () => {
+    const calls: CallLog[] = []
+    await cancelTool('answer-visibility', false, calls).execute('call-1', { runId: 'run-3' })
+    expect(calls.map((c) => c.method)).toEqual(['cancelRun'])
   })
 })
 
