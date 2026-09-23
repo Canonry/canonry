@@ -17,6 +17,7 @@ import {
   listAds,
   getCampaignInsights,
   getAdGroupInsights,
+  parseLandingPageQueryStringTemplate,
 } from '@ainyc/canonry-integration-openai-ads'
 import type {
   OpenAiAdsAd,
@@ -408,6 +409,7 @@ export async function executeAdsSync(
           lifetimeSpendLimitMicros: campaign.budget?.lifetime_spend_limit_micros ?? null,
           conversionEventSettingIds: campaign.conversion_event_setting_ids ?? [],
           targeting: campaign.targeting,
+          landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(campaign.landing_page_configuration),
           upstreamCreatedAt: campaign.created_at,
           upstreamUpdatedAt: campaign.updated_at,
           syncRunId: runId,
@@ -425,6 +427,7 @@ export async function executeAdsSync(
             billingEventType: group.bidding_config?.billing_event_type ?? null,
             maxBidMicros: group.bidding_config?.max_bid_micros ?? null,
             contextHints: group.context_hints,
+            landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(group.landing_page_configuration),
             upstreamCreatedAt: group.created_at,
             upstreamUpdatedAt: group.updated_at,
             syncRunId: runId,
@@ -440,6 +443,7 @@ export async function executeAdsSync(
               status: ad.status,
               creative: ad.creative,
               reviewStatus: ad.review_status ?? ad.review?.status ?? null,
+              landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(ad.landing_page_configuration),
               upstreamCreatedAt: ad.created_at,
               upstreamUpdatedAt: ad.updated_at,
               syncRunId: runId,

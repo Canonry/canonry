@@ -81,7 +81,8 @@ const ACCOUNT = {
 const CAMPAIGN = {
   id: 'cmpn_bbb', created_at: 1780770653, status: 'active', bidding_type: 'clicks',
   budget: { daily_spend_limit_micros: 150_000_000 }, conversion_event_setting_ids: [],
-  description: null, end_time: null, landing_page_configuration: null, mode: null,
+  description: null, mode: null,
+  landing_page_configuration: { query_string_template: 'utm_source=chatgpt&utm_medium=cpc' },
   name: 'Homeowners Free Estimate', start_time: 1780770127,
   targeting: { locations: { include: [] } }, updated_at: 1780868842,
 }
@@ -90,11 +91,13 @@ const AD_GROUP = {
   bidding_config: { billing_event_type: 'click', max_bid_micros: 2_000_000 },
   context_hints: ['how much does a new deck cost\nmeasure my yard'],
   description: null, name: 'Deck Project Planning', product_set: null, updated_at: 1780864410,
+  landing_page_configuration: { query_string_template: 'utm_content=deck-planning' },
 }
 const AD = {
   id: 'ad_eee', created_at: 1780770662, status: 'active',
   creative: { type: 'chat_card', title: 'Free Estimate', body: 'b', file_id: 'file_1', target_url: 'https://lp.example/' },
   name: 'HO Deck - Materials', review: { status: 'approved' }, review_status: 'approved', updated_at: 1781139491,
+  landing_page_configuration: null,
 }
 const CAMPAIGN_INSIGHTS = [
   { id: 'r1', start_time: 1, end_time: 2, readable_time: '2026-06-09', impressions: 3326, clicks: 40, spend: 90.45 },
@@ -335,15 +338,21 @@ describe('executeAdsSync', () => {
     expect(campaign?.name).toBe('Homeowners Free Estimate')
     expect(campaign?.dailySpendLimitMicros).toBe(150_000_000)
     expect(campaign?.conversionEventSettingIds).toEqual([])
+    // Tracking template is stored per level: upstream combines campaign, ad
+    // group and ad templates, so a missing one must read as absent, not as the
+    // parent's value.
+    expect(campaign?.landingPageQueryStringTemplate).toBe('utm_source=chatgpt&utm_medium=cpc')
 
     const group = db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()
     expect(group?.campaignId).toBe('cmpn_bbb')
     expect(group?.contextHints).toEqual(['how much does a new deck cost\nmeasure my yard'])
     expect(group?.maxBidMicros).toBe(2_000_000)
+    expect(group?.landingPageQueryStringTemplate).toBe('utm_content=deck-planning')
 
     const ad = db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()
     expect(ad?.adGroupId).toBe('adgrp_ddd')
     expect(ad?.reviewStatus).toBe('approved')
+    expect(ad?.landingPageQueryStringTemplate).toBeNull()
 
     const insightRows = db.select().from(adsInsightsDaily).all()
     // 2 campaign-level days + 1 ad-group-level day

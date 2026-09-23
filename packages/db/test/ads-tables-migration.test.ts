@@ -194,6 +194,7 @@ test('migration 100 preserves existing ads rows and defaults conversion settings
   })
   const campaign = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_legacy')).get()
   expect(campaign?.conversionEventSettingIds).toEqual([])
+  expect(campaign?.landingPageQueryStringTemplate).toBeNull()
 })
 
 test('one connection per project is enforced', () => {

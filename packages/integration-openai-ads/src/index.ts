@@ -28,6 +28,7 @@ export {
   getAdAccountInsights,
   getCampaignInsights,
   getAdGroupInsights,
+  parseLandingPageQueryStringTemplate,
 } from './ads-client.js'
 export {
   OpenAiAdsApiError,
@@ -65,6 +66,8 @@ export type {
   OpenAiAdsInsightRow,
   OpenAiAdsInsightHourRange,
   OpenAiAdsInsightsOptions,
+  OpenAiAdsLandingPageConfiguration,
+  OpenAiAdsLandingPageConfigurationRequest,
   OpenAiAdsListResponse,
   OpenAiAdsLocationTarget,
   OpenAiAdsLocationTargetRequest,

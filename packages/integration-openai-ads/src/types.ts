@@ -140,6 +140,24 @@ export interface OpenAiAdsCampaignTargetingRequest {
   }
 }
 
+/**
+ * Tracking parameters the provider appends to click URLs under an entity.
+ *
+ * VERIFIED LIVE 2026-09-23 on a managed tenant's campaigns: `POST
+ * campaigns/{id}` accepted `landing_page_configuration.query_string_template`
+ * on an ACTIVE campaign (no pause, no re-review, no other field disturbed),
+ * and the follow-up read returned the stored template. Upstream documents the
+ * same field on ad groups and ads; that response shape is NOT yet observed, so
+ * those reads stay `unknown` and go through `parseLandingPageQueryStringTemplate`.
+ */
+export interface OpenAiAdsLandingPageConfiguration {
+  query_string_template: string | null
+}
+
+export interface OpenAiAdsLandingPageConfigurationRequest {
+  query_string_template: string
+}
+
 export interface OpenAiAdsCreateCampaignRequest {
   name: string
   description?: string
@@ -150,6 +168,8 @@ export interface OpenAiAdsCreateCampaignRequest {
   bidding_type?: OpenAiAdsBiddingType
   conversion_event_setting_ids?: string[]
   targeting?: OpenAiAdsCampaignTargetingRequest
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest
 }
 
 export interface OpenAiAdsUpdateCampaignRequest {
@@ -162,6 +182,8 @@ export interface OpenAiAdsUpdateCampaignRequest {
   budget?: OpenAiAdsCampaignBudgetRequest
   /** Updating locations is allowed, but clearing all targeting is not. */
   targeting?: OpenAiAdsCampaignTargetingRequest
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest | null
 }
 
 export interface OpenAiAdsLocationTarget {
@@ -213,6 +235,8 @@ export interface OpenAiAdsCreateAdGroupRequest {
   context_hints?: string[]
   status: typeof OpenAiAdsWriteStatuses.paused
   bidding_config: OpenAiAdsBiddingConfigRequest
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest
 }
 
 export interface OpenAiAdsUpdateAdGroupRequest {
@@ -222,6 +246,8 @@ export interface OpenAiAdsUpdateAdGroupRequest {
   /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
   status?: never
   bidding_config?: OpenAiAdsBiddingConfigRequest
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest | null
 }
 
 export interface OpenAiAdsAdGroup {
@@ -234,6 +260,8 @@ export interface OpenAiAdsAdGroup {
   context_hints: string[]
   description: string | null
   product_set: unknown
+  /** Documented upstream; response shape not yet observed live. Read defensively. */
+  landing_page_configuration?: unknown
   created_at: number
   updated_at: number
 }
@@ -259,6 +287,8 @@ export interface OpenAiAdsCreateAdRequest {
   name: string
   creative: OpenAiAdsChatCardCreativeRequest
   status: typeof OpenAiAdsWriteStatuses.paused
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest
 }
 
 export interface OpenAiAdsUpdateAdRequest {
@@ -266,6 +296,8 @@ export interface OpenAiAdsUpdateAdRequest {
   creative?: OpenAiAdsChatCardCreativeRequest
   /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
   status?: never
+  /** Tracking parameters appended to click URLs under this entity. */
+  landing_page_configuration?: OpenAiAdsLandingPageConfigurationRequest | null
 }
 
 export interface OpenAiAdsUploadImageRequest {
@@ -283,6 +315,8 @@ export interface OpenAiAdsAd {
   creative: OpenAiAdsCreative | null
   review?: OpenAiAdsReviewState
   review_status?: string
+  /** Documented upstream; response shape not yet observed live. Read defensively. */
+  landing_page_configuration?: unknown
   created_at: number
   updated_at: number
 }

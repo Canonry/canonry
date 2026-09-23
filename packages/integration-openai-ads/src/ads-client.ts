@@ -246,6 +246,47 @@ function validateChatCardCreative(value: unknown): void {
   validateHttpUrl(value.target_url, 'Ad creative target URL')
 }
 
+const MAX_QUERY_STRING_TEMPLATE_LENGTH = 1000
+
+/**
+ * `landing_page_configuration.query_string_template` is a bare query string the
+ * provider appends to click URLs. Canonry never expands the `{campaign_id}`
+ * style macros in it; upstream does. `null` clears a previously set template.
+ */
+function validateLandingPageConfiguration(value: unknown, label: string): void {
+  if (value === undefined || value === null) return
+  validateRequestObject(value, `${label} landing_page_configuration`)
+  const template = value.query_string_template
+  if (template === null) return
+  if (
+    typeof template !== 'string' ||
+    template.trim().length === 0 ||
+    template.length > MAX_QUERY_STRING_TEMPLATE_LENGTH
+  ) {
+    throw new OpenAiAdsApiError(
+      `${label} query_string_template must be 1-${MAX_QUERY_STRING_TEMPLATE_LENGTH} characters`,
+      400,
+    )
+  }
+  if (/\s/.test(template) || template.startsWith('?') || template.startsWith('&')) {
+    throw new OpenAiAdsApiError(
+      `${label} query_string_template must be a bare query string without whitespace or a leading ? or &`,
+      400,
+    )
+  }
+}
+
+/**
+ * Reads the template out of an entity payload. The field is `unknown` on reads
+ * because only the campaign shape has been observed live; anything unexpected
+ * degrades to null rather than throwing on a sync.
+ */
+export function parseLandingPageQueryStringTemplate(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const template = value.query_string_template
+  return typeof template === 'string' && template.trim().length > 0 ? template : null
+}
+
 function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest): void {
   validateRequestObject(request, 'Campaign create request')
   validateEntityName(request.name, 'Campaign name')
@@ -255,6 +296,7 @@ function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest):
   validateCampaignTimestamp(request.end_time, 'Campaign end_time')
   validateCampaignBidding(request)
   validateCampaignTargeting(request.targeting)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Campaign create request')
 }
 
 function validateUpdateCampaignRequest(request: OpenAiAdsUpdateCampaignRequest): void {
@@ -264,6 +306,7 @@ function validateUpdateCampaignRequest(request: OpenAiAdsUpdateCampaignRequest):
   validateCampaignTimestamp(request.start_time, 'Campaign start_time')
   validateCampaignTimestamp(request.end_time, 'Campaign end_time')
   validateCampaignTargeting(request.targeting)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Campaign update request')
 }
 
 function validateCreateAdGroupRequest(request: OpenAiAdsCreateAdGroupRequest): void {
@@ -273,6 +316,7 @@ function validateCreateAdGroupRequest(request: OpenAiAdsCreateAdGroupRequest): v
   validatePausedCreateStatus(request.status, 'Ad group create request')
   validateContextHints(request.context_hints)
   validateBiddingConfig(request.bidding_config)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Ad group create request')
 }
 
 function validateUpdateAdGroupRequest(request: OpenAiAdsUpdateAdGroupRequest): void {
@@ -280,6 +324,7 @@ function validateUpdateAdGroupRequest(request: OpenAiAdsUpdateAdGroupRequest): v
   if (request.name !== undefined) validateEntityName(request.name, 'Ad group name')
   validateContextHints(request.context_hints)
   if (request.bidding_config !== undefined) validateBiddingConfig(request.bidding_config)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Ad group update request')
 }
 
 function validateCreateAdRequest(request: OpenAiAdsCreateAdRequest): void {
@@ -288,12 +333,14 @@ function validateCreateAdRequest(request: OpenAiAdsCreateAdRequest): void {
   validateEntityName(request.name, 'Ad name')
   validatePausedCreateStatus(request.status, 'Ad create request')
   validateChatCardCreative(request.creative)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Ad create request')
 }
 
 function validateUpdateAdRequest(request: OpenAiAdsUpdateAdRequest): void {
   validatePublicUpdateRequest(request, 'Ad update request')
   if (request.name !== undefined) validateEntityName(request.name, 'Ad name')
   if (request.creative !== undefined) validateChatCardCreative(request.creative)
+  validateLandingPageConfiguration(request.landing_page_configuration, 'Ad update request')
 }
 
 function adsClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {

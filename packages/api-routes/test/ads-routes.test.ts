@@ -1764,6 +1764,55 @@ describe('ads routes', () => {
     ])
   })
 
+  it('forwards an ad URL tracking template and refuses a malformed one', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const rejected = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+        operationKey: 'weekend:update:utm:bad',
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: '?utm_source=chatgpt',
+      },
+    })
+    expect(rejected.statusCode).toBe(400)
+    expect(ctx.operatorCalls).toEqual([])
+
+    const accepted = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+        operationKey: 'weekend:update:utm:ok',
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc&utm_content={ad_id}',
+      },
+    })
+    expect(accepted.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      {
+        method: 'updateCampaign',
+        input: { landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc&utm_content={ad_id}' },
+      },
+    ])
+  })
+
+  it('clears an ad URL tracking template with an explicit null', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+        operationKey: 'weekend:update:utm:clear',
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: null,
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      { method: 'updateCampaign', input: { landingPageQueryStringTemplate: null } },
+    ])
+  })
+
   it('marks an ambiguous upstream outcome unknown and never retries it blindly', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
