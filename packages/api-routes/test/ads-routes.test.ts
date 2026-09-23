@@ -1795,6 +1795,125 @@ describe('ads routes', () => {
     ])
   })
 
+  it('recovers a write that set a tracking template, matching the upstream value', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc' } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:utm-set'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey,
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc',
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const recovered = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(recovered.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', entityId: 'cmpn_live' },
+    })
+  })
+
+  it('recovers a write that cleared a tracking template', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { landingPageQueryStringTemplate: null } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:utm-cleared'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey,
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: null,
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const recovered = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(recovered.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', entityId: 'cmpn_live' },
+    })
+  })
+
+  it('recovers a create that carried a tracking template', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: {
+      name: 'Tagged campaign', description: null,
+      startTime: null, endTime: null, lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'], biddingType: 'impressions', conversionEventSettingIds: null,
+      landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_content={ad_id}',
+    } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:utm-create'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'Tagged campaign',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+        landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_content={ad_id}',
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const recovered = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(recovered.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', entityId: 'cmpn_new' },
+    })
+  })
+
+  it('leaves a template the provider does not report unverified rather than assuming it applied', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { landingPageQueryStringTemplate: null } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:utm-unreported'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey,
+        expectedUpdatedAt: 123,
+        landingPageQueryStringTemplate: 'utm_source=chatgpt',
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const recovered = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(recovered.body)).toMatchObject({
+      resolved: false, operation: { state: 'unknown', errorCode: 'ADS_RECONCILIATION_MISMATCH' },
+    })
+  })
+
   it('clears an ad URL tracking template with an explicit null', async () => {
     const projectId = ctx.seedProject()
     ctx.seedConnection(projectId)

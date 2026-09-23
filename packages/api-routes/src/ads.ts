@@ -932,6 +932,14 @@ function entityReconcileFields(entity: AdsOperatorEntityResult): AdsReconcileFie
   } else if (Array.isArray(entity.conversionEventSettingIds)) {
     fields.conversionEventSettingIds = normalizeStringSet(entity.conversionEventSettingIds)
   }
+  // Mirrors the desired-side handling in updateReconcileFields: a template the
+  // provider reports as absent is `null`, which is exactly what a CLEAR asked
+  // for, so a cleared template verifies. A desired template the provider does
+  // not echo stays unverified rather than being assumed applied.
+  if (entity.landingPageQueryStringTemplate === null) fields.landingPageQueryStringTemplate = null
+  else if (typeof entity.landingPageQueryStringTemplate === 'string') {
+    fields.landingPageQueryStringTemplate = entity.landingPageQueryStringTemplate
+  }
   if (typeof entity.campaignId === 'string') fields.campaignId = entity.campaignId
   if (Array.isArray(entity.contextHints)) fields.contextHints = normalizeStringSet(entity.contextHints)
   if (typeof entity.maxBidMicros === 'number') fields.maxBidMicros = entity.maxBidMicros
