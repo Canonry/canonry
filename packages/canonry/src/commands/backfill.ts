@@ -91,6 +91,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         const snapshotRows = db.select({
           id: querySnapshots.id,
           runId: querySnapshots.runId,
+          executionId: querySnapshots.measurementExecutionId,
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
@@ -141,7 +142,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
 
             const nextCitationState = determineCitationState(normalized, projectDomains)
             const nextCitedDomains = reparsedResult.citedDomains
-            const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId))
+            const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId), snapshot.executionId)
             const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
             const nextRecommendedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
@@ -535,6 +536,7 @@ export function backfillProjectAnswerMentions(
     const snapshotRows = db.select({
       id: querySnapshots.id,
       runId: querySnapshots.runId,
+      executionId: querySnapshots.measurementExecutionId,
       provider: querySnapshots.provider,
       answerMentioned: querySnapshots.answerMentioned,
       answerText: querySnapshots.answerText,
@@ -568,7 +570,7 @@ export function backfillProjectAnswerMentions(
         searchQueries: [],
       }
 
-      const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId))
+      const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId), snapshot.executionId)
       const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
       const nextRecommendedCompetitors = extractRecommendedCompetitors(
         answerText,

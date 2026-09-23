@@ -8,7 +8,7 @@ import { parseJsonColumn, runFills, runs, queries, competitors, projects, queryS
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep } from '@ainyc/canonry-api-routes'
+import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
@@ -73,9 +73,11 @@ interface PlanExecutionUnit {
 interface PlanSlotContext {
   runId: string
   allDomains: string[]
-  competitorDomains: string[]
-  /** Operator-approved names per competitor domain (a plan's labels and aliases). */
-  competitorAliases: ReadonlyMap<string, readonly string[]>
+  /**
+   * The competitors one answer is scored against: the project list plus the
+   * plan pins of the groups whose properties use that question.
+   */
+  competitorsFor: (executionId: string) => RunCompetitors
   allBrandNames: string[]
   executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
   providerDispatchCounts: Map<ProviderName, number>
@@ -447,12 +449,14 @@ export class JobRunner {
         .where(eq(competitors.projectId, projectId))
         .all()
 
-      // A plan run is also scored against the competitors its own revision
-      // names, so a project whose competitor list was never filled in still
-      // measures the competitors its plan defines. A planless run gets exactly
-      // the project list, as before.
-      const runCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))(existingRun.measurementPlanVersionId)
-      const competitorDomains = runCompetitors.domains
+      const competitorDomains = projectCompetitors.map(c => c.domain)
+      // A plan answer is also scored against the competitors its revision pins
+      // on the groups that use its question, so a project whose competitor
+      // list was never filled in still measures them, market by market. The
+      // planless path below keeps using exactly the project list.
+      const resolveCompetitors = createRunCompetitorResolver(this.db, competitorDomains)
+      const competitorsFor = (executionId: string): RunCompetitors =>
+        resolveCompetitors(existingRun.measurementPlanVersionId, executionId)
       const allDomains = effectiveDomains({
         canonicalDomain: project.canonicalDomain,
         ownedDomains: project.ownedDomains,
@@ -688,8 +692,7 @@ export class JobRunner {
       const slotContext: PlanSlotContext = {
         runId,
         allDomains,
-        competitorDomains,
-        competitorAliases: runCompetitors.aliases,
+        competitorsFor,
         allBrandNames,
         executionGates,
         providerDispatchCounts,
@@ -1049,8 +1052,9 @@ export class JobRunner {
 
       // The same identity the sweep matched against, read the same way.
       const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
-      const runCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))(run.measurementPlanVersionId)
-      const competitorDomains = runCompetitors.domains
+      const resolveCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))
+      const competitorsFor = (executionId: string): RunCompetitors =>
+        resolveCompetitors(run.measurementPlanVersionId, executionId)
       const allDomains = effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains })
       const allBrandNames = effectiveBrandNames({ displayName: project.displayName, aliases: project.aliases })
 
@@ -1113,8 +1117,7 @@ export class JobRunner {
       const ctx: PlanSlotContext = {
         runId,
         allDomains,
-        competitorDomains,
-        competitorAliases: runCompetitors.aliases,
+        competitorsFor,
         allBrandNames,
         executionGates,
         providerDispatchCounts,
@@ -1257,6 +1260,7 @@ export class JobRunner {
   ): Promise<void> {
     const { adapter, config: providerConfig } = registeredProvider
     const providerName = adapter.name
+    const { domains: competitorDomains, aliases: competitorAliases } = ctx.competitorsFor(unit.executionId)
     const gate = ctx.executionGates.get(providerName)
     if (!gate) {
       throw new Error(`Missing execution gate for provider ${providerName}`)
@@ -1290,7 +1294,7 @@ export class JobRunner {
           {
             query: unit.queryText,
             canonicalDomains: ctx.allDomains,
-            competitorDomains: ctx.competitorDomains,
+            competitorDomains,
             location: requestedContext ?? undefined,
           },
           config,
@@ -1330,14 +1334,14 @@ export class JobRunner {
           ctx.allBrandNames,
           ctx.allDomains,
         )
-        const overlap = computeCompetitorOverlap(normalized, ctx.competitorDomains, ctx.competitorAliases)
+        const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
         const extractedCompetitors = extractRecommendedCompetitors(
           normalized.answerText,
           ctx.allDomains,
           normalized.citedDomains,
-          ctx.competitorDomains,
+          competitorDomains,
           ctx.allBrandNames,
-          ctx.competitorAliases,
+          competitorAliases,
         )
 
         const snapshotId = crypto.randomUUID()
