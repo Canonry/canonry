@@ -227,7 +227,7 @@ afterEach(async () => {
 })
 
 describe('measurement portfolio reads', () => {
-  it('ranks usable mentions independently of aggregate ambiguity, citation capture and the list limit', async () => {
+  it('ranks usable mentions over attributable answers, independently of citation capture and the list limit', async () => {
     const uncertain = { ...structuredClone(plan.targets[0]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
     plan.targets.push(uncertain)
     for (const assignment of plan.assignments.filter(row => row.targetKey === 'harbor')) {
@@ -245,15 +245,34 @@ describe('measurement portfolio reads', () => {
 
     const mixed = await portfolio('queryClass=all&limit=1')
     expect(mixed.status).toBe(200)
-    expect(mixed.body.metrics.mentionCoverage).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
+    // The two branded answers ask which Cedar Court was meant. They leave both
+    // sides of the aggregate rather than blanking it: the two non-brand answers
+    // name Harbor Homes, so 2 of the 2 attributable answers mention a Property.
+    expect(mixed.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2, unattributed: 2 })
     expect(mixed.body.mentionRanking).toMatchObject({
-      eligiblePropertyCount: 2, truncated: true,
+      eligiblePropertyCount: 3, truncated: true, excluded: [],
       strongest: [{ targetKey: 'harbor', mentionCoverage: { state: 'available', numerator: 2, denominator: 4, value: 0.5 }, citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' } }],
       weakest: [{ targetKey: 'bayside', mentionCoverage: { state: 'available', value: 0 } }],
-      excluded: [{ targetKey: uncertain.stableKey, label: uncertain.label, reason: 'identity_ambiguous' }],
     })
     expect(mixed.body.mentionRanking.strongest).toHaveLength(1)
     expect(mixed.body.mentionRanking.weakest).toHaveLength(1)
+    // Harbor's branded answers name neither Property it could be confused with:
+    // they are measured negatives, not unattributable, so nothing is left out.
+    expect(mixed.body.mentionRanking.strongest[0]!.mentionCoverage).not.toHaveProperty('unattributed')
+
+    // Cedar Court is ranked over the answers that could be attributed to it:
+    // 0 of its 2 non-brand answers, with its 2 uncertain branded answers left out.
+    const ranked = (await portfolio('queryClass=all')).body.mentionRanking
+    expect([...ranked.strongest, ...ranked.weakest].find(row => row.targetKey === uncertain.stableKey)?.mentionCoverage)
+      .toEqual({ state: 'available', value: 0, numerator: 0, denominator: 2, unattributed: 2 })
+
+    // Branded alone, every answer is uncertain: nothing is left to measure, so
+    // the aggregate and Cedar Court stay unavailable instead of reading zero.
+    const branded = await portfolio('queryClass=branded')
+    expect(branded.body.metrics.mentionCoverage).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
+    expect(branded.body.mentionRanking.excluded).toContainEqual({ targetKey: uncertain.stableKey, label: uncertain.label, reason: 'identity_ambiguous' })
+    expect(branded.body.mentionRanking.strongest.find(row => row.targetKey === 'harbor')?.mentionCoverage)
+      .toEqual({ state: 'available', value: 0, numerator: 0, denominator: 2 })
 
     // The ambiguous answer was branded. Default non-brand reporting must not
     // inherit its warning or count it in any Property's denominator.

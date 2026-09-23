@@ -25,7 +25,7 @@ const NEARBY_QUESTION = 'boutique hotels near the harbor'
 const EVIDENCE_SHAPE = 'answers' as const
 
 type Metric =
-  | { state: 'available'; value: number; numerator: number; denominator: number }
+  | { state: 'available'; value: number; numerator: number; denominator: number; unattributed?: number }
   | { state: 'unavailable'; reason: string }
 
 const available = (numerator: number, denominator: number): Metric => ({
@@ -669,6 +669,48 @@ describe('Property page', () => {
     expect(within(gemini).getByText('50%')).toBeTruthy()
     expect(within(gemini).getByText('0%')).toBeTruthy()
     expect(within(openai).getAllByText('100%')).toHaveLength(2)
+  })
+
+  it('discloses the answers a mention rate left out wherever that rate is shown', async () => {
+    // One mention plus nine answers that asked which property was meant. The
+    // server measures 1 of 1 and says nine were left out; the page must say so.
+    const partial = (numerator: number, denominator: number, unattributed: number): Metric =>
+      ({ ...available(numerator, denominator), unattributed }) as Metric
+    await renderPropertyPage({
+      branded: overviewResponse('branded', {
+        mentionCoverage: unavailable('identity_ambiguous'),
+        citationCoverage: available(0, 4),
+      }),
+      nonBrand: overviewResponse('non-brand', {
+        mentionCoverage: partial(1, 1, 9),
+        citationCoverage: available(0, 10),
+        providers: [
+          { provider: 'gemini', mentionCoverage: partial(1, 1, 4), citationCoverage: available(0, 5) },
+          { provider: 'openai', mentionCoverage: unavailable('identity_ambiguous'), citationCoverage: available(0, 5) },
+        ],
+      }),
+    })
+
+    const line = '9 of 10 answers could not be tied to one property'
+    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
+    const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
+    expect(within(nonBrandMention as HTMLElement).getByText('1 of 1')).toBeTruthy()
+    expect(within(nonBrandMention as HTMLElement).getByText(line)).toBeTruthy()
+
+    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
+    expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['100%', '1 of 1', line])
+    expect(cited!.textContent).not.toContain('could not be tied')
+    // Every answer ambiguous: the reason is named instead of a bare "Not measured".
+    const branded = within(contrast).getByText('When they know your name').closest('tr')!
+    expect(within(branded).getByText('No answer could be tied to one property')).toBeTruthy()
+
+    const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
+    const gemini = within(providers).getByText('gemini').closest('tr')!
+    expect(within(gemini).getByText('4 of 5 answers could not be tied to one property')).toBeTruthy()
+    const openai = within(providers).getByText('openai').closest('tr')!
+    expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {

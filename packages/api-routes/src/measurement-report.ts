@@ -175,9 +175,14 @@ export interface MeasurementAnswerEvidence {
   evidenceComplete: boolean
 }
 
+/**
+ * `unattributed` appears only on a mention rate that left answers out because
+ * their identity could not be tied to one Property. Those answers are in
+ * neither the numerator nor the denominator; absent means none were left out.
+ */
 export type MeasurementRate =
-  | { numerator: number; denominator: number; rate: number; reason?: never }
-  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason }
+  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number }
+  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never }
 
 export interface MeasurementCompleteness {
   executed: number
@@ -1044,10 +1049,25 @@ function mentionRate(
   if (!status.complete || !status.answerComplete) {
     return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
   }
-  if (slots.some(slot => prepared.observationsBySlot.get(slot.id)?.unknownMentionTargetIds.has(target.id))) {
-    return unavailable('identity-ambiguous')
-  }
-  return { numerator, denominator: slots.length, rate: numerator / slots.length }
+  const unattributed = slots.filter(slot => prepared.observationsBySlot.get(slot.id)?.unknownMentionTargetIds.has(target.id)).length
+  return attributableMentionRate(numerator, slots.length, unattributed)
+}
+
+/**
+ * A mention rate over the answers whose identity could be resolved.
+ *
+ * An answer that names the Property only ambiguously ("which Harbor Point do
+ * you mean?") is neither a mention nor a measured absence, so it leaves BOTH
+ * sides of the rate and is reported as `unattributed`. Refusing the whole
+ * population instead let one hedged answer in a thousand blank the number.
+ * The rate is still unavailable when no answer is left to measure.
+ */
+function attributableMentionRate(numerator: number, answered: number, unattributed: number): MeasurementRate {
+  const denominator = answered - unattributed
+  if (denominator <= 0) return unavailable('identity-ambiguous')
+  return unattributed > 0
+    ? { numerator, denominator, rate: numerator / denominator, unattributed }
+    : { numerator, denominator, rate: numerator / denominator }
 }
 
 function providersFor(slots: readonly MeasurementExpectedSlotInput[]): string[] {
@@ -1342,14 +1362,17 @@ function scopeMentionRate(
   const idsByExecution = new Map<string, Set<string>>()
   for (const edge of edges) if (mentionableIds.has(edge.targetId)) addToSet(idsByExecution, edge.executionId, edge.targetId)
   let numerator = 0
+  let unattributed = 0
   for (const slot of answered) {
     const observation = prepared.observationsBySlot.get(slot.id)!
     const ids = [...(idsByExecution.get(slot.executionId) ?? [])]
     if (ids.length === 0) return unavailable('aliasless')
+    // One verified assigned Property makes the answer a mention. With none
+    // verified, an uncertain one makes the answer unattributable, not negative.
     if (ids.some(id => observation.mentionedTargetIds.has(id))) numerator++
-    else if (ids.some(id => observation.unknownMentionTargetIds.has(id))) return unavailable('identity-ambiguous')
+    else if (ids.some(id => observation.unknownMentionTargetIds.has(id))) unattributed++
   }
-  return { numerator, denominator: answered.length, rate: numerator / answered.length }
+  return attributableMentionRate(numerator, answered.length, unattributed)
 }
 
 function indexedScopeCitationRate(
@@ -1382,9 +1405,9 @@ function targetMentionRate(
 
   const mentioned = indexes.mentionedSlotIdsByTargetId.get(mentionable[0]!.id) ?? new Set<string>()
   const unknown = indexes.unknownMentionSlotIdsByTargetId.get(mentionable[0]!.id)
-  if (unknown && answered.some(slot => unknown.has(slot.id))) return unavailable('identity-ambiguous')
+  const unattributed = unknown ? answered.filter(slot => unknown.has(slot.id)).length : 0
   const numerator = answered.filter(slot => mentioned.has(slot.id)).length
-  return { numerator, denominator: answered.length, rate: numerator / answered.length }
+  return attributableMentionRate(numerator, answered.length, unattributed)
 }
 
 function presenceIn(

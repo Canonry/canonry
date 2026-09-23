@@ -153,7 +153,11 @@ function unavailable(reason: MeasurementMetricUnavailableReason): MetricValue {
 
 function coverageMetric(rate: MeasurementRate): MetricValue {
   if (rate.rate === null) return unavailable(metricReason(rate.reason))
-  return { state: 'available', value: rate.rate, numerator: rate.numerator, denominator: rate.denominator }
+  return {
+    state: 'available', value: rate.rate, numerator: rate.numerator, denominator: rate.denominator,
+    // Answers the mention rate left out because their identity was unresolved.
+    ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
+  }
 }
 
 function countMetric(rate: MeasurementRate): MetricValue {

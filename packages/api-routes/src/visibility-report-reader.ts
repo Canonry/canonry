@@ -418,10 +418,32 @@ function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, 
   return candidate.observation?.citationComplete ? targetValues(candidate, targets, targetKey).citation : null
 }
 
-function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string) {
+/**
+ * Mention coverage over the answers whose identity could be resolved.
+ *
+ * An unattributable answer (`mentionUnavailableReason: 'identity-ambiguous'`)
+ * leaves BOTH the numerator and the denominator and is counted in
+ * `unattributed`; it is never read as not mentioned. Any other missing mention
+ * signal still withholds the rate, and a population with no attributable
+ * answer at all stays unavailable as `identity-ambiguous`.
+ */
+function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string): VisibilityReportRate {
   const values = candidates.map(candidate => targetValues(candidate, targets, targetKey))
-  return rate(values.map(value => value.mention), values.length,
-    values.some(value => value.mentionUnavailableReason === 'identity-ambiguous') ? 'identity-ambiguous' : 'evidence-incomplete')
+  if (values.length === 0) return unavailable('no-population')
+  let numerator = 0
+  let unattributed = 0
+  for (const value of values) {
+    if (value.mention === true) numerator++
+    else if (value.mention === null) {
+      if (value.mentionUnavailableReason !== 'identity-ambiguous') return unavailable('evidence-incomplete')
+      unattributed++
+    }
+  }
+  const denominator = values.length - unattributed
+  if (denominator === 0) return unavailable('identity-ambiguous')
+  return unattributed > 0
+    ? { numerator, denominator, rate: numerator / denominator, unattributed }
+    : { numerator, denominator, rate: numerator / denominator }
 }
 
 function answered(candidate: Candidate): boolean {

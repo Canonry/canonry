@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
+import { UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
@@ -27,9 +28,14 @@ export type AdvancedMeasurementEvidenceKind =
   | 'multiple-properties'
   | 'invalid-url'
 
+/**
+ * `unattributed` is carried only on a measured mention rate that left answers
+ * out because they could not be tied to one property; they are in neither side
+ * of `numerator of denominator`.
+ */
 export type AdvancedMeasurementMetric =
-  | { numerator: number; denominator: number; reason?: never }
-  | { numerator: null; denominator: null; reason: string }
+  | { numerator: number; denominator: number; reason?: never; unattributed?: number }
+  | { numerator: null; denominator: null; reason: string; unattributed?: never }
 
 export interface AdvancedMeasurementPropertyProvider {
   provider: string
@@ -233,6 +239,8 @@ const metricReasons: Record<string, string> = {
   no_completed_run: 'Not measured yet.',
   no_population: 'No matching queries.',
   evidence_incomplete: 'Evidence incomplete.',
+  identity_ambiguous: `${UNATTRIBUTED_MENTION_REASON}.`,
+  'identity-ambiguous': `${UNATTRIBUTED_MENTION_REASON}.`,
   not_applicable: 'Not applicable.',
   incomplete: 'The latest measurement is incomplete.',
   'evidence-incomplete': 'Some source evidence is incomplete.',
@@ -306,12 +314,15 @@ function MetricValue({
   const valueClassName = compact
     ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
     : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
+  // Answers the server left out of this rate because they could not be tied to one property.
+  const unattributed = isMeasured(metric) ? reportUnattributedAnswers(metric) : null
   return (
     <span
       className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-1 tabular-nums"
       {...(!isMeasured(metric) ? { title: metricReason(metric) } : {})}
     >
       <span className={valueClassName}>{metricLabel(metric)}</span>
+      {unattributed ? <span className="text-xs text-secondary">{unattributed}</span> : null}
     </span>
   )
 }

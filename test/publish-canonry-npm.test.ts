@@ -236,6 +236,7 @@ test.each([true, false])('dry run forwards the flag and bypasses registry querie
   f.expectClean()
 })
 
+// Shells out to a real `npm publish --dry-run` twice, which can exceed vitest's 5s default on CI.
 test('real npm publishes both tarballs in offline dry-run mode without running lifecycle scripts', () => {
   const f = fixture()
   const result = f.run({ CANONRY_NPM_PUBLISH_DRY_RUN: '1', PUBLISH_TEST_REAL_DRY_RUN: '1' })
@@ -245,7 +246,7 @@ test('real npm publishes both tarballs in offline dry-run mode without running l
   expect(f.releases()).toHaveLength(2)
   expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm publish', 'npm publish'])
   f.expectClean()
-})
+}, 60_000)
 
 test.each([undefined, primary, compatibility])('local publication preserves lifecycle behavior and restores the manifest on failure: %s', failure => {
   const f = fixture()

@@ -13,6 +13,8 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  reportUnattributedAnswers,
+  UNATTRIBUTED_MENTION_REASON,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
   type MeasurementDiscoveryRequest,
@@ -427,7 +429,13 @@ const METRIC_REASONS: Record<string, string> = {
   no_completed_run: 'not measured (no completed run)',
   no_population: 'not measured (no questions of this type)',
   evidence_incomplete: 'not measured (evidence incomplete)',
+  identity_ambiguous: `not measured (${UNATTRIBUTED_MENTION_REASON.toLowerCase()})`,
   not_applicable: 'not measured (not applicable)',
+}
+
+/** Answers a mention rate left out because they could not be tied to one property. */
+function unattributedText(metric: MetricValue): string | null {
+  return metric.state === 'available' ? reportUnattributedAnswers(metric) : null
 }
 
 function metricText(metric: MetricValue): string {
@@ -475,7 +483,9 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   lines.push(`${response.scope.label} — ${response.queryClass} questions`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   lines.push('')
-  lines.push(`Mentioned  ${metricText(row ? row.mentionCoverage : response.metrics.mentionCoverage)}`)
+  const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
+  const unattributed = unattributedText(mention)
+  lines.push(`Mentioned  ${metricText(mention)}${unattributed ? ` · ${unattributed}` : ''}`)
   lines.push(`Cited      ${metricText(row ? row.citationCoverage : response.metrics.citationCoverage)}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
@@ -484,6 +494,9 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
     lines.push(`${'Engine'.padEnd(14)}${'Mentioned'.padEnd(34)}Cited`)
     for (const provider of row.providers) {
       lines.push(`${provider.provider.padEnd(14)}${metricText(provider.mentionCoverage).padEnd(34)}${metricText(provider.citationCoverage)}`)
+      // Continues under the Mentioned column so the table's columns stay aligned.
+      const providerUnattributed = unattributedText(provider.mentionCoverage)
+      if (providerUnattributed) lines.push(`${''.padEnd(14)}${providerUnattributed}`)
     }
   }
   console.log(lines.join('\n'))

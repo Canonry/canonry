@@ -1078,6 +1078,21 @@ it('client report renders server-provided independent populations without poolin
   expect(within(secondRow).getByText(reportVisibilityEvidence(branded.summary.mentionCoverage))).toBeTruthy()
 })
 
+it('client report states the answers a mention rate left out under its count', () => {
+  const fixture = reportFixture()
+  const first = fixture.populations[0]!
+  const branded = { ...first, queryClass: 'branded' as const, summary: { ...first.summary, mentionCoverage: { numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 }, queryCount: 3, answerCount: 12 } }
+  render(<ReportVisibilitySummary visibility={{ selection: fixture.selection, populations: [branded] }} />)
+  const row = within(screen.getByRole('region', { name: REPORT_VISIBILITY_COPY.title })).getByText(reportQueryClassLabel('branded')).closest('tr')!
+  const [, , , mentioned, cited] = [...row.querySelectorAll('td')]
+  expect([...mentioned!.children].map(child => child.textContent)).toEqual([
+    reportVisibilityRate(branded.summary.mentionCoverage),
+    '10 of 11 answers',
+    '1 of 12 answers could not be tied to one property',
+  ])
+  expect(cited!.textContent).not.toContain('could not be tied')
+})
+
 it('ambiguous property identity remains unverified in rates and saved answer evidence', () => {
   const report = reportWithAnswer('query-context', 'Which same-named property do you mean?')
   const population = report.populations[0]!

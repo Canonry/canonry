@@ -62,6 +62,30 @@ export function reportVisibilityEvidence(value: VisibilityReportRate): string {
   }
 }
 
+/**
+ * Why a mention rate is unavailable when EVERY answer it read was left out as
+ * unattributable (reason `identity-ambiguous` / `identity_ambiguous`). Shared so
+ * the Property page, the overview table, and the CLI say the same thing.
+ */
+export const UNATTRIBUTED_MENTION_REASON = 'No answer could be tied to one property'
+
+/**
+ * The answers a mention rate left out because they could not be tied to one
+ * property, out of every answer it read. The rate's own `numerator of
+ * denominator` already excludes them, so this line is what keeps the missing
+ * answers visible instead of silently shrinking the count. Null when the rate
+ * left nothing out or is unavailable.
+ *
+ * Accepts both rate shapes: the report's `VisibilityReportRate` and an Advanced
+ * Measurement `MetricValue`, whose count fields are optional.
+ */
+export function reportUnattributedAnswers(value: { denominator?: number | null; unattributed?: number }): string | null {
+  if (value.denominator === null || value.denominator === undefined) return null
+  if (value.unattributed === undefined || value.unattributed <= 0) return null
+  // An available rate has a positive denominator, so the total is always plural.
+  return `${value.unattributed} of ${value.denominator + value.unattributed} answers could not be tied to one property`
+}
+
 export function reportVisibilityComparison(state: ReportVisibility['populations'][number]['trend'][number]['continuity']['state'], outsideWindow = false): string {
   const label = state === 'first' ? REPORT_VISIBILITY_COPY.baseline
     : state === 'comparable' ? REPORT_VISIBILITY_COPY.comparable
