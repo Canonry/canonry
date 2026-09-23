@@ -40,7 +40,9 @@ Meta also offers Contributor tier models. Meta [states](https://dev.meta.ai/docs
 
 ## Search and evidence
 
-Canonry sends the tracked query to the Responses API with `web_search` available. Muse decides whether to search. Canonry does not force `tool_choice`. When a run has a location, the adapter passes an approximate `user_location` on the search tool. An answer that does not search never receives it, so Advanced Measurement records that answer's location as ignored.
+Canonry sends the tracked query to the Responses API with `web_search` available. Muse decides whether to search. Canonry does not force `tool_choice`. When a run has a location, the adapter passes an approximate `user_location` on the search tool. If Muse does not search, Simple and Advanced Measurement store no applied location. Both preserve the requested location and mark it as ignored.
+
+Report location filters describe the requested measurement scope. They do not prove that an answer used location-based search.
 
 Search use is `used` only when a response with a usable answer contains a completed `web_search_call`. It is `not-used` when the response establishes that no search ran. It is `unknown` when the response cannot establish that fact. The retrieval contract is `native-auto-v1`.
 

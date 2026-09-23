@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { GroundingSource } from './run.js'
 import type { ModelDefinition, ProviderModelRegistry } from './models.js'
-import type { RetrievalContract, RetrievalStatus } from './retrieval.js'
+import { RetrievalStatuses, type RetrievalContract, type RetrievalStatus } from './retrieval.js'
 
 export const providerQuotaPolicySchema = z.object({
   maxConcurrency: z.number().int().positive(),
@@ -178,6 +178,12 @@ const UNKNOWN_PROVIDER_HANDLING: ProviderLocationHandling = {
 
 export function getProviderLocationHandling(provider: string): ProviderLocationHandling {
   return PROVIDER_LOCATION_HANDLING[provider] ?? UNKNOWN_PROVIDER_HANDLING
+}
+
+/** A search-tool location cannot apply when the provider reports no search. */
+export function isSearchLocationIgnored(provider: ProviderName, retrievalStatus: RetrievalStatus): boolean {
+  return retrievalStatus === RetrievalStatuses['not-used']
+    && getProviderLocationHandling(provider).treatment === 'request-param'
 }
 
 /**

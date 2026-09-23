@@ -6,7 +6,7 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RetrievalStatuses, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, getProviderLocationHandling, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -551,6 +551,10 @@ export class JobRunner {
               allBrandNames,
             )
 
+            const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+              ? { location: null, requestedContext: runLocation, supportedContext: { status: 'ignored' as const } }
+              : { location: runLocation?.label ?? null }
+
             // Move screenshot to canonical location if present
             let screenshotRelPath: string | null = null
             if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
@@ -585,7 +589,7 @@ export class JobRunner {
                 retrievalContract: raw.retrievalContract,
                 competitorOverlap: overlap,
                 recommendedCompetitors: extractedCompetitors,
-                location: runLocation?.label ?? null,
+                ...answerLocation,
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
                   model: raw.model,
@@ -621,7 +625,7 @@ export class JobRunner {
                 retrievalContract: raw.retrievalContract,
                 competitorOverlap: overlap,
                 recommendedCompetitors: extractedCompetitors,
-                location: runLocation?.label ?? null,
+                ...answerLocation,
                 rawResponse: JSON.stringify({
                   model: raw.model,
                   servedModel: raw.servedModel ?? null,
@@ -742,8 +746,7 @@ export class JobRunner {
             // A request-param location rides on the search tool, so an answer
             // the provider reports as unsearched never received it.
             const answerContext = supportedContext
-              && normalized.retrievalStatus === RetrievalStatuses['not-used']
-              && getProviderLocationHandling(providerName).treatment === 'request-param'
+              && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
               ? { status: 'ignored' as const }
               : supportedContext
 

@@ -452,11 +452,12 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     setChangingConversation(true)
     setError(null)
     try {
-      const result = await action()
-      if (result && !managedSweeps) {
-        const provider = providersQuery.data?.providers.find(option => option.id === result.modelProvider)
-        if (provider) pickProvider(provider.id)
-      }
+      // A conversation's stored provider records what answered it, not what
+      // answers next. Saving it as the dashboard's own choice made every later
+      // prompt name it explicitly, which outranks the server's `agent.provider`
+      // pin for good. An unpinned server keeps the reopened conversation on its
+      // stored provider anyway when the prompt names none.
+      await action()
       const latest = await fetchAeroTranscript(projectName)
       if (!mounted.current) return
       awaitingPersistence.current = null
@@ -532,7 +533,11 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       </div>
     )
   }
-  if (!activeProvider) {
+  // The default can be an `agent.provider` pin with no key. Every turn would
+  // fail, so it is a missing-provider state too, but Settings manages only the
+  // answer-engine keys, so name the missing variable instead of linking there.
+  const unkeyedDefault = activeProvider && !activeProvider.configured ? activeProvider : null
+  if (!activeProvider || unkeyedDefault) {
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
@@ -543,10 +548,16 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
           {/* A bare product name told a first-run operator nothing, but this bar
               is persistent, so the explanation belongs behind the affordance. */}
           <span className="flex items-center gap-1.5 font-medium text-strong">
-            Aero needs an answer-engine provider.
-            <InfoTooltip text="Aero is the built-in AEO analyst. It reads your Canonry data with you once a provider is connected." />
+            {unkeyedDefault
+              ? `Aero is set to ${unkeyedDefault.label.replace(/\s+\(.+\)$/, '')}, which has no API key.`
+              : 'Aero needs an answer-engine provider.'}
+            <InfoTooltip
+              text={unkeyedDefault
+                ? `Set ${envVarHint(unkeyedDefault.id)} on the server, or providers.${unkeyedDefault.id}.apiKey in its config.yaml.`
+                : 'Aero is the built-in AEO analyst. It reads your Canonry data with you once a provider is connected.'}
+            />
           </span>
-          {canWrite ? (
+          {unkeyedDefault ? null : canWrite ? (
             <Button asChild variant="outline" size="sm" className="pointer-events-auto ml-auto">
               <Link to="/settings">Open Settings</Link>
             </Button>
@@ -904,7 +915,7 @@ function ProviderPicker({
                       {isActive ? <Check className="h-3 w-3 text-positive-400" aria-hidden="true" /> : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-medium text-heading">{p.label.replace(/\s+\(.+\)$/, '')}</span>
-                    {isOverride && <span className="rounded-md border border-positive-800/60 bg-positive-950/60 px-2 py-0.5 text-[11px] text-positive">Pinned</span>}
+                    {isOverride && <span className="rounded-md border border-positive-800/60 bg-positive-950/60 px-2 py-0.5 text-[11px] text-positive">Selected</span>}
                     {!p.configured && <span className="rounded-md border border-base px-2 py-0.5 text-[11px] text-secondary">Needs setup</span>}
                   </button>
                 </li>
@@ -920,7 +931,7 @@ function ProviderPicker({
               }}
               className="w-full border-t border-default px-3 py-2 text-left text-[11px] text-secondary transition hover:bg-bg-elevated hover:text-heading"
             >
-              Reset to auto-detected default
+              Reset to default
             </button>
           )}
         </div>

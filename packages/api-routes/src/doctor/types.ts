@@ -47,6 +47,17 @@ export interface TrafficSourceValidator {
   validateScopes?(source: TrafficSourceProbe): Promise<CheckOutput | null> | CheckOutput | null
 }
 
+/** An `agent.provider` pin as the `config.agent-providers` check sees it. */
+export interface AgentPinStatus {
+  provider: string
+  model: string
+  configured: boolean
+  /** The env var that supplies this provider's key. */
+  envVar: string
+  /** Why the pinned model id does not resolve, or null when it does. */
+  modelError: string | null
+}
+
 export interface DoctorContext {
   db: DatabaseClient
   /** When the check is project-scoped, this resolves to the project row. */
@@ -76,6 +87,13 @@ export interface DoctorContext {
    * don't run the built-in agent leave it undefined and the check `skipped`.
    */
   getAgentProviderSummary?: () => AgentProviderOption[]
+  /**
+   * The `agent.provider` pin, when one is set, for the same check. A pin
+   * bypasses auto-detection's key check, so a pinned provider with no key, or
+   * a pinned model that does not resolve, fails every Aero turn even while
+   * other providers are configured. Null when nothing is pinned.
+   */
+  getAgentPin?: () => AgentPinStatus | null
   /**
    * Whether the caller is an administrator of this install, as opposed to a
    * signed-in viewer or an API key narrower than the install. Wired from the

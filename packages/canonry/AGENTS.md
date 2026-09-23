@@ -182,6 +182,8 @@ Capture failure prevents provider calls. Probe and advanced runs retain their ex
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
 This capture does not change current report calculations or reconstruct historical definitions.
 
+Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.

@@ -83,6 +83,27 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
         keySource: entry.keySource,
       })),
     }
+    // A pin overrides detection, so its health is Aero's health, whatever the
+    // other providers look like.
+    const pin = ctx.getAgentPin?.() ?? null
+    if (pin && !pin.configured) {
+      return {
+        status: CheckStatuses.warn,
+        code: 'agent-providers.pin-unconfigured',
+        summary: `Aero is pinned to ${pin.provider} by agent.provider, but no key is configured for it, so every Aero turn fails.`,
+        remediation: `Set \`providers.${pin.provider}.apiKey\` in ~/.canonry/config.yaml or export ${pin.envVar}, or change \`agent.provider\`.`,
+        details: { ...details, pin },
+      }
+    }
+    if (pin?.modelError) {
+      return {
+        status: CheckStatuses.warn,
+        code: 'agent-providers.pin-model-invalid',
+        summary: `agent.model "${pin.model}" does not resolve for ${pin.provider}, so every Aero turn fails: ${pin.modelError}`,
+        remediation: 'Set `agent.model` to a model the pinned provider serves, or remove it to use that provider\'s default.',
+        details: { ...details, pin },
+      }
+    }
     if (configured.length === 0) {
       return {
         status: CheckStatuses.warn,
@@ -98,9 +119,10 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
     return {
       status: CheckStatuses.ok,
       code: 'agent-providers.configured',
-      summary: `${configured.length} of ${total} agent providers configured: ${configured.map((e) => e.id).join(', ')}.`,
+      summary: `${configured.length} of ${total} agent providers configured: ${configured.map((e) => e.id).join(', ')}.`
+        + (pin ? ` Aero is pinned to ${pin.provider} (${pin.model}).` : ''),
       remediation: null,
-      details,
+      details: pin ? { ...details, pin } : details,
     }
   },
 }

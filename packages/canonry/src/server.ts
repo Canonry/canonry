@@ -239,6 +239,7 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
+import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
@@ -2628,6 +2629,7 @@ export async function createServer(opts: {
     // up immediately in the `config.agent-providers` doctor check.
     getAgentProviderSummary: () =>
       buildAgentProvidersResponse(opts.config).providers,
+    getAgentPin: () => describeAgentPin(opts.config),
     getGoogleMarketingDoctorInput: (ctx) => {
       if (!ctx.project) return null;
       const googleAds = opts.db.select().from(googleAdsConnections)

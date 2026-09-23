@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { getProviderLocationHandling } from '../src/provider.js'
+import { getProviderLocationHandling, isSearchLocationIgnored } from '../src/provider.js'
+import { RetrievalStatuses } from '../src/retrieval.js'
 
 describe('getProviderLocationHandling', () => {
   it('reports prompt-injection providers (Gemini, Perplexity, Local)', () => {
@@ -33,5 +34,18 @@ describe('getProviderLocationHandling', () => {
       const handling = getProviderLocationHandling(name)
       expect(handling.description.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('isSearchLocationIgnored', () => {
+  it.each(['muse', 'openai', 'claude'])('ignores %s search location only when search did not run', (provider) => {
+    expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(true)
+    for (const status of [RetrievalStatuses.used, RetrievalStatuses.unknown, RetrievalStatuses['not-applicable']]) {
+      expect(isSearchLocationIgnored(provider, status)).toBe(false)
+    }
+  })
+
+  it.each(['gemini', 'perplexity', 'local', 'cdp:chatgpt', 'custom'])('preserves %s location treatment without search', (provider) => {
+    expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(false)
   })
 })

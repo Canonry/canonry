@@ -1,4 +1,7 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
@@ -15,7 +18,12 @@ import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+const location = { label: 'New York', city: 'New York', region: 'NY', country: 'US' }
 
 function responseFor(query: string) {
   const mentions = query === 'best widgets'
@@ -38,10 +46,21 @@ function responseFor(query: string) {
   }
 }
 
+function noSearchResponse() {
+  return {
+    id: crypto.randomUUID(), status: 'completed', model: 'muse-spark-1.3',
+    output: [{ type: 'message', role: 'assistant', status: 'completed', content: [
+      { type: 'output_text', text: '4', annotations: [] },
+    ] }],
+  }
+}
+
 type MuseRequest = { input: string; tools: Array<{ type: string; user_location?: unknown }>; model: string; include?: string[]; tool_choice?: unknown }
 
-async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => unknown) {
+async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => unknown, withScreenshot = false, withLocation = true) {
   resetSharedProviderExecutionGates()
+  const screenshotRoot = withScreenshot ? fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-muse-screenshot-')) : undefined
+  if (screenshotRoot) vi.spyOn(os, 'homedir').mockReturnValue(screenshotRoot)
   const requests: MuseRequest[] = []
   vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)) as MuseRequest
@@ -60,11 +79,11 @@ async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => 
     const queryRows = ['best widgets', 'widget options'].map(query => ({
       id: crypto.randomUUID(), projectId, query, createdAt: now,
     }))
-    const location = { label: 'New York', city: 'New York', region: 'NY', country: 'US' }
     db.insert(projects).values({
       id: projectId, name: 'northstar', displayName: 'Northstar', aliases: ['Northstar'],
       canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['muse'],
-      locations: [location], defaultLocation: location.label, createdAt: now, updatedAt: now,
+      locations: withLocation ? [location] : [], defaultLocation: withLocation ? location.label : null,
+      createdAt: now, updatedAt: now,
     }).run()
     db.insert(queries).values(queryRows).run()
 
@@ -100,7 +119,16 @@ async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => 
     }
 
     const registry = new ProviderRegistry()
-    registry.register(museAdapter, {
+    const adapter = screenshotRoot ? {
+      ...museAdapter,
+      async executeTrackedQuery(...args: Parameters<typeof museAdapter.executeTrackedQuery>) {
+        const raw = await museAdapter.executeTrackedQuery(...args)
+        const screenshotPath = path.join(screenshotRoot, `${crypto.randomUUID()}.png`)
+        fs.writeFileSync(screenshotPath, 'fixture')
+        return { ...raw, screenshotPath }
+      },
+    } : museAdapter
+    registry.register(adapter, {
       provider: 'muse', apiKey: 'test-key', baseUrl: 'https://api.meta.ai/v1',
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 60, maxRequestsPerDay: 1000 },
     })
@@ -108,6 +136,7 @@ async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => 
     return { requests, rows: db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all() }
   } finally {
     db.$client.close()
+    if (screenshotRoot) fs.rmSync(screenshotRoot, { recursive: true, force: true })
   }
 }
 
@@ -134,21 +163,48 @@ test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, c
     citedUrls: ['https://example.com/widgets'],
   })
   expect(rows.every(row => row.servedModel === 'muse-spark-1.3')).toBe(true)
-  expect(rows.every(row => row.location === 'New York')).toBe(true)
-  expect(rows.every(row => kind === 'Advanced' ? Boolean(row.measurementExecutionId) : !row.measurementExecutionId)).toBe(true)
-  expect(rows.every(row => kind === 'Advanced' ? row.supportedContext?.status === 'applied' : row.supportedContext === null)).toBe(true)
+  for (const row of rows) {
+    expect(row.location).toBe('New York')
+    expect(row.requestedContext).toEqual(kind === 'Advanced' ? location : null)
+    expect(row.supportedContext).toEqual(kind === 'Advanced' ? { status: 'applied', resolved: location } : null)
+    expect(Boolean(row.measurementExecutionId)).toBe(kind === 'Advanced')
+  }
 })
 
-test('an Advanced Muse answer that never searched does not claim the requested location', async () => {
-  const { requests, rows } = await runMuse('Advanced', query => ({
-    id: crypto.randomUUID(), status: 'completed', model: 'muse-spark-1.3',
-    output: [{ type: 'message', status: 'completed', content: [{ type: 'output_text', text: `About ${query}.` }] }],
-  }))
+test.each(['Simple', 'Advanced'] as const)('%s Muse answers without web search retain the requested location without claiming it was applied', async (kind) => {
+  const { requests, rows } = await runMuse(kind, noSearchResponse)
   expect(requests.every(request => JSON.stringify(request.tools[0]?.user_location).includes('New York'))).toBe(true)
   expect(rows).toHaveLength(2)
   for (const row of rows) {
     expect(row.retrievalStatus).toBe('not-used')
+    expect(row.answerText).toBe('4')
+    expect(row.requestedContext).toEqual(location)
     expect(row.supportedContext).toEqual({ status: 'ignored' })
     expect(row.location).toBeNull()
+    expect(Boolean(row.measurementExecutionId)).toBe(kind === 'Advanced')
+  }
+})
+
+test('Simple Muse screenshot snapshots also record an ignored search location', async () => {
+  const { rows } = await runMuse('Simple', noSearchResponse, true)
+  expect(rows).toHaveLength(2)
+  for (const row of rows) {
+    expect(row.screenshotPath).toMatch(/\.png$/)
+    expect(row.retrievalStatus).toBe('not-used')
+    expect(row.requestedContext).toEqual(location)
+    expect(row.supportedContext).toEqual({ status: 'ignored' })
+    expect(row.location).toBeNull()
+  }
+})
+
+test('Simple Muse does not mark a location ignored when none was requested', async () => {
+  const { requests, rows } = await runMuse('Simple', noSearchResponse, false, false)
+  expect(requests.every(request => request.tools[0]?.user_location === undefined)).toBe(true)
+  expect(rows).toHaveLength(2)
+  for (const row of rows) {
+    expect(row.retrievalStatus).toBe('not-used')
+    expect(row.location).toBeNull()
+    expect(row.requestedContext).toBeNull()
+    expect(row.supportedContext).toBeNull()
   }
 })
