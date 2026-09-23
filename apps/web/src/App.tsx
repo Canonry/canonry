@@ -27,6 +27,7 @@ import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  isAeroPreview,
   isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
@@ -311,7 +312,8 @@ export function RootLayout() {
   // and this account may use it: an administrator, or a signed-in viewer on an
   // install that opened Aero to viewers. Combined here rather than only at the
   // render site so the bottom padding the bar reserves disappears with it.
-  const agentBarVisible = deploymentServesAgentBar && aeroAllowedFor({ isAdmin, account })
+  // The public demo has neither, and shows the bar as a scripted preview.
+  const agentBarVisible = isAeroPreview() || (deploymentServesAgentBar && aeroAllowedFor({ isAdmin, account }))
   const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
 
   // Router state is also a data-fetching input: setup owns the project-create

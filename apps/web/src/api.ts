@@ -339,6 +339,15 @@ export function isAeroOpenToViewers(): boolean {
   return window.__CANONRY_CONFIG__?.agent?.allowViewers === true
 }
 
+/**
+ * Whether the Aero bar runs as a scripted preview: the public demo, which has
+ * no agent routes and no model. The bar plays the demo server's prebuilt
+ * answers and never calls the live Aero endpoints.
+ */
+export function isAeroPreview(): boolean {
+  return isPublicDemo()
+}
+
 /** Whether the available-version notification renders in the sidebar. */
 export function shouldShowDashboardUpdateNotification(): boolean {
   if (typeof window === 'undefined') return true

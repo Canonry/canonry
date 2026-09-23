@@ -34,7 +34,7 @@ export function DemoNotice() {
   return (
     <aside className="demo-banner" aria-label="Public demo">
       <p className="demo-banner-name">Canonry demo</p>
-      <p className="demo-banner-facts">No sign-in. View only. Fictional data.</p>
+      <p className="demo-banner-facts">View only. Fictional data.</p>
       <p className="demo-banner-agent">{AGENT_SENTENCE}</p>
       <div className="demo-banner-actions">
         <a className="demo-banner-primary" href={WEBSITE_URL} {...external}>

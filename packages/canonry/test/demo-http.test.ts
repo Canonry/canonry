@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDemoHttpServer } from '../src/demo/http.js'
@@ -12,7 +13,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 
 const BUILT_DOCUMENT = '<!doctype html><html><head></head><body><div id="root"></div></body></html>'
 
-async function fixture(apiRateLimitMax?: number, extra: { trustProxy?: readonly string[]; document?: string } = {}) {
+async function fixture(apiRateLimitMax?: number, extra: { trustProxy?: readonly string[]; document?: string; aeroPreviews?: ReadonlyMap<string, AeroPreviewResponse> } = {}) {
   const { document = BUILT_DOCUMENT, ...network } = extra
   const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-http-'))
   mkdirSync(join(dir, 'assets'))
@@ -77,6 +78,42 @@ describe('dedicated public demo server', () => {
       expect((await app.inject(url)).statusCode, url).toBe(403)
     }
     expect(network).not.toHaveBeenCalled()
+  })
+
+  it('serves the scripted Aero preview but keeps every live agent route closed', async () => {
+    const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network forbidden'))
+    const preview: AeroPreviewResponse = {
+      project: 'summit-roofing',
+      seededAt: '2026-09-09T12:00:00.000Z',
+      starters: [{ id: 'status', steps: [], answer: 'Scripted.' }],
+    }
+    const { app } = await fixture(undefined, { aeroPreviews: new Map([['summit-roofing', preview]]) })
+    const served = await app.inject('/api/v1/projects/summit-roofing/agent/preview')
+    expect(served.statusCode, served.body).toBe(200)
+    expect(served.json()).toEqual(preview)
+    expect(served.headers['cache-control']).toBe('no-store')
+    expect((await app.inject({ method: 'HEAD', url: '/api/v1/projects/summit-roofing/agent/preview' })).statusCode).toBe(200)
+    const missing = await app.inject('/api/v1/projects/no-such-project/agent/preview')
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json().error.code).toBe('NOT_FOUND')
+    for (const path of ['transcript', 'providers', 'conversations', 'memory']) {
+      const response = await app.inject(`/api/v1/projects/summit-roofing/agent/${path}`)
+      expect(response.statusCode, path).toBe(403)
+      expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    }
+    for (const [method, path] of [['POST', 'prompt'], ['POST', 'conversations'], ['DELETE', 'transcript'], ['POST', 'preview']] as const) {
+      const response = await app.inject({ method, url: `/api/v1/projects/summit-roofing/agent/${path}`, payload: { prompt: 'status' } })
+      expect(response.statusCode, `${method} ${path}`).toBe(403)
+      expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    }
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('answers the preview route with not found when no previews were built', async () => {
+    const { app } = await fixture()
+    const response = await app.inject('/api/v1/projects/summit-roofing/agent/preview')
+    expect(response.statusCode).toBe(404)
+    expect(response.json().error.code).toBe('NOT_FOUND')
   })
 
   it('serves the public icon without exposing arbitrary package files', async () => {

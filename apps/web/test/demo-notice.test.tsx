@@ -67,7 +67,7 @@ describe('public demo notice', () => {
   it('states the demo facts and how to run Canonry from an agent', () => {
     const banner = renderDemo()
     expect(within(banner).getByText('Canonry demo')).toBeTruthy()
-    expect(within(banner).getByText('No sign-in. View only. Fictional data.')).toBeTruthy()
+    expect(within(banner).getByText('View only. Fictional data.')).toBeTruthy()
     const sentences = within(banner).getAllByText(AGENT_SENTENCE)
     expect(sentences).toHaveLength(2)
     expect(sentences[0]!.closest('details')).toBeNull()
