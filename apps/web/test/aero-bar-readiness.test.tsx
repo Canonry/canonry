@@ -15,8 +15,9 @@ import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@ainyc/canonry-api
 import { heyClient } from '../src/api.js'
 import * as api from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
-import { AccountProvider } from '../src/contexts/account-context.js'
+import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
+import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
 
 const PROJECT_NAME = 'citypoint'
 
@@ -41,15 +42,17 @@ async function renderWithProviderReadiness(data: {
     keySource: 'config' | null
   }>
   defaultProvider: 'openai' | null
-}, role: 'admin' | 'viewer' | null = null) {
+} | null, role: 'admin' | 'viewer' | null = null, apiKey?: ApiKeyAccess) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(
-    getApiV1ProjectsByNameAgentProvidersQueryKey({
-      client: heyClient,
-      path: { name: PROJECT_NAME },
-    }),
-    data,
-  )
+  if (data) {
+    queryClient.setQueryData(
+      getApiV1ProjectsByNameAgentProvidersQueryKey({
+        client: heyClient,
+        path: { name: PROJECT_NAME },
+      }),
+      data,
+    )
+  }
 
   const rootRoute = createRootRoute({
     component: () => (
@@ -69,7 +72,7 @@ async function renderWithProviderReadiness(data: {
 
   const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <AccountProvider account={role ? { name: role, role } : null}>
+      <AccountProvider account={role ? { name: role, role } : null} apiKey={apiKey}>
         <RouterProvider router={router} />
       </AccountProvider>
     </QueryClientProvider>,
@@ -424,4 +427,196 @@ test('fits the slash palette to the room above the composer so no command is cut
   const list = screen.getByRole('listbox')
   expect(list.style.maxHeight).toBe('164px')
   expect(screen.getByText('/status')).toBeTruthy()
+})
+
+// ── Public demo preview ──────────────────────────────────────────────
+// The demo has no agent routes and no model. Its bar plays the demo server's
+// scripted answers, and must never reach a live Aero endpoint.
+
+const DEMO_KEY: ApiKeyAccess = { id: 'public-demo-viewer', scopes: ['read'], projectId: null, readOnly: false }
+const PREVIEW_URL = `/api/v1/projects/${PROJECT_NAME}/agent/preview`
+const STATUS_PROMPT = 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.'
+const PREVIEW: AeroPreviewResponse = {
+  project: PROJECT_NAME,
+  seededAt: '2026-09-23T12:00:00.000Z',
+  starters: [
+    {
+      id: 'status',
+      steps: [{
+        text: 'Checking the latest sweep.',
+        tool: {
+          name: 'canonry_project_overview',
+          label: 'Get project overview (composite)',
+          arguments: { project: PROJECT_NAME },
+          result: { latestRun: { status: 'completed' } },
+          durationMs: 640,
+        },
+      }],
+      answer: 'The latest sweep completed on all three engines.',
+    },
+    { id: 'changes', steps: [], answer: 'Nothing moved beyond normal run-to-run noise.' },
+    { id: 'gaps', steps: [], answer: 'Two tracked queries have no mention from any engine.' },
+    { id: 'insights', steps: [], answer: 'Three medium insights lead the list.' },
+  ],
+}
+
+async function renderPreview({ reducedMotion = true } = {}) {
+  window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true }, dashboard: { showAgentBar: false } }
+  if (reducedMotion) vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.endsWith(PREVIEW_URL)) return new Response(JSON.stringify(PREVIEW), { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response(JSON.stringify({ error: { code: 'DEMO_READ_ONLY', message: 'unavailable in the view-only demo' } }), { status: 403 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const live = [
+    vi.spyOn(aero, 'fetchAeroTranscript'),
+    vi.spyOn(aero, 'fetchAgentProviders'),
+    vi.spyOn(aero, 'promptAero'),
+    vi.spyOn(aero, 'resetAeroTranscript'),
+    vi.spyOn(api, 'listAgentConversations'),
+    vi.spyOn(api, 'createAgentConversation'),
+    vi.spyOn(api, 'resumeAgentConversation'),
+  ]
+  // No provider readiness is seeded: the preview must not wait on that check.
+  const rendered = await renderWithProviderReadiness(null, null, DEMO_KEY)
+  const requestedUrls = () => fetchMock.mock.calls.map(([input]) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url))
+  const expectNoLiveCalls = () => {
+    for (const spy of live) expect(spy).not.toHaveBeenCalled()
+    for (const url of requestedUrls()) expect(url).toMatch(/\/agent\/preview$/)
+  }
+  return { ...rendered, fetchMock, requestedUrls, expectNoLiveCalls }
+}
+
+test('the demo preview shows the bar with no provider check and no operator controls', async () => {
+  const { requestedUrls, expectNoLiveCalls } = await renderPreview()
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(requestedUrls()).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  await waitFor(() => expect(requestedUrls()).toEqual([PREVIEW_URL]))
+  expect(screen.getByRole('button', { name: /New conversation/i })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Switch agent model' })).toBeNull()
+  expect(screen.getByPlaceholderText('Type / for a starting point')).toBeTruthy()
+
+  expect(screen.getByText(/Sample answers on demo data\./)).toBeTruthy()
+  const site = screen.getByRole('link', { name: /Aero answers from your own Canonry data\./ })
+  expect(site.getAttribute('href')).toBe('https://canonry.ai')
+  expect(site.getAttribute('target')).toBe('_blank')
+  expect(site.getAttribute('rel')).toBe('noopener noreferrer')
+  expectNoLiveCalls()
+})
+
+test('a demo starter plays its scripted answer, shows the tool once and completes', async () => {
+  const { requestedUrls, expectNoLiveCalls } = await renderPreview()
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
+
+  await screen.findByText('The latest sweep completed on all three engines.')
+  expect(screen.getByText(STATUS_PROMPT)).toBeTruthy()
+  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
+  expect(screen.getByText('done')).toBeTruthy()
+  expect(screen.getByText('640ms')).toBeTruthy()
+  expect(screen.queryByText('interrupted')).toBeNull()
+  // Nothing an operator would run elsewhere: the demo has no CLI to paste into.
+  expect(screen.queryByRole('button', { name: 'Copy as CLI command' })).toBeNull()
+  // The starters stay in reach once an answer is in.
+  for (const label of ['Status', 'What changed', 'Biggest gaps', 'Top insights']) {
+    expect(screen.getByRole('button', { name: label })).toBeTruthy()
+  }
+
+  fireEvent.click(screen.getByRole('button', { name: 'Top insights' }))
+  await screen.findByText('Three medium insights lead the list.')
+  expect(requestedUrls()).toEqual([PREVIEW_URL])
+  expectNoLiveCalls()
+})
+
+test('the demo palette lists only the four starters and plays the one picked', async () => {
+  const { expectNoLiveCalls } = await renderPreview()
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.change(screen.getByPlaceholderText('Type / for a starting point'), { target: { value: '/' } })
+
+  const options = screen.getAllByRole('option').map((option) => option.textContent)
+  expect(options).toEqual(['Status/status', 'What changed/changes', 'Biggest gaps/gaps', 'Top insights/insights'])
+  expect(screen.getByText('Starting points')).toBeTruthy()
+  for (const hidden of ['/last-run', '/run-sweep', '/queries', '/competitors', '/new']) {
+    expect(screen.queryByText(hidden)).toBeNull()
+  }
+
+  fireEvent.click(screen.getByRole('option', { name: /What changed/ }))
+  await screen.findByText('Nothing moved beyond normal run-to-run noise.')
+
+  // A command typed in full plays its starter too.
+  const input = screen.getByPlaceholderText('Type / for a starting point')
+  fireEvent.change(input, { target: { value: '/gaps ' } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await screen.findByText('Two tracked queries have no mention from any engine.')
+  expectNoLiveCalls()
+})
+
+test('the demo never sends free text', async () => {
+  const { expectNoLiveCalls } = await renderPreview()
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const input = screen.getByPlaceholderText('Type / for a starting point')
+  fireEvent.change(input, { target: { value: 'How are we doing on roof repair?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+  expect(await screen.findByText('This demo plays sample answers only. Pick a starting point, or type / to choose one.')).toBeTruthy()
+  expect(screen.queryByText('You')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  expectNoLiveCalls()
+})
+
+test('New conversation in the demo clears the page only', async () => {
+  const { expectNoLiveCalls } = await renderPreview()
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
+  await screen.findByText('The latest sweep completed on all three engines.')
+
+  fireEvent.click(screen.getByRole('button', { name: /New conversation/i }))
+  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.getByText(/See how Aero answers about/)).toBeTruthy()
+  expectNoLiveCalls()
+})
+
+test('Stop in the demo keeps the partial answer and says nothing was left running', async () => {
+  const { expectNoLiveCalls } = await renderPreview({ reducedMotion: false })
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
+
+  await screen.findByText('Checking the latest sweep.')
+  expect(screen.getByText('running…')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Aero' }))
+
+  expect(await screen.findByText('Stopped. The sample answer so far is kept.')).toBeTruthy()
+  expect(screen.queryByText(/dispatched/)).toBeNull()
+  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  expect(screen.getByText('interrupted')).toBeTruthy()
+  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  expectNoLiveCalls()
+})
+
+test('with motion the demo shows the tool running, then types the answer to completion', async () => {
+  await renderPreview({ reducedMotion: false })
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
+
+  expect(await screen.findByText('running…')).toBeTruthy()
+  await screen.findByText('The latest sweep completed on all three engines.', {}, { timeout: 4000 })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  expect(screen.getByText('done')).toBeTruthy()
+  expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
+})
+
+test('unmounting the demo bar stops playback', async () => {
+  const { unmount } = await renderPreview({ reducedMotion: false })
+  const abort = vi.spyOn(AbortController.prototype, 'abort')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
+  await screen.findByText('Checking the latest sweep.')
+  unmount()
+  expect(abort).toHaveBeenCalled()
 })

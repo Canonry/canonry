@@ -1,4 +1,4 @@
-import type { AgentViewContext, AgentConversationList, AgentConversation } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -19,12 +19,13 @@ import {
   Wrench,
   Copy,
   Square,
+  ArrowUpRight,
 } from 'lucide-react'
 import { Link, useLocation } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgentConversation, resumeAgentConversation, deleteAgentConversation, isAeroOpenToViewers } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgentConversation, resumeAgentConversation, deleteAgentConversation, isAeroOpenToViewers, isAeroPreview } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
@@ -35,8 +36,10 @@ import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
 import { shellQuote, describeError } from '@ainyc/canonry-contracts'
+import { playAeroPreview, prefersReducedMotion } from '../../lib/aero-preview.js'
 import {
   extractAssistantText,
+  fetchAeroPreview,
   fetchAeroTranscript,
   promptAero,
   type AeroAssistantMessage,
@@ -69,14 +72,33 @@ interface ToolTrail {
 interface AeroBarProps {
   projectName: string
   context?: AgentViewContext
+  /**
+   * Scripted preview for the public demo: the bar plays the demo server's
+   * prebuilt answers to the starters and calls no live Aero endpoint.
+   */
+  preview?: boolean
 }
 
-const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
-  { label: 'Status', prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.' },
-  { label: 'What changed', prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
-  { label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
-  { label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
+const STARTER_PROMPTS: Array<{ id: AeroPreviewStarterId; label: string; prompt: string }> = [
+  { id: 'status', label: 'Status', prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.' },
+  { id: 'changes', label: 'What changed', prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
+  { id: 'gaps', label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
+  { id: 'insights', label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
 ]
+
+const PREVIEW_SITE_URL = 'https://canonry.ai'
+const PREVIEW_FREE_TEXT_NOTICE = 'This demo plays sample answers only. Pick a starting point, or type / to choose one.'
+const PREVIEW_STOPPED_NOTICE = 'Stopped. The sample answer so far is kept.'
+
+/** One fetch per project and page view: the demo's answers never change while it runs. */
+function aeroPreviewQuery(projectName: string) {
+  return {
+    queryKey: ['aero-preview', projectName] as const,
+    queryFn: () => fetchAeroPreview(projectName),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  }
+}
 
 /**
  * Pre-baked prompts and actions the composer palette surfaces when the user
@@ -167,9 +189,10 @@ function removePreference(key: string): void {
   }
 }
 
-export function AeroBar({ projectName, context }: AeroBarProps) {
+export function AeroBar({ projectName, context, preview = isAeroPreview() }: AeroBarProps) {
   const managedSweeps = isDashboardManagedSweeps()
   const { canWrite, account } = useAccount()
+  const queryClient = useQueryClient()
   // A signed-in viewer on an install that opened Aero to viewers. The server
   // gives them their own read-only conversation; the bar drops everything that
   // belongs to the operator: provider choice, history, sweeps and CLI copy.
@@ -205,7 +228,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // hidden in managed mode, so an override the operator can neither see nor
   // clear would otherwise repin the session's provider on every prompt, and
   // the server persists that pin. Keep it stored for operator deployments.
-  const providerOverride = managedSweeps || viewerMode ? null : preferredProviderOverride
+  const providerOverride = managedSweeps || viewerMode || preview ? null : preferredProviderOverride
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -216,7 +239,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   })
   // A saved write preference cannot turn the managed dashboard into a sweep
   // control. Keep it stored for operator deployments, but use read tools here.
-  const scope = managedSweeps || viewerMode ? 'read-only' : preferredScope
+  const scope = managedSweeps || viewerMode || preview ? 'read-only' : preferredScope
   const lastPersistedAt = useRef<string | null>(null)
   const awaitingPersistence = useRef<{ previous: string | null } | null>(null)
   const partialRef = useRef<AeroAssistantMessage | null>(null)
@@ -236,9 +259,11 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     return SLASH_COMMANDS.filter(
       (cmd) => (!(managedSweeps || viewerMode) || cmd.command !== '/run-sweep')
         && (!viewerMode || cmd.action !== 'new')
+        // The preview has a script for the four starters and nothing else.
+        && (!preview || STARTER_PROMPTS.some((starter) => starter.prompt === cmd.prompt))
         && (cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1))),
     )
-  }, [draft, managedSweeps, viewerMode])
+  }, [draft, managedSweeps, viewerMode, preview])
 
   // Keep the selected index in range as matches narrow. Reset to 0 whenever
   // the palette toggles, so the top option is always the "enter to pick"
@@ -253,8 +278,8 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       path: { name: projectName },
     }),
     // Which model answers is operator knowledge, and the route refuses a
-    // viewer, so a viewer's bar never asks.
-    enabled: !viewerMode,
+    // viewer, so a viewer's bar never asks. The demo has no such route.
+    enabled: !viewerMode && !preview,
     staleTime: 60_000,
   })
 
@@ -270,8 +295,12 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     return defaultId ? (list.find((p) => p.id === defaultId) ?? null) : null
   }, [providerOverride, providersQuery.data])
   // A viewer's bar is ready without a provider check: the server answers with
-  // the install's configured model or reports why it cannot.
-  const ready = viewerMode || activeProvider !== null
+  // the install's configured model or reports why it cannot. The preview
+  // answers from its script.
+  const ready = viewerMode || preview || activeProvider !== null
+
+  // The preview's scripts, fetched once the bar first opens.
+  useQuery({ ...aeroPreviewQuery(projectName), enabled: preview && open })
 
   useEffect(() => {
     if (!providersQuery.data || !providerOverride) return
@@ -310,7 +339,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
   // page refresh or a user prompt.
   useEffect(() => {
-    if (!open || !ready) return
+    if (!open || !ready || preview) return
     let cancelled = false
     setError(null)
 
@@ -339,7 +368,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [open, projectName, streaming, ready, changingConversation])
+  }, [open, projectName, streaming, ready, changingConversation, preview])
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {
@@ -353,6 +382,10 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   async function send(promptText: string, turnContext = context) {
     const trimmed = promptText.trim()
     if (!trimmed || historyOpen || streaming || changingConversation || conversationOperation.current || serverBusy || !ready) return
+    if (preview) {
+      await playPreview(trimmed)
+      return
+    }
     if (managedSweeps && /^\/run-sweep(?:\s|$)/i.test(trimmed)) {
       setError(MANAGED_SWEEPS_COPY)
       return
@@ -411,6 +444,56 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
         setLiveTrail(trails => trails.map(trail => trail.endedAt === undefined ? { ...trail, interrupted: true } : trail))
       }
       // Timing metadata is joined by toolCallId, never rendered a second time.
+      abortRef.current = null
+    }
+  }
+
+  /**
+   * The preview's `send`: play the starter's script through `handleEvent`.
+   * Free text has no script, so it is never sent anywhere.
+   */
+  async function playPreview(typed: string) {
+    // A command typed in full (`/status`, or one Tab-completed) names its starter too.
+    const prompt = SLASH_COMMANDS.find((cmd) => cmd.command === typed.toLowerCase())?.prompt ?? typed
+    const starterId = STARTER_PROMPTS.find((starter) => starter.prompt === prompt)?.id
+    if (!starterId) {
+      setError(null)
+      setRetry(null)
+      setNotice(PREVIEW_FREE_TEXT_NOTICE)
+      return
+    }
+    setError(null)
+    setNotice(null)
+    setRetry({ prompt })
+    setDraft('')
+    setStreaming(true)
+    setStreamingText('')
+    partialRef.current = null
+    setLiveTrail([])
+    setMessages((prev) => [...prev, { role: 'user', content: prompt, timestamp: Date.now() }])
+
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    try {
+      const scripts = await queryClient.ensureQueryData(aeroPreviewQuery(projectName))
+      if (ctrl.signal.aborted) throw new DOMException('Preview stopped', 'AbortError')
+      const starter = scripts.starters.find((candidate) => candidate.id === starterId)
+      if (!starter) throw new Error('This demo has no sample answer for that starting point.')
+      await playAeroPreview({ starter, signal: ctrl.signal, onEvent: handleEvent, reducedMotion: prefersReducedMotion() })
+    } catch (err: unknown) {
+      if (!mounted.current) return
+      // `handleEvent` sets this while the answer types, which narrowing cannot see.
+      const partial = partialRef.current as AeroAssistantMessage | null
+      if (partial && extractAssistantText(partial).trim()) setMessages(previous => [...previous, partial])
+      // Nothing was dispatched, so unlike a live turn there is nothing left to finish.
+      if (ctrl.signal.aborted) setNotice(PREVIEW_STOPPED_NOTICE)
+      else setError(describeError(err))
+    } finally {
+      if (mounted.current) {
+        setStreaming(false)
+        setStreamingText('')
+        setLiveTrail(trails => trails.map(trail => trail.endedAt === undefined ? { ...trail, interrupted: true } : trail))
+      }
       abortRef.current = null
     }
   }
@@ -494,6 +577,18 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   }
 
   async function handleNewConversation() {
+    // The preview keeps its conversation only in this page, so clear it here.
+    if (preview) {
+      if (streaming) return
+      setMessages([])
+      setLiveTrail([])
+      setStreamingText('')
+      setError(null)
+      setNotice(null)
+      setRetry(null)
+      textareaRef.current?.focus()
+      return
+    }
     // A viewer's conversation is not saved, so starting fresh clears it.
     await changeConversation(() => viewerMode
       ? resetAeroTranscript(projectName)
@@ -523,8 +618,11 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // should discover after sending a prompt. Resolve it before showing the bar.
   // A missing provider gets one truthful recovery location; a failed CHECK is
   // reported as a failed check, since it is not evidence either way.
-  if (!viewerMode && providersQuery.isPending) return null
-  if (!viewerMode && providersQuery.isError) {
+  // A disabled query with no data stays pending, so the modes that skip the
+  // check must skip these gates too, or the bar would never render.
+  const checksProviders = !(viewerMode || preview)
+  if (checksProviders && providersQuery.isPending) return null
+  if (checksProviders && providersQuery.isError) {
     // A FAILED readiness check is not a finding that Aero is unavailable.
     // Returning null here hid the launcher permanently while the layout still
     // reserved space for it, so say what actually happened and offer a retry
@@ -553,7 +651,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // fail, so it is a missing-provider state too, but Settings manages only the
   // answer-engine keys, so name the missing variable instead of linking there.
   const unkeyedDefault = activeProvider && !activeProvider.configured ? activeProvider : null
-  if (!viewerMode && (!activeProvider || unkeyedDefault)) {
+  if (checksProviders && (!activeProvider || unkeyedDefault)) {
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
@@ -624,7 +722,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                 {/* Managed deployments do not name the answering provider: the
                     client is buying an outcome, not choosing an engine. The
                     picker, and the model behind it, stays operator-only. */}
-                {!managedSweeps && !viewerMode && (
+                {!managedSweeps && !viewerMode && !preview && (
                   <ProviderPicker
                     providers={providersQuery.data?.providers ?? []}
                     active={activeProvider}
@@ -661,10 +759,10 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-b border-subtle px-4 py-2">
-              <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title={viewerMode ? 'Clear this conversation and start fresh.' : 'Save this conversation and start fresh. Shared project notes are kept.'}>
+              <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title={viewerMode || preview ? 'Clear this conversation and start fresh.' : 'Save this conversation and start fresh. Shared project notes are kept.'}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New conversation
               </Button>
-              {!viewerMode && (
+              {!viewerMode && !preview && (
                 <Button variant="ghost" size="sm" aria-expanded={historyOpen} aria-controls="aero-history" disabled={changingConversation} onClick={() => { if (historyOpen) setHistoryOpen(false); else void loadHistory() }}>
                   <History className="h-3.5 w-3.5" aria-hidden="true" /> History
                 </Button>
@@ -703,23 +801,14 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
                   <p className="text-sm text-secondary">
-                    Ask about <span className="text-strong">{projectName}</span> or choose a starting point.
+                    {preview
+                      ? <>See how Aero answers about <span className="text-strong">{projectName}</span>. Choose a starting point.</>
+                      : <>Ask about <span className="text-strong">{projectName}</span> or choose a starting point.</>}
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {STARTER_PROMPTS.map((s) => (
-                      <button
-                        key={s.label}
-                        type="button"
-                        onClick={() => { void send(s.prompt) }}
-                        className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-sm text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
+                  <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, !viewerMode)}
+              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, !viewerMode && !preview)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -728,6 +817,14 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
               )}
               {streaming && !streamingText && liveTrail.every((t) => t.endedAt !== undefined) && (
                 <TypingIndicator />
+              )}
+              {/* The preview answers nothing typed, so its starters stay in reach
+                  after each answer instead of only in an empty conversation. */}
+              {preview && !conversationIsEmpty && !streaming && (
+                <div className="mt-4 flex flex-col gap-2 border-t border-subtle pt-3">
+                  <p className="text-xs text-secondary">Try another starting point.</p>
+                  <StarterButtons onPick={(prompt) => { void send(prompt) }} />
+                </div>
               )}
             </div>}
 
@@ -741,9 +838,26 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                 </div>
               )}
 
+            {preview && (
+              <p className="border-t border-subtle px-4 py-2 text-xs text-secondary">
+                Sample answers on demo data.{' '}
+                <a
+                  href={PREVIEW_SITE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-positive-400 underline decoration-positive-700 hover:decoration-positive-400"
+                >
+                  Aero answers from your own Canonry data.
+                  <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </p>
+            )}
+
             <div className="relative">
               {!historyOpen && paletteMatches.length > 0 && (
                 <SlashPalette
+                  title={preview ? 'Starting points' : 'Commands'}
                   matches={paletteMatches}
                   selectedIndex={paletteIndex}
                   onHover={setPaletteIndex}
@@ -810,7 +924,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                     }
                   }}
                   disabled={historyOpen || changingConversation}
-                  placeholder={historyOpen ? 'Open a conversation to continue…' : 'Ask Aero, or / for commands…'}
+                  placeholder={historyOpen ? 'Open a conversation to continue…' : preview ? 'Type / for a starting point' : 'Ask Aero, or / for commands…'}
                   aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
                   className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
@@ -971,11 +1085,13 @@ const PALETTE_TOP_GAP_PX = 8
  * are the only commit paths.
  */
 function SlashPalette({
+  title,
   matches,
   selectedIndex,
   onHover,
   onPick,
 }: {
+  title: string
   matches: SlashCommand[]
   selectedIndex: number
   onHover: (index: number) => void
@@ -1010,7 +1126,7 @@ function SlashPalette({
   return (
     <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
       <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
-        Commands
+        {title}
       </div>
       <ul ref={listRef} role="listbox" className="overflow-y-auto py-1" style={{ maxHeight: listMaxHeight }}>
         {matches.map((cmd, i) => {
@@ -1034,6 +1150,24 @@ function SlashPalette({
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+/** The four analysis starters, shown as buttons. */
+function StarterButtons({ onPick }: { onPick: (prompt: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {STARTER_PROMPTS.map((s) => (
+        <button
+          key={s.label}
+          type="button"
+          onClick={() => onPick(s.prompt)}
+          className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-sm text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
+        >
+          {s.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -1477,8 +1611,11 @@ export function AeroBarHost() {
   const viewContext = useAeroView(resolved?.name ?? urlSegment ?? '', fallback)
 
   // A signed-in viewer gets the bar only where the install opted in; the
-  // server serves them their own lane and refuses them otherwise.
-  const allowed = aeroAllowedFor({ isAdmin, account })
+  // server serves them their own lane and refuses them otherwise. The public
+  // demo's read-only visitor gets the scripted preview, which calls no agent
+  // route at all.
+  const preview = isAeroPreview()
+  const allowed = preview || aeroAllowedFor({ isAdmin, account })
   if (!urlSegment || !allowed || !resolved) return null
-  return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} />
+  return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} preview={preview} />
 }

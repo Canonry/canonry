@@ -22,6 +22,8 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/ads/operations/:operationKey',
   '/api/v1/projects/:name/ads/status',
   '/api/v1/projects/:name/ads/summary',
+  // Scripted Aero preview built from seeded rows; the live agent routes stay closed.
+  '/api/v1/projects/:name/agent/preview',
   '/api/v1/projects/:name/analytics/competitors',
   '/api/v1/projects/:name/analytics/gaps',
   '/api/v1/projects/:name/analytics/metrics',

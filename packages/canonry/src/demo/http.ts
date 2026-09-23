@@ -6,6 +6,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import rateLimit from '@fastify/rate-limit'
 import { apiRoutes, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
+import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
 import { apiKeys, bingKeywordStats, bingUrlInspections, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { isDemoApiReadAllowed } from './access.js'
@@ -80,6 +81,8 @@ export async function createDemoHttpServer(options: {
   trustProxy?: readonly string[]
   /** Read-only synthetic stores, never callbacks that invoke providers. */
   readOptions?: Pick<ApiRoutesOptions, 'googleConnectionStore' | 'googleStateSecret' | 'googleMarketingCredentialStore' | 'bingConnectionStore' | 'ga4CredentialStore' | 'getBacklinksStatus' | 'listCachedReleases' | 'assessConversionTrackingIntegrity'>
+  /** Scripted Aero turns per project name, built from the seeded rows. Never a live agent. */
+  aeroPreviews?: ReadonlyMap<string, AeroPreviewResponse>
 }) {
   const { db, assetsDir, now } = options
   const html = readFileSync(join(assetsDir, 'index.html'), 'utf8')
@@ -191,8 +194,17 @@ export async function createDemoHttpServer(options: {
   app.get('/health', async () => ({ status: 'ok', service: 'canonry-demo', version: PACKAGE_VERSION, demo: true, workerEnabled: false }))
   app.get('/api/v1/session', async () => ({ authenticated: true, setupRequired: false }))
   app.get('/api/v1/demo', async () => ({ mode: 'view-only', sampleData: true, seededAt: now.toISOString() }))
+  // The Aero bar replays these scripted turns on the sample data. They were
+  // written at startup from the seeded rows; no model or provider is called.
+  const aeroPreviews = options.aeroPreviews ?? new Map<string, AeroPreviewResponse>()
+  app.get('/api/v1/projects/:name/agent/preview', async (request, reply) => {
+    const preview = aeroPreviews.get((request.params as { name: string }).name)
+    if (!preview) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
+    return reply.send(preview)
+  })
   // Deliberately register only the shared HTTP readers. The normal server,
-  // config loader, provider registry, scheduler, MCP and Aero never start.
+  // config loader, provider registry, scheduler and MCP never start, and Aero
+  // exists only as the scripted preview above: no agent session or model call.
   await app.register(apiRoutes, { db, skipAuth: true, ...options.readOptions })
   await app.register(fastifyStatic, {
     root: join(assetsDir, 'assets'),
