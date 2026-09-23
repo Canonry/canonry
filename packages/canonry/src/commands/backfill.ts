@@ -1,3 +1,4 @@
+import { createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
@@ -44,7 +45,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   if (scopedProjects.length > 0) {
     const runRows = projectFilter
       ? db
-        .select({ id: runs.id, projectId: runs.projectId })
+        .select({ id: runs.id, projectId: runs.projectId, planVersionId: runs.measurementPlanVersionId })
         .from(runs)
         .where(and(
           eq(runs.kind, RunKinds['answer-visibility']),
@@ -52,10 +53,11 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         ))
         .all()
       : db
-        .select({ id: runs.id, projectId: runs.projectId })
+        .select({ id: runs.id, projectId: runs.projectId, planVersionId: runs.measurementPlanVersionId })
         .from(runs)
         .where(eq(runs.kind, RunKinds['answer-visibility']))
         .all()
+    const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))
 
     const runIdsByProject = new Map<string, string[]>()
     for (const run of runRows) {
@@ -71,6 +73,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         .where(eq(competitors.projectId, project.id))
         .all()
         .map(row => row.domain)
+      const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
       const runIds = runIdsByProject.get(project.id) ?? []
       if (runIds.length === 0) continue
 
@@ -87,6 +90,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         const batchRunIds = runIds.slice(offset, offset + SNAPSHOT_BATCH_SIZE)
         const snapshotRows = db.select({
           id: querySnapshots.id,
+          runId: querySnapshots.runId,
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
@@ -137,13 +141,15 @@ export async function backfillAnswerVisibilityCommand(opts?: {
 
             const nextCitationState = determineCitationState(normalized, projectDomains)
             const nextCitedDomains = reparsedResult.citedDomains
-            const nextCompetitorOverlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId))
+            const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
             const nextRecommendedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
               projectDomains,
               normalized.citedDomains,
-              competitorDomains,
+              runCompetitors.domains,
               projectBrandNames,
+              runCompetitors.aliases,
             )
             const nextRawResponse = stringifyStoredSnapshotEnvelope(
               snapshot.rawResponse,
@@ -499,11 +505,13 @@ export function backfillProjectAnswerMentions(
     .map(row => row.domain)
 
   const runRows = db
-    .select({ id: runs.id })
+    .select({ id: runs.id, planVersionId: runs.measurementPlanVersionId })
     .from(runs)
     .where(and(eq(runs.kind, RunKinds['answer-visibility']), eq(runs.projectId, projectId)))
     .all()
   const runIds = runRows.map(r => r.id)
+  const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))
+  const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
 
   let examined = 0
   let updated = 0
@@ -526,6 +534,7 @@ export function backfillProjectAnswerMentions(
     const batchRunIds = runIds.slice(offset, offset + SNAPSHOT_BATCH_SIZE)
     const snapshotRows = db.select({
       id: querySnapshots.id,
+      runId: querySnapshots.runId,
       provider: querySnapshots.provider,
       answerMentioned: querySnapshots.answerMentioned,
       answerText: querySnapshots.answerText,
@@ -559,13 +568,15 @@ export function backfillProjectAnswerMentions(
         searchQueries: [],
       }
 
-      const nextCompetitorOverlap = computeCompetitorOverlap(normalized, competitorDomains)
+      const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId))
+      const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
       const nextRecommendedCompetitors = extractRecommendedCompetitors(
         answerText,
         projectDomains,
         citedDomains,
-        competitorDomains,
+        runCompetitors.domains,
         projectBrandNames,
+        runCompetitors.aliases,
       )
 
       const nextPatch: Record<string, unknown> = {}

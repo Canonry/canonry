@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { categorizeSource, categoryLabel } from '../src/source-categories.js'
+import { LISTING_MARKETPLACE_DOMAINS, categorizeSource, categoryLabel, isListingMarketplace } from '../src/source-categories.js'
 
 describe('categorizeSource', () => {
   it('categorizes Reddit as forum', () => {
@@ -101,5 +101,23 @@ describe('categoryLabel', () => {
     expect(categoryLabel('competitor')).toBe('Tracked competitors')
     expect(categoryLabel('directory')).toBe('Directories & review sites')
     expect(categoryLabel('other')).toBe('Independent sites')
+  })
+})
+
+describe('isListingMarketplace', () => {
+  it('recognises listing marketplaces by bare host, subdomain or URL', () => {
+    expect(isListingMarketplace('apartments.com')).toBe(true)
+    expect(isListingMarketplace('www.zillow.com')).toBe(true)
+    expect(isListingMarketplace('https://www.rentcafe.com/apartments/tx/dallas/')).toBe(true)
+  })
+
+  it('leaves directories, OTAs and platforms alone: each is a real rival in some vertical', () => {
+    for (const domain of ['yelp.com', 'booking.com', 'shopify.com', 'reddit.com', 'stanford.edu', 'rival-homes.example']) {
+      expect(isListingMarketplace(domain)).toBe(false)
+    }
+  })
+
+  it('keeps listing marketplaces out of the relabelling table that feeds every sources view', () => {
+    for (const domain of LISTING_MARKETPLACE_DOMAINS) expect(categorizeSource(domain).category).toBe('other')
   })
 })

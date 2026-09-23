@@ -180,6 +180,52 @@ export function categorizeSourceWithCompetitors(
   return base
 }
 
+/**
+ * Consumer listing marketplaces: sites that list many providers' inventory,
+ * such as rentals and homes. An answer that cites or names one is pointing at a
+ * marketplace, never at a competitor.
+ *
+ * Deliberately NOT in `SOURCE_CATEGORY_RULES`: that table relabels sources in
+ * every sources view, where these stay listed as-is. This list only keeps them
+ * out of competitor extraction.
+ */
+export const LISTING_MARKETPLACE_DOMAINS: readonly string[] = [
+  'apartmentfinder.com',
+  'apartmentguide.com',
+  'apartmenthomeliving.com',
+  'apartmentlist.com',
+  'apartmentratings.com',
+  'apartments.com',
+  'craigslist.org',
+  'forrent.com',
+  'homes.com',
+  'hotpads.com',
+  'padmapper.com',
+  'realtor.com',
+  'redfin.com',
+  'rent.com',
+  'rentable.co',
+  'rentals.com',
+  'rentcafe.com',
+  'student.com',
+  'trulia.com',
+  'zillow.com',
+  'zumper.com',
+]
+
+/**
+ * Whether a cited source is a listing marketplace, which an answer points to as
+ * a place to search, never as a rival brand. Narrow on purpose: a directory,
+ * an OTA, a publisher or a marketplace platform IS a real competitor in some
+ * vertical (Booking.com for a hotel, Shopify for a commerce platform), so only
+ * this list is ruled out. A tracked competitor is always a competitor; callers
+ * pass those separately.
+ */
+export function isListingMarketplace(domainOrUri: string): boolean {
+  const domain = hostOf(domainOrUri) ?? domainOrUri.trim().toLowerCase()
+  return LISTING_MARKETPLACE_DOMAINS.some(marketplace => hostMatchesDomain(domain, marketplace))
+}
+
 export function categoryLabel(category: SourceCategory): string {
   return CATEGORY_LABELS[category]
 }
