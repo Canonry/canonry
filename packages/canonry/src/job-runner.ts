@@ -7,7 +7,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -590,6 +590,10 @@ export class JobRunner {
               allBrandNames,
             )
 
+            const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+              ? { location: null, requestedContext: runLocation, supportedContext: { status: 'ignored' as const } }
+              : { location: runLocation?.label ?? null }
+
             // Move screenshot to canonical location if present
             let screenshotRelPath: string | null = null
             if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
@@ -624,7 +628,7 @@ export class JobRunner {
                 retrievalContract: raw.retrievalContract,
                 competitorOverlap: overlap,
                 recommendedCompetitors: extractedCompetitors,
-                location: runLocation?.label ?? null,
+                ...answerLocation,
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
                   model: raw.model,
@@ -660,7 +664,7 @@ export class JobRunner {
                 retrievalContract: raw.retrievalContract,
                 competitorOverlap: overlap,
                 recommendedCompetitors: extractedCompetitors,
-                location: runLocation?.label ?? null,
+                ...answerLocation,
                 rawResponse: JSON.stringify({
                   model: raw.model,
                   servedModel: raw.servedModel ?? null,
@@ -1343,6 +1347,10 @@ export class JobRunner {
           ctx.allBrandNames,
           competitorAliases,
         )
+        const answerContext = supportedContext
+          && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+          ? { status: 'ignored' as const }
+          : supportedContext
 
         const snapshotId = crypto.randomUUID()
         let screenshotRelPath: string | null = null
@@ -1381,14 +1389,11 @@ export class JobRunner {
           competitorOverlap: overlap,
           recommendedCompetitors: extractedCompetitors,
           // Only claim the geography the provider actually honoured. A
-          // requested-but-unsupported context stores `location: null` —
-          // "no claim" — rather than the label we asked for, mirroring
-          // `supportedContext` itself: this field is never non-null when
-          // that one is null.
-          location: supportedContext ? requestedContext?.label ?? null : null,
+          // requested-but-unsupported or ignored context stores `location: null`.
+          location: answerContext?.status === 'applied' ? requestedContext?.label ?? null : null,
           measurementExecutionId: unit.executionId,
           requestedContext,
-          supportedContext,
+          supportedContext: answerContext,
           screenshotPath: screenshotRelPath,
           rawResponse: JSON.stringify({
             model: raw.model,
@@ -1427,7 +1432,7 @@ export class JobRunner {
       }
       ctx.fill?.onOutcome(providerName, false)
     }
-  
+
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {

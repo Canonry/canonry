@@ -30,7 +30,7 @@ import { type ProviderExecutionGate, getSharedProviderExecutionGate } from './pr
 
 const log = createLogger('Snapshot')
 
-const ANALYSIS_PROVIDER_PRIORITY = ['openai', 'claude', 'gemini', 'perplexity', 'local'] as const
+const ANALYSIS_PROVIDER_PRIORITY = ['openai', 'claude', 'gemini', 'perplexity', 'muse', 'local'] as const
 const SNAPSHOT_QUERY_COUNT = 6
 
 type GeneratedSnapshotProfile = SnapshotProfileDto & {
@@ -218,7 +218,7 @@ export class SnapshotService {
     if (ctx.manualQueries.length === 0) {
       throw new Error(
         'Automatic category-query generation requires a configured API provider. ' +
-        'Add OpenAI, Claude, Gemini, Perplexity, or Local, or pass --queries manually.',
+        'Add OpenAI, Claude, Gemini, Perplexity, Muse, or Local, or pass --queries manually.',
       )
     }
 

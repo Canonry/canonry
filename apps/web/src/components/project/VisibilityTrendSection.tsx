@@ -322,7 +322,7 @@ function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onView
   const targetIdentity = (row: VisibilityReportQueryRow) => JSON.stringify([...row.targetKeys].sort())
   const sharedTargets = group.rows.every(row => targetIdentity(row) === targetIdentity(first))
   const sharedLocation = group.rows.every(row => row.location === first.location)
-  const locationLabel = (location: string | null) => location === null ? 'No location targeting' : `Search location: ${location}`
+  const locationLabel = (location: string | null) => location === null ? 'No location requested' : `Requested search location: ${location}`
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
@@ -463,8 +463,8 @@ export const VISIBILITY_TOOLBAR_COPY = {
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${provider}`,
   model: (model: string) => `Model: ${model}`,
-  location: (location: string) => `Location: ${location}`,
-  noLocation: 'No location',
+  location: (location: string) => `Requested search location: ${location}`,
+  noLocation: 'No location requested',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
   dateFrom: (from: string) => `From ${from} (UTC)`,
   dateThrough: (to: string) => `Through ${to} (UTC)`,
@@ -604,7 +604,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
     }}>
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: value }))], provider, provider))}
-        {filterSelect('Search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
+        {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
         {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
@@ -711,7 +711,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <strong className="text-sm text-heading">{answer.provider}</strong>
             {answer.model ? <span className="text-[13px] text-secondary">{answer.model}</span> : null}
-            <span className="text-[13px] text-secondary">{answer.location ?? 'No location'}</span>
+            <span className="text-[13px] text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-[13px] text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
             <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
@@ -950,6 +950,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai: 'OpenAI',
   gemini: 'Gemini',
   perplexity: 'Perplexity',
+  muse: 'Muse',
   local: 'Local',
 }
 

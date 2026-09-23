@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { getProviderLocationHandling } from '../src/provider.js'
+import { getProviderLocationHandling, isSearchLocationIgnored } from '../src/provider.js'
+import { RetrievalStatuses } from '../src/retrieval.js'
 
 describe('getProviderLocationHandling', () => {
   it('reports prompt-injection providers (Gemini, Perplexity, Local)', () => {
@@ -8,9 +9,14 @@ describe('getProviderLocationHandling', () => {
     expect(getProviderLocationHandling('local').treatment).toBe('prompt')
   })
 
-  it('reports request-param providers (OpenAI, Claude)', () => {
+  it('reports request-param providers (OpenAI, Claude, Muse)', () => {
     expect(getProviderLocationHandling('openai').treatment).toBe('request-param')
     expect(getProviderLocationHandling('claude').treatment).toBe('request-param')
+    expect(getProviderLocationHandling('muse')).toEqual({
+      treatment: 'request-param',
+      supportsLocationContext: true,
+      description: 'Location sent as a structured `user_location` field on Muse’s web_search tool.',
+    })
   })
 
   it('reports CDP browser as browser-geo (configured location does not reach the model)', () => {
@@ -24,9 +30,22 @@ describe('getProviderLocationHandling', () => {
   })
 
   it('every known provider returns a non-empty description', () => {
-    for (const name of ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt']) {
+    for (const name of ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']) {
       const handling = getProviderLocationHandling(name)
       expect(handling.description.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('isSearchLocationIgnored', () => {
+  it.each(['muse', 'openai', 'claude'])('ignores %s search location only when search did not run', (provider) => {
+    expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(true)
+    for (const status of [RetrievalStatuses.used, RetrievalStatuses.unknown, RetrievalStatuses['not-applicable']]) {
+      expect(isSearchLocationIgnored(provider, status)).toBe(false)
+    }
+  })
+
+  it.each(['gemini', 'perplexity', 'local', 'cdp:chatgpt', 'custom'])('preserves %s location treatment without search', (provider) => {
+    expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(false)
   })
 })

@@ -76,7 +76,8 @@ describe('canonry-mcp stdio', () => {
   }, HANDSHAKE_TIMEOUT_MS)
 
   it('initializes, lists tools, and calls stubbed read/write tools through stdio frames', async () => {
-    const api = await startStubApi()
+    const runRequests: unknown[] = []
+    const api = await startStubApi(body => runRequests.push(body))
     servers.push(api)
 
     const { client, stderr } = await startMcpClient({
@@ -107,6 +108,14 @@ describe('canonry-mcp stdio', () => {
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
     expect(jsonText(projects)).toEqual([{ name: 'acme', canonicalDomain: 'acme.example.com', country: 'US', language: 'en' }])
+
+    const museRun = await client.callTool({
+      name: 'canonry_run_trigger',
+      arguments: { project: 'acme', request: { providers: ['muse'], trigger: 'probe' } },
+    })
+    expect(museRun.isError).not.toBe(true)
+    expect(jsonText(museRun)).toMatchObject({ id: 'run-muse-1' })
+    expect(runRequests).toEqual([{ providers: ['muse'], trigger: 'probe' }])
 
     const beforeLoad = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
     expect(beforeLoad.isError).toBe(true)
@@ -413,8 +422,8 @@ async function startMcpClient(options: {
   return { client, stderr: () => stderrChunks.join('') }
 }
 
-async function startStubApi(): Promise<{ origin: string; close: () => Promise<void> }> {
-  const server = createServer(handleRequest)
+async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => handleRequest(request, response, onRunRequest))
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Failed to start stub API')
@@ -424,8 +433,17 @@ async function startStubApi(): Promise<{ origin: string; close: () => Promise<vo
   }
 }
 
-function handleRequest(request: IncomingMessage, response: ServerResponse): void {
+function handleRequest(request: IncomingMessage, response: ServerResponse, onRunRequest?: (body: unknown) => void): void {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+  if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/runs') {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      onRunRequest?.(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      send(response, { id: 'run-muse-1', status: 'queued', kind: 'answer-visibility' }, 201)
+    })
+    return
+  }
   if (request.method === 'GET' && url.pathname === '/api/v1/projects') {
     send(response, [{ name: 'acme', canonicalDomain: 'acme.example.com', country: 'US', language: 'en' }])
     return

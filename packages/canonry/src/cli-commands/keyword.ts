@@ -122,7 +122,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const provider = requireStringOption(input, 'provider', {
         command: 'keyword.generate',
         usage: 'canonry keyword generate <project> --provider <name> [--count <n>] [--save] [--format json]',
-        message: '--provider is required (e.g. gemini, openai, claude, perplexity, local)',
+        message: '--provider is required (e.g. gemini, openai, claude, perplexity, muse, local)',
       })
       await generateKeywords(project, provider, {
         count: parseIntegerOption(input, 'count', {

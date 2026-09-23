@@ -51,6 +51,7 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
   if (providers.openai) mergedProviders.openai = providers.openai
   if (providers.claude) mergedProviders.claude = providers.claude
   if (providers.perplexity) mergedProviders.perplexity = providers.perplexity
+  if (providers.muse) mergedProviders.muse = providers.muse
   if (providers.local) mergedProviders.local = providers.local
 
   if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {

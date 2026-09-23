@@ -88,6 +88,7 @@ export interface InitOptions {
   openaiKey?: string
   claudeKey?: string
   perplexityKey?: string
+  museKey?: string
   localUrl?: string
   localModel?: string
   localKey?: string
@@ -154,6 +155,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     OPENAI_API_KEY: opts?.openaiKey,
     ANTHROPIC_API_KEY: opts?.claudeKey,
     PERPLEXITY_API_KEY: opts?.perplexityKey,
+    MUSE_API_KEY: opts?.museKey,
     LOCAL_BASE_URL: opts?.localUrl,
     LOCAL_MODEL: opts?.localModel,
     LOCAL_API_KEY: opts?.localKey,
@@ -177,6 +179,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     envProviders.openai ||
     envProviders.claude ||
     envProviders.perplexity ||
+    envProviders.muse ||
     envProviders.local ||
     envGoogleConfigured
   )
@@ -210,6 +213,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     console.log('Configure AI providers (at least one required):\n')
     console.log('Tip: For non-interactive setup, pass provider flags or set')
     console.log('GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, PERPLEXITY_API_KEY,')
+    console.log('MUSE_API_KEY,')
     console.log('GOOGLE_CLIENT_ID, and GOOGLE_CLIENT_SECRET env vars.')
     console.log('Or use "canonry bootstrap".\n')
 
@@ -239,6 +243,12 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     if (perplexityApiKey) {
       const perplexityModel = await prompt('  Perplexity model [sonar]: ') || 'sonar'
       providers.perplexity = { apiKey: perplexityApiKey, model: perplexityModel, quota: DEFAULT_QUOTA }
+    }
+
+    const museApiKey = await promptProviderApiKey('Muse', 'MUSE_API_KEY')
+    if (museApiKey) {
+      const museModel = await prompt('  Muse model [muse-spark-1.3]: ') || 'muse-spark-1.3'
+      providers.muse = { apiKey: museApiKey, model: museModel, quota: DEFAULT_QUOTA }
     }
 
     // Local LLM
@@ -273,7 +283,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   // Validate at least one provider
-  const hasProvider = providers.gemini || providers.openai || providers.claude || providers.perplexity || providers.local
+  const hasProvider = providers.gemini || providers.openai || providers.claude || providers.perplexity || providers.muse || providers.local
   if (!hasProvider) {
     throw new CliError({
       code: 'INIT_PROVIDER_REQUIRED',

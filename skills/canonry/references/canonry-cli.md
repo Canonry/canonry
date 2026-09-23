@@ -410,11 +410,14 @@ cnry settings --format json
 cnry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY>
+cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 ```
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
 
-Available providers: `gemini`, `openai`, `claude`, `perplexity`, `local`, `cdp`
+Available providers: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `cdp`
+
+Set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init` to store the key. Setup also accepts `MUSE_MODEL` and `MUSE_BASE_URL`. `cnry init --muse-key <KEY>` stores a key directly. Muse uses Meta's Standard `muse-spark-1.3` by default. Contributor model IDs require an explicit model override; Meta permits training on their prompts and completions. See [the Muse provider guide](https://github.com/Canonry/canonry/blob/main/docs/providers/muse.md).
 
 If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.
 

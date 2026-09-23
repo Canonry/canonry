@@ -12,7 +12,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/log-redaction.ts` | Pure bounded redaction for structured runtime values and diagnostic strings. Shared by console/Fastify logging and durable storage; masks full cookie headers, URL keys and spaced secret labels, drops opaque escaped secret assignments, and avoids unsafe object getters and request/body graphs. |
 | `src/operational-logs.ts` | Strict runtime-event, query, and page DTOs. Identity and time filters, sanitized messages, retention policy, and loss counters are the same across REST, CLI, and MCP. Runtime logs are not business audit history. |
 | `src/telemetry.ts` | Telemetry DTOs and `normalizeTelemetryStatus`: shared legacy-response normalization and anonymous-ID masking for API hosts, ApiClient/MCP, and CLI output. |
-| `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
+| `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface; `isSearchLocationIgnored` resolves unapplied search-tool locations |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
@@ -68,6 +68,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 |---------|------|
 | Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
 | URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, exact-or-subdomain matching, prose domain extraction) |
+| External JSON object narrowing | `packages/contracts/src/record.ts` (`asRecord`, rejects null, arrays, and primitive values) |
 | Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
 | Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |

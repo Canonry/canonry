@@ -25,7 +25,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requirePositional(input, 0, {
         command: 'settings.provider',
         usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
-        message: 'provider name is required (e.g. gemini, openai, claude, perplexity, local)',
+        message: 'provider name is required (e.g. gemini, openai, claude, perplexity, muse, local)',
       })
       const apiKey = getString(input.values, 'api-key')
       const baseUrl = getString(input.values, 'base-url')

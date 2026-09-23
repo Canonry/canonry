@@ -3,6 +3,7 @@ import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { localAdapter } from '@ainyc/canonry-provider-local'
+import { museAdapter } from '@ainyc/canonry-provider-muse'
 
 const quotaPolicy = { maxConcurrency: 1, maxRequestsPerMinute: 10, maxRequestsPerDay: 100 }
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -49,14 +50,14 @@ describe('SDK model discovery', () => {
     expect(String(fetch.mock.calls[0]?.[0])).toBe('http://localhost:11434/v1/models')
   })
 
-  it.each([openaiAdapter, claudeAdapter, geminiAdapter])('$name does not retry authentication errors', async adapter => {
+  it.each([openaiAdapter, claudeAdapter, geminiAdapter, museAdapter])('$name does not retry authentication errors', async adapter => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'bad key', type: 'authentication_error', code: 401, status: 'UNAUTHENTICATED' } }), { status: 401, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetch)
     await expect(adapter.listModels!({ provider: adapter.name, apiKey: 'test-key', quotaPolicy }, new AbortController().signal)).rejects.toThrow()
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
-  it.each([openaiAdapter, claudeAdapter, geminiAdapter])('$name retries a transient failure', async adapter => {
+  it.each([openaiAdapter, claudeAdapter, geminiAdapter, museAdapter])('$name retries a transient failure', async adapter => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'unavailable' } }), { status: 503, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify(adapter.name === 'gemini' ? { models: [] } : { data: [], has_more: false, object: 'list' }), { headers: { 'content-type': 'application/json' } }))
