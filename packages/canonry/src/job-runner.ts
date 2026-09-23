@@ -8,7 +8,7 @@ import { parseJsonColumn, runFills, runs, queries, competitors, projects, queryS
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition, measurementRunSlotState, measurementSlotKey, newerFullSweep } from '@ainyc/canonry-api-routes'
+import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
@@ -74,6 +74,8 @@ interface PlanSlotContext {
   runId: string
   allDomains: string[]
   competitorDomains: string[]
+  /** Operator-approved names per competitor domain (a plan's labels and aliases). */
+  competitorAliases: ReadonlyMap<string, readonly string[]>
   allBrandNames: string[]
   executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
   providerDispatchCounts: Map<ProviderName, number>
@@ -445,7 +447,12 @@ export class JobRunner {
         .where(eq(competitors.projectId, projectId))
         .all()
 
-      const competitorDomains = projectCompetitors.map(c => c.domain)
+      // A plan run is also scored against the competitors its own revision
+      // names, so a project whose competitor list was never filled in still
+      // measures the competitors its plan defines. A planless run gets exactly
+      // the project list, as before.
+      const runCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))(existingRun.measurementPlanVersionId)
+      const competitorDomains = runCompetitors.domains
       const allDomains = effectiveDomains({
         canonicalDomain: project.canonicalDomain,
         ownedDomains: project.ownedDomains,
@@ -686,6 +693,7 @@ export class JobRunner {
         runId,
         allDomains,
         competitorDomains,
+        competitorAliases: runCompetitors.aliases,
         allBrandNames,
         executionGates,
         providerDispatchCounts,
@@ -1045,7 +1053,8 @@ export class JobRunner {
 
       // The same identity the sweep matched against, read the same way.
       const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
-      const competitorDomains = projectCompetitors.map(c => c.domain)
+      const runCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))(run.measurementPlanVersionId)
+      const competitorDomains = runCompetitors.domains
       const allDomains = effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains })
       const allBrandNames = effectiveBrandNames({ displayName: project.displayName, aliases: project.aliases })
 
@@ -1109,6 +1118,7 @@ export class JobRunner {
         runId,
         allDomains,
         competitorDomains,
+        competitorAliases: runCompetitors.aliases,
         allBrandNames,
         executionGates,
         providerDispatchCounts,
@@ -1324,13 +1334,14 @@ export class JobRunner {
           ctx.allBrandNames,
           ctx.allDomains,
         )
-        const overlap = computeCompetitorOverlap(normalized, ctx.competitorDomains)
+        const overlap = computeCompetitorOverlap(normalized, ctx.competitorDomains, ctx.competitorAliases)
         const extractedCompetitors = extractRecommendedCompetitors(
           normalized.answerText,
           ctx.allDomains,
           normalized.citedDomains,
           ctx.competitorDomains,
           ctx.allBrandNames,
+          ctx.competitorAliases,
         )
         const answerContext = supportedContext
           && isSearchLocationIgnored(providerName, normalized.retrievalStatus)

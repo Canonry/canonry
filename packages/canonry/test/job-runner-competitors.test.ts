@@ -113,3 +113,32 @@ test('extractRecommendedCompetitors does not seed a brand from a subdomain label
     ),
   ).toEqual(['Roofle'])
 })
+
+test('extractRecommendedCompetitors never recommends a cited listing marketplace, but keeps a real rival', () => {
+  const answer = [
+    'Here are the best options:',
+    '',
+    '1. **Apartments.com** - the biggest listing site',
+    '2. **Rival Homes** - well reviewed downtown buildings',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], ['apartments.com', 'rivalhomes.example'], [], ['Brand'])).toEqual(['Rival Homes'])
+})
+
+test('extractRecommendedCompetitors still recommends a marketplace the operator tracks as a competitor', () => {
+  const answer = '1. **Zillow** - search every listing in one place\n2. **Other Pick** - an alternative'
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], ['zillow.com'], ['zillow.com'], ['Brand'])).toEqual(['Zillow'])
+})
+
+test('extractRecommendedCompetitors keeps a cited OTA as a rival: only listing marketplaces are ruled out', () => {
+  const answer = '1. **Booking.com** - compare rates\n2. **Apartments.com** - browse rentals'
+  expect(extractRecommendedCompetitors(answer, ['hotel.example'], ['booking.com', 'apartments.com'], [], ['Hotel'])).toEqual(['Booking.com'])
+})
+
+test('a competitor\'s operator-approved name counts in overlap and recommendations without a citation', () => {
+  const aliases = new Map([['maac.com', ['MAA', 'Mid-America Apartment Communities']]])
+  const answer = 'Consider these operators:\n\n1. **MAA** - large portfolio in the metro\n2. **Other Option** - smaller'
+  expect(computeCompetitorOverlap(buildResult(answer), ['maac.com'], aliases)).toEqual(['maac.com'])
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], [], ['maac.com'], ['Brand'], aliases)).toEqual(['MAA'])
+  // Without the plan's names, the domain label "maac" never matches "MAA".
+  expect(computeCompetitorOverlap(buildResult(answer), ['maac.com'])).toEqual([])
+})
