@@ -33,7 +33,7 @@ function fixture(artifactManifest = {}) {
     version,
     files: ['bin/', 'dist/', 'assets/', 'package.json', 'README.md'],
     bin: { canonry: './bin/canonry.mjs', cnry: './bin/canonry.mjs' },
-    scripts: { prepublishOnly: 'exit 99', prepack: 'exit 99', prepare: 'exit 99', postpack: 'exit 99' },
+    scripts: { prepublishOnly: 'exit 99', prepack: 'exit 99', prepare: 'exit 99', postpack: 'exit 99', publish: 'exit 99', postpublish: 'exit 99' },
   }
   const manifestText = `${JSON.stringify(manifest, null, 4)}\n`
   const manifestPath = path.join(root, 'packages/canonry/package.json')
@@ -72,12 +72,6 @@ if (args[0] === 'view') {
   console.error('E404 package not found')
   process.exit(1)
 }
-if (args[0] === 'pack') {
-  if (!args.includes('--ignore-scripts')) process.exit(99)
-  if (process.env.PUBLISH_TEST_PACK_FAIL) process.exit(42)
-  const result = spawnSync(process.env.PUBLISH_TEST_REAL_NPM, args, { stdio: 'inherit' })
-  process.exit(result.status ?? 1)
-}
 if (args[0] === 'publish') {
   const output = fs.mkdtempSync(path.join(root, 'published/release-'))
   if (command === 'npm') {
@@ -90,6 +84,11 @@ if (args[0] === 'publish') {
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(output, 'package/package.json'), 'utf8'))
   if (process.env.PUBLISH_TEST_FAIL_NAME === manifest.name) process.exit(42)
+  if (process.env.PUBLISH_TEST_REAL_DRY_RUN === '1') {
+    if (command !== 'npm' || !args.includes('--dry-run')) process.exit(99)
+    const result = spawnSync(process.env.PUBLISH_TEST_REAL_NPM, [...args, '--offline'], { stdio: 'inherit' })
+    process.exit(result.status ?? 1)
+  }
   process.exit(0)
 }
 process.exit(98)
@@ -107,6 +106,7 @@ process.exit(98)
       npm_config_cache: path.join(root, 'npm-cache'),
       PUBLISH_TEST_ROOT: root,
       PUBLISH_TEST_REAL_NPM: realNpm,
+      PUBLISH_TEST_REAL_DRY_RUN: undefined,
       CANONRY_NPM_PUBLISH_DRY_RUN: undefined,
       CANONRY_NPM_PUBLISH_TARBALL: tarball,
       ...extraEnv,
@@ -137,12 +137,7 @@ test('publishes the exact tested tarball and changes only the compatibility mani
   const compatibilityRelease = releases.find(release => release.manifest.name === compatibility)!
   expect(fs.readFileSync(path.join(primaryRelease.output, 'published.tgz'))).toEqual(originalBytes)
   expect(fs.readFileSync(f.tarball)).toEqual(originalBytes)
-  const normalizedBins = Object.fromEntries(Object.entries(compatibilityRelease.manifest.bin).map(([command, target]) => [command, path.posix.normalize(target)]))
-  expect({ ...compatibilityRelease.manifest, bin: normalizedBins }).toEqual({
-    ...primaryRelease.manifest,
-    name: compatibility,
-    bin: { canonry: 'bin/canonry.mjs', cnry: 'bin/canonry.mjs' },
-  })
+  expect(compatibilityRelease.manifest).toEqual({ ...primaryRelease.manifest, name: compatibility })
   const files = ['bin/canonry.mjs', 'dist/index.js', 'dist/payload.bin', 'assets/web/index.html', 'README.md']
   for (const file of files) {
     expect(fs.readFileSync(path.join(compatibilityRelease.output, 'package', file)))
@@ -150,8 +145,8 @@ test('publishes the exact tested tarball and changes only the compatibility mani
   }
   for (const release of releases) expect(fs.statSync(path.join(release.output, 'package/bin/canonry.mjs')).mode & 0o777).toBe(0o755)
   expect(execFileSync('tar', ['-tzf', path.join(compatibilityRelease.output, 'published.tgz')], { encoding: 'utf8' }).trim().split('\n').sort())
-    .toEqual(['package/package.json', ...files.map(file => `package/${file}`)].sort())
-  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm view', 'npm view', 'npm pack', 'npm publish', 'npm publish'])
+    .toEqual(execFileSync('tar', ['-tzf', f.tarball], { encoding: 'utf8' }).trim().split('\n').sort())
+  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm view', 'npm view', 'npm publish', 'npm publish'])
   for (const call of f.calls().filter(call => call.args[0] !== 'view')) expect(call.args).toContain('--ignore-scripts')
   f.expectClean()
 })
@@ -209,7 +204,7 @@ test.each([primary, compatibility, `${primary},${compatibility}`])('skips alread
   const result = f.run({ PUBLISH_TEST_EXISTING: existing })
   expect(result.status, result.stderr).toBe(0)
   expect(f.releases().map(release => release.manifest.name)).toEqual([primary, compatibility].filter(name => !existing.split(',').includes(name)))
-  expect(f.calls().filter(call => call.args[0] === 'pack')).toHaveLength(existing.includes(compatibility) ? 0 : 1)
+  expect(f.calls().filter(call => call.args[0] === 'publish')).toHaveLength(existing.split(',').length === 2 ? 0 : 1)
   f.expectClean()
 })
 
@@ -230,13 +225,6 @@ test.each([primary, compatibility])('cleans temporary files after publication fa
   f.expectClean()
 })
 
-test('pack failure prevents publication and cleans up', () => {
-  const f = fixture()
-  expect(f.run({ PUBLISH_TEST_PACK_FAIL: '1' }).status).not.toBe(0)
-  expect(f.releases()).toEqual([])
-  f.expectClean()
-})
-
 test.each([true, false])('dry run forwards the flag and bypasses registry queries (artifact mode: %s)', artifact => {
   const f = fixture()
   const result = f.run({ CANONRY_NPM_PUBLISH_DRY_RUN: '1', CANONRY_NPM_PUBLISH_TARBALL: artifact ? f.tarball : undefined })
@@ -245,6 +233,17 @@ test.each([true, false])('dry run forwards the flag and bypasses registry querie
   const publishes = f.calls().filter(call => call.args[0] === 'publish')
   expect(publishes).toHaveLength(2)
   for (const call of publishes) expect(call.args).toContain('--dry-run')
+  f.expectClean()
+})
+
+test('real npm publishes both tarballs in offline dry-run mode without running lifecycle scripts', () => {
+  const f = fixture()
+  const result = f.run({ CANONRY_NPM_PUBLISH_DRY_RUN: '1', PUBLISH_TEST_REAL_DRY_RUN: '1' })
+  expect(result.status, result.stderr).toBe(0)
+  expect(result.stdout).toContain(`+ ${primary}@${version}`)
+  expect(result.stdout).toContain(`+ ${compatibility}@${version}`)
+  expect(f.releases()).toHaveLength(2)
+  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm publish', 'npm publish'])
   f.expectClean()
 })
 

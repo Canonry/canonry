@@ -53,7 +53,8 @@ function writeManifestName(name) {
 function run(command, args, cwd = repoRoot, capture = false) {
   const result = spawnSync(command, args, {
     cwd,
-    env: process.env,
+    // BSD tar otherwise adds AppleDouble metadata files when repacking on macOS.
+    env: command === 'tar' ? { ...process.env, COPYFILE_DISABLE: '1' } : process.env,
     encoding: 'utf8',
     stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   })
@@ -87,13 +88,9 @@ function prepareTarballs(tempDir, names) {
   const tarballs = new Map([[packageNames[0], publishTarball]])
   if (names.includes(packageNames[1])) {
     fs.writeFileSync(extractedManifestPath, `${JSON.stringify({ ...manifest, name: packageNames[1] }, null, 2)}\n`)
-    const packed = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', tempDir], extractedDir, true))
-    const filename = packed?.[0]?.filename
-    if (!Array.isArray(packed) || packed.length !== 1 || typeof filename !== 'string' || path.basename(filename) !== filename || !filename.endsWith('.tgz')) {
-      throw new Error('npm pack returned an invalid compatibility tarball')
-    }
-    const compatibilityTarball = path.join(tempDir, filename)
-    if (!fs.statSync(compatibilityTarball).isFile()) throw new Error('npm pack did not create a compatibility tarball')
+    const compatibilityTarball = path.join(tempDir, 'compatibility.tgz')
+    // npm 10 runs prepare during pack even with --ignore-scripts. Reuse the archive entries directly.
+    run('tar', ['-czf', compatibilityTarball, '-C', tempDir, '--no-recursion', '--', ...entries])
     tarballs.set(packageNames[1], compatibilityTarball)
   }
   return tarballs
