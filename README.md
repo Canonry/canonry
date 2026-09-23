@@ -126,7 +126,7 @@ For an existing project, configure a provider with your own key.
 |---|---|---|
 | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `GEMINI_API_KEY` |
 | OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` |
-| Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` (`MODEL_API_KEY` alias) |
+| Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` |
 | Claude | [Anthropic Console](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
 | Perplexity | [Perplexity settings](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |

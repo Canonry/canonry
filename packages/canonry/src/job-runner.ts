@@ -6,7 +6,7 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RetrievalStatuses, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, getProviderLocationHandling, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -739,6 +739,13 @@ export class JobRunner {
               competitorDomains,
               allBrandNames,
             )
+            // A request-param location rides on the search tool, so an answer
+            // the provider reports as unsearched never received it.
+            const answerContext = supportedContext
+              && normalized.retrievalStatus === RetrievalStatuses['not-used']
+              && getProviderLocationHandling(providerName).treatment === 'request-param'
+              ? { status: 'ignored' as const }
+              : supportedContext
 
             const snapshotId = crypto.randomUUID()
             let screenshotRelPath: string | null = null
@@ -777,14 +784,13 @@ export class JobRunner {
               competitorOverlap: overlap,
               recommendedCompetitors: extractedCompetitors,
               // Only claim the geography the provider actually honoured. A
-              // requested-but-unsupported context stores `location: null` —
-              // "no claim" — rather than the label we asked for, mirroring
-              // `supportedContext` itself: this field is never non-null when
-              // that one is null.
-              location: supportedContext ? requestedContext?.label ?? null : null,
+              // requested-but-unsupported or ignored context stores
+              // `location: null` — "no claim" — rather than the label we asked
+              // for: this field is non-null only when the context was applied.
+              location: answerContext?.status === 'applied' ? requestedContext?.label ?? null : null,
               measurementExecutionId: unit.executionId,
               requestedContext,
-              supportedContext,
+              supportedContext: answerContext,
               screenshotPath: screenshotRelPath,
               rawResponse: JSON.stringify({
                 model: raw.model,

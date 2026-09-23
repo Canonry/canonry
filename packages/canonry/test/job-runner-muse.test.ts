@@ -38,13 +38,15 @@ function responseFor(query: string) {
   }
 }
 
-test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, citation, and search evidence in %s', async (kind) => {
+type MuseRequest = { input: string; tools: Array<{ type: string; user_location?: unknown }>; model: string; include?: string[]; tool_choice?: unknown }
+
+async function runMuse(kind: 'Simple' | 'Advanced', respond: (query: string) => unknown) {
   resetSharedProviderExecutionGates()
-  const requests: Array<{ input: string; tools: Array<{ type: string; user_location?: unknown }>; model: string; include: string[]; tool_choice?: unknown }> = []
+  const requests: MuseRequest[] = []
   vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as typeof requests[number]
+    const body = JSON.parse(String(init?.body)) as MuseRequest
     requests.push(body)
-    return new Response(JSON.stringify(responseFor(body.input)), {
+    return new Response(JSON.stringify(respond(body.input)), {
       status: 200, headers: { 'content-type': 'application/json' },
     })
   }))
@@ -103,32 +105,50 @@ test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, c
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 60, maxRequestsPerDay: 1000 },
     })
     await new JobRunner(db, registry).executeRun(runId, projectId)
-
-    expect(requests).toHaveLength(2)
-    expect(requests.map(request => request.input).sort()).toEqual(['best widgets', 'widget options'])
-    expect(requests.every(request => request.model === 'muse-spark-1.3')).toBe(true)
-    expect(requests.every(request => request.include.includes('web_search_call.results'))).toBe(true)
-    expect(requests.every(request => request.tool_choice === undefined)).toBe(true)
-    expect(requests.every(request => request.tools.length === 1)).toBe(true)
-    expect(requests.every(request => request.tools[0]?.type === 'web_search')).toBe(true)
-    expect(requests.every(request => JSON.stringify(request.tools[0]?.user_location).includes('New York'))).toBe(true)
-    const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
-    expect(rows).toHaveLength(2)
-    const byQuery = Object.fromEntries(rows.map(row => [row.queryText, row]))
-    expect(byQuery['best widgets']).toMatchObject({
-      answerMentioned: true, citationState: 'not-cited', citedDomains: ['rival.example'],
-      retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
-      citedUrls: ['https://rival.example/widgets'],
-    })
-    expect(byQuery['widget options']).toMatchObject({
-      answerMentioned: false, citationState: 'cited', citedDomains: ['example.com'],
-      retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
-      citedUrls: ['https://example.com/widgets'],
-    })
-    expect(rows.every(row => row.servedModel === 'muse-spark-1.3')).toBe(true)
-    expect(rows.every(row => row.location === 'New York')).toBe(true)
-    expect(rows.every(row => kind === 'Advanced' ? Boolean(row.measurementExecutionId) : !row.measurementExecutionId)).toBe(true)
+    return { requests, rows: db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all() }
   } finally {
     db.$client.close()
+  }
+}
+
+test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, citation, and search evidence in %s', async (kind) => {
+  const { requests, rows } = await runMuse(kind, responseFor)
+  expect(requests).toHaveLength(2)
+  expect(requests.map(request => request.input).sort()).toEqual(['best widgets', 'widget options'])
+  expect(requests.every(request => request.model === 'muse-spark-1.3')).toBe(true)
+  expect(requests.every(request => request.include === undefined)).toBe(true)
+  expect(requests.every(request => request.tool_choice === undefined)).toBe(true)
+  expect(requests.every(request => request.tools.length === 1)).toBe(true)
+  expect(requests.every(request => request.tools[0]?.type === 'web_search')).toBe(true)
+  expect(requests.every(request => JSON.stringify(request.tools[0]?.user_location).includes('New York'))).toBe(true)
+  expect(rows).toHaveLength(2)
+  const byQuery = Object.fromEntries(rows.map(row => [row.queryText, row]))
+  expect(byQuery['best widgets']).toMatchObject({
+    answerMentioned: true, citationState: 'not-cited', citedDomains: ['rival.example'],
+    retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
+    citedUrls: ['https://rival.example/widgets'],
+  })
+  expect(byQuery['widget options']).toMatchObject({
+    answerMentioned: false, citationState: 'cited', citedDomains: ['example.com'],
+    retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
+    citedUrls: ['https://example.com/widgets'],
+  })
+  expect(rows.every(row => row.servedModel === 'muse-spark-1.3')).toBe(true)
+  expect(rows.every(row => row.location === 'New York')).toBe(true)
+  expect(rows.every(row => kind === 'Advanced' ? Boolean(row.measurementExecutionId) : !row.measurementExecutionId)).toBe(true)
+  expect(rows.every(row => kind === 'Advanced' ? row.supportedContext?.status === 'applied' : row.supportedContext === null)).toBe(true)
+})
+
+test('an Advanced Muse answer that never searched does not claim the requested location', async () => {
+  const { requests, rows } = await runMuse('Advanced', query => ({
+    id: crypto.randomUUID(), status: 'completed', model: 'muse-spark-1.3',
+    output: [{ type: 'message', status: 'completed', content: [{ type: 'output_text', text: `About ${query}.` }] }],
+  }))
+  expect(requests.every(request => JSON.stringify(request.tools[0]?.user_location).includes('New York'))).toBe(true)
+  expect(rows).toHaveLength(2)
+  for (const row of rows) {
+    expect(row.retrievalStatus).toBe('not-used')
+    expect(row.supportedContext).toEqual({ status: 'ignored' })
+    expect(row.location).toBeNull()
   }
 })

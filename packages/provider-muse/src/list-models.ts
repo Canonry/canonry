@@ -6,7 +6,7 @@ import {
   type ModelDefinition,
   type ProviderConfig,
 } from '@ainyc/canonry-contracts'
-import { MUSE_BASE_URL } from './normalize.js'
+import { MUSE_BASE_URL, MUSE_SPARK_MODEL } from './normalize.js'
 
 export function listModels(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]> {
   return withRetry(async () => {
@@ -14,6 +14,8 @@ export function listModels(config: ProviderConfig, signal: AbortSignal): Promise
     const client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl || MUSE_BASE_URL,
+      organization: null,
+      project: null,
       maxRetries: 0,
       timeout: 2500,
     })
@@ -22,7 +24,7 @@ export function listModels(config: ProviderConfig, signal: AbortSignal): Promise
     for await (const model of client.models.list({ signal })) {
       signal.throwIfAborted()
       if (++seen > 1000) throw new Error('Model catalog exceeded the discovery limit')
-      if (!/^muse-spark-/.test(model.id) || /-contributor(?:-|$)/.test(model.id)) continue
+      if (!MUSE_SPARK_MODEL.test(model.id) || /-contributor(?:-|$)/.test(model.id)) continue
       models.push({ id: model.id, displayName: model.id, tier: 'standard' })
     }
     return models

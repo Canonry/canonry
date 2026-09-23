@@ -12,16 +12,22 @@ function requestOf(input: RequestInfo | URL, init?: RequestInit): Request {
   return new Request(input, init)
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 
 test('tracked query uses Meta Responses search with unchanged query and approximate location', async () => {
-  const calls: Array<{ url: string; request: Record<string, unknown>; authorization: string | null }> = []
+  vi.stubEnv('OPENAI_ORG_ID', 'org-openai-only')
+  vi.stubEnv('OPENAI_PROJECT_ID', 'proj-openai-only')
+  const calls: Array<{ url: string; request: Record<string, unknown>; authorization: string | null; openaiScope: Array<string | null> }> = []
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = requestOf(input, init)
     calls.push({
       url: request.url,
       request: await request.json() as Record<string, unknown>,
       authorization: request.headers.get('authorization'),
+      openaiScope: [request.headers.get('openai-organization'), request.headers.get('openai-project')],
     })
     return fakeResponse({
       id: 'resp_1', status: 'completed', model: 'muse-spark-1.3',
@@ -41,11 +47,11 @@ test('tracked query uses Meta Responses search with unchanged query and approxim
   expect(calls).toHaveLength(1)
   expect(calls[0].url).toBe('https://api.meta.ai/v1/responses')
   expect(calls[0].authorization).toBe('Bearer test-key')
+  expect(calls[0].openaiScope).toEqual([null, null])
   expect(calls[0].request).toEqual({
     model: 'muse-spark-1.3',
     input: 'best Tirana cafes',
     tools: [{ type: 'web_search', user_location: { type: 'approximate', city: 'Tirana', region: 'Tirana', country: 'AL', timezone: 'Europe/Tirane' } }],
-    include: ['web_search_call.results'],
   })
   expect(raw.retrievalContract).toBe('native-auto-v1')
   expect(raw.retrievalStatus).toBe('used')
@@ -84,6 +90,23 @@ test('parses interleaved blocks, deduplicates citations, and ignores uncited ret
       { uri: 'https://sub.example.com/b', title: 'Second' },
     ],
     searchQueries: ['alpha', 'beta'], retrievalStatus: 'used',
+  })
+})
+
+test('commentary messages are not answer evidence and final messages stay separated', () => {
+  const parsed = reparseStoredResult({ status: 'completed', output: [
+    { type: 'message', phase: 'commentary', content: [{ type: 'output_text', text: 'Checking reviews for Northstar', annotations: [
+      { type: 'url_citation', url: 'https://northstar.example/reviews' },
+    ] }] },
+    { type: 'web_search_call', status: 'completed' },
+    { type: 'message', phase: 'final_answer', content: [{ type: 'output_text', text: 'Acme leads.' }] },
+    { type: 'message', content: [{ type: 'output_text', text: 'Beta follows.', annotations: [
+      { type: 'url_citation', url: 'https://beta.example/a' },
+    ] }] },
+  ] })
+  expect(parsed).toEqual({
+    provider: 'muse', answerText: 'Acme leads.\n\nBeta follows.', citedDomains: ['beta.example'],
+    groundingSources: [{ uri: 'https://beta.example/a', title: '' }], searchQueries: [], retrievalStatus: 'used',
   })
 })
 
@@ -130,37 +153,82 @@ test('retrieval requires successful search evidence or an intact unsearched answ
   expect(reparseStoredResult({ output: 'malformed' }).retrievalStatus).toBe('unknown')
 })
 
-test('partial, malformed, and refused stored responses do not become visibility evidence', () => {
-  const citation = { type: 'url_citation', url: 'https://example.com/page' }
-  const message = { type: 'message', content: [{ type: 'output_text', text: 'Example is cited.', annotations: [citation] }] }
+const citedMessage = { type: 'message', content: [{ type: 'output_text', text: 'Example is cited.', annotations: [
+  { type: 'url_citation', url: 'https://example.com/page' },
+] }] }
+const refusalMessage = { type: 'message', content: [{ type: 'refusal', refusal: 'Cannot answer.' }] }
+const emptyEvidence = {
+  provider: 'muse', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown',
+}
+
+test('failed and malformed stored responses do not become visibility evidence', () => {
   for (const response of [
-    { status: 'incomplete', output: [message] },
-    { status: 'failed', output: [message] },
-    { status: 'completed', output: [{ ...message, status: 'incomplete' }] },
-    { status: 'completed', output: [message, null] },
-    { status: 'completed', output: [message, { type: 'message', content: [{ type: 'refusal', refusal: 'Cannot answer.' }] }] },
+    { status: 'failed', output: [citedMessage] },
+    { status: 'in_progress', output: [citedMessage] },
+    { status: 'completed', output: [{ ...citedMessage, status: 'in_progress' }] },
+    { status: 'completed', output: [citedMessage, null] },
+    { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 42 }] }] },
   ]) {
-    expect(reparseStoredResult(response)).toEqual({
-      provider: 'muse', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown',
-    })
+    expect(reparseStoredResult(response)).toEqual(emptyEvidence)
   }
 })
 
-test('HTTP 200 incomplete and refusal responses fail the tracked query without a successful snapshot', async () => {
+test('refused and truncated responses keep the answer evidence they carry', () => {
+  const cited = {
+    provider: 'muse', answerText: 'Example is cited.', citedDomains: ['example.com'],
+    groundingSources: [{ uri: 'https://example.com/page', title: '' }], searchQueries: [], retrievalStatus: 'not-used',
+  }
+  for (const response of [
+    { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [citedMessage] },
+    { status: 'completed', output: [{ ...citedMessage, status: 'incomplete' }] },
+    { status: 'completed', output: [citedMessage, refusalMessage] },
+  ]) {
+    expect(reparseStoredResult(response)).toEqual(cited)
+  }
+  expect(reparseStoredResult({ status: 'completed', output: [{ type: 'web_search_call', status: 'completed' }, refusalMessage] }))
+    .toEqual(emptyEvidence)
+})
+
+const helloQuery = { query: 'hello', canonicalDomains: [], competitorDomains: [] }
+
+test('HTTP 200 incomplete and refusal responses are stored as observations', async () => {
   let calls = 0
-  const partial = { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [
+  const partial = { status: 'incomplete', incomplete_details: { reason: 'content_filter' }, output: [
     { type: 'message', content: [{ type: 'output_text', text: 'Partial citation.', annotations: [{ type: 'url_citation', url: 'https://example.com' }] }] },
   ] }
   vi.stubGlobal('fetch', async () => { calls++; return fakeResponse(partial) })
-  await expect(museAdapter.executeTrackedQuery({ query: 'hello', canonicalDomains: [], competitorDomains: [] }, config))
-    .rejects.toThrow(/response status: incomplete/)
+  const truncated = museAdapter.normalizeResult(await museAdapter.executeTrackedQuery(helloQuery, config))
+  expect(truncated).toMatchObject({ answerText: 'Partial citation.', citedDomains: ['example.com'] })
   expect(calls).toBe(1)
+  await expect(museAdapter.generateText('hello', config)).rejects.toThrow(/response status: incomplete \(content_filter\)/)
 
   vi.stubGlobal('fetch', async () => fakeResponse({ status: 'completed', output: [
+    { type: 'web_search_call', status: 'completed' },
     { type: 'message', status: 'completed', content: [{ type: 'refusal', refusal: 'Cannot answer.' }] },
   ] }))
-  await expect(museAdapter.executeTrackedQuery({ query: 'hello', canonicalDomains: [], competitorDomains: [] }, config))
-    .rejects.toThrow(/no complete answer/)
+  const refused = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(museAdapter.normalizeResult(refused)).toEqual(emptyEvidence)
+})
+
+test('HTTP 200 failed responses surface the error code and retry only a throttle', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => {
+    calls++
+    return fakeResponse({ status: 'failed', error: { code: 'invalid_prompt', message: 'Prompt rejected' }, output: [] })
+  })
+  await expect(museAdapter.executeTrackedQuery(helloQuery, config))
+    .rejects.toThrow('[provider-muse] Meta Model API response status: failed (invalid_prompt: Prompt rejected)')
+  expect(calls).toBe(1)
+
+  calls = 0
+  vi.stubGlobal('fetch', async () => {
+    calls++
+    if (calls === 1) return fakeResponse({ status: 'failed', error: { code: 'rate_limit_exceeded', message: 'Slow down' }, output: [] })
+    return fakeResponse({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }] })
+  })
+  const raw = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(museAdapter.normalizeResult(raw).answerText).toBe('ok')
+  expect(calls).toBe(2)
 })
 
 test('healthcheck and generateText omit web search', async () => {
@@ -188,21 +256,36 @@ test('preserves response model and allows explicit contributor variants', async 
   expect(validateConfig({ ...toMuseConfig(config), model: 'muse-spark-1.3-contributor' }).ok).toBe(true)
 })
 
+test('config validation rejects a blank key and non-Spark models before any request', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => { calls++; return fakeResponse({}) })
+  expect(validateConfig({ ...toMuseConfig(config), apiKey: '  ' })).toEqual({ ok: false, provider: 'muse', message: 'missing api key' })
+  expect(validateConfig({ ...toMuseConfig(config), model: 'muse-image-1.0' }))
+    .toEqual({ ok: false, provider: 'muse', message: 'model must be a Muse Spark text model' })
+  await expect(museAdapter.executeTrackedQuery(helloQuery, { ...config, apiKey: '' })).rejects.toThrow('[provider-muse] missing api key')
+  await expect(museAdapter.generateText('hello', { ...config, model: 'muse-image-1.0' }))
+    .rejects.toThrow('[provider-muse] model must be a Muse Spark text model')
+  expect((await museAdapter.healthcheck({ ...config, apiKey: '' })).ok).toBe(false)
+  expect(calls).toBe(0)
+})
+
 test('model discovery makes only a metadata request and filters to Standard Spark text models', async () => {
-  const requests: Array<{ method: string; url: string }> = []
+  vi.stubEnv('OPENAI_ORG_ID', 'org-openai-only')
+  const requests: Array<{ method: string; url: string; organization: string | null }> = []
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = requestOf(input, init)
-    requests.push({ method: request.method, url: request.url })
+    requests.push({ method: request.method, url: request.url, organization: request.headers.get('openai-organization') })
     return fakeResponse({ object: 'list', data: [
       { id: 'muse-spark-1.3', object: 'model' },
       { id: 'muse-spark-1.3-contributor', object: 'model' },
       { id: 'muse-image-1.0', object: 'model' },
       { id: 'muse-spark-1.2', object: 'model' },
+      { id: 'muse-spark-1.4-Preview', object: 'model' },
       { id: 'muse-spark-next', object: 'model' },
     ] })
   })
   const models = await museAdapter.listModels?.(config, new AbortController().signal)
-  expect(requests).toEqual([{ method: 'GET', url: 'https://api.meta.ai/v1/models' }])
+  expect(requests).toEqual([{ method: 'GET', url: 'https://api.meta.ai/v1/models', organization: null }])
   expect(models).toEqual([
     { id: 'muse-spark-1.3', displayName: 'muse-spark-1.3', tier: 'standard' },
     { id: 'muse-spark-1.2', displayName: 'muse-spark-1.2', tier: 'standard' },
@@ -210,7 +293,7 @@ test('model discovery makes only a metadata request and filters to Standard Spar
   ])
 })
 
-test('transport errors are surfaced with provider context without SDK retry stacking', async () => {
+test('authentication errors are surfaced with provider context and not retried', async () => {
   let calls = 0
   vi.stubGlobal('fetch', async () => {
     calls++
@@ -218,6 +301,30 @@ test('transport errors are surfaced with provider context without SDK retry stac
   })
   await expect(museAdapter.executeTrackedQuery({ query: 'hello', canonicalDomains: [], competitorDomains: [] }, config))
     .rejects.toThrow(/\[provider-muse\].*invalid key/)
+  expect(calls).toBe(1)
+})
+
+test('persistent rate limits stop at the shared retry budget without SDK retry stacking', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => {
+    calls++
+    return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
+      status: 429, headers: { 'content-type': 'application/json', 'retry-after': '0' },
+    })
+  })
+  await expect(museAdapter.executeTrackedQuery(helloQuery, config)).rejects.toThrow(/\[provider-muse\]/)
+  expect(calls).toBe(4)
+})
+
+test('a Retry-After beyond the ceiling fails the query instead of waiting it out', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => {
+    calls++
+    return new Response(JSON.stringify({ error: { message: 'daily quota' } }), {
+      status: 429, headers: { 'content-type': 'application/json', 'retry-after': '3600' },
+    })
+  })
+  await expect(museAdapter.executeTrackedQuery(helloQuery, config)).rejects.toThrow(/\[provider-muse\]/)
   expect(calls).toBe(1)
 })
 

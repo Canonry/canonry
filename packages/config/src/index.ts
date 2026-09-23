@@ -54,9 +54,8 @@ const envSchema = z.object({
   PERPLEXITY_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   PERPLEXITY_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   PERPLEXITY_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
-  // Meta Muse (MODEL_API_KEY is the provider's documented alias)
+  // Meta Muse
   MUSE_API_KEY: z.string().optional(),
-  MODEL_API_KEY: z.string().optional(),
   MUSE_MODEL: z.string().optional(),
   MUSE_BASE_URL: z.string().optional(),
   MUSE_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
@@ -153,12 +152,8 @@ const bootstrapEnvSchema = z.object({
   PERPLEXITY_API_KEY: z.string().optional(),
   PERPLEXITY_MODEL: z.string().optional(),
   MUSE_API_KEY: z.string().optional(),
-  MODEL_API_KEY: z.string().optional(),
   MUSE_MODEL: z.string().optional(),
   MUSE_BASE_URL: z.string().optional(),
-  MUSE_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
-  MUSE_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
-  MUSE_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(500),
   LOCAL_BASE_URL: z.string().optional(),
   LOCAL_API_KEY: z.string().optional(),
   LOCAL_MODEL: z.string().optional(),
@@ -224,12 +219,12 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     }
   }
 
-  const museKey = parsed.MUSE_API_KEY?.trim() || parsed.MODEL_API_KEY?.trim()
+  const museKey = parsed.MUSE_API_KEY?.trim()
   if (museKey) {
     providers.muse = {
       apiKey: museKey,
-      model: parsed.MUSE_MODEL,
-      baseUrl: parsed.MUSE_BASE_URL,
+      model: parsed.MUSE_MODEL?.trim() || undefined,
+      baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: parsed.MUSE_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.MUSE_MAX_REQUESTS_PER_MINUTE,
@@ -325,16 +320,16 @@ export function getBootstrapEnv(
     }
   }
 
-  const museKey = parsed.MUSE_API_KEY?.trim() || parsed.MODEL_API_KEY?.trim()
+  const museKey = parsed.MUSE_API_KEY?.trim()
   if (museKey) {
     providers.muse = {
       apiKey: museKey,
-      model: parsed.MUSE_MODEL || 'muse-spark-1.3',
-      baseUrl: parsed.MUSE_BASE_URL,
+      model: parsed.MUSE_MODEL?.trim() || 'muse-spark-1.3',
+      baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
       quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: parsed.MUSE_MAX_CONCURRENCY,
-        maxRequestsPerMinute: parsed.MUSE_MAX_REQUESTS_PER_MINUTE,
-        maxRequestsPerDay: parsed.MUSE_MAX_REQUESTS_PER_DAY,
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
       }),
     }
   }

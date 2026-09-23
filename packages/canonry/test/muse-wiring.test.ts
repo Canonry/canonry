@@ -29,15 +29,16 @@ it('init accepts the Muse key flag and persists the default measurement model', 
   }
 })
 
-it('bootstrap uses MODEL_API_KEY and replaces it with MUSE_API_KEY on reconciliation', async () => {
+it('bootstrap stores MUSE_API_KEY and never treats the generic MODEL_API_KEY as a Muse key', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-muse-bootstrap-'))
   vi.stubEnv('CANONRY_CONFIG_DIR', dir)
   vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
-  vi.stubEnv('MODEL_API_KEY', 'alias-key')
+  vi.stubEnv('MUSE_API_KEY', undefined as unknown as string)
+  vi.stubEnv('MODEL_API_KEY', 'other-tool-key')
   try {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     await bootstrapCommand({ format: 'json' })
-    expect(loadConfig().providers?.muse?.apiKey).toBe('alias-key')
+    expect(loadConfig().providers?.muse).toBeUndefined()
     vi.stubEnv('MUSE_API_KEY', 'canonical-key')
     await bootstrapCommand({ format: 'json' })
     expect(loadConfig().providers?.muse?.apiKey).toBe('canonical-key')

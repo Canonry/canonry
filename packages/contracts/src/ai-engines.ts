@@ -49,7 +49,6 @@ export const AI_ENGINE_SELF_DOMAINS = {
   chatgpt: [AI_ENGINE_DOMAINS.chatgpt, AI_ENGINE_DOMAINS.openai] as readonly string[],
   claude: [AI_ENGINE_DOMAINS.claude] as readonly string[],
   perplexity: [AI_ENGINE_DOMAINS.perplexity] as readonly string[],
-  muse: [AI_ENGINE_DOMAINS.metaAi] as readonly string[],
   gemini: [AI_ENGINE_DOMAINS.gemini, AI_ENGINE_DOMAINS.bard] as readonly string[],
 } as const
 

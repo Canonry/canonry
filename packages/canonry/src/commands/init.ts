@@ -213,7 +213,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     console.log('Configure AI providers (at least one required):\n')
     console.log('Tip: For non-interactive setup, pass provider flags or set')
     console.log('GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, PERPLEXITY_API_KEY,')
-    console.log('MUSE_API_KEY (or MODEL_API_KEY),')
+    console.log('MUSE_API_KEY,')
     console.log('GOOGLE_CLIENT_ID, and GOOGLE_CLIENT_SECRET env vars.')
     console.log('Or use "canonry bootstrap".\n')
 

@@ -11,9 +11,9 @@ cnry settings provider muse --api-key <key>
 cnry init --muse-key <key>
 ```
 
-You can set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init`. These commands store it in the local configuration. Canonry accepts Meta's `MODEL_API_KEY` as an alias. If both exist, `MUSE_API_KEY` wins.
+You can set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init`. These commands store it in the local configuration.
 
-`MUSE_MODEL` and `MUSE_BASE_URL` set the model and endpoint during setup. `MUSE_MAX_CONCURRENCY`, `MUSE_MAX_REQUESTS_PER_MINUTE`, and `MUSE_MAX_REQUESTS_PER_DAY` set quota limits. `cnry serve` reads the stored configuration at `~/.canonry/config.yaml`.
+`MUSE_MODEL` and `MUSE_BASE_URL` set the model and endpoint during setup. Change quota limits with `cnry settings provider muse --max-concurrent <n> --max-per-minute <n> --max-per-day <n>`. `cnry serve` reads the stored configuration at `~/.canonry/config.yaml`.
 
 ```yaml
 providers:
@@ -40,10 +40,12 @@ Meta also offers Contributor tier models. Meta [states](https://dev.meta.ai/docs
 
 ## Search and evidence
 
-Canonry sends the tracked query to the Responses API with `web_search` available. Muse decides whether to search. Canonry does not force `tool_choice`. When a run has a location, the adapter passes an approximate `user_location` on the search tool.
+Canonry sends the tracked query to the Responses API with `web_search` available. Muse decides whether to search. Canonry does not force `tool_choice`. When a run has a location, the adapter passes an approximate `user_location` on the search tool. An answer that does not search never receives it, so Advanced Measurement records that answer's location as ignored.
 
-Search use is `used` only when a complete response with a usable answer contains a completed `web_search_call`. It is `not-used` when the response establishes that no search ran. It is `unknown` when the response cannot establish that fact. The retrieval contract is `native-auto-v1`.
+Search use is `used` only when a response with a usable answer contains a completed `web_search_call`. It is `not-used` when the response establishes that no search ran. It is `unknown` when the response cannot establish that fact. The retrieval contract is `native-auto-v1`.
 
-Canonry counts only `url_citation` annotations on final `message` → `output_text` blocks as cited sources. `web_search_call.results` describe retrieved pages. They do not prove that the answer cited those pages. A search can run without a citation, and an answer can have no search call. The separate mention signal comes from the answer text.
+Canonry counts only `url_citation` annotations on final `message` → `output_text` blocks as cited sources; `commentary` messages are not part of the answer. Canonry does not request `web_search_call.results`: retrieved pages do not prove that the answer cited them. A search can run without a citation, and an answer can have no search call. The separate mention signal comes from the answer text.
+
+A refused or truncated (`incomplete`) answer is stored as an observation, with the text and citations it carries. A `failed` response fails the query with Meta's error code; rate-limit and server errors are retried first.
 
 This measures Meta Model API responses. It makes no claim about citations or behavior in Meta's consumer interfaces. See Meta's [search grounding guide](https://dev.meta.ai/docs/search-grounding) and [model list](https://dev.meta.ai/docs/models).
