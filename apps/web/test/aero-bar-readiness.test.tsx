@@ -405,3 +405,23 @@ test('reopening a conversation does not save its provider as the dashboard choic
   await waitFor(() => expect(screen.getByRole('button', { name: 'History' }).hasAttribute('disabled')).toBe(false))
   expect(setItem.mock.calls.filter(([key]) => String(key).includes(':provider:'))).toEqual([])
 })
+
+test('fits the slash palette to the room above the composer so no command is cut off', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  // Panel top at 100px, composer at 300px, palette header 20px: 300 - 100 - 16 - 20 = 164px of list.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const top = this.hasAttribute('data-aero-panel') ? 100 : this.querySelector(':scope > form') ? 300 : 0
+    const height = this.textContent === 'Commands' ? 20 : 0
+    return { top, height, bottom: top + height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+  })
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
+
+  const list = screen.getByRole('listbox')
+  expect(list.style.maxHeight).toBe('164px')
+  expect(screen.getByText('/status')).toBeTruthy()
+})

@@ -1,7 +1,7 @@
 import type { AgentViewContext, AgentConversationList, AgentConversation } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
   Radio,
@@ -611,7 +611,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     >
       <div className={panelClasses}>
         {open ? (
-          <div className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-xl backdrop-blur'}>
+          <div data-aero-panel className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-xl backdrop-blur'}>
             <div className="flex items-center justify-between gap-2 border-b border-mono-800/70 px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
@@ -958,6 +958,11 @@ function ProviderPicker({
   )
 }
 
+/** The list's tallest size, in px, when the panel has room (Tailwind `max-h-72`). */
+const PALETTE_MAX_LIST_PX = 288
+/** Gap between the palette and the panel's top edge, in px. */
+const PALETTE_TOP_GAP_PX = 8
+
 /**
  * Command palette that hangs above the composer when the user types `/`.
  * Keyboard-driven: arrow keys move, Enter picks (handled in the textarea
@@ -976,12 +981,38 @@ function SlashPalette({
   onHover: (index: number) => void
   onPick: (cmd: SlashCommand) => void
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const listRef = useRef<HTMLUListElement | null>(null)
+  const [listMaxHeight, setListMaxHeight] = useState(PALETTE_MAX_LIST_PX)
+
+  // The palette hangs above the composer inside the panel, and the compact
+  // panel clips its contents. Fit the list to the room between the composer
+  // and the panel's top edge so no command is cut off; the list scrolls.
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    const panel = container?.closest('[data-aero-panel]')
+    const anchor = container?.parentElement
+    if (!container || !panel || !anchor) return
+    const room = anchor.getBoundingClientRect().top - panel.getBoundingClientRect().top
+      - PALETTE_TOP_GAP_PX * 2 - (headerRef.current?.getBoundingClientRect().height ?? 0)
+    // No layout (a test DOM, or a panel not yet painted) reports zero room;
+    // keep the default rather than collapse the list.
+    setListMaxHeight(room > 0 ? Math.min(PALETTE_MAX_LIST_PX, Math.floor(room)) : PALETTE_MAX_LIST_PX)
+  }, [matches.length])
+
+  // Keep the highlighted command visible while arrowing through a scrolled list.
+  useEffect(() => {
+    const active = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [selectedIndex])
+
   return (
-    <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
-      <div className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
+    <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
+      <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
         Commands
       </div>
-      <ul role="listbox" className="max-h-72 overflow-y-auto py-1">
+      <ul ref={listRef} role="listbox" className="overflow-y-auto py-1" style={{ maxHeight: listMaxHeight }}>
         {matches.map((cmd, i) => {
           const active = i === selectedIndex
           return (
