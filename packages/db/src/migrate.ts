@@ -4226,6 +4226,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_run_fills_project_status ON run_fills(project_id, status)`,
     ],
   },
+  {
+    // Ad URL tracking parameters (`landing_page_configuration.
+    // query_string_template` upstream): the provider appends them to every
+    // click URL under the entity. Stored per level because campaign, ad group,
+    // and ad each carry their own, and upstream combines them.
+    version: 161,
+    name: 'ads-landing-page-tracking-template',
+    statements: [
+      `ALTER TABLE ads_campaigns ADD COLUMN landing_page_query_string_template TEXT`,
+      `ALTER TABLE ads_ad_groups ADD COLUMN landing_page_query_string_template TEXT`,
+      `ALTER TABLE ads_ads ADD COLUMN landing_page_query_string_template TEXT`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

@@ -196,6 +196,7 @@ import {
   updateAdGroup,
   updateCampaign,
   uploadImageFromUrl,
+  parseLandingPageQueryStringTemplate,
   OPENAI_ADS_MAX_PAGES,
   type OpenAiAdsBiddingConfigRequest,
   type OpenAiAdsInsightRow,
@@ -1409,6 +1410,7 @@ export async function createServer(opts: {
     locationIds: entity.targeting?.locations?.include?.map((location) => location.id) ?? [],
     biddingType: entity.bidding_type,
     conversionEventSettingIds: entity.conversion_event_setting_ids,
+    landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(entity.landing_page_configuration),
   });
 
   const adsAdGroupEntityResult = (
@@ -1421,6 +1423,7 @@ export async function createServer(opts: {
     contextHints: entity.context_hints,
     maxBidMicros: entity.bidding_config?.max_bid_micros ?? null,
     billingEventType: entity.bidding_config?.billing_event_type ?? null,
+    landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(entity.landing_page_configuration),
   });
 
   const adsAdEntityResult = (
@@ -1429,7 +1432,12 @@ export async function createServer(opts: {
   ) => ({
     ...adsEntityResult(entity),
     adGroupId: adGroupId ?? null,
+    landingPageQueryStringTemplate: parseLandingPageQueryStringTemplate(entity.landing_page_configuration),
   });
+
+  /** undefined leaves the provider's template alone; null clears it. */
+  const landingPageConfigurationUpdate = (template: string | null | undefined) =>
+    template === undefined ? undefined : template === null ? null : { query_string_template: template };
 
   const adsOperator = {
     uploadImage: async (apiKey: string, imageUrl: string) => {
@@ -1447,6 +1455,7 @@ export async function createServer(opts: {
       locationIds: string[];
       biddingType: AdsCampaignBiddingType;
       conversionEventSettingIds?: string[];
+      landingPageQueryStringTemplate?: string;
     }) => adsCampaignEntityResult(await createCampaign(apiKey, {
       name: input.name,
       description: input.description,
@@ -1457,6 +1466,9 @@ export async function createServer(opts: {
       bidding_type: input.biddingType,
       conversion_event_setting_ids: input.conversionEventSettingIds,
       targeting: { locations: { include: input.locationIds.map((id) => ({ id })) } },
+      landing_page_configuration: input.landingPageQueryStringTemplate === undefined
+        ? undefined
+        : { query_string_template: input.landingPageQueryStringTemplate },
     })),
     updateCampaign: async (apiKey: string, id: string, input: {
       name?: string;
@@ -1465,6 +1477,7 @@ export async function createServer(opts: {
       endTime?: number | null;
       lifetimeSpendLimitMicros?: number;
       locationIds?: string[];
+      landingPageQueryStringTemplate?: string | null;
     }) => adsCampaignEntityResult(await updateCampaign(apiKey, id, {
       name: input.name,
       description: input.description,
@@ -1476,6 +1489,7 @@ export async function createServer(opts: {
       targeting: input.locationIds === undefined
         ? undefined
         : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
+      landing_page_configuration: landingPageConfigurationUpdate(input.landingPageQueryStringTemplate),
     })),
     activateCampaign: async (apiKey: string, id: string) =>
       adsCampaignEntityResult(await activateCampaign(apiKey, id)),
@@ -1492,6 +1506,7 @@ export async function createServer(opts: {
       contextHints: string[];
       maxBidMicros: number;
       billingEventType: AdsAdGroupBillingEventType;
+      landingPageQueryStringTemplate?: string;
     }) => adsAdGroupEntityResult(await createAdGroup(apiKey, {
       campaign_id: input.campaignId,
       name: input.name,
@@ -1502,6 +1517,9 @@ export async function createServer(opts: {
         billing_event_type: input.billingEventType,
         max_bid_micros: input.maxBidMicros,
       },
+      landing_page_configuration: input.landingPageQueryStringTemplate === undefined
+        ? undefined
+        : { query_string_template: input.landingPageQueryStringTemplate },
     })),
     updateAdGroup: async (apiKey: string, id: string, input: {
       name?: string;
@@ -1509,6 +1527,7 @@ export async function createServer(opts: {
       contextHints?: string[];
       maxBidMicros?: number;
       billingEventType?: AdsAdGroupBillingEventType;
+      landingPageQueryStringTemplate?: string | null;
     }) => {
       let biddingConfig: OpenAiAdsBiddingConfigRequest | undefined;
       if (input.maxBidMicros !== undefined) {
@@ -1525,6 +1544,7 @@ export async function createServer(opts: {
         description: input.description,
         context_hints: input.contextHints,
         bidding_config: biddingConfig,
+        landing_page_configuration: landingPageConfigurationUpdate(input.landingPageQueryStringTemplate),
       }));
     },
     activateAdGroup: async (apiKey: string, id: string) =>
@@ -1539,6 +1559,7 @@ export async function createServer(opts: {
       adGroupId: string;
       name: string;
       creative: { title: string; body: string; targetUrl: string; fileId: string };
+      landingPageQueryStringTemplate?: string;
     }) => adsAdEntityResult(await createAd(apiKey, {
       ad_group_id: input.adGroupId,
       name: input.name,
@@ -1550,10 +1571,14 @@ export async function createServer(opts: {
         target_url: input.creative.targetUrl,
         file_id: input.creative.fileId,
       },
+      landing_page_configuration: input.landingPageQueryStringTemplate === undefined
+        ? undefined
+        : { query_string_template: input.landingPageQueryStringTemplate },
     })),
     updateAd: async (apiKey: string, id: string, input: {
       name?: string;
       creative?: { title: string; body: string; targetUrl: string; fileId: string };
+      landingPageQueryStringTemplate?: string | null;
     }) => adsAdEntityResult(await updateAd(apiKey, id, {
       name: input.name,
       creative: input.creative
@@ -1565,6 +1590,7 @@ export async function createServer(opts: {
             file_id: input.creative.fileId,
           }
         : undefined,
+      landing_page_configuration: landingPageConfigurationUpdate(input.landingPageQueryStringTemplate),
     })),
     activateAd: async (apiKey: string, id: string) => adsAdEntityResult(await activateAd(apiKey, id)),
     pauseAd: async (apiKey: string, id: string) => adsAdEntityResult(await pauseAd(apiKey, id)),

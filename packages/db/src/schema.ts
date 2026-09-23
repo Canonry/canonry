@@ -2899,6 +2899,7 @@ export const adsCampaigns = sqliteTable('ads_campaigns', {
     .notNull()
     .default([]),
   targeting: text('targeting', { mode: 'json' }).$type<unknown>(),
+  landingPageQueryStringTemplate: text('landing_page_query_string_template'),
   upstreamCreatedAt: integer('upstream_created_at'),
   upstreamUpdatedAt: integer('upstream_updated_at'),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
@@ -2920,6 +2921,7 @@ export const adsAdGroups = sqliteTable('ads_ad_groups', {
   billingEventType: text('billing_event_type'),
   maxBidMicros: integer('max_bid_micros'),
   contextHints: text('context_hints', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  landingPageQueryStringTemplate: text('landing_page_query_string_template'),
   upstreamCreatedAt: integer('upstream_created_at'),
   upstreamUpdatedAt: integer('upstream_updated_at'),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
@@ -2937,6 +2939,7 @@ export const adsAds = sqliteTable('ads_ads', {
   status: text('status').notNull(),
   creative: text('creative', { mode: 'json' }).$type<unknown>(),
   reviewStatus: text('review_status'),
+  landingPageQueryStringTemplate: text('landing_page_query_string_template'),
   upstreamCreatedAt: integer('upstream_created_at'),
   upstreamUpdatedAt: integer('upstream_updated_at'),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),

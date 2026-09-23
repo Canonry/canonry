@@ -59,6 +59,17 @@ before parents, and rolls back parents before children on failure.
   `billing_event_type` and `max_bid_micros` when `bidding_config` is updated.
   Preserve the existing billing event when changing only the maximum bid;
   never inject impression billing into a click campaign.
+- **Ad URL tracking is `landing_page_configuration.query_string_template`**:
+  a bare query string the provider appends to click URLs, settable on a
+  campaign, ad group, or ad. VERIFIED LIVE 2026-09-23: it is accepted on an
+  ACTIVE campaign, needs no pause, triggers no re-review, and disturbs no other
+  field. Levels COMBINE, and on a duplicate key the winner is the destination
+  URL, then ad, ad group, campaign, ad account. The provider expands the
+  `{campaign_id}` / `{ad_group_id}` / `{ad_id}` / `{ad_account_id}` / `{oppref}`
+  macros; Canonry never does. Only the campaign response shape is observed, so
+  reads go through `parseLandingPageQueryStringTemplate`, which degrades an
+  unexpected payload to `null` instead of throwing mid-sync. `null` on an
+  update clears a template; omitting the field leaves it untouched.
 - **Provider writes are not idempotent by contract**: callers must establish a
   durable operation receipt before the network call and never blindly retry an
   ambiguous outcome. Canonry's route layer owns that receipt policy.

@@ -16,6 +16,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
+import { computeCompetitorOverlap } from '../src/citation-utils.js'
 import { backfillProjectAnswerMentions } from '../src/commands/backfill.js'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
@@ -130,14 +131,14 @@ describe('resolving a run\'s competitors', () => {
   it('collapses www, scheme and path forms of one competitor into a single domain', () => {
     const { db } = seed()
     const versionId = db.select().from(measurementPlanVersions).get()!.id
-    const resolved = createRunCompetitorResolver(db, ['www.rivalhomes.example'])(versionId)
+    const resolved = createRunCompetitorResolver(db, ['www.rivalhomes.example'])(versionId, 'exec-1')
     expect(resolved.domains).toEqual(['www.rivalhomes.example'])
     expect(resolved.aliases.get('www.rivalhomes.example')).toEqual(['Rival Homes'])
   })
 
   it('a planless run gets exactly the project list and no plan names', () => {
     const { db } = seed()
-    expect(createRunCompetitorResolver(db, ['a.example'])(null)).toEqual({ domains: ['a.example'], aliases: new Map() })
+    expect(createRunCompetitorResolver(db, ['a.example'])(null, 'exec-1')).toEqual({ domains: ['a.example'], aliases: new Map() })
   })
 
   it('reads a v1 revision, whose groups name competitors as bare hosts', () => {
@@ -172,5 +173,85 @@ describe('a plan competitor named but not cited', () => {
     }, { provider: 'openai', apiKey: 'k', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 600, maxRequestsPerDay: 1000 } })
     await new JobRunner(db, registry).executeRun(queued.runId, projectId)
     expect(db.select().from(querySnapshots).where(eq(querySnapshots.runId, queued.runId)).get()!.competitorOverlap).toEqual(['rivalhomes.example'])
+  })
+})
+
+/** Two markets, one question each, each market pinning a different competitor. */
+function twoMarketPlan(competitorB = 'rivalb.example'): MeasurementPlanV2 {
+  const draft: MeasurementPlanV2 = {
+    schemaVersion: 2,
+    identities: { projectBrand: { canonicalHost: 'brand.example', ownedHosts: ['brand.example'], names: ['Brand Co'] } },
+    targets: ['property-a', 'property-b'].map(key => ({
+      stableKey: key, label: key, aliases: [key],
+      urlMatchers: [{ kind: 'prefix' as const, host: 'brand.example', pathPrefix: `/${key}`, pathCase: 'insensitive' as const }],
+      mentionNotApplicable: false, discoveryIdentity: null,
+    })),
+    groups: [
+      { stableKey: 'metro-a', label: 'Metro A', targetKeys: ['property-a'], competitors: [{ stableKey: 'competitor-a', label: 'Rival A', domain: 'rivala.example', aliases: ['Rival A'] }] },
+      { stableKey: 'metro-b', label: 'Metro B', targetKeys: ['property-b'], competitors: [{ stableKey: 'competitor-b', label: 'Rival B', domain: competitorB, aliases: ['Rival B'] }] },
+    ],
+    querySnapshots: [
+      { queryId: 'q-a', queryText: 'apartments in metro a', provenance: { source: 'manual', sourceId: null, capturedAt: NOW } },
+      { queryId: 'q-b', queryText: 'apartments in metro b', provenance: { source: 'manual', sourceId: null, capturedAt: NOW } },
+    ],
+    assignments: [
+      { targetKey: 'property-a', queryId: 'q-a', queryClass: 'non-brand', executionNodeKey: 'exec-a' },
+      { targetKey: 'property-b', queryId: 'q-b', queryClass: 'non-brand', executionNodeKey: 'exec-b' },
+    ],
+    executionNodes: [
+      { stableKey: 'exec-a', queryId: 'q-a', queryText: 'apartments in metro a', context: { providers: ['openai'], models: { openai: 'gpt-planned' }, location: null }, expectedSnapshots: 1 },
+      { stableKey: 'exec-b', queryId: 'q-b', queryText: 'apartments in metro b', context: { providers: ['openai'], models: { openai: 'gpt-planned' }, location: null }, expectedSnapshots: 1 },
+    ],
+    usageEdges: [
+      { executionNodeKey: 'exec-a', targetKey: 'property-a', queryId: 'q-a' },
+      { executionNodeKey: 'exec-b', targetKey: 'property-b', queryId: 'q-b' },
+    ],
+    compiledChecksum: '0'.repeat(64),
+  }
+  return { ...draft, compiledChecksum: crypto.createHash('sha256').update(measurementPlanV2ChecksumJson(draft)).digest('hex') }
+}
+
+function publishTwoMarkets(db: DatabaseClient, projectId: string, competitorB?: string): string {
+  const revision = twoMarketPlan(competitorB)
+  const canonicalJson = canonicalMeasurementPlanV2Json(revision)
+  const versionId = crypto.randomUUID()
+  db.insert(measurementPlanVersions).values({
+    id: versionId, projectId, revision: 9, canonicalJson,
+    checksum: crypto.createHash('sha256').update(canonicalJson).digest('hex'),
+    schemaVersion: 2, compiledChecksum: revision.compiledChecksum, createdAt: NOW,
+  }).run()
+  return versionId
+}
+
+describe('second review: scope and normalization', () => {
+  it('keeps each market\'s pins inside that market', () => {
+    const { db, projectId } = seed()
+    const versionId = publishTwoMarkets(db, projectId)
+    const resolve = createRunCompetitorResolver(db, [])
+    expect(resolve(versionId, 'exec-a').domains).toEqual(['rivala.example'])
+    expect(resolve(versionId, 'exec-b').domains).toEqual(['rivalb.example'])
+    // An answer to market A that names B's rival is not scored against it.
+    const answer = { provider: 'openai', answerText: 'Rival B has the newest buildings.', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'used' as const }
+    const a = resolve(versionId, 'exec-a')
+    expect(computeCompetitorOverlap(answer, a.domains, a.aliases)).toEqual([])
+    const b = resolve(versionId, 'exec-b')
+    expect(computeCompetitorOverlap(answer, b.domains, b.aliases)).toEqual(['rivalb.example'])
+  })
+
+  it('never merges distinct hosts, so a root-domain citation still counts', () => {
+    const { db, projectId } = seed()
+    const versionId = publishTwoMarkets(db, projectId)
+    const resolved = createRunCompetitorResolver(db, ['offers.rivala.example', 'a.other.example', 'b.other.example'])(versionId, 'exec-a')
+    expect(resolved.domains.sort()).toEqual(['a.other.example', 'b.other.example', 'offers.rivala.example', 'rivala.example'])
+    const citing = { provider: 'openai', answerText: '', citedDomains: ['rivala.example'], groundingSources: [], searchQueries: [], retrievalStatus: 'used' as const }
+    expect(computeCompetitorOverlap(citing, resolved.domains, resolved.aliases)).toEqual(['rivala.example'])
+  })
+
+  it('keeps single-label hosts instead of dropping or collapsing them', () => {
+    const { db, projectId } = seed()
+    const versionId = publishTwoMarkets(db, projectId, 'rivalb')
+    const resolve = createRunCompetitorResolver(db, ['hosta', 'hostb'])
+    expect(resolve(versionId, 'exec-b').domains.sort()).toEqual(['hosta', 'hostb', 'rivalb'])
+    expect(resolve(null, 'exec-b').domains).toEqual(['hosta', 'hostb'])
   })
 })

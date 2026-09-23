@@ -998,6 +998,7 @@ export type AdsActivateTreeResponse = {
             billingEventType?: 'impression' | 'click';
             adGroupId?: string;
             creativeFingerprint?: string;
+            landingPageQueryStringTemplate?: string | null;
         } | null;
         reconcileAttempts: number;
         lastReconciledAt: string | null;
@@ -1366,12 +1367,15 @@ export type AdsCampaignListResponse = {
                     targetUrl?: string | null;
                     fileId?: string | null;
                 } | null;
+                landingPageQueryStringTemplate?: string | null;
                 upstreamUpdatedAt?: number | null;
                 syncedAt?: string;
             }>;
+            landingPageQueryStringTemplate?: string | null;
             upstreamUpdatedAt?: number | null;
             syncedAt?: string;
         }>;
+        landingPageQueryStringTemplate?: string | null;
         upstreamUpdatedAt?: number | null;
         syncedAt?: string;
     }>;
@@ -1634,6 +1638,7 @@ export type AdsOperationReconcileResponse = {
             billingEventType?: 'impression' | 'click';
             adGroupId?: string;
             creativeFingerprint?: string;
+            landingPageQueryStringTemplate?: string | null;
         } | null;
         reconcileAttempts: number;
         lastReconciledAt: string | null;
@@ -1674,6 +1679,7 @@ export type AdsOperationResponse = {
             billingEventType?: 'impression' | 'click';
             adGroupId?: string;
             creativeFingerprint?: string;
+            landingPageQueryStringTemplate?: string | null;
         } | null;
         reconcileAttempts: number;
         lastReconciledAt: string | null;
@@ -1742,6 +1748,7 @@ export type AdsUnresolvedOperationListResponse = {
             billingEventType?: 'impression' | 'click';
             adGroupId?: string;
             creativeFingerprint?: string;
+            landingPageQueryStringTemplate?: string | null;
         } | null;
         reconcileAttempts: number;
         lastReconciledAt: string | null;
@@ -21693,6 +21700,10 @@ export type PostApiV1ProjectsByNameAdsCampaignsData = {
          * Optional conversion events to optimize delivery toward. Independent of biddingType: a clicks campaign may omit these.
          */
         conversionEventSettingIds?: Array<string>;
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string (utm_source=chatgpt&utm_medium=cpc). Supports the {campaign_id}, {ad_group_id}, {ad_id}, {ad_account_id} and {oppref} macros. Levels combine; on a duplicate key the destination URL wins, then ad, ad group, campaign.
+         */
+        landingPageQueryStringTemplate?: string;
     };
     path: {
         /**
@@ -21747,6 +21758,10 @@ export type PostApiV1ProjectsByNameAdsAdGroupsData = {
         contextHints: Array<string>;
         maxBidMicros: number;
         billingEventType?: 'impression' | 'click';
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string (utm_source=chatgpt&utm_medium=cpc). Supports the {campaign_id}, {ad_group_id}, {ad_id}, {ad_account_id} and {oppref} macros. Levels combine; on a duplicate key the destination URL wins, then ad, ad group, campaign.
+         */
+        landingPageQueryStringTemplate?: string;
     };
     path: {
         /**
@@ -21803,6 +21818,10 @@ export type PostApiV1ProjectsByNameAdsAdsData = {
             targetUrl: string;
             fileId: string;
         };
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string (utm_source=chatgpt&utm_medium=cpc). Supports the {campaign_id}, {ad_group_id}, {ad_id}, {ad_account_id} and {oppref} macros. Levels combine; on a duplicate key the destination URL wins, then ad, ad group, campaign.
+         */
+        landingPageQueryStringTemplate?: string;
     };
     path: {
         /**
@@ -21858,6 +21877,10 @@ export type PostApiV1ProjectsByNameAdsCampaignsByIdData = {
         endTime?: number | null;
         lifetimeSpendLimitMicros?: number;
         locationIds?: Array<string>;
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string. Null clears them.
+         */
+        landingPageQueryStringTemplate?: string | null;
     };
     path: {
         /**
@@ -21915,6 +21938,10 @@ export type PostApiV1ProjectsByNameAdsAdGroupsByIdData = {
         description?: string | null;
         contextHints?: Array<string>;
         maxBidMicros?: number;
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string. Null clears them.
+         */
+        landingPageQueryStringTemplate?: string | null;
     };
     path: {
         /**
@@ -21975,6 +22002,10 @@ export type PostApiV1ProjectsByNameAdsAdsByIdData = {
             targetUrl: string;
             fileId: string;
         };
+        /**
+         * Tracking parameters appended to click URLs under this entity, as a bare query string. Null clears them.
+         */
+        landingPageQueryStringTemplate?: string | null;
     };
     path: {
         /**

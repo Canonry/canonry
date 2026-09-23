@@ -29,6 +29,7 @@ import {
   updateAdGroup,
   updateCampaign,
   uploadImageFromUrl,
+  parseLandingPageQueryStringTemplate,
 } from '../src/ads-client.js'
 import { OPENAI_ADS_API_BASE, OPENAI_ADS_MAX_PAGES } from '../src/constants.js'
 import {
@@ -827,5 +828,68 @@ describe('insights', () => {
     expect(rows.map((r) => r.id)).toEqual(['row-1', 'row-2'])
     expect(urls[1]).toContain('fields[]=ad_account.id')
     expect(urls[1]).toContain('after=row-1')
+  })
+})
+
+describe('landing page tracking template', () => {
+  const TEMPLATE = 'utm_source=chatgpt&utm_medium=cpc&utm_content={ad_id}'
+
+  it('sends landing_page_configuration on campaign create exactly as supplied', async () => {
+    const request: OpenAiAdsCreateCampaignRequest = {
+      ...CREATE_CAMPAIGN_REQUEST,
+      landing_page_configuration: { query_string_template: TEMPLATE },
+    }
+    const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, status: OpenAiAdsWriteStatuses.paused })
+
+    await createCampaign('test-key', request)
+
+    expectJsonPost(calls[0]!, 'campaigns', request)
+  })
+
+  it('clears a template with an explicit null on update', async () => {
+    const request = { landing_page_configuration: null }
+    const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, landing_page_configuration: null })
+
+    await updateCampaign('test-key', FIXTURE_CAMPAIGN.id, request)
+
+    expectJsonPost(calls[0]!, `campaigns/${FIXTURE_CAMPAIGN.id}`, request)
+  })
+
+  it('sends the template on ad group and ad writes', async () => {
+    let calls = mockFetchOnce({ ...FIXTURE_AD_GROUP, status: OpenAiAdsWriteStatuses.paused })
+    const adGroupRequest: OpenAiAdsCreateAdGroupRequest = {
+      ...CREATE_AD_GROUP_REQUEST,
+      landing_page_configuration: { query_string_template: TEMPLATE },
+    }
+    await createAdGroup('test-key', adGroupRequest)
+    expectJsonPost(calls[0]!, 'ad_groups', adGroupRequest)
+
+    calls = mockFetchOnce({ ...FIXTURE_AD, status: OpenAiAdsWriteStatuses.paused })
+    const adRequest: OpenAiAdsCreateAdRequest = {
+      ...CREATE_AD_REQUEST,
+      landing_page_configuration: { query_string_template: TEMPLATE },
+    }
+    await createAd('test-key', adRequest)
+    expectJsonPost(calls[0]!, 'ads', adRequest)
+  })
+
+  it('refuses a template that is not a bare query string, before any request is made', async () => {
+    for (const template of ['?utm_source=chatgpt', 'utm_source=chat gpt', '', 'x'.repeat(1001)]) {
+      const calls = mockFetchOnce(FIXTURE_CAMPAIGN)
+      await expect(() => createCampaign('test-key', {
+        ...CREATE_CAMPAIGN_REQUEST,
+        landing_page_configuration: { query_string_template: template },
+      })).rejects.toMatchObject({ status: 400 })
+      expect(calls).toEqual([])
+    }
+  })
+
+  it('reads the template defensively, degrading anything unexpected to null', () => {
+    expect(parseLandingPageQueryStringTemplate({ query_string_template: TEMPLATE })).toBe(TEMPLATE)
+    expect(parseLandingPageQueryStringTemplate({ query_string_template: null })).toBeNull()
+    expect(parseLandingPageQueryStringTemplate({ query_string_template: '   ' })).toBeNull()
+    expect(parseLandingPageQueryStringTemplate(null)).toBeNull()
+    expect(parseLandingPageQueryStringTemplate('utm_source=chatgpt')).toBeNull()
+    expect(parseLandingPageQueryStringTemplate(undefined)).toBeNull()
   })
 })

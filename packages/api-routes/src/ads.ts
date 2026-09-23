@@ -269,6 +269,7 @@ export interface AdsOperatorEntityResult {
   maxBidMicros?: number | null
   adGroupId?: string | null
   creative?: { title: string; body: string; targetUrl: string; fileId: string } | null
+  landingPageQueryStringTemplate?: string | null
 }
 
 /**
@@ -288,6 +289,7 @@ export interface AdsOperator {
     locationIds: string[]
     biddingType: AdsCampaignBiddingType
     conversionEventSettingIds?: string[]
+    landingPageQueryStringTemplate?: string
   }): Promise<AdsOperatorEntityResult>
   updateCampaign(apiKey: string, id: string, input: {
     name?: string
@@ -296,6 +298,7 @@ export interface AdsOperator {
     endTime?: number | null
     lifetimeSpendLimitMicros?: number
     locationIds?: string[]
+    landingPageQueryStringTemplate?: string | null
   }): Promise<AdsOperatorEntityResult>
   pauseCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   /** Irreversible. The route archives only an already-paused, version-pinned entity. */
@@ -310,6 +313,7 @@ export interface AdsOperator {
     contextHints: string[]
     maxBidMicros: number
     billingEventType: AdsAdGroupBillingEventType
+    landingPageQueryStringTemplate?: string
   }): Promise<AdsOperatorEntityResult>
   updateAdGroup(apiKey: string, id: string, input: {
     name?: string
@@ -317,6 +321,7 @@ export interface AdsOperator {
     contextHints?: string[]
     maxBidMicros?: number
     billingEventType?: AdsAdGroupBillingEventType
+    landingPageQueryStringTemplate?: string | null
   }): Promise<AdsOperatorEntityResult>
   pauseAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   /** Irreversible. The route archives only an already-paused, version-pinned entity. */
@@ -328,10 +333,12 @@ export interface AdsOperator {
     adGroupId: string
     name: string
     creative: { title: string; body: string; targetUrl: string; fileId: string }
+    landingPageQueryStringTemplate?: string
   }): Promise<AdsOperatorEntityResult>
   updateAd(apiKey: string, id: string, input: {
     name?: string
     creative?: { title: string; body: string; targetUrl: string; fileId: string }
+    landingPageQueryStringTemplate?: string | null
   }): Promise<AdsOperatorEntityResult>
   pauseAd(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   /** Irreversible. The route archives only an already-paused, version-pinned entity. */
@@ -804,6 +811,7 @@ function campaignCreateReconcileFields(input: {
   locationIds: string[]
   biddingType: AdsCampaignBiddingType
   conversionEventSettingIds?: string[]
+  landingPageQueryStringTemplate?: string
 }): AdsReconcileFields {
   return {
     name: normalizeString(input.name),
@@ -815,6 +823,9 @@ function campaignCreateReconcileFields(input: {
     locationIds: normalizeStringSet(input.locationIds),
     biddingType: input.biddingType,
     conversionEventSettingIds: normalizeStringSet(input.conversionEventSettingIds ?? []),
+    ...(input.landingPageQueryStringTemplate === undefined
+      ? {}
+      : { landingPageQueryStringTemplate: input.landingPageQueryStringTemplate }),
   }
 }
 
@@ -825,6 +836,7 @@ function adGroupCreateReconcileFields(input: {
   contextHints: string[]
   maxBidMicros: number
   billingEventType: AdsAdGroupBillingEventType
+  landingPageQueryStringTemplate?: string
 }): AdsReconcileFields {
   return {
     campaignId: input.campaignId,
@@ -834,6 +846,9 @@ function adGroupCreateReconcileFields(input: {
     contextHints: normalizeStringSet(input.contextHints),
     maxBidMicros: input.maxBidMicros,
     billingEventType: input.billingEventType,
+    ...(input.landingPageQueryStringTemplate === undefined
+      ? {}
+      : { landingPageQueryStringTemplate: input.landingPageQueryStringTemplate }),
   }
 }
 
@@ -841,12 +856,16 @@ function adCreateReconcileFields(input: {
   adGroupId: string
   name: string
   creative: { title: string; body: string; targetUrl: string; fileId: string }
+  landingPageQueryStringTemplate?: string
 }): AdsReconcileFields {
   return {
     adGroupId: input.adGroupId,
     name: normalizeString(input.name),
     status: AdsEntityStatuses.paused,
     creativeFingerprint: creativeFingerprint(input.creative),
+    ...(input.landingPageQueryStringTemplate === undefined
+      ? {}
+      : { landingPageQueryStringTemplate: input.landingPageQueryStringTemplate }),
   }
 }
 
@@ -858,6 +877,11 @@ function updateReconcileFields(
   if (typeof update.name === 'string') fields.name = normalizeString(update.name)
   if (update.description === null) fields.description = null
   else if (typeof update.description === 'string') fields.description = normalizeString(update.description)
+
+  if (update.landingPageQueryStringTemplate === null) fields.landingPageQueryStringTemplate = null
+  else if (typeof update.landingPageQueryStringTemplate === 'string') {
+    fields.landingPageQueryStringTemplate = update.landingPageQueryStringTemplate
+  }
 
   if (entityType === AdsEntityTypes.campaign) {
     if (update.startTime === null || typeof update.startTime === 'number') fields.startTime = update.startTime
@@ -907,6 +931,14 @@ function entityReconcileFields(entity: AdsOperatorEntityResult): AdsReconcileFie
     fields.conversionEventSettingIds = []
   } else if (Array.isArray(entity.conversionEventSettingIds)) {
     fields.conversionEventSettingIds = normalizeStringSet(entity.conversionEventSettingIds)
+  }
+  // Mirrors the desired-side handling in updateReconcileFields: a template the
+  // provider reports as absent is `null`, which is exactly what a CLEAR asked
+  // for, so a cleared template verifies. A desired template the provider does
+  // not echo stays unverified rather than being assumed applied.
+  if (entity.landingPageQueryStringTemplate === null) fields.landingPageQueryStringTemplate = null
+  else if (typeof entity.landingPageQueryStringTemplate === 'string') {
+    fields.landingPageQueryStringTemplate = entity.landingPageQueryStringTemplate
   }
   if (typeof entity.campaignId === 'string') fields.campaignId = entity.campaignId
   if (Array.isArray(entity.contextHints)) fields.contextHints = normalizeStringSet(entity.contextHints)
@@ -2985,6 +3017,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
         status: ad.status,
         reviewStatus: ad.reviewStatus,
         creative: creativeDto(ad.creative),
+        landingPageQueryStringTemplate: ad.landingPageQueryStringTemplate,
         upstreamUpdatedAt: ad.upstreamUpdatedAt,
         syncedAt: ad.syncedAt,
       }
@@ -3005,6 +3038,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
         maxBidMicros: group.maxBidMicros,
         contextHints: group.contextHints,
         ads: adsByGroup.get(group.id) ?? [],
+        landingPageQueryStringTemplate: group.landingPageQueryStringTemplate,
         upstreamUpdatedAt: group.upstreamUpdatedAt,
         syncedAt: group.syncedAt,
       }
@@ -3026,6 +3060,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       lifetimeSpendLimitMicros: campaign.lifetimeSpendLimitMicros,
       locationIds: locationIdsDto(campaign.targeting),
       adGroups: groupsByCampaign.get(campaign.id) ?? [],
+      landingPageQueryStringTemplate: campaign.landingPageQueryStringTemplate,
       upstreamUpdatedAt: campaign.upstreamUpdatedAt,
       syncedAt: campaign.syncedAt,
     }))
