@@ -27,7 +27,7 @@ import {
 
 import { heyClient } from '../src/api.js'
 import * as aero from '../src/api-aero.js'
-import { AeroBarHost } from '../src/components/shared/AeroBar.js'
+import { AeroBarHost, aeroAllowedFor } from '../src/components/shared/AeroBar.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 
@@ -119,4 +119,13 @@ test('still hides the Aero bar from a view-only account when the install does no
   window.__CANONRY_CONFIG__ = { agent: { allowViewers: false } }
   await renderBarFor('viewer')
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
+})
+
+test('the app shell and the bar host share one rule for who may use Aero', () => {
+  window.__CANONRY_CONFIG__ = { agent: { allowViewers: true } }
+  expect(aeroAllowedFor({ isAdmin: true, account: null })).toBe(true)
+  expect(aeroAllowedFor({ isAdmin: false, account: { role: 'viewer' } })).toBe(true)
+  expect(aeroAllowedFor({ isAdmin: false, account: null })).toBe(false)
+  window.__CANONRY_CONFIG__ = {}
+  expect(aeroAllowedFor({ isAdmin: false, account: { role: 'viewer' } })).toBe(false)
 })

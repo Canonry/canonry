@@ -1412,6 +1412,15 @@ function TypingIndicator() {
  * too — a harmless fallback for legacy links that resolves id → name via
  * the cached project list before rendering.
  */
+/**
+ * Whether this account may use Aero: an administrator, or a signed-in viewer
+ * on an install that opened Aero to viewers. The one rule both the app shell
+ * and the bar host read, so they cannot disagree.
+ */
+export function aeroAllowedFor({ isAdmin, account }: { isAdmin: boolean; account: { role: 'admin' | 'viewer' } | null }): boolean {
+  return isAdmin || (account?.role === 'viewer' && isAeroOpenToViewers())
+}
+
 export function AeroBarHost() {
   // Aero is an administrator tool unless the install sets
   // `agent.allowViewers`. The routes enforce that, so this is not the security
@@ -1438,7 +1447,7 @@ export function AeroBarHost() {
 
   // A signed-in viewer gets the bar only where the install opted in; the
   // server serves them their own lane and refuses them otherwise.
-  const allowed = isAdmin || (account?.role === 'viewer' && isAeroOpenToViewers())
+  const allowed = aeroAllowedFor({ isAdmin, account })
   if (!urlSegment || !allowed || !resolved) return null
   return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} />
 }
