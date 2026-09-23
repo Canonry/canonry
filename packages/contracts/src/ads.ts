@@ -122,6 +122,67 @@ export const adsSyncResponseSchema = z.object({
 })
 export type AdsSyncResponse = z.infer<typeof adsSyncResponseSchema>
 
+/**
+ * Tracking parameters the provider appends to every click URL under an entity
+ * (`landing_page_configuration.query_string_template` upstream). Verified live
+ * 2026-09-23: the provider accepts this on an ACTIVE campaign, requires no
+ * pause, and leaves every other field untouched.
+ *
+ * Parameters from the ad, ad group, campaign, and ad account COMBINE. On a
+ * duplicate key the winner is, in order: the destination URL, ad, ad group,
+ * campaign, ad account. The provider appends its own `oppref` click id
+ * regardless of this template.
+ */
+export const ADS_QUERY_STRING_TEMPLATE_MACROS = [
+  'campaign_id',
+  'ad_group_id',
+  'ad_id',
+  'ad_account_id',
+  'oppref',
+] as const
+export type AdsQueryStringTemplateMacro = (typeof ADS_QUERY_STRING_TEMPLATE_MACROS)[number]
+
+const ADS_QUERY_STRING_PAIR = /^[\w.-]+=[^&#\s]*$/
+const ADS_QUERY_STRING_MACRO = /\{([^}]*)\}/g
+
+/**
+ * A bare query string: `key=value` pairs joined by `&`, no leading `?`, no
+ * whitespace, no duplicate keys, and only the documented macros. Values are
+ * otherwise opaque — the provider, not Canonry, expands them.
+ */
+export const adsQueryStringTemplateSchema = z
+  .string()
+  .min(1)
+  .max(1000)
+  .superRefine((value, ctx) => {
+    const fail = (message: string) => ctx.addIssue({ code: 'custom', message })
+    if (value.startsWith('?') || value.startsWith('&')) {
+      fail('Tracking template must not start with ? or &')
+      return
+    }
+    const seen = new Set<string>()
+    for (const pair of value.split('&')) {
+      if (!ADS_QUERY_STRING_PAIR.test(pair)) {
+        fail(`Tracking template pair '${pair}' must be key=value without whitespace, # or &`)
+        return
+      }
+      const key = pair.slice(0, pair.indexOf('='))
+      if (seen.has(key)) {
+        fail(`Tracking template repeats the parameter '${key}'`)
+        return
+      }
+      seen.add(key)
+    }
+    for (const match of value.matchAll(ADS_QUERY_STRING_MACRO)) {
+      const macro = match[1]
+      if (!(ADS_QUERY_STRING_TEMPLATE_MACROS as readonly string[]).includes(macro)) {
+        fail(`Tracking template macro '{${macro}}' is not supported`)
+        return
+      }
+    }
+  })
+export type AdsQueryStringTemplate = z.infer<typeof adsQueryStringTemplateSchema>
+
 export const adsCreativeDtoSchema = z.object({
   type: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
@@ -148,6 +209,8 @@ export const adsAdDtoSchema = z.object({
   status: z.string(),
   reviewStatus: z.string().nullable().optional(),
   creative: adsCreativeDtoSchema.nullable().optional(),
+  /** Provider tracking parameters appended to this entity's click URLs. */
+  landingPageQueryStringTemplate: z.string().nullable().optional(),
   upstreamUpdatedAt: z.number().int().nullable().optional(),
   syncedAt: z.string().optional(),
 })
@@ -167,6 +230,8 @@ export const adsAdGroupDtoSchema = z.object({
    */
   contextHints: z.array(z.string()).default([]),
   ads: z.array(adsAdDtoSchema).default([]),
+  /** Provider tracking parameters appended to this entity's click URLs. */
+  landingPageQueryStringTemplate: z.string().nullable().optional(),
   upstreamUpdatedAt: z.number().int().nullable().optional(),
   syncedAt: z.string().optional(),
 })
@@ -185,6 +250,8 @@ export const adsCampaignDtoSchema = z.object({
   conversionEventSettingIds: z.array(z.string()).default([]),
   locationIds: z.array(z.string()).optional(),
   adGroups: z.array(adsAdGroupDtoSchema).default([]),
+  /** Provider tracking parameters appended to this entity's click URLs. */
+  landingPageQueryStringTemplate: z.string().nullable().optional(),
   upstreamUpdatedAt: z.number().int().nullable().optional(),
   syncedAt: z.string().optional(),
 })
@@ -656,6 +723,7 @@ export const adsReconcileFieldsSchema = z
     billingEventType: adsAdGroupBillingEventTypeSchema.optional(),
     adGroupId: adsEntityIdSchema.optional(),
     creativeFingerprint: adsSha256Schema.optional(),
+    landingPageQueryStringTemplate: adsQueryStringTemplateSchema.nullable().optional(),
   })
   .strict()
 export type AdsReconcileFields = z.infer<typeof adsReconcileFieldsSchema>
@@ -682,6 +750,8 @@ export const adsCampaignCreateRequestSchema = z
     // settings, so neither field is conditioned on the other here.
     biddingType: adsCampaignBiddingTypeSchema.optional(),
     conversionEventSettingIds: adsConversionEventSettingIdsSchema.optional(),
+    /** Optional tracking parameters applied to click URLs under this entity. */
+    landingPageQueryStringTemplate: adsQueryStringTemplateSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.startTime !== undefined && value.endTime !== undefined && value.endTime <= value.startTime) {
@@ -698,6 +768,8 @@ export const adsAdGroupCreateRequestSchema = z.object({
   contextHints: z.array(z.string().min(1).max(1000)).min(1).max(100),
   maxBidMicros: adsMicrosSchema.max(100_000_000),
   billingEventType: adsAdGroupBillingEventTypeSchema.optional(),
+  /** Optional tracking parameters applied to click URLs under this entity. */
+  landingPageQueryStringTemplate: adsQueryStringTemplateSchema.optional(),
 })
 export type AdsAdGroupCreateRequest = z.infer<typeof adsAdGroupCreateRequestSchema>
 
@@ -714,6 +786,8 @@ export const adsAdCreateRequestSchema = z.object({
   adGroupId: adsEntityIdSchema,
   name: adsNameSchema,
   creative: adsChatCardCreativeRequestSchema,
+  /** Optional tracking parameters applied to click URLs under this entity. */
+  landingPageQueryStringTemplate: adsQueryStringTemplateSchema.optional(),
 })
 export type AdsAdCreateRequest = z.infer<typeof adsAdCreateRequestSchema>
 
@@ -731,6 +805,8 @@ export const adsCampaignUpdateRequestSchema = z
     endTime: adsTimestampSchema.nullable().optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
     locationIds: z.array(adsEntityIdSchema).min(1).max(100).optional(),
+    /** Tracking parameters for this entity's click URLs; null clears them. */
+    landingPageQueryStringTemplate: adsQueryStringTemplateSchema.nullable().optional(),
   })
   .refine(hasMutationField, { message: 'At least one campaign field must be updated' })
 export type AdsCampaignUpdateRequest = z.infer<typeof adsCampaignUpdateRequestSchema>
@@ -743,6 +819,8 @@ export const adsAdGroupUpdateRequestSchema = z
     description: z.string().max(4000).nullable().optional(),
     contextHints: z.array(z.string().min(1).max(1000)).min(1).max(100).optional(),
     maxBidMicros: adsMicrosSchema.max(100_000_000).optional(),
+    /** Tracking parameters for this entity's click URLs; null clears them. */
+    landingPageQueryStringTemplate: adsQueryStringTemplateSchema.nullable().optional(),
   })
   .refine(hasMutationField, { message: 'At least one ad group field must be updated' })
 export type AdsAdGroupUpdateRequest = z.infer<typeof adsAdGroupUpdateRequestSchema>
@@ -753,6 +831,8 @@ export const adsAdUpdateRequestSchema = z
     expectedUpdatedAt: z.number().int().nonnegative(),
     name: adsNameSchema.optional(),
     creative: adsChatCardCreativeRequestSchema.optional(),
+    /** Tracking parameters for this entity's click URLs; null clears them. */
+    landingPageQueryStringTemplate: adsQueryStringTemplateSchema.nullable().optional(),
   })
   .refine(hasMutationField, { message: 'At least one ad field must be updated' })
 export type AdsAdUpdateRequest = z.infer<typeof adsAdUpdateRequestSchema>

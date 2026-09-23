@@ -25,6 +25,7 @@ import {
   adsOperationDtoSchema,
   adsOperationReconcileRequestSchema,
   adsOperationReconcileResponseSchema,
+  adsQueryStringTemplateSchema,
   adsReconcileFieldsSchema,
   adsUnresolvedOperationListQuerySchema,
   adsUnresolvedOperationListResponseSchema,
@@ -1132,5 +1133,60 @@ describe('ads live delivery contract', () => {
       ...RESPONSE,
       errors: [{ surface: 'ad group list', entityId: 'cmpn_1', upstreamStatus: 503, message: 'Bearer sk-test' }],
     }).data?.errors[0]).toEqual({ surface: 'ad group list', entityId: 'cmpn_1', upstreamStatus: 503 })
+  })
+})
+
+describe('ad URL tracking template', () => {
+  test('accepts a bare query string with the documented macros', () => {
+    for (const value of [
+      'utm_source=chatgpt',
+      'utm_source=chatgpt&utm_medium=cpc&utm_campaign=spring',
+      'utm_content={ad_id}&cid={campaign_id}&gid={ad_group_id}&acct={ad_account_id}&click={oppref}',
+      'flag=',
+    ]) {
+      expect(adsQueryStringTemplateSchema.safeParse(value).success).toBe(true)
+    }
+  })
+
+  test('rejects anything that is not a bare, unique-keyed query string', () => {
+    for (const value of [
+      '?utm_source=chatgpt',
+      '&utm_source=chatgpt',
+      'utm_source=chat gpt',
+      'utm_source',
+      'utm_source=a&utm_source=b',
+      'utm_source=a#frag',
+      '',
+      'x'.repeat(1001),
+    ]) {
+      expect(adsQueryStringTemplateSchema.safeParse(value).success).toBe(false)
+    }
+  })
+
+  test('rejects an unsupported macro rather than passing it upstream', () => {
+    expect(adsQueryStringTemplateSchema.safeParse('utm_content={keyword}').success).toBe(false)
+    expect(adsQueryStringTemplateSchema.safeParse('utm_content={ad_id}').success).toBe(true)
+  })
+
+  test('campaign create takes a template and update can clear it with null', () => {
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      operationKey: 'launch:campaign:1',
+      name: 'Spring launch',
+      lifetimeSpendLimitMicros: 5_000_000,
+      locationIds: ['1000232'],
+      landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc',
+    }).success).toBe(true)
+
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'launch:campaign:2',
+      expectedUpdatedAt: 123,
+      landingPageQueryStringTemplate: null,
+    }).success).toBe(true)
+
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'launch:campaign:3',
+      expectedUpdatedAt: 123,
+      landingPageQueryStringTemplate: '?utm_source=chatgpt',
+    }).success).toBe(false)
   })
 })
