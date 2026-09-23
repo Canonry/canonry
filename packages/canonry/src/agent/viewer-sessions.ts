@@ -36,6 +36,15 @@ export const AERO_VIEWER_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = n
   CanonryMcpToolNames.canonry_doctor,
   CanonryMcpToolNames.canonry_ga_properties,
   CanonryMcpToolNames.canonry_gbp_accounts,
+  // Marked read, but embeds the harvested queries with the operator's Gemini key.
+  CanonryMcpToolNames.canonry_discover_harvest,
+  // Live Search Console call on the operator's Google login, which can also
+  // refresh and store its token.
+  CanonryMcpToolNames.canonry_gsc_sitemaps,
+  // Live Common Crawl probe; free, but an outbound call a viewer has no need to make.
+  CanonryMcpToolNames.canonry_backlinks_latest_release,
+  // The whole install's audit log, not this project's.
+  CanonryMcpToolNames.canonry_history_global,
 ])
 
 /**
@@ -131,6 +140,12 @@ export function buildViewerAeroTools(client: ApiClient, projectName: string, man
 interface ViewerSession {
   agent: Agent
   lastUsedAt: number
+  /**
+   * When a turn last finished, as an ISO timestamp. The bar waits for this to
+   * change before trusting a transcript after it sends, so it must move on
+   * every finished turn, even one another tab started.
+   */
+  updatedAt: string | null
 }
 
 export interface ViewerTurn {
@@ -180,6 +195,10 @@ export class ViewerAeroSessions {
     return withoutPersistedToolDetails(messages) as AgentMessage[]
   }
 
+  updatedAt(projectName: string, userId: string): string | null {
+    return this.sessions.get(this.key(projectName, userId))?.updatedAt ?? null
+  }
+
   isBusy(projectName: string, userId: string): boolean {
     const key = this.key(projectName, userId)
     return this.acquisitions.has(key) || this.sessions.get(key)?.agent.state.isStreaming === true
@@ -219,7 +238,7 @@ export class ViewerAeroSessions {
       // are the operator's instructions, not the viewer's to read.
       agent.state.systemPrompt = loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT + aeroViewPrompt(preferences.context)
       configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], VIEWER_AERO_TURN_LIMITS, true)
-      this.sessions.set(key, { agent, lastUsedAt: this.now() })
+      this.sessions.set(key, { agent, lastUsedAt: this.now(), updatedAt: this.sessions.get(key)?.updatedAt ?? null })
       this.turnsToday.set(key, { date: today, count: count + 1 })
       handedOff = true
       let released = false
@@ -230,7 +249,13 @@ export class ViewerAeroSessions {
           released = true
           this.acquisitions.delete(key)
           const session = this.sessions.get(key)
-          if (session) session.lastUsedAt = this.now()
+          if (session) {
+            session.lastUsedAt = this.now()
+            // Strictly later than the last value, so two turns in one
+            // millisecond still read as a change.
+            const previous = session.updatedAt ? Date.parse(session.updatedAt) : 0
+            session.updatedAt = new Date(Math.max(this.now(), previous + 1)).toISOString()
+          }
           this.removeKey(minted.id)
         },
       }

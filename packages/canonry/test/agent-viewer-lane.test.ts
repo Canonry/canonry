@@ -331,7 +331,7 @@ describe('agent routes with viewers allowed', () => {
     const res = await app.inject({ method: 'GET', url: '/projects/acme/agent/transcript' })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ messages: [], conversationId: null, modelProvider: null, modelId: null })
+    expect(res.json()).toMatchObject({ messages: [], conversationId: null, modelProvider: null, modelId: null, updatedAt: null })
     expect(res.body).not.toContain(OPERATOR_SECRET)
   })
 
@@ -354,6 +354,21 @@ describe('agent routes with viewers allowed', () => {
     for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload']) {
       expect(res.body).not.toContain(hidden)
     }
+  })
+
+  it('moves the viewer transcript updatedAt on every finished turn, so an overlapping tab cannot strand the bar', async () => {
+    principal = viewer
+    const read = async () => (await app.inject({ method: 'GET', url: '/projects/acme/agent/transcript' })).json() as { updatedAt: string | null }
+    expect((await read()).updatedAt).toBeNull()
+
+    ;(await lane.acquireForTurn({ id: 'proj_acme', name: 'acme' }, 'viewer-a')).release()
+    const first = (await read()).updatedAt
+    ;(await lane.acquireForTurn({ id: 'proj_acme', name: 'acme' }, 'viewer-a')).release()
+    const second = (await read()).updatedAt
+
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(second).not.toBe(first)
   })
 
   it('refuses an overlong viewer question before any turn starts', async () => {

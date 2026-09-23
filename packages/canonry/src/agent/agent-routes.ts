@@ -92,7 +92,7 @@ function viewerTranscript(opts: AgentRoutesOptions, projectName: string, userId:
     isStreaming: sessions.isBusy(projectName, userId),
     modelProvider: null,
     modelId: null,
-    updatedAt: null,
+    updatedAt: sessions.updatedAt(projectName, userId),
   }
 }
 
