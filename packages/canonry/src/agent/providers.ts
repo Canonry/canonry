@@ -534,14 +534,21 @@ function resolveAgentId(providerOrPiAi: string): AgentProviderId | undefined {
  */
 export function buildAgentProvidersResponse(config: {
   providers?: Record<string, { apiKey?: string } | undefined>
+  agent?: { provider?: string | null; model?: string | null }
 }): AgentProvidersResponse {
+  // `agent.provider` is what Aero answers with when a caller names none, so it
+  // is the default to report, and `agent.model` is that provider's model. A pin
+  // without a key is still reported as the default, unconfigured: that is the
+  // provider the next turn will try, not the one detection would have chosen.
+  const pinned = coerceAgentProvider(config.agent?.provider ?? undefined)
+  const pinnedModel = pinned ? config.agent?.model ?? undefined : undefined
   const providers: AgentProviderOption[] = listAgentProviders().map((id) => {
     const entry = AGENT_PROVIDERS[id]
     const source = resolveApiKeySource(id, config)
     return {
       id,
       label: entry.label,
-      defaultModel: entry.defaultModel,
+      defaultModel: id === pinned && pinnedModel ? pinnedModel : entry.defaultModel,
       configured: source !== undefined,
       keySource: source?.source ?? null,
     }
@@ -549,6 +556,6 @@ export function buildAgentProvidersResponse(config: {
   const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))
   return {
     providers,
-    defaultProvider: firstConfigured ?? null,
+    defaultProvider: pinned ?? firstConfigured ?? null,
   }
 }

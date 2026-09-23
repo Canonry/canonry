@@ -3,8 +3,9 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
-import type { EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import type { AgentProviderId, EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
@@ -331,6 +332,33 @@ export interface AgentConfigEntry {
    * Both resolvers live in agent-config.ts.
    */
   mode?: 'disabled' | 'prompt-only'
+  /**
+   * Pin the LLM provider Aero reasons with.
+   *
+   * Absent (the default) keeps the historical behaviour: the first provider
+   * holding a usable key wins, by `autoDetectPriority`. That default is an
+   * accident of which ANSWER-ENGINE keys the install happens to hold -- an
+   * install that sweeps with Claude silently gets Claude for Aero too, at that
+   * provider's agent-tier pricing -- so any deployment that cares which model
+   * answers has to say so here rather than rely on detection order.
+   *
+   * Ranked by `resolveSessionProviderAndModel`: an explicit per-request
+   * provider beats this pin, and this pin beats both the persisted session row
+   * and auto-detection. Because it outranks the row, a pin survives the
+   * conversation-delete path that drops that row entirely. An explicit request
+   * lasts one turn: the next turn that names no provider returns to the pin.
+   *
+   * Removing the pin does not move an existing session back to detection:
+   * without a pin a session keeps its stored provider, as it always has, until
+   * its conversation is deleted. Starting a new conversation keeps it too.
+   */
+  provider?: AgentProviderId
+  /**
+   * Model id for `provider`. Ignored unless `provider` is set: a model slug is
+   * only meaningful against the provider that serves it. Absent uses that
+   * provider's agent-tier default.
+   */
+  model?: string
 }
 
 export interface DashboardConfigEntry {
@@ -586,6 +614,26 @@ export function loadConfig(): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: research.viewerDailyRunLimit must be a positive integer or left blank.`,
+    })
+  }
+  if (!agentProviderSchema.safeParse(parsed.agent?.provider).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.provider must be one of ${AGENT_PROVIDER_IDS.join(', ')}, or left blank.`,
+    })
+  }
+  if (!agentModelSchema.safeParse(parsed.agent?.model).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.model must be a non-empty string or left blank.`,
+    })
+  }
+  // A model without a provider is silently ignored at resolution time, which
+  // is exactly the invisible-configuration failure this pin exists to remove.
+  if (parsed.agent?.model && !parsed.agent?.provider) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.model requires agent.provider — a model id is only meaningful against the provider that serves it.`,
     })
   }
 

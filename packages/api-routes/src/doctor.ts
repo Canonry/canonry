@@ -28,6 +28,8 @@ export interface DoctorRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   /** Resolves agent LLM provider key status for the `config.agent-providers` check. See `DoctorContext.getAgentProviderSummary`. */
   getAgentProviderSummary?: () => AgentProviderOption[]
+  /** The `agent.provider` pin for the same check. See `DoctorContext.getAgentPin`. */
+  getAgentPin?: DoctorContext['getAgentPin']
   /**
    * Map of `traffic_sources.source_type` → adapter validator. Optional — the
    * generic `traffic.source.credentials` / `traffic.source.scopes` checks
@@ -81,6 +83,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       getAgentProviderSummary: opts.getAgentProviderSummary,
+      getAgentPin: opts.getAgentPin,
       callerIsInstanceAdministrator: isInstanceAdministrator(request),
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
@@ -117,6 +120,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       getAgentProviderSummary: opts.getAgentProviderSummary,
+      getAgentPin: opts.getAgentPin,
       callerIsInstanceAdministrator: isInstanceAdministrator(request),
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,

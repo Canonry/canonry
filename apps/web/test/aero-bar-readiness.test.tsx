@@ -112,6 +112,18 @@ test('shows the prompt affordance only after provider readiness is confirmed', a
   expect(screen.queryByRole('status')).toBeNull()
 })
 
+test('names the missing key when the default provider is a pin with no key', async () => {
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: false, keySource: null }],
+    defaultProvider: 'openai',
+  }, 'admin')
+
+  expect(screen.getByRole('status').textContent).toContain('Aero is set to OpenAI, which has no API key.')
+  expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
+  // Settings cannot add every agent provider's key, so it is not offered.
+  expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+})
+
 test('does not send a view-only user to administrator settings', async () => {
   await renderWithProviderReadiness({
     providers: [{
@@ -347,4 +359,26 @@ test('history failures remain visible', async () => {
   vi.spyOn(api, 'listAgentConversations').mockRejectedValue(new Error('History unavailable'))
   fireEvent.click(screen.getByRole('button', { name: 'History' }))
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'History unavailable')
+})
+
+// A conversation's stored provider is provenance. Saving it as the dashboard's
+// choice would make every later prompt name it, which outranks the server pin.
+test('reopening a conversation does not save its provider as the dashboard choice', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: false } }
+  const setItem = vi.fn()
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem, removeItem: vi.fn(), clear: vi.fn() })
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  const archived = { id: 'old', title: 'London Property diagnosis', active: false, modelProvider: 'openai', modelId: 'test', createdAt: '2026-09-21T10:00:00Z', updatedAt: '2026-09-21T10:00:00Z' }
+  vi.spyOn(api, 'listAgentConversations').mockResolvedValue({ conversations: [archived], currentConversationId: 'new', nextOffset: null })
+  const resume = vi.spyOn(api, 'resumeAgentConversation').mockResolvedValue({ ...archived, active: true, messages: [], isStreaming: false })
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'History' }))
+  fireEvent.click(await screen.findByRole('button', { name: /London Property diagnosis.*2026/ }))
+  await waitFor(() => expect(resume).toHaveBeenCalledWith(PROJECT_NAME, 'old'))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'History' }).hasAttribute('disabled')).toBe(false))
+  expect(setItem.mock.calls.filter(([key]) => String(key).includes(':provider:'))).toEqual([])
 })

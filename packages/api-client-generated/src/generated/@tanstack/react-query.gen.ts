@@ -8192,7 +8192,7 @@ export const getApiV1ProjectsByNameAgentProvidersQueryKey = (options: Options<Ge
 /**
  * List the LLM providers Aero can route to
  *
- * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403, because each entry names a default model and which providers are configured is itself administrator knowledge.
+ * Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the provider a new session uses when a caller omits `provider` on the prompt endpoint: the `agent.provider` pin when one is set (even without a key), otherwise the first configured provider by priority. Path is project-scoped for auth symmetry; the response does not vary per project today. Administrator-only: a signed-in viewer, and any API key narrower than the install, are refused with 403, because each entry names a default model and which providers are configured is itself administrator knowledge.
  */
 export const getApiV1ProjectsByNameAgentProvidersOptions = (options: Options<GetApiV1ProjectsByNameAgentProvidersData>) => {
     return queryOptions({
