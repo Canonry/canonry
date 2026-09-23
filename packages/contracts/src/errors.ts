@@ -30,6 +30,8 @@ export type ErrorCode =
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
   | 'QUERY_TRACKING_PREVIEW_STALE'
   | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
+  | 'RUN_FILL_REFUSED'
+  | 'RUN_FILL_IN_PROGRESS'
 
 export class AppError extends Error {
   readonly code: ErrorCode

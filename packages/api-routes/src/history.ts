@@ -1,9 +1,9 @@
 import { and, asc, count, desc, eq, gte, inArray, like, ne, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { runFills, auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import {
+import { runFillInProgress,
   CitationStates,
   resultsClearRequestSchema,
   runInProgress,
@@ -30,6 +30,11 @@ export async function historyRoutes(app: FastifyInstance) {
       const active = tx.select({ id: runs.id }).from(runs).where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), inArray(runs.status, ['queued', 'running']))).get()
       const activeResearch = tx.select({ id: researchRuns.id }).from(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.status, ['queued', 'running']))).get()
       if (active || activeResearch) throw runInProgress(project.name, active ? 'answer-visibility' : 'research', (active ?? activeResearch)!.id)
+      // A fill runs against a run that is already `partial`, so the active-run
+      // check above does not see it. Clearing under it would delete the run
+      // while provider calls it already paid for are still in flight.
+      const activeFill = tx.select({ id: runFills.id, runId: runFills.runId }).from(runFills).where(and(eq(runFills.projectId, project.id), inArray(runFills.status, ['queued', 'running']))).get()
+      if (activeFill) throw runFillInProgress(activeFill.runId, activeFill.id)
       const selectedRuns = tx.select({ id: runs.id, kind: runs.kind }).from(runs).where(and(eq(runs.projectId, project.id), inArray(runs.id, input.runIds))).all()
       const selectedResearch = tx.select({ id: researchRuns.id }).from(researchRuns).where(and(eq(researchRuns.projectId, project.id), inArray(researchRuns.id, input.researchRunIds))).all()
       if (selectedRuns.length !== input.runIds.length || selectedResearch.length !== input.researchRunIds.length) throw notFound('Selected saved run in project', project.name)

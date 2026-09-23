@@ -26,23 +26,57 @@ export interface MeasurementRunCompleteness {
   complete: boolean
 }
 
+/** One expected manifest slot: an execution node answered by one provider. */
+export interface MeasurementRunSlot {
+  executionId: string
+  /** Lowercased, the key the manifest and the snapshot index both use. */
+  provider: string
+  /** The model the manifest froze for this slot, or null when it froze none. */
+  requestedModel: string | null
+}
+
+export interface MeasurementRunSlotState {
+  planned: boolean
+  /** False when the run has a manifest that cannot be parsed. */
+  readable: boolean
+  expected: MeasurementRunSlot[]
+  /** Expected slots with no snapshot row. The set a fill executes. */
+  missing: MeasurementRunSlot[]
+  executed: number
+  hasUnboundSnapshot: boolean
+}
+
 /** Same identity the manifest itself uses to reject duplicate slots. */
-function slotKey(executionId: string, provider: string): string {
+export function measurementSlotKey(executionId: string, provider: string): string {
   return [executionId, provider.trim().toLocaleLowerCase('en')].join(' ')
 }
 
-export function measurementRunCompleteness(db: DatabaseClient, runId: string): MeasurementRunCompleteness {
+/**
+ * Which of a run's expected slots have a snapshot and which do not. The single
+ * source for both "is this run complete" and "what would a fill execute", so
+ * the two can never disagree about a slot.
+ *
+ * A slot counts as recorded once any row answers it. A row whose cited-URL
+ * capture failed still carries a real answer and mention, and asking again
+ * would need a second row the slot index forbids, so it is not missing.
+ */
+export function measurementRunSlotState(db: DatabaseClient, runId: string): MeasurementRunSlotState {
   const run = db.select({ manifest: runs.measurementManifest }).from(runs).where(eq(runs.id, runId)).get()
-  if (!run?.manifest) return { planned: false, executed: 0, expected: 0, complete: true }
+  if (!run?.manifest) return { planned: false, readable: true, expected: [], missing: [], executed: 0, hasUnboundSnapshot: false }
 
-  let expectedSlots: Set<string>
+  const expected = new Map<string, MeasurementRunSlot>()
   try {
-    expectedSlots = new Set(
-      parseMeasurementRunManifestV1(run.manifest).expectedSlots.map(slot => slotKey(slot.executionId, slot.provider)),
-    )
+    for (const slot of parseMeasurementRunManifestV1(run.manifest).expectedSlots) {
+      const provider = slot.provider.trim().toLocaleLowerCase('en')
+      expected.set(measurementSlotKey(slot.executionId, provider), {
+        executionId: slot.executionId,
+        provider,
+        requestedModel: slot.requestedModel ?? null,
+      })
+    }
   } catch {
     // An unreadable manifest is not a licence to treat the run as whole.
-    return { planned: true, executed: 0, expected: 0, complete: false }
+    return { planned: true, readable: false, expected: [], missing: [], executed: 0, hasUnboundSnapshot: false }
   }
 
   // A raw row count is a cardinality check, not a slot check: two rows
@@ -53,7 +87,7 @@ export function measurementRunCompleteness(db: DatabaseClient, runId: string): M
   // any slot.
   const rows = db.select({ executionId: querySnapshots.measurementExecutionId, provider: querySnapshots.provider })
     .from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
-  const executedSlots = new Set<string>()
+  const recorded = new Set<string>()
   let hasUnboundSnapshot = false
   for (const row of rows) {
     const executionId = row.executionId?.trim()
@@ -61,14 +95,28 @@ export function measurementRunCompleteness(db: DatabaseClient, runId: string): M
       hasUnboundSnapshot = true
       continue
     }
-    const key = slotKey(executionId, row.provider)
-    if (expectedSlots.has(key)) executedSlots.add(key)
+    const key = measurementSlotKey(executionId, row.provider)
+    if (expected.has(key)) recorded.add(key)
   }
 
   return {
     planned: true,
-    executed: executedSlots.size,
-    expected: expectedSlots.size,
-    complete: executedSlots.size === expectedSlots.size && !hasUnboundSnapshot,
+    readable: true,
+    expected: [...expected.values()],
+    missing: [...expected].filter(([key]) => !recorded.has(key)).map(([, slot]) => slot),
+    executed: recorded.size,
+    hasUnboundSnapshot,
+  }
+}
+
+export function measurementRunCompleteness(db: DatabaseClient, runId: string): MeasurementRunCompleteness {
+  const state = measurementRunSlotState(db, runId)
+  if (!state.planned) return { planned: false, executed: 0, expected: 0, complete: true }
+  if (!state.readable) return { planned: true, executed: 0, expected: 0, complete: false }
+  return {
+    planned: true,
+    executed: state.executed,
+    expected: state.expected.length,
+    complete: state.missing.length === 0 && !state.hasUnboundSnapshot,
   }
 }

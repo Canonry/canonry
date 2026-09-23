@@ -50,6 +50,7 @@ import {
   recommendationBriefDtoSchema,
   domainClassificationDtoSchema,
   runDtoSchema,
+  runFillDtoSchema,
   scheduleDtoSchema,
   siteAuditScoreSchema,
   siteAuditPageSchema,
@@ -165,6 +166,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
     },
+  },
+  runFills: {
+    kind: 'dto',
+    dto: runFillDtoSchema,
+    internal: {},
   },
   querySnapshots: {
     kind: 'dto',

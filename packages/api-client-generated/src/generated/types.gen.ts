@@ -10219,6 +10219,37 @@ export type ResultsExportDto = {
     }>;
 };
 
+export type RunCompletenessDto = {
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+    planned: boolean;
+    readable: boolean;
+    expected: number;
+    executed: number;
+    missing: number;
+    missingByProvider: {
+        [key: string]: number;
+    };
+    fillable: boolean;
+    refusal: {
+        code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
+        message: string;
+    } | null;
+    latestFill: {
+        id: string;
+        runId: string;
+        projectId: string;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        providers: Array<string>;
+        expected: number;
+        filled: number;
+        error: string | null;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+    } | null;
+};
+
 export type RunDetailDto = {
     id: string;
     projectId: string;
@@ -10310,6 +10341,53 @@ export type RunDetailDto = {
         } | null;
         createdAt: string;
     }>;
+};
+
+export type RunFillResponseDto = {
+    outcome: 'queued' | 'already-complete' | 'dry-run';
+    completeness: {
+        runId: string;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        planned: boolean;
+        readable: boolean;
+        expected: number;
+        executed: number;
+        missing: number;
+        missingByProvider: {
+            [key: string]: number;
+        };
+        fillable: boolean;
+        refusal: {
+            code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
+            message: string;
+        } | null;
+        latestFill: {
+            id: string;
+            runId: string;
+            projectId: string;
+            status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+            providers: Array<string>;
+            expected: number;
+            filled: number;
+            error: string | null;
+            createdAt: string;
+            startedAt: string | null;
+            finishedAt: string | null;
+        } | null;
+    };
+    fill: {
+        id: string;
+        runId: string;
+        projectId: string;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        providers: Array<string>;
+        expected: number;
+        filled: number;
+        error: string | null;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+    } | null;
 };
 
 export type RunDto = {
@@ -16875,6 +16953,87 @@ export type PostApiV1RunsByIdCancelResponses = {
 };
 
 export type PostApiV1RunsByIdCancelResponse = PostApiV1RunsByIdCancelResponses[keyof PostApiV1RunsByIdCancelResponses];
+
+export type PostApiV1RunsByIdFillData = {
+    body?: {
+        /**
+         * Fill only these providers. Omit for every provider with missing answers.
+         */
+        providers?: Array<string>;
+        /**
+         * Evaluate every rule and report what would run, without queueing.
+         */
+        dryRun?: boolean;
+    };
+    path: {
+        /**
+         * Run ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{id}/fill';
+};
+
+export type PostApiV1RunsByIdFillErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Run not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The run cannot be filled, a sweep is running, or another fill is in progress.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1RunsByIdFillError = PostApiV1RunsByIdFillErrors[keyof PostApiV1RunsByIdFillErrors];
+
+export type PostApiV1RunsByIdFillResponses = {
+    /**
+     * Dry run, or the run was already complete.
+     */
+    200: RunFillResponseDto;
+    /**
+     * Fill queued.
+     */
+    202: RunFillResponseDto;
+};
+
+export type PostApiV1RunsByIdFillResponse = PostApiV1RunsByIdFillResponses[keyof PostApiV1RunsByIdFillResponses];
+
+export type GetApiV1RunsByIdCompletenessData = {
+    body?: never;
+    path: {
+        /**
+         * Run ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{id}/completeness';
+};
+
+export type GetApiV1RunsByIdCompletenessErrors = {
+    /**
+     * Run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1RunsByIdCompletenessError = GetApiV1RunsByIdCompletenessErrors[keyof GetApiV1RunsByIdCompletenessErrors];
+
+export type GetApiV1RunsByIdCompletenessResponses = {
+    /**
+     * Run completeness.
+     */
+    200: RunCompletenessDto;
+};
+
+export type GetApiV1RunsByIdCompletenessResponse = GetApiV1RunsByIdCompletenessResponses[keyof GetApiV1RunsByIdCompletenessResponses];
 
 export type PostApiV1ApplyData = {
     /**
