@@ -118,10 +118,13 @@ jobs:
     timeout-minutes: 30
     permissions:
       actions: read
+    outputs:
+      run_id: ${{ steps.validated-ci.outputs.run_id }}
     steps:
       # The push already starts ci.yml. Reuse its completed validation for this
       # exact commit instead of repeating cold typechecks and a serial suite.
       - name: Require successful CI for the release commit
+        id: validated-ci
         uses: actions/github-script@v8
         with:
           script: |
@@ -144,6 +147,7 @@ jobs:
                   throw new Error(`CI ${run.id} ended with ${run.conclusion}: ${run.html_url}`);
                 }
                 core.info(`CI passed for ${context.sha}: ${run.html_url}`);
+                core.setOutput('run_id', String(run.id));
                 return;
               }
               core.info(`Waiting for CI on ${context.sha} (${run?.status ?? 'not started'})`);
@@ -157,24 +161,35 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.28.2
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - run: pnpm install --frozen-lockfile
+      # Download only from the successful push CI run selected for this SHA.
+      # That artifact has already passed the external-install smoke test.
+      - uses: actions/download-artifact@v4
+        with:
+          name: canonry-package
+          path: ${{ runner.temp }}/canonry-package
+          run-id: ${{ needs.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
 
-      - name: Build and publish npm packages
-        run: node scripts/publish-canonry-npm.mjs
+      - name: Publish tested npm package
+        shell: bash
+        run: |
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/canonry-package/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "Expected exactly one tested Canonry package tarball" >&2
+            exit 1
+          fi
+          CANONRY_NPM_PUBLISH_TARBALL="${tarballs[0]}" node scripts/publish-canonry-npm.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

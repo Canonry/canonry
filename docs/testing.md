@@ -129,7 +129,8 @@ Typechecks reuse TypeScript incremental state, including the root `scripts/` and
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 
-Tests run in four shards on each of Node 22 and Node 26. CI persists Vitest's experimental module-transform cache and Node's compile cache.
+Tests run in six shards on each of Node 22 and Node 26. Both majors run the complete suite.
+CI persists Vitest's experimental module-transform cache and Node's compile cache.
 These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
 Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
 Adding or removing tracked files also invalidates the cache because it can change import resolution.
@@ -143,9 +144,17 @@ Npm publishing waits for the successful `ci.yml` push run on the exact release c
 It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
 The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish jobs to retry the gate.
 
-The build job packs Canonry once and uploads the tarball for the install smoke test.
+The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
 The smoke job installs that artifact in a scratch directory without a repository checkout or workspace dependencies.
-Artifacts remain available for seven days; after expiry, rerun the build job before retrying the smoke test.
+Publish downloads the artifact from the successful push CI run for the exact release commit.
+It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
+Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
+Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.
+
+For a local artifact dry run, set `CANONRY_NPM_PUBLISH_TARBALL` to the absolute tarball path and run
+`CANONRY_NPM_PUBLISH_DRY_RUN=1 node scripts/publish-canonry-npm.mjs`.
+Without the tarball variable, the publisher retains its local build-and-publish workflow.
+Homebrew still waits for npm's public metadata and tarball before dispatching the tap update.
 
 ## Package Verification
 
