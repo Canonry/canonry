@@ -139,6 +139,29 @@ every tool scope, so a write-scope Aero turn from the API or
 schedules. The operator's own `canonry run` and `canonry schedule` commands are
 unaffected.
 
+### Viewer Aero
+
+By default only administrators can use Aero. To let signed-in viewer accounts
+use it too:
+
+```yaml
+agent:
+  allowViewers: true
+```
+
+`CANONRY_AGENT_ALLOW_VIEWERS=1` overrides it for container deployments.
+
+A viewer gets their own Aero conversation, kept in server memory and cleared
+on restart. They never see an administrator's conversations, history or Aero
+memory notes, and an administrator's conversation never receives a viewer's
+turns. Each turn runs on a short-lived read-only key delegated to the viewer,
+so every tool call has exactly the viewer's own access, and the key is revoked
+when the turn ends. Viewers get read tools only, without live ads or Google
+Marketing reads, and cannot pick the model. On a managed install they cannot
+start or schedule sweeps either. Each viewer can run 50 turns per project per
+UTC day; every turn uses the install's configured Aero model and its budget.
+API keys are unaffected: a narrow key is still refused on every Aero route.
+
 ### Viewer research
 
 An operator can let signed-in viewer accounts run isolated research queries:

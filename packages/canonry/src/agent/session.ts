@@ -91,14 +91,14 @@ export { resolveAeroSkillDir } from './skill-paths.js'
  * rules). Soul is optional — SKILL.md alone is a valid prompt — but when
  * present it's prepended so identity frames the task instructions.
  */
-export function loadAeroSystemPrompt(pkgDir?: string): string {
+export function loadAeroSystemPrompt(pkgDir?: string, opts: { extras?: boolean } = {}): string {
   const skillDir = resolveAeroSkillDir(pkgDir)
   const skillBody = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')
   const soulPath = path.join(skillDir, 'soul.md')
   const base = fs.existsSync(soulPath)
     ? `${fs.readFileSync(soulPath, 'utf-8').trimEnd()}\n\n---\n\n${skillBody}`
     : skillBody
-  return appendSystemPromptExtras(base + AERO_RUNTIME_PROMPT)
+  return opts.extras === false ? base + AERO_RUNTIME_PROMPT : appendSystemPromptExtras(base + AERO_RUNTIME_PROMPT)
 }
 
 /**

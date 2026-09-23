@@ -74,7 +74,7 @@ import type {
   ProviderConfigEntry,
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
-import { resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
+import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfigPatch, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
@@ -238,6 +238,7 @@ import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
+import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
@@ -976,6 +977,17 @@ export async function createServer(opts: {
         client: aeroClient,
         config: opts.config,
         proactive: agentProactive,
+        managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+      })
+    : undefined;
+  // Viewer Aero is its own lane (see viewer-sessions.ts), built only on an
+  // explicit opt-in. Absent, the agent routes stay administrator-only.
+  const agentAllowViewers = agentEnabled && resolveAgentAllowViewers(process.env, opts.config);
+  const viewerAeroSessions = agentAllowViewers
+    ? new ViewerAeroSessions({
+        db: opts.db,
+        config: opts.config,
+        selfApiUrl: opts.config.apiUrl,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
@@ -2646,7 +2658,7 @@ export async function createServer(opts: {
       registerOAuthAdminRoutes(scope, { db: opts.db });
       // Aero kill-switch: don't serve the interactive agent routes when disabled.
       if (!sessionRegistry) return;
-      registerAgentRoutes(scope, { db: opts.db, sessionRegistry });
+      registerAgentRoutes(scope, { db: opts.db, sessionRegistry, viewerSessions: viewerAeroSessions });
     },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     getPlacesConfig: () => getPlacesConfig(opts.config),
@@ -3396,6 +3408,11 @@ export async function createServer(opts: {
       // Research is a paid capability for viewers, so advertise only an active
       // opt-in. With the flag absent or false, the injected config remains
       // byte-for-byte identical to earlier releases.
+      // Advertise only an active opt-in, so the default injected config is
+      // unchanged.
+      if (agentAllowViewers) {
+        clientConfig.agent = { allowViewers: true };
+      }
       if (researchAllowViewers) {
         clientConfig.research = {
           allowViewers: true,
