@@ -1,6 +1,6 @@
 import { type ApiClient, createApiClient } from '../client.js'
-import { CitationStates, resolveProviderInput, type RunDetailDto, describeError } from '@ainyc/canonry-contracts'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CitationStates, resolveProviderInput, type RunCompletenessDto, type RunDetailDto, describeError } from '@ainyc/canonry-contracts'
+import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -401,5 +401,107 @@ export function printRunDetail(run: RunDetailDto): void {
       const modelLabel = s.model ? ` (${s.model})` : ''
       console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}`)
     }
+  }
+}
+
+const FILL_POLL_INTERVAL_MS = 3000
+// A fill is bounded server-side by the run's 24h window; this only stops a
+// client that lost the server from polling forever.
+const FILL_POLL_TIMEOUT_MS = 6 * 60 * 60 * 1000
+
+function missingSummary(completeness: RunCompletenessDto): string {
+  const parts = Object.entries(completeness.missingByProvider)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([provider, count]) => `${provider} ${count}`)
+  return parts.length ? parts.join(', ') : 'none'
+}
+
+function printCompleteness(completeness: RunCompletenessDto): void {
+  console.log(`Run: ${completeness.runId}`)
+  console.log(`  Status:   ${completeness.status}`)
+  if (!completeness.planned) {
+    console.log('  Not a measurement-plan run: there are no expected answers to count.')
+    return
+  }
+  if (!completeness.readable) {
+    console.log("  Answers:  unknown (the run's manifest cannot be read)")
+  } else {
+    console.log(`  Answers:  ${completeness.executed}/${completeness.expected}`)
+    console.log(`  Missing:  ${completeness.missing} (${missingSummary(completeness)})`)
+  }
+  if (completeness.refusal) console.log(`  Fillable: no. ${completeness.refusal.message}`)
+  else console.log(`  Fillable: ${completeness.fillable ? 'yes' : 'not right now (a sweep or another fill is running)'}`)
+  const fill = completeness.latestFill
+  if (fill) {
+    console.log(`  Last fill: ${fill.id} ${fill.status}, ${fill.filled}/${fill.expected} recorded${fill.error ? `. ${fill.error}` : ''}`)
+  }
+}
+
+export async function showRunCompleteness(runId: string, format?: string): Promise<void> {
+  const completeness = await getClient().getRunCompleteness(runId)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(completeness, null, 2))
+    return
+  }
+  printCompleteness(completeness)
+}
+
+/**
+ * Record a partial run's missing answers under the same run id. The run keeps
+ * its identity and its place in history, so it never shows up as a second run.
+ */
+export async function fillRun(runId: string, opts: { providers?: string[]; dryRun?: boolean; wait?: boolean; format?: string } = {}): Promise<void> {
+  const client = getClient()
+  const response = await client.fillRun(runId, {
+    ...(opts.providers?.length ? { providers: opts.providers } : {}),
+    ...(opts.dryRun ? { dryRun: true } : {}),
+  })
+
+  if (!opts.wait || response.outcome !== 'queued' || !response.fill) {
+    if (isMachineFormat(opts.format)) {
+      console.log(JSON.stringify(response, null, 2))
+      return
+    }
+    if (response.outcome === 'already-complete') console.log(`Run ${runId} is already complete: nothing to fill.`)
+    else if (response.outcome === 'dry-run') console.log('Dry run: nothing was queued.')
+    else if (response.fill) console.log(`Fill ${response.fill.id} queued: ${response.fill.expected} missing answer(s) (${missingSummary(response.completeness)}).`)
+    printCompleteness(response.completeness)
+    return
+  }
+
+  const fillId = response.fill.id
+  const deadline = Date.now() + FILL_POLL_TIMEOUT_MS
+  let completeness = response.completeness
+  if (!isMachineFormat(opts.format)) {
+    process.stderr.write(`Filling ${response.fill.expected} missing answer(s) in run ${runId}`)
+  }
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, FILL_POLL_INTERVAL_MS))
+    if (Date.now() > deadline) {
+      throw new CliError({
+        code: 'RUN_FILL_INCOMPLETE',
+        message: `Timed out waiting for fill ${fillId}; it may still be running. Check with: canonry run completeness ${runId}`,
+        exitCode: EXIT_SYSTEM_ERROR,
+        details: { runId, fillId },
+      })
+    }
+    completeness = await client.getRunCompleteness(runId)
+    if (!isMachineFormat(opts.format)) process.stderr.write('.')
+    const fill = completeness.latestFill
+    if (fill?.id === fillId && fill.status !== 'queued' && fill.status !== 'running') break
+  }
+  if (!isMachineFormat(opts.format)) process.stderr.write('\n')
+
+  if (isMachineFormat(opts.format)) console.log(JSON.stringify(completeness, null, 2))
+  else printCompleteness(completeness)
+
+  if (completeness.status !== 'completed') {
+    // Exit 2 means "worth retrying": the gap may be a provider cap that lifts.
+    throw new CliError({
+      code: 'RUN_FILL_INCOMPLETE',
+      message: `Run ${runId} is still ${completeness.status}: ${completeness.missing} answer(s) missing (${missingSummary(completeness)}).`,
+      exitCode: EXIT_SYSTEM_ERROR,
+      details: { runId, fillId, missing: completeness.missing, missingByProvider: completeness.missingByProvider },
+    })
   }
 }

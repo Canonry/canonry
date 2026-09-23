@@ -166,6 +166,9 @@ export interface ApiRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
   /** Callback after a run is durably cancelled; local hosts use this to abort active work. */
   onRunCancelled?: RunRoutesOptions['onRunCancelled']
+  /** Fired after a run fill is admitted. See `RunRoutesOptions.onRunFillCreated`. */
+  onRunFillCreated?: RunRoutesOptions['onRunFillCreated']
+  getProviderDailyLimits?: RunRoutesOptions['getProviderDailyLimits']
   /** Returns providers currently registered and runnable by the host worker. */
   getRunnableProviderNames?: () => readonly string[]
   /**
@@ -543,6 +546,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,
       onRunCancelled: opts.onRunCancelled,
+      onRunFillCreated: opts.onRunFillCreated,
+      getProviderDailyLimits: opts.getProviderDailyLimits,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
@@ -778,6 +783,7 @@ export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trus
 export { hashUserPassword, verifyUserPassword } from './user-password.js'
 export type { AuthPrincipal } from './auth.js'
 export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
+export { evaluateRunFill, formatRunFill, newerFullSweep, queueRunFill, readRunCompleteness } from './run-fill.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'
 export { nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from './schedule-utils.js'

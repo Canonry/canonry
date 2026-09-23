@@ -1,10 +1,11 @@
-import { cancelRun, listRuns, showRun, triggerRun, triggerRunAll } from '../commands/run.js'
+import { cancelRun, fillRun, listRuns, showRun, showRunCompleteness, triggerRun, triggerRunAll } from '../commands/run.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
+const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
 const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
 
 const RUN_TRIGGER_OPTIONS = {
@@ -109,6 +110,45 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: 'run ID is required',
       })
       await showRun(id, input.format)
+    },
+  },
+  {
+    path: ['run', 'fill'],
+    usage: RUN_FILL_USAGE,
+    options: {
+      provider: stringOption(),
+      'dry-run': { type: 'boolean', default: false },
+      wait: { type: 'boolean', default: false },
+    },
+    run: async (input) => {
+      // Same rule as `run trigger`: a project named after a keyword must stay
+      // runnable, so `canonry run fill` with nothing after it sweeps "fill".
+      if (input.positionals.length === 0) return triggerRunCommand({ ...input, positionals: ['fill'] }, 'run')
+      const runId = requirePositional(input, 0, {
+        command: 'run.fill',
+        usage: RUN_FILL_USAGE,
+        message: 'run ID is required',
+      })
+      const provider = getString(input.values, 'provider')
+      await fillRun(runId, {
+        providers: provider ? provider.split(',').map(value => value.trim()).filter(Boolean) : undefined,
+        dryRun: getBoolean(input.values, 'dry-run'),
+        wait: getBoolean(input.values, 'wait'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['run', 'completeness'],
+    usage: 'canonry run completeness <run-id> [--format json]',
+    run: async (input) => {
+      if (input.positionals.length === 0) return triggerRunCommand({ ...input, positionals: ['completeness'] }, 'run')
+      const runId = requirePositional(input, 0, {
+        command: 'run.completeness',
+        usage: 'canonry run completeness <run-id> [--format json]',
+        message: 'run ID is required',
+      })
+      await showRunCompleteness(runId, input.format)
     },
   },
   {

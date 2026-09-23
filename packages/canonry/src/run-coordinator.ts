@@ -5,6 +5,7 @@ import {
   RunKinds,
   RunTriggers,
   type DiscoveryCompetitorMapEntry,
+  type RunCompletionOrigin,
   type RunKind,
   describeError,
 } from '@ainyc/canonry-contracts'
@@ -66,7 +67,7 @@ export class RunCoordinator {
     private onAeroEvent?: OnAeroEvent,
   ) {}
 
-  async onRunCompleted(runId: string, projectId: string): Promise<void> {
+  async onRunCompleted(runId: string, projectId: string, opts?: { origin?: RunCompletionOrigin }): Promise<void> {
     const runRow = this.db.select().from(runs).where(eq(runs.id, runId)).get()
     const kind = (runRow?.kind ?? RunKinds['answer-visibility']) as RunKind
 
@@ -155,7 +156,8 @@ export class RunCoordinator {
 
     // 2. Notifications — may short-circuit if no webhooks configured, catches its own errors
     try {
-      await this.notifier.onRunCompleted(runId, projectId)
+      // Only a fill names an origin; a sweep keeps its exact call shape.
+      await (opts ? this.notifier.onRunCompleted(runId, projectId, opts) : this.notifier.onRunCompleted(runId, projectId))
     } catch (err) {
       log.error('notifier.failed', { runId, error: describeError(err) })
     }

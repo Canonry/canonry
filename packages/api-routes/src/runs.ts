@@ -17,6 +17,9 @@ import {
   noProvider,
   noQueries,
   unsupportedKind,
+  runFillInProgress,
+  runFillRefused,
+  runFillRequestSchema,
   runInProgress,
   runNotCancellable,
   notFound,
@@ -28,6 +31,7 @@ import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSna
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
+import { queueRunFill, readRunCompleteness } from './run-fill.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -42,6 +46,10 @@ export interface RunRoutesOptions {
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this instance has it pointed at, for freezing model identity. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /** Fired after a fill commits, so the host can execute it. */
+  onRunFillCreated?: (fillId: string, runId: string, projectId: string) => void
+  /** Provider → requests allowed per UTC day, so fill admission can refuse what quota would. */
+  getProviderDailyLimits?: () => Readonly<Record<string, number>>
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
@@ -591,6 +599,53 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     const updated = app.db.select().from(runs).where(eq(runs.id, run.id)).get()!
     return reply.send(formatRun(updated))
+  })
+
+  // POST /runs/:id/fill — record a partial run's missing answers under the same run id
+  app.post<{ Params: { id: string }; Body: unknown }>('/runs/:id/fill', async (request, reply) => {
+    const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
+    if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
+    const parsed = runFillRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError(parsed.error.issues.map(issue => issue.message).join('; '))
+    const input = {
+      providers: parsed.data.providers,
+      runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      dailyLimits: opts.getProviderDailyLimits?.() ?? null,
+    }
+
+    if (parsed.data.dryRun) {
+      return reply.send({ outcome: 'dry-run', completeness: readRunCompleteness(app.db, run, input), fill: null })
+    }
+    const result = queueRunFill(app.db, run.id, input)
+    switch (result.kind) {
+      case 'refused':
+        throw runFillRefused(result.code, result.message, { runId: run.id })
+      case 'fill-in-progress':
+        throw runFillInProgress(run.id, result.fillId)
+      case 'run-in-progress': {
+        const project = app.db.select({ name: projects.name }).from(projects).where(eq(projects.id, run.projectId)).get()
+        throw runInProgress(project?.name ?? run.projectId, RunKinds['answer-visibility'], result.activeRunId)
+      }
+      case 'already-complete':
+        return reply.send({ outcome: 'already-complete', completeness: readRunCompleteness(app.db, run, input), fill: null })
+      case 'queued': {
+        opts.onRunFillCreated?.(result.fill.id, run.id, run.projectId)
+        const current = app.db.select().from(runs).where(eq(runs.id, run.id)).get()!
+        return reply.status(202).send({ outcome: 'queued', completeness: readRunCompleteness(app.db, current, input), fill: result.fill })
+      }
+    }
+  })
+
+  // GET /runs/:id/completeness — answered vs missing slots, and whether a fill would be admitted
+  app.get<{ Params: { id: string } }>('/runs/:id/completeness', async (request, reply) => {
+    const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
+    if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
+    return reply.send(readRunCompleteness(app.db, run, {
+      runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      dailyLimits: opts.getProviderDailyLimits?.() ?? null,
+    }))
   })
 
   // GET /runs/:id — get single run with snapshots

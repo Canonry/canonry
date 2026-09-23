@@ -1,4 +1,5 @@
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
+import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type UsageSurface } from '@ainyc/canonry-contracts'
@@ -317,6 +318,8 @@ import {
   getApiV1ProjectsByNameRunsLatest,
   getApiV1RunsById,
   postApiV1RunsByIdCancel,
+  postApiV1RunsByIdFill,
+  getApiV1RunsByIdCompleteness,
   getApiV1ProjectsByNameTimeline,
   getApiV1ProjectsByNameHistory,
   getApiV1History,
@@ -2187,6 +2190,14 @@ export class ApiClient {
 
   async cancelRun(id: string): Promise<RunDto> {
     return this.invoke<RunDto>(() => postApiV1RunsByIdCancel({ client: this.heyClient, path: { id } }))
+  }
+
+  async fillRun(id: string, body: RunFillRequest = {}): Promise<RunFillResponseDto> {
+    return this.invoke<RunFillResponseDto>(() => postApiV1RunsByIdFill({ client: this.heyClient, path: { id }, body }))
+  }
+
+  async getRunCompleteness(id: string): Promise<RunCompletenessDto> {
+    return this.invoke<RunCompletenessDto>(() => getApiV1RunsByIdCompleteness({ client: this.heyClient, path: { id } }))
   }
 
   async getTimeline(project: string, location?: string, limit?: number): Promise<TimelineDto[]> {

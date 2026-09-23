@@ -125,6 +125,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',
   'POST /api/v1/runs/{id}/cancel': 'included',
+  'POST /api/v1/runs/{id}/fill': 'included',
+  'GET /api/v1/runs/{id}/completeness': 'included',
   'POST /api/v1/apply': 'included',
   'GET /api/v1/projects/{name}/history': 'included',
   'GET /api/v1/history': 'included',
