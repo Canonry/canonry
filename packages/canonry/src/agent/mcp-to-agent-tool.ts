@@ -325,11 +325,30 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   CanonryMcpToolNames.canonry_results_clear,
 ])
 
+/**
+ * Tools withheld from Aero when the install manages sweeps. The operator owns
+ * when sweeps run and what they cost, so Aero may not start, fill or cancel a
+ * run, or write a schedule. `canonry_apply_config` is here because an applied
+ * spec replaces the project's schedule. Enforced on the tool surface rather
+ * than in the dashboard so the API and `canonry agent ask` get the same rule.
+ * The host's own `canonry run` and `canonry schedule` commands are unaffected.
+ */
+export const AERO_MANAGED_SWEEP_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
+  CanonryMcpToolNames.canonry_run_trigger,
+  CanonryMcpToolNames.canonry_run_fill,
+  CanonryMcpToolNames.canonry_run_cancel,
+  CanonryMcpToolNames.canonry_schedule_set,
+  CanonryMcpToolNames.canonry_schedule_delete,
+  CanonryMcpToolNames.canonry_apply_config,
+])
+
 export interface BuildMcpAgentToolsOptions {
   /** Filter to read-only tools when true. */
   readOnly?: boolean
   /** Optional allow-list for profile-specific tool surfaces. */
   includeNames?: ReadonlySet<CanonryMcpToolName>
+  /** Withhold the run, schedule and config writes in `AERO_MANAGED_SWEEP_MCP_TOOLS`. */
+  managedSweeps?: boolean
 }
 
 /**
@@ -347,5 +366,6 @@ export function buildMcpAgentTools(
     .filter((tool) => !AERO_EXCLUDED_MCP_TOOLS.has(tool.name))
     .filter((tool) => (opts.includeNames ? opts.includeNames.has(tool.name) : true))
     .filter((tool) => (opts.readOnly ? tool.access === 'read' : true))
+    .filter((tool) => (opts.managedSweeps ? !AERO_MANAGED_SWEEP_MCP_TOOLS.has(tool.name) : true))
     .map((tool) => mcpToAgentTool(tool, ctx))
 }

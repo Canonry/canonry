@@ -976,6 +976,7 @@ export async function createServer(opts: {
         client: aeroClient,
         config: opts.config,
         proactive: agentProactive,
+        managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
 

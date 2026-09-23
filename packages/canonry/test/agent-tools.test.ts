@@ -3,12 +3,14 @@ import type { AgentTool } from '@mariozechner/pi-agent-core'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import {
   AERO_EXCLUDED_MCP_TOOLS,
+  AERO_MANAGED_SWEEP_MCP_TOOLS,
   buildMcpAgentTools,
   mcpToAgentTool,
 } from '../src/agent/mcp-to-agent-tool.js'
 import {
   AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME,
   AERO_ADS_OPERATOR_MCP_TOOL_NAMES,
+  AeroToolProfiles,
   AeroToolScopes,
   buildAdsOperatorTools,
   buildAllTools,
@@ -274,6 +276,35 @@ describe('buildAeroStateTools', () => {
       .toEqual(buildReadTools(ctx).map((t) => t.name))
     expect(buildAeroStateTools(ctx, { scope: AeroToolScopes.all }).map((t) => t.name))
       .toEqual(buildAllTools(ctx).map((t) => t.name))
+  })
+
+  it('withholds sweep and schedule writes in every scope and profile when sweeps are managed', () => {
+    const calls: CallLog[] = []
+    const ctx = ctxFor(recordingClient(calls))
+    const withheld = [...AERO_MANAGED_SWEEP_MCP_TOOLS]
+
+    for (const scope of [AeroToolScopes.all, AeroToolScopes.readOnly]) {
+      for (const profile of [AeroToolProfiles.default, AeroToolProfiles.adsOperator]) {
+        const names = buildAeroStateTools(ctx, { scope, profile, managedSweeps: true }).map((t) => t.name)
+        for (const name of withheld) expect(names).not.toContain(name)
+      }
+    }
+  })
+
+  it('removes only the managed set, leaving reads and other writes in place', () => {
+    const calls: CallLog[] = []
+    const ctx = ctxFor(recordingClient(calls))
+    const unmanaged = buildAeroStateTools(ctx, { scope: AeroToolScopes.all }).map((t) => t.name)
+    const managed = buildAeroStateTools(ctx, { scope: AeroToolScopes.all, managedSweeps: true }).map((t) => t.name)
+
+    expect(unmanaged).toEqual(expect.arrayContaining([
+      CanonryMcpToolNames.canonry_run_trigger,
+      CanonryMcpToolNames.canonry_schedule_set,
+    ]))
+    expect(unmanaged.filter((name) => !managed.includes(name)).sort())
+      .toEqual([...AERO_MANAGED_SWEEP_MCP_TOOLS].sort())
+    expect(managed).toContain(CanonryMcpToolNames.canonry_schedule_get)
+    expect(managed).toContain(CanonryMcpToolNames.canonry_run_get)
   })
 })
 
