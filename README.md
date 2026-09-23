@@ -126,6 +126,7 @@ For an existing project, configure a provider with your own key.
 |---|---|---|
 | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `GEMINI_API_KEY` |
 | OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` |
+| Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` (`MODEL_API_KEY` alias) |
 | Claude | [Anthropic Console](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
 | Perplexity | [Perplexity settings](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
@@ -203,7 +204,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 
 | Area | Supported integrations |
 |---|---|
-| **AI answers** | ChatGPT · Claude · Gemini · Perplexity · OpenAI-compatible local models |
+| **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
 | **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
 | **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
 | **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |

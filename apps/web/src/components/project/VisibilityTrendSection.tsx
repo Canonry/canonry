@@ -950,6 +950,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai: 'OpenAI',
   gemini: 'Gemini',
   perplexity: 'Perplexity',
+  muse: 'Muse',
   local: 'Local',
 }
 

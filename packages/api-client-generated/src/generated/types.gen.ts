@@ -16253,7 +16253,7 @@ export type PostApiV1ProjectsByNameQueriesReplacePreviewResponse = PostApiV1Proj
 
 export type PostApiV1ProjectsByNameQueriesGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
         count?: number;
     };
     path: {
@@ -16387,7 +16387,7 @@ export type PutApiV1ProjectsByNameKeywordsResponse = PutApiV1ProjectsByNameKeywo
 
 export type PostApiV1ProjectsByNameKeywordsGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
         count?: number;
     };
     path: {
@@ -17342,7 +17342,7 @@ export type PutApiV1SettingsProvidersByNameData = {
         /**
          * Provider name.
          */
-        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
     };
     query?: never;
     url: '/api/v1/settings/providers/{name}';

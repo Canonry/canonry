@@ -8,9 +8,14 @@ describe('getProviderLocationHandling', () => {
     expect(getProviderLocationHandling('local').treatment).toBe('prompt')
   })
 
-  it('reports request-param providers (OpenAI, Claude)', () => {
+  it('reports request-param providers (OpenAI, Claude, Muse)', () => {
     expect(getProviderLocationHandling('openai').treatment).toBe('request-param')
     expect(getProviderLocationHandling('claude').treatment).toBe('request-param')
+    expect(getProviderLocationHandling('muse')).toEqual({
+      treatment: 'request-param',
+      supportsLocationContext: true,
+      description: 'Location sent as a structured `user_location` field on Muse’s web_search tool.',
+    })
   })
 
   it('reports CDP browser as browser-geo (configured location does not reach the model)', () => {
@@ -24,7 +29,7 @@ describe('getProviderLocationHandling', () => {
   })
 
   it('every known provider returns a non-empty description', () => {
-    for (const name of ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt']) {
+    for (const name of ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']) {
       const handling = getProviderLocationHandling(name)
       expect(handling.description.length).toBeGreaterThan(0)
     }

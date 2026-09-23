@@ -38,6 +38,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Direct-model selection, answer and citation evidence, and model router trade-offs |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
+| [`providers/muse.md`](providers/muse.md) | current | operators, engineers | Muse setup, search evidence, and model tier choice |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |
 | [`providers/local.md`](providers/local.md) | current | engineers | Local provider behavior and constraints |
 | [`providers/perplexity.md`](providers/perplexity.md) | current | engineers | Perplexity provider behavior and constraints |
@@ -53,6 +54,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
 | [`oss-onboarding-evaluation.md`](oss-onboarding-evaluation.md) | implemented | product, design, engineers | Source-based evaluation and decisions for the OSS onboarding rework |
+| [`technical-scopes/muse-web-search.md`](technical-scopes/muse-web-search.md) | implementation scope | engineers | Muse web search boundaries and validation plan |
 
 New plans, product direction, and design rationale live in PR descriptions.
 The implementation record above preserves context, but it does not define

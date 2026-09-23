@@ -16,6 +16,8 @@ test('pre-resolution candidates retain direct full-path URLs and the exact Verte
     { uri: 'https://docs.anthropic.com/en/docs/build-with-claude', title: 'Provider infrastructure' },
     { uri: 'https://claude.ai/new', title: 'Engine self URL' },
     { uri: 'https://www.perplexity.ai/search?q=canonry', title: 'Engine self URL' },
+    { uri: 'https://www.meta.ai/search?q=canonry', title: 'Muse self URL' },
+    { uri: 'https://api.meta.ai/v1/responses', title: 'Muse infrastructure' },
     { uri: 'not a URL', title: 'Invalid' },
   ])
 

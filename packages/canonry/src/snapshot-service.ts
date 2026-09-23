@@ -30,7 +30,7 @@ import { type ProviderExecutionGate, getSharedProviderExecutionGate } from './pr
 
 const log = createLogger('Snapshot')
 
-const ANALYSIS_PROVIDER_PRIORITY = ['openai', 'claude', 'gemini', 'perplexity', 'local'] as const
+const ANALYSIS_PROVIDER_PRIORITY = ['openai', 'claude', 'gemini', 'perplexity', 'muse', 'local'] as const
 const SNAPSHOT_QUERY_COUNT = 6
 
 type GeneratedSnapshotProfile = SnapshotProfileDto & {

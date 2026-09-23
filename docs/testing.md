@@ -168,7 +168,7 @@ canonry serve
 
 ## Provider Tests
 
-The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-claude`, `provider-perplexity`, `provider-local`, `provider-cdp`) have unit tests that validate:
+The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-muse`, `provider-claude`, `provider-perplexity`, `provider-local`, `provider-cdp`) have unit tests that validate:
 
 - Config validation (accepts valid keys, rejects empty)
 - Custom model passthrough

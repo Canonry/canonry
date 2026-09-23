@@ -263,6 +263,9 @@ test('cloud accepts every registered provider name', async () => {
   expect(settings.statusCode).toBe(200)
   const catalogNames = settings.json().providerCatalog.map((entry: { name: string }) => entry.name)
   expect([...catalogNames].sort()).toEqual([...PROVIDER_NAMES].sort())
+  expect(settings.json().providerCatalog).toContainEqual(expect.objectContaining({
+    name: 'muse', displayName: 'Muse', defaultModel: 'muse-spark-1.3',
+  }))
 
   // The allowlist is what actually 400s a write, so exercise it end to end.
   const upsert = await app.inject({
@@ -293,6 +296,8 @@ test('loadApiEnv delegates to shared platform config', () => {
     GEMINI_MAX_CONCURRENCY: '4',
     GEMINI_MAX_REQUESTS_PER_MINUTE: '15',
     GEMINI_MAX_REQUESTS_PER_DAY: '500',
+    MUSE_API_KEY: 'muse-key',
+    MUSE_MAX_REQUESTS_PER_DAY: '250',
   })
 
   expect(env.apiPort).toBe(4100)
@@ -304,6 +309,9 @@ test('loadApiEnv delegates to shared platform config', () => {
     maxConcurrency: 4,
     maxRequestsPerMinute: 15,
     maxRequestsPerDay: 500,
+  })
+  expect(env.providers.muse).toMatchObject({
+    apiKey: 'muse-key', quota: { maxRequestsPerDay: 250 },
   })
 })
 

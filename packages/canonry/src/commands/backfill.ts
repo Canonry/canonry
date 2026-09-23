@@ -8,6 +8,7 @@ import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
 import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
+import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-provider-muse'
 import { loadConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
 import { isMachineFormat } from '../cli-error.js'
@@ -1128,6 +1129,8 @@ function reparseProviderSnapshot(
       return reparseGeminiStoredResult(apiResponse)
     case ProviderNames.perplexity:
       return reparsePerplexityStoredResult(apiResponse)
+    case ProviderNames.muse:
+      return reparseMuseStoredResult(apiResponse)
     default:
       return null
   }

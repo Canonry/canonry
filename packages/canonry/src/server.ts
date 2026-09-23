@@ -40,6 +40,7 @@ import { claudeAdapter } from "@ainyc/canonry-provider-claude";
 import { localAdapter } from "@ainyc/canonry-provider-local";
 import { cdpChatgptAdapter } from "@ainyc/canonry-provider-cdp";
 import { perplexityAdapter } from "@ainyc/canonry-provider-perplexity";
+import { museAdapter } from "@ainyc/canonry-provider-muse";
 import {
   authInvalid,
   authRequired,
@@ -391,6 +392,7 @@ const API_ADAPTERS: ProviderAdapter[] = [
   claudeAdapter,
   localAdapter,
   perplexityAdapter,
+  museAdapter,
 ];
 
 /** All known browser (CDP) adapters */

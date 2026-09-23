@@ -438,6 +438,9 @@ importers:
       '@ainyc/canonry-provider-local':
         specifier: workspace:*
         version: link:../provider-local
+      '@ainyc/canonry-provider-muse':
+        specifier: workspace:*
+        version: link:../provider-muse
       '@ainyc/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
@@ -646,6 +649,15 @@ importers:
       openai:
         specifier: ^4.85.0
         version: 4.104.0(ws@8.21.0)(zod@4.3.6)
+
+  packages/provider-muse:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      openai:
+        specifier: ^6.0.0
+        version: 6.27.0(ws@8.21.0)(zod@4.3.6)
 
   packages/provider-openai:
     dependencies:

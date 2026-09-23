@@ -66,6 +66,31 @@ test('getPlatformEnv configures multiple providers', () => {
   expect(env.providers.claude!.apiKey).toBe('claude-key')
 })
 
+test('Muse env uses the canonical key before MODEL_API_KEY and preserves model, endpoint, and quotas', () => {
+  const source = {
+    MUSE_API_KEY: 'canonical-key', MODEL_API_KEY: 'alias-key',
+    MUSE_MODEL: 'muse-spark-1.3', MUSE_BASE_URL: 'https://muse-proxy.example/v1',
+    MUSE_MAX_CONCURRENCY: '3', MUSE_MAX_REQUESTS_PER_MINUTE: '12', MUSE_MAX_REQUESTS_PER_DAY: '240',
+  }
+  const expected = {
+    apiKey: 'canonical-key', model: 'muse-spark-1.3', baseUrl: 'https://muse-proxy.example/v1',
+    quota: { maxConcurrency: 3, maxRequestsPerMinute: 12, maxRequestsPerDay: 240 },
+  }
+  expect(getPlatformEnv(source).providers.muse).toEqual(expected)
+  expect(getBootstrapEnv(source).providers.muse).toEqual(expected)
+})
+
+test('Muse accepts MODEL_API_KEY and CLI key overrides it during bootstrap', () => {
+  expect(getPlatformEnv({ MODEL_API_KEY: 'alias' }).providers.muse?.apiKey).toBe('alias')
+  expect(getBootstrapEnv({ MODEL_API_KEY: 'alias' }).providers.muse).toMatchObject({
+    apiKey: 'alias', model: 'muse-spark-1.3',
+  })
+  expect(getBootstrapEnv({ MODEL_API_KEY: 'alias' }, { MUSE_API_KEY: 'flag-key' }).providers.muse?.apiKey)
+    .toBe('flag-key')
+  expect(getBootstrapEnv({ MUSE_API_KEY: '   ', MODEL_API_KEY: 'alias' }).providers.muse?.apiKey)
+    .toBe('alias')
+})
+
 test('getPlatformEnv omits providers without API keys', () => {
   const env = getPlatformEnv({
     GEMINI_API_KEY: 'gemini-key',

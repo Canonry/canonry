@@ -50,7 +50,7 @@ export function buildApp(env: PlatformEnv) {
     retention: env.databaseUrl === ':memory:' ? 'process' : 'durable',
   })
 
-  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity'] as const).map(name => ({
+  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity', 'muse'] as const).map(name => ({
     name,
     model: env.providers[name]?.model,
     configured: !!env.providers[name],
@@ -124,6 +124,17 @@ export function buildApp(env: PlatformEnv) {
       ],
       modelValidationPattern: /^sonar/,
       modelValidationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
+    },
+    {
+      name: 'muse', displayName: 'Muse', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'muse-spark-1.3',
+      knownModels: [
+        { id: 'muse-spark-1.3', displayName: 'Muse Spark 1.3', tier: 'standard' as const },
+        { id: 'muse-spark-1.2', displayName: 'Muse Spark 1.2', tier: 'standard' as const },
+        { id: 'muse-spark-1.1', displayName: 'Muse Spark 1.1', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /^muse-spark-[a-z0-9]+(?:[.-][a-z0-9]+)*$/,
+      modelValidationHint: 'a Muse Spark text model (e.g. muse-spark-1.3)',
     },
     {
       name: 'local', displayName: 'Local', mode: 'api' as const, modelConfigurable: true,

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked queries, and acts on that signal through the content engine and integrations.
+Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Muse, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked queries, and acts on that signal through the content engine and integrations.
 
 Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while queries remain project-wide.
 
@@ -23,6 +23,7 @@ flowchart LR
     JobRunner --> Registry["Provider<br/>Registry"]
     Registry --> Gemini["provider-gemini"]
     Registry --> OpenAI["provider-openai"]
+    Registry --> Muse["provider-muse"]
     Registry --> Claude["provider-claude"]
     Registry --> Perplexity["provider-perplexity"]
     Registry --> CDP["provider-cdp"]
@@ -33,6 +34,7 @@ flowchart LR
   User -. CLI .-> API
   Gemini --> Target
   OpenAI --> Target
+  Muse --> Target
   Claude --> Target
   Perplexity --> Target
   CDP --> Target
@@ -76,6 +78,7 @@ flowchart TD
   subgraph Providers
     gemini["provider-gemini"]
     openai["provider-openai"]
+    muse["provider-muse"]
     claude["provider-claude"]
     local["provider-local"]
     perplexity["provider-perplexity"]
@@ -96,13 +99,13 @@ flowchart TD
   canonry --> config
   canonry --> contracts
   canonry --> intelligence
-  canonry --> gemini & openai & claude & local & perplexity & cdp
+  canonry --> gemini & openai & muse & claude & local & perplexity & cdp
 
   routes --> db
   routes --> contracts
   routes --> gsc & ga4 & bing & wp
 
-  gemini & openai & claude & local & perplexity & cdp --> contracts
+  gemini & openai & muse & claude & local & perplexity & cdp --> contracts
   gsc & ga4 & bing & wp --> contracts
   db --> contracts
 ```

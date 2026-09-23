@@ -16,12 +16,13 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * registered adapters. These constants are kept for backward compatibility
  * but are NOT the source of truth — each adapter self-declares its name.
  */
-export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt'] as const
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt'] as const
 export const ProviderNames = {
   gemini: 'gemini',
   openai: 'openai',
   claude: 'claude',
   perplexity: 'perplexity',
+  muse: 'muse',
   local: 'local',
   cdpChatgpt: 'cdp:chatgpt',
 } as const
@@ -36,7 +37,7 @@ export type ProviderName = string
 export const providerModelsSchema = z.record(z.string(), z.string().trim().min(1))
 export type ProviderModels = z.infer<typeof providerModelsSchema>
 
-export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local'] as const
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string
 
@@ -156,6 +157,11 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
     treatment: 'request-param',
     supportsLocationContext: true,
     description: 'Location sent as a structured `user_location` field on Anthropic’s web_search_20250305 tool.',
+  },
+  muse: {
+    treatment: 'request-param',
+    supportsLocationContext: true,
+    description: 'Location sent as a structured `user_location` field on Muse’s web_search tool.',
   },
   'cdp:chatgpt': {
     treatment: 'browser-geo',

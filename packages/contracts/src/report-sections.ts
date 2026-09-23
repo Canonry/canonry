@@ -141,6 +141,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Partial<Record<string, string>>> = {
   openai: 'ChatGPT',
   claude: 'Claude',
   perplexity: 'Perplexity',
+  muse: 'Muse',
   local: 'Local model',
   'cdp:chatgpt': 'ChatGPT (browser)',
 }
