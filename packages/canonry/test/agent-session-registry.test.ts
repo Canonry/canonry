@@ -260,6 +260,8 @@ describe('SessionRegistry', () => {
     const widened = await reachableToolNames(await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.all }))
     for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(widened).not.toContain(name)
     expect(widened).toContain(CanonryMcpToolNames.canonry_schedule_get)
+    // Cancel stays so Aero can stop the audits and syncs it can still start.
+    expect(widened).toContain(CanonryMcpToolNames.canonry_run_cancel)
   })
 
   it('keeps sweep and schedule writes on an unmanaged install', async () => {

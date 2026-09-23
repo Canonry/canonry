@@ -4,6 +4,7 @@ import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.j
 import {
   AERO_EXCLUDED_MCP_TOOLS,
   AERO_MANAGED_SWEEP_MCP_TOOLS,
+  MANAGED_SWEEP_CANCEL_REFUSAL,
   buildMcpAgentTools,
   mcpToAgentTool,
 } from '../src/agent/mcp-to-agent-tool.js'
@@ -305,6 +306,44 @@ describe('buildAeroStateTools', () => {
       .toEqual([...AERO_MANAGED_SWEEP_MCP_TOOLS].sort())
     expect(managed).toContain(CanonryMcpToolNames.canonry_schedule_get)
     expect(managed).toContain(CanonryMcpToolNames.canonry_run_get)
+  })
+})
+
+describe('run cancel on a managed install', () => {
+  function cancelTool(kind: string, managedSweeps: boolean, calls: CallLog[]) {
+    const client = new Proxy({}, {
+      get(_target, property) {
+        return (...args: unknown[]) => {
+          calls.push({ method: String(property), args })
+          if (property === 'getRun') return { id: args[0], kind }
+          return { status: 'cancelled' }
+        }
+      },
+    }) as ApiClient
+    const tool = buildAeroStateTools(ctxFor(client), { scope: AeroToolScopes.all, managedSweeps })
+      .find((t) => t.name === CanonryMcpToolNames.canonry_run_cancel)
+    if (!tool) throw new Error('canonry_run_cancel missing')
+    return tool
+  }
+
+  it('refuses to cancel an answer-visibility sweep and never calls cancel', async () => {
+    const calls: CallLog[] = []
+    await expect(cancelTool('answer-visibility', true, calls).execute('call-1', { runId: 'run-1' }))
+      .rejects.toThrow(MANAGED_SWEEP_CANCEL_REFUSAL)
+    expect(calls.map((c) => c.method)).toEqual(['getRun'])
+  })
+
+  it('still cancels runs of other kinds', async () => {
+    const calls: CallLog[] = []
+    await cancelTool('site-audit', true, calls).execute('call-1', { runId: 'run-2' })
+    expect(calls.map((c) => c.method)).toEqual(['getRun', 'cancelRun'])
+    expect(calls[1]?.args).toEqual(['run-2'])
+  })
+
+  it('cancels a sweep without a lookup when the install does not manage sweeps', async () => {
+    const calls: CallLog[] = []
+    await cancelTool('answer-visibility', false, calls).execute('call-1', { runId: 'run-3' })
+    expect(calls.map((c) => c.method)).toEqual(['cancelRun'])
   })
 })
 

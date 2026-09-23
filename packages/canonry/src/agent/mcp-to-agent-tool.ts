@@ -1,6 +1,7 @@
 import { Type, type TSchema } from '@sinclair/typebox'
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
 import { randomUUID } from 'node:crypto'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
@@ -327,27 +328,55 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
 
 /**
  * Tools withheld from Aero when the install manages sweeps. The operator owns
- * when sweeps run and what they cost, so Aero may not start, fill or cancel a
- * run, or write a schedule. `canonry_apply_config` is here because an applied
- * spec replaces the project's schedule. Enforced on the tool surface rather
- * than in the dashboard so the API and `canonry agent ask` get the same rule.
- * The host's own `canonry run` and `canonry schedule` commands are unaffected.
+ * when sweeps run and what they cost, so Aero may not start or fill a sweep,
+ * or write a schedule. `canonry_apply_config` is here because an applied spec
+ * replaces the project's schedule. Enforced on the tool surface rather than in
+ * the dashboard so the API and `canonry agent ask` get the same rule. The
+ * host's own `canonry run` and `canonry schedule` commands are unaffected.
+ *
+ * `canonry_run_cancel` stays, because Aero can still start site audits and
+ * syncs and must be able to stop them. It refuses sweeps instead; see
+ * `refuseManagedSweepCancel`.
  */
 export const AERO_MANAGED_SWEEP_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
   CanonryMcpToolNames.canonry_run_trigger,
   CanonryMcpToolNames.canonry_run_fill,
-  CanonryMcpToolNames.canonry_run_cancel,
   CanonryMcpToolNames.canonry_schedule_set,
   CanonryMcpToolNames.canonry_schedule_delete,
   CanonryMcpToolNames.canonry_apply_config,
 ])
+
+export const MANAGED_SWEEP_CANCEL_REFUSAL =
+  'This install manages answer-visibility sweeps, so Aero cannot cancel one. Ask the operator to cancel it.'
+
+/**
+ * On a managed install, look the run up before cancelling it and refuse when
+ * it is an answer-visibility sweep. Other run kinds cancel as before.
+ */
+function refuseManagedSweepCancel(tool: AgentTool, ctx: AgentMcpAdapterContext): AgentTool {
+  const cancel = tool.execute
+  return {
+    ...tool,
+    execute: async (toolCallId, params, ...rest) => {
+      const runId = (params as { runId?: unknown }).runId
+      if (typeof runId === 'string') {
+        const run = await ctx.client.getRun(runId)
+        if (run.kind === RunKinds['answer-visibility']) throw new Error(MANAGED_SWEEP_CANCEL_REFUSAL)
+      }
+      return cancel(toolCallId, params, ...rest)
+    },
+  } as AgentTool
+}
 
 export interface BuildMcpAgentToolsOptions {
   /** Filter to read-only tools when true. */
   readOnly?: boolean
   /** Optional allow-list for profile-specific tool surfaces. */
   includeNames?: ReadonlySet<CanonryMcpToolName>
-  /** Withhold the run, schedule and config writes in `AERO_MANAGED_SWEEP_MCP_TOOLS`. */
+  /**
+   * Withhold the writes in `AERO_MANAGED_SWEEP_MCP_TOOLS` and make
+   * `canonry_run_cancel` refuse sweeps.
+   */
   managedSweeps?: boolean
 }
 
@@ -367,5 +396,10 @@ export function buildMcpAgentTools(
     .filter((tool) => (opts.includeNames ? opts.includeNames.has(tool.name) : true))
     .filter((tool) => (opts.readOnly ? tool.access === 'read' : true))
     .filter((tool) => (opts.managedSweeps ? !AERO_MANAGED_SWEEP_MCP_TOOLS.has(tool.name) : true))
-    .map((tool) => mcpToAgentTool(tool, ctx))
+    .map((tool) => {
+      const agentTool = mcpToAgentTool(tool, ctx)
+      return opts.managedSweeps && tool.name === CanonryMcpToolNames.canonry_run_cancel
+        ? refuseManagedSweepCancel(agentTool, ctx)
+        : agentTool
+    })
 }

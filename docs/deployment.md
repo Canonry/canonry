@@ -109,11 +109,14 @@ Simple and Advanced Measurement dashboards use the same presentation policy:
   from Site Health. Both scan dispatchers also suppress managed viewer launches.
   This role-aware scan policy deliberately differs from the legacy sweep policy.
 
-Managed status reads the corresponding schedule's actual `nextRunAt` in UTC.
+Managed status reads the corresponding schedule's actual `nextRunAt`.
 Site Health shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
 team” when that is the enabled schedule's time. Without a usable schedule time,
-it shows “Scans are run by your Canonry team”, with no invented date. Sweeps
-retain their existing “Next sync” and “Sweeps are run by your Canonry team” copy.
+it shows “Scans are run by your Canonry team”, with no invented date. The sweep
+status shows the next date in the schedule's own timezone, such as “Next sweep:
+Sep 23”. It shows “Sweep running…” during a run and “Next sweep unavailable”
+when there is no usable time. Pages that would otherwise offer a sweep say
+“Sweeps are run by your Canonry team”.
 Queued/running states, scores, factor scorecards, page lists, maps, failure and
 partial-scan explanations, and dead-link results remain available.
 
@@ -127,12 +130,14 @@ read-only keys cannot start scans or sweeps regardless of these settings. With
 neither setting, the injected client config is byte-identical;
 `managedRunKinds` is injected only when non-empty.
 
-When `answer-visibility` is managed, Aero does not get the tools that start,
-fill or cancel a run, write or delete a schedule, or apply a project config
-(an applied spec replaces the schedule). This holds in every tool scope, so a
-write-scope Aero turn from the API or `canonry agent ask` cannot start a sweep
-either. Aero can still read runs and schedules. The operator's own
-`canonry run` and `canonry schedule` commands are unaffected.
+When `answer-visibility` is managed, Aero does not get the tools that start
+or fill a run, write or delete a schedule, or apply a project config (an
+applied spec replaces the schedule). Its cancel tool refuses answer-visibility
+sweeps but still stops the site audits and syncs Aero can start. This holds in
+every tool scope, so a write-scope Aero turn from the API or
+`canonry agent ask` cannot start a sweep either. Aero can still read runs and
+schedules. The operator's own `canonry run` and `canonry schedule` commands are
+unaffected.
 
 ### Viewer research
 

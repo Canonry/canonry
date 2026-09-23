@@ -1215,6 +1215,8 @@ cnry agent ask <project> "<prompt>" --provider deepinfra   # agent tier defaults
 # Restrict the tool surface. Default is --scope all (full read+write surface).
 # --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
 # commands can't enable writes the UI turn couldn't perform.
+# On an install that manages answer-visibility sweeps, even --scope all cannot
+# start, fill or cancel a sweep, or change a schedule.
 cnry agent ask <project> "<prompt>" --scope read-only
 cnry agent ask <project> "<prompt>" --scope all
 

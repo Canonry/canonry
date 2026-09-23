@@ -71,8 +71,9 @@ export interface AeroSessionOptions {
   /** Optional profile that narrows the tool surface for specific operator workflows. */
   toolProfile?: AeroToolProfile
   /**
-   * True when the install manages sweeps. Withholds the tools that start,
-   * fill or cancel a run, or write a schedule or project config, in every scope.
+   * True when the install manages sweeps. Withholds the tools that start or
+   * fill a run, or write a schedule or project config, and makes cancel refuse
+   * sweeps, in every scope.
    */
   managedSweeps?: boolean
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
