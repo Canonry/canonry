@@ -3,6 +3,8 @@ import {
   brandKeyFromText,
   brandLabelFromDomain,
   hostMatchesDomain,
+  isListingMarketplace,
+  textContainsAnyBrandAlias,
   registrableDomain,
   textContainsBrandAlias,
   textContainsDomain,
@@ -53,6 +55,8 @@ export function determineCitationState(
 export function computeCompetitorOverlap(
   normalized: NormalizedQueryResult,
   competitorDomains: string[],
+  /** Domain -> names an operator gave that competitor (a plan's label and aliases). */
+  competitorAliases: ReadonlyMap<string, readonly string[]> = new Map(),
 ): string[] {
   const overlapSet = new Set<string>()
 
@@ -83,6 +87,12 @@ export function computeCompetitorOverlap(
       // word "offers" in the answer prose would falsely flag the competitor.
       const brand = brandLabelFromDomain(cd)
       if (brandKeyFromText(brand).length >= 4 && textContainsBrandAlias(normalized.answerText, brand)) {
+        overlapSet.add(cd)
+      }
+      // A competitor's own names ("MAA" for maac.com) are operator-approved, so
+      // they match even when the domain's label would not.
+      const named = competitorAliases.get(cd)
+      if (named?.length && textContainsAnyBrandAlias(normalized.answerText, named)) {
         overlapSet.add(cd)
       }
     }
@@ -119,6 +129,8 @@ export function extractRecommendedCompetitors(
   citedDomains: string[],
   competitorDomains: string[],
   ownBrandNames: readonly string[] = [],
+  /** Domain -> names an operator gave that competitor (a plan's label and aliases). */
+  competitorAliases: ReadonlyMap<string, readonly string[]> = new Map(),
 ): string[] {
   if (!answerText || answerText.length < 20) return []
 
@@ -129,9 +141,14 @@ export function extractRecommendedCompetitors(
     if (brandKeyFromText(name).length >= 4) ownBrandAliases.add(name)
   }
   const ownKeys = new Set([...ownBrandAliases].map(brandKeyFromText))
+  // A cited listing marketplace is where an answer sends people to search, not
+  // a rival: an answer that lists "Apartments.com" as a bullet is not
+  // recommending a competitor. Tracked competitors are always eligible, as are
+  // the names a measurement plan gave them.
   const knownCompetitorAliases = new Set(
-    [...citedDomains, ...competitorDomains]
+    [...citedDomains.filter(domain => !isListingMarketplace(domain)), ...competitorDomains]
       .flatMap(domain => collectBrandAliasesFromDomain(domain))
+      .concat([...competitorAliases.values()].flat())
       .filter(alias => !ownKeys.has(brandKeyFromText(alias))),
   )
 
