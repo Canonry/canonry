@@ -106,8 +106,11 @@ export const agentProvidersResponseDtoSchema = z.object({
    */
   providers: z.array(agentProviderOptionDtoSchema).default([]),
   /**
-   * Provider Aero auto-picks when no explicit override is passed. Null if
-   * nothing is configured (install never exchanged a key).
+   * Provider a new session uses when the caller names none: the
+   * `agent.provider` pin when set (reported even without a key, as its
+   * `configured: false` entry), else the first configured provider by
+   * priority. An existing unpinned session keeps its stored provider. Null
+   * when nothing is pinned and nothing is configured.
    */
   defaultProvider: agentProviderIdSchema.nullable(),
 })

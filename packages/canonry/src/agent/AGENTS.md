@@ -273,12 +273,25 @@ stay on `zai-org/GLM-5.2`, because those tiers suppress the reasoning trace
 through GLM's chat-template switch and that branch applies only to a model
 declared `reasoning: true`.
 
-A session persists its model id. Migration 158 moves existing DeepInfra GLM-5.2
-sessions to DeepSeek-V4-Flash once, without changing their transcript, queue, or
-activity timestamp. Session hydration preserves the stored model. An explicit
-model selected after the upgrade must survive subsequent boots, including a
-selection of the previous default. Future default-model upgrades use a new
-versioned migration rather than repeatedly replacing stored pins during hydration.
+A session persists its model id as provenance. Migration 158 moves existing
+DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once, without changing their
+transcript, queue, or activity timestamp. Future default-model upgrades use a
+new versioned migration rather than repeatedly replacing stored models during
+hydration.
+
+`agent.provider` / `agent.model` in config.yaml pin the model Aero reasons with.
+`SessionRegistry.resolveTurnModel` picks the model for every turn and every
+hydration, in this order: an explicit request's provider/model (that turn only),
+then the pin, then the session's stored model. The stored model therefore
+decides only on an unpinned install when the request names nothing, which keeps
+an unpinned override sticky across boots as before. Naming the pinned provider
+gets `agent.model`, whatever ran last, and a model id never crosses providers.
+Removing a pin leaves existing sessions on their stored provider until the
+conversation is deleted. A turn the pin sent to a provider with no key is
+refused before it starts, with an error naming `agent.provider`, and doctor's
+`config.agent-providers` check warns on an unkeyed pin or an unresolvable
+`agent.model`. The dashboard never saves a conversation's stored provider as its
+own choice, because an explicit provider outranks the pin.
 
 ## External agents (webhook lifecycle)
 

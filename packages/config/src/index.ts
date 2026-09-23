@@ -1,4 +1,4 @@
-import { DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
@@ -6,6 +6,13 @@ export const dashboardManagedSweepsSchema = z.boolean().nullish()
 export const researchAllowViewersSchema = z.boolean().nullish()
 export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).nullish()
+
+/**
+ * Which LLM provider Aero reasons with, and the model id for it. Blank leaves
+ * Aero on auto-detection, which is the historical behaviour.
+ */
+export const agentProviderSchema = agentProviderIdSchema.nullish()
+export const agentModelSchema = z.string().trim().min(1).nullish()
 
 /** Host-only trust anchor. No API, account role, or key scope can modify it. */
 export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {

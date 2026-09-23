@@ -8,7 +8,7 @@ import {
 } from '@ainyc/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
-import { agentBusy, AgentProviderIds, describeError } from '@ainyc/canonry-contracts'
+import { agentBusy, AgentProviderIds, describeError, missingDependency } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -17,10 +17,11 @@ import {
   createAeroSession,
   loadAeroSystemPrompt,
   resolveAeroModel,
+  resolveConfiguredAgentProvider,
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { getAgentProvider } from './providers.js'
+import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -254,9 +255,11 @@ export class SessionRegistry {
       // Explicit caller preferences override the persisted values (and are
       // persisted back). This keeps `--provider` / `--model` flags meaningful
       // after the first session exists instead of silently ignoring them.
-      const effectiveProvider = (preferences?.provider ?? row.modelProvider) as SupportedAgentProvider
-      const effectiveModelId = preferences?.modelId ?? row.modelId
-      if (preferences?.provider || preferences?.modelId) {
+      // A configured `agent.provider` sits between the two, so the row can no
+      // longer hold Aero on a provider the operator has since pinned away.
+      const { provider: effectiveProvider, modelId: effectiveModelId } =
+        this.resolveTurnModel(preferences, { provider: row.modelProvider, modelId: row.modelId })
+      if (effectiveProvider !== row.modelProvider || effectiveModelId !== row.modelId) {
         this.opts.db
           .update(agentSessions)
           .set({
@@ -405,17 +408,22 @@ export class SessionRegistry {
    *   - align `state.tools` to the requested scope/profile (CLI full vs
    *     dashboard read-only share the same cached Agent; each request
    *     re-scopes it).
-   *   - align `state.model` when the caller passes `provider` or `modelId`,
-   *     honoring `--provider` / `--model` on hot sessions (not just on
-   *     fresh/hydrated construction).
+   *   - align `state.model` on every turn (see `resolveTurnModel`): an
+   *     explicit `provider` / `modelId` wins for this turn, then the
+   *     `agent.provider` pin, then the session's stored model.
+   *   - refuse, naming `agent.provider`, a pinned provider that has no key.
    *
-   * Persists the new model choice to the DB row so subsequent invocations
-   * stay on it unless overridden again.
+   * Persists the resolved model to the DB row as provenance. Without a pin an
+   * override therefore sticks, as it always has; with a pin, the next turn
+   * that names no provider returns to it.
    */
   async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
     preferences?.signal?.throwIfAborted()
     if (this.acquisitions.has(projectName)) throw agentBusy(projectName)
-    const agent = this.getOrCreate(projectName)
+    // Preferences reach construction too: a cold session built from the pin
+    // alone would throw on a bad `agent.model` even for a request that named
+    // another provider and never needed it.
+    const agent = this.getOrCreate(projectName, preferences)
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
     }
@@ -432,9 +440,14 @@ export class SessionRegistry {
         scope: preferences?.toolScope ?? AeroToolScopes.all,
         profile: preferences?.toolProfile ?? AeroToolProfiles.default,
       })
-      if (preferences?.provider || preferences?.modelId) {
-        this.alignModel(projectName, agent, preferences)
-      }
+      // Every turn, not only ones naming a provider or model. With a pin, a turn
+      // that names neither -- including the proactive drain, which never does --
+      // must bring a live agent back from an earlier override. Without a pin or
+      // a request, resolveTurnModel returns the row's own model: a no-op.
+      this.alignModel(projectName, agent, preferences ?? {})
+      // Before the turn, not inside it: pi-ai only throws for a missing key once
+      // the prompt is sent, after a proactive drain has consumed its queue.
+      this.assertTurnProviderUsable(projectId)
       // Merge injected remote MCP read-only tools (OSS-A) AFTER scope alignment,
       // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
       await this.mergeExternalTools(agent)
@@ -527,6 +540,62 @@ export class SessionRegistry {
     this.profiles.set(projectName, want.profile)
   }
 
+  /**
+   * Throw a named, actionable error when the `agent.provider` pin chose this
+   * turn's provider and that provider has no key. Auto-detection only ever
+   * picks a keyed provider, so the pin is the one path that can land a turn on
+   * a keyless one without anything saying so. An explicitly requested provider
+   * keeps its existing behaviour: the caller named it, and the provider's own
+   * error reports the missing key when the prompt is sent.
+   */
+  private assertTurnProviderUsable(projectId: string): void {
+    const provider = coerceAgentProvider(this.loadRow(projectId)?.modelProvider ?? undefined)
+    if (!provider || provider !== resolveConfiguredAgentProvider(this.opts.config)) return
+    if (resolveApiKeyFor(provider, this.opts.config)) return
+    throw missingDependency(
+      `Aero is pinned to ${provider} by agent.provider, but no key is configured for it. `
+        + `Set providers.${provider}.apiKey in config.yaml or export ${agentProviderApiKeyEnvVar(provider)}, or change agent.provider.`,
+      { provider, pinned: true },
+    )
+  }
+
+  /**
+   * Resolve the provider/model a turn should use: an explicit request outranks
+   * the `agent.provider` pin, which outranks whatever the row last recorded.
+   *
+   * The row is provenance (what answered), not policy (what answers next), so
+   * a configured pin reasserts itself every turn instead of being frozen at
+   * whatever the first session happened to pick -- and survives the
+   * conversation-delete path, which drops the row entirely. With a pin, an
+   * explicit request therefore lasts one turn.
+   *
+   * The model is a function of the request and the config, never of which
+   * provider ran last: naming the pinned provider gets `agent.model` whether or
+   * not the session just came back from another one. The row's model is used
+   * only when nothing is pinned and nothing was requested, which keeps an
+   * unpinned install's override sticky as it always was. A model id is never
+   * forwarded across providers: any other case takes the provider's default.
+   */
+  private resolveTurnModel(
+    preferences: SessionPreferences | undefined,
+    current: { provider?: string | null; modelId?: string | null },
+  ): { provider: SupportedAgentProvider; modelId: string } {
+    const pinned = resolveConfiguredAgentProvider(this.opts.config)
+    const provider = (preferences?.provider
+      ?? pinned
+      ?? current.provider
+      ?? AgentProviderIds.claude) as SupportedAgentProvider
+    const carried = !preferences?.provider && !pinned && provider === current.provider
+      ? current.modelId ?? undefined
+      : undefined
+    const pinnedModelId = provider === pinned ? this.opts.config.agent?.model ?? undefined : undefined
+    const modelId = preferences?.modelId
+      ?? pinnedModelId
+      ?? carried
+      ?? getAgentProvider(provider).defaultModel
+    return { provider, modelId }
+  }
+
   private alignModel(
     projectName: string,
     agent: Agent,
@@ -535,12 +604,15 @@ export class SessionRegistry {
     const projectId = this.tryResolveProjectId(projectName)
     if (!projectId) return
     const row = this.loadRow(projectId)
-    const currentProvider = (row?.modelProvider ?? AgentProviderIds.claude) as SupportedAgentProvider
-    const currentModelId = row?.modelId
-    const nextProvider = preferences.provider ?? currentProvider
-    const nextModelId =
-      preferences.modelId ?? (preferences.provider ? getAgentProvider(nextProvider).defaultModel : currentModelId)
-    if (!nextModelId) return
+    // No row means no persisted session to realign: the construction path in
+    // `getOrCreate` already applied config and preferences. Returning here also
+    // keeps the pre-existing behaviour of never issuing an UPDATE that matches
+    // nothing.
+    if (!row) return
+    const currentProvider = row.modelProvider as SupportedAgentProvider
+    const currentModelId = row.modelId
+    const { provider: nextProvider, modelId: nextModelId } =
+      this.resolveTurnModel(preferences, { provider: row.modelProvider, modelId: row.modelId })
     if (nextProvider === currentProvider && nextModelId === currentModelId) return
 
     agent.state.model = resolveAeroModel(nextProvider, nextModelId)

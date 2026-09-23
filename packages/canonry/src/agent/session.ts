@@ -9,6 +9,7 @@ import type { CanonryConfig } from '../config.js'
 import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
+  coerceAgentProvider,
   getAgentProvider,
   resolveApiKeyFor,
   resolveModelForProvider,
@@ -137,6 +138,51 @@ function missingProviderMessage(): string {
   )
 }
 
+/**
+ * The provider pinned by `agent.provider`, or undefined when unset.
+ *
+ * Config load rejects an unknown id outright, so coercing again here only
+ * covers callers that build a `CanonryConfig` in memory (tests, embedders) and
+ * never went through that validation.
+ */
+export function resolveConfiguredAgentProvider(config: CanonryConfig): SupportedAgentProvider | undefined {
+  return coerceAgentProvider(config.agent?.provider)
+}
+
+/** What doctor reports about an `agent.provider` pin. */
+export interface AgentPinStatus {
+  provider: SupportedAgentProvider
+  model: string
+  configured: boolean
+  envVar: string
+  modelError: string | null
+}
+
+/**
+ * The `agent.provider` pin as doctor reports it: the provider and model Aero is
+ * held to, whether a key resolves for it, and whether the model id resolves.
+ * Null when nothing is pinned. Both failures otherwise surface only when a
+ * turn runs, since a pin bypasses the key check auto-detection performs.
+ */
+export function describeAgentPin(config: CanonryConfig): AgentPinStatus | null {
+  const provider = resolveConfiguredAgentProvider(config)
+  if (!provider) return null
+  const model = config.agent?.model ?? getAgentProvider(provider).defaultModel
+  let modelError: string | null = null
+  try {
+    resolveAeroModel(provider, model)
+  } catch (err) {
+    modelError = err instanceof Error ? err.message : String(err)
+  }
+  return {
+    provider,
+    model,
+    configured: Boolean(resolveApiKeyFor(provider, config)),
+    envVar: agentProviderApiKeyEnvVar(provider),
+    modelError,
+  }
+}
+
 /** Pick the first configured agent provider — canonry config first, then pi-ai env-var fallback. */
 export function detectAgentProvider(config: CanonryConfig): SupportedAgentProvider | undefined {
   for (const provider of agentProvidersByPriority()) {
@@ -234,8 +280,13 @@ export function resolveSessionProviderAndModel(
   config: CanonryConfig,
   opts?: { provider?: SupportedAgentProvider; modelId?: string },
 ): { provider: SupportedAgentProvider; modelId: string } {
-  const provider = opts?.provider ?? detectAgentProvider(config)
+  const pinned = resolveConfiguredAgentProvider(config)
+  const provider = opts?.provider ?? pinned ?? detectAgentProvider(config)
   if (!provider) throw new Error(missingProviderMessage())
-  const modelId = opts?.modelId ?? getAgentProvider(provider).defaultModel
+  // `agent.model` belongs to `agent.provider`. Applying it to a provider the
+  // caller asked for instead would send one host's slug to another, so it
+  // counts only when the pin is what actually won.
+  const pinnedModelId = provider === pinned ? config.agent?.model : undefined
+  const modelId = opts?.modelId ?? pinnedModelId ?? getAgentProvider(provider).defaultModel
   return { provider, modelId }
 }

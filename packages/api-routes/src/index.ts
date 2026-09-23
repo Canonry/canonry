@@ -182,6 +182,8 @@ export interface ApiRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   /** Resolves agent LLM provider key status for the `config.agent-providers` doctor check. See `DoctorContext.getAgentProviderSummary`. */
   getAgentProviderSummary?: () => import('@ainyc/canonry-contracts').AgentProviderOption[]
+  /** The `agent.provider` pin for the same check. See `DoctorContext.getAgentPin`. */
+  getAgentPin?: DoctorRoutesOptions['getAgentPin']
   /** Offline, secret-free Google Ads/GTM metadata for project Doctor checks. */
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
   /** Adapter metadata for provider validation */
@@ -746,6 +748,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       publicUrl: opts.publicUrl,
       providerSummary: opts.providerSummary,
       getAgentProviderSummary: opts.getAgentProviderSummary,
+      getAgentPin: opts.getAgentPin,
       trafficSourceValidators: buildTrafficSourceValidators(opts),
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,

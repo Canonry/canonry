@@ -301,6 +301,42 @@ describe('config.agent-providers', () => {
     expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
   })
 
+  it('warns on an agent.provider pin with no key, even while other providers are configured', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', false)],
+      getAgentPin: () => ({ provider: 'deepinfra', model: 'deepseek-ai/DeepSeek-V4-Flash', configured: false, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent-providers.pin-unconfigured')
+    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
+    expect(result.details).toMatchObject({ pin: { provider: 'deepinfra' } })
+  })
+
+  it('warns when the pinned agent.model does not resolve', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config')],
+      getAgentPin: () => ({ provider: 'claude', model: 'not-a-model', configured: true, envVar: 'ANTHROPIC_API_KEY', modelError: 'unknown model' }),
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent-providers.pin-model-invalid')
+    expect(result.summary).toContain('not-a-model')
+  })
+
+  it('names a healthy pin on the ok result', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', true, 'config')],
+      getAgentPin: () => ({ provider: 'deepinfra', model: 'zai-org/GLM-5.2', configured: true, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+    })
+    expect(result.status).toBe('ok')
+    expect(result.summary).toContain('pinned to deepinfra (zai-org/GLM-5.2)')
+  })
+
   it('skips when the agent provider summary is unavailable (e.g. cloud)', () => {
     const result = agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
