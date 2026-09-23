@@ -4,7 +4,12 @@ import { expect, test, vi } from 'vitest'
 import { parse } from 'yaml'
 
 const workflow = parse(fs.readFileSync(new URL('../.github/workflows/publish.yml', import.meta.url), 'utf8')) as {
-  jobs: Record<string, { needs?: string[]; steps?: { name?: string; with?: { script?: string } }[] }>
+  jobs: Record<string, {
+    needs?: string[]
+    outputs?: Record<string, string>
+    permissions?: Record<string, string>
+    steps?: { id?: string; name?: string; uses?: string; with?: Record<string, string> }[]
+  }>
 }
 const source = workflow.jobs.ci?.steps?.find(step => step.name === 'Require successful CI for the release commit')?.with?.script
 if (!source) throw new Error('Missing publish CI gate')
@@ -36,14 +41,15 @@ function execute(responses: (WorkflowRun[] | Error)[]) {
     return { data: { workflow_runs: response } }
   })
   const info = vi.fn()
+  const setOutput = vi.fn()
   const result = script.runInNewContext({
     github: { rest: { actions: { listWorkflowRuns } } },
     context: { repo: { owner: 'Canonry', repo: 'canonry' }, sha, ref: 'refs/heads/main' },
-    core: { info },
+    core: { info, setOutput },
     Date: { now: () => now },
     setTimeout: (resolve: () => void, delay: number) => { now += delay; resolve() },
   }) as Promise<void>
-  return { result, listWorkflowRuns, info }
+  return { result, listWorkflowRuns, info, setOutput }
 }
 
 test('npm publication requires the CI gate, which queries the exact push commit and workflow', async () => {
@@ -55,6 +61,20 @@ test('npm publication requires the CI gate, which queries the exact push commit 
     branch: 'main', event: 'push', per_page: 100,
   })
   expect(gate.info).toHaveBeenCalledWith(expect.stringContaining(`CI passed for ${sha}`))
+  expect(gate.setOutput).toHaveBeenCalledExactlyOnceWith('run_id', '10')
+})
+
+test('publication downloads the smoke-tested artifact from the authorized CI run', () => {
+  const ci = workflow.jobs.ci!
+  const gate = ci.steps!.find(step => step.name === 'Require successful CI for the release commit')!
+  expect(gate.id).toBeTruthy()
+  expect(ci.outputs?.run_id).toBe(`\${{ steps.${gate.id}.outputs.run_id }}`)
+  const publish = workflow.jobs['publish-npm']!
+  const download = publish.steps!.find(step => step.uses?.startsWith('actions/download-artifact@'))!
+  expect(publish.permissions?.actions).toBe('read')
+  expect(download.with?.['run-id']).toBe('${{ needs.ci.outputs.run_id }}')
+  expect(download.with?.['github-token']).toBe('${{ github.token }}')
+  expect(download.with?.name).toBe('canonry-package')
 })
 
 test('the gate waits for CI to appear and complete', async () => {
@@ -65,7 +85,9 @@ test('the gate waits for CI to appear and complete', async () => {
 
 test.each(['failure', 'cancelled', 'timed_out', 'skipped', 'neutral', 'action_required', null])(
   'completed CI with conclusion %s cannot authorize publication', async (conclusion) => {
-    await expect(execute([[run({ conclusion })]]).result).rejects.toThrow(`ended with ${conclusion}`)
+    const gate = execute([[run({ conclusion })]])
+    await expect(gate.result).rejects.toThrow(`ended with ${conclusion}`)
+    expect(gate.setOutput).not.toHaveBeenCalled()
   },
 )
 
