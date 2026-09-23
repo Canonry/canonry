@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
 import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
@@ -359,6 +359,13 @@ export interface AgentConfigEntry {
    * provider's agent-tier default.
    */
   model?: string
+  /**
+   * Let signed-in viewer accounts use Aero. Off by default. A viewer gets their
+   * own in-memory conversation, never the operator's, and every tool call runs
+   * with the viewer's own read-only authority. `CANONRY_AGENT_ALLOW_VIEWERS`
+   * overrides it; resolved by `resolveAgentAllowViewers`.
+   */
+  allowViewers?: boolean | null
 }
 
 export interface DashboardConfigEntry {
@@ -626,6 +633,12 @@ export function loadConfig(): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.model must be a non-empty string or left blank.`,
+    })
+  }
+  if (!agentAllowViewersSchema.safeParse(parsed.agent?.allowViewers).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.allowViewers must be true, false, or left blank.`,
     })
   }
   // A model without a provider is silently ignored at resolution time, which

@@ -10,7 +10,7 @@
  * case, where `NO_ACCOUNTS` reports full access and always has.
  */
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -26,6 +26,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
+import * as aero from '../src/api-aero.js'
 import { AeroBarHost } from '../src/components/shared/AeroBar.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -96,4 +97,26 @@ test('does not offer the Aero bar to a view-only account', async () => {
   // Not merely disabled, and not replaced by an explanation either: a viewer
   // has no business knowing the project carries an agent at all.
   expect(document.body.textContent).not.toMatch(/Aero/i)
+})
+
+test('offers a view-only account the Aero bar when the install allows viewers', async () => {
+  window.__CANONRY_CONFIG__ = { agent: { allowViewers: true } }
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  const project = await renderBarFor('viewer')
+
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`Ask Aero about ${project.name}`, 'i') }))
+  await waitFor(() => expect(transcript).toHaveBeenCalled())
+  // The operator's controls stay off a viewer's bar.
+  expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
+  expect(screen.getByRole('button', { name: /New conversation/i })).toBeTruthy()
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
+  expect(screen.queryByText('/run-sweep')).toBeNull()
+  expect(screen.queryByText('/new')).toBeNull()
+  expect(screen.getByText('/status')).toBeTruthy()
+})
+
+test('still hides the Aero bar from a view-only account when the install does not allow viewers', async () => {
+  window.__CANONRY_CONFIG__ = { agent: { allowViewers: false } }
+  await renderBarFor('viewer')
+  expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
 })

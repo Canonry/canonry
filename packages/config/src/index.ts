@@ -4,6 +4,8 @@ import { z } from 'zod'
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
 export const dashboardManagedSweepsSchema = z.boolean().nullish()
 export const researchAllowViewersSchema = z.boolean().nullish()
+/** Lets signed-in viewer accounts use Aero, in their own read-only lane. Blank leaves it off. */
+export const agentAllowViewersSchema = z.boolean().nullish()
 export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).nullish()
 

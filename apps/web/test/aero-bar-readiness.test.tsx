@@ -124,7 +124,7 @@ test('names the missing key when the default provider is a pin with no key', asy
   expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
 })
 
-test('does not send a view-only user to administrator settings', async () => {
+test('does not show a view-only user provider state or administrator settings', async () => {
   await renderWithProviderReadiness({
     providers: [{
       id: 'openai',
@@ -136,8 +136,11 @@ test('does not send a view-only user to administrator settings', async () => {
     defaultProvider: null,
   }, 'viewer')
 
-  expect(screen.getByRole('status').textContent).toContain('Ask an administrator to configure one.')
+  // Which providers exist is operator knowledge, so a viewer's bar never asks
+  // and never shows provider state; the server answers each turn or says why not.
+  expect(screen.queryByRole('status')).toBeNull()
   expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+  expect(screen.getByRole('button', { name: /Ask Aero about citypoint/i })).toBeTruthy()
 })
 
 

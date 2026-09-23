@@ -203,6 +203,10 @@ declare global {
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
       }
+      /** Present only when this deployment lets viewer accounts use Aero. */
+      agent?: {
+        allowViewers?: boolean
+      }
       /** Present only when this deployment grants viewer accounts paid research. */
       research?: {
         allowViewers?: boolean
@@ -324,6 +328,15 @@ export function shouldShowDashboardResourceLinks(): boolean {
 export function shouldShowDashboardAgentBar(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showAgentBar !== false
+}
+
+/**
+ * Whether signed-in viewer accounts may use Aero. The server enforces the
+ * viewer lane either way; this only decides whether to offer the bar.
+ */
+export function isAeroOpenToViewers(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.__CANONRY_CONFIG__?.agent?.allowViewers === true
 }
 
 /** Whether the available-version notification renders in the sidebar. */

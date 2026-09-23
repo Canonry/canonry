@@ -55,3 +55,22 @@ export function resolveAgentProactiveEnabled(env: NodeJS.ProcessEnv, config: Can
   }
   return config.agent?.mode !== 'prompt-only'
 }
+
+/**
+ * Resolve whether signed-in viewer accounts may use Aero, from the environment
+ * layered over `~/.canonry/config.yaml` (env over config, like the resolvers
+ * above).
+ *
+ *  - `CANONRY_AGENT_ALLOW_VIEWERS` is authoritative when set and non-empty:
+ *    `'1'` / `'true'` (case-insensitive) allow viewers; any other value forces
+ *    it off.
+ *  - otherwise `config.agent?.allowViewers === true` allows them.
+ *  - default — administrators only, as before.
+ *
+ * Means nothing while the agent is disabled: there are no routes to open.
+ */
+export function resolveAgentAllowViewers(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  const raw = env.CANONRY_AGENT_ALLOW_VIEWERS?.trim()
+  if (raw) return raw === '1' || raw.toLowerCase() === 'true'
+  return config.agent?.allowViewers === true
+}

@@ -24,7 +24,7 @@ import { Link, useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgentConversation, resumeAgentConversation, deleteAgentConversation } from '../../api.js'
+import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgentConversation, resumeAgentConversation, deleteAgentConversation, isAeroOpenToViewers } from '../../api.js'
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
@@ -45,8 +45,7 @@ import {
   type AeroToolResultMessage,
   type AeroToolScope,
   type AgentProviderId,
-  type AgentProviderOption,
-} from '../../api-aero.js'
+  type AgentProviderOption, resetAeroTranscript } from '../../api-aero.js'
 
 /**
  * A single tool invocation within an assistant turn. Hydrated from two
@@ -170,7 +169,11 @@ function removePreference(key: string): void {
 
 export function AeroBar({ projectName, context }: AeroBarProps) {
   const managedSweeps = isDashboardManagedSweeps()
-  const { canWrite } = useAccount()
+  const { canWrite, account } = useAccount()
+  // A signed-in viewer on an install that opened Aero to viewers. The server
+  // gives them their own read-only conversation; the bar drops everything that
+  // belongs to the operator: provider choice, history, sweeps and CLI copy.
+  const viewerMode = account?.role === 'viewer'
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
@@ -202,7 +205,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // hidden in managed mode, so an override the operator can neither see nor
   // clear would otherwise repin the session's provider on every prompt, and
   // the server persists that pin. Keep it stored for operator deployments.
-  const providerOverride = managedSweeps ? null : preferredProviderOverride
+  const providerOverride = managedSweeps || viewerMode ? null : preferredProviderOverride
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -213,7 +216,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   })
   // A saved write preference cannot turn the managed dashboard into a sweep
   // control. Keep it stored for operator deployments, but use read tools here.
-  const scope = managedSweeps ? 'read-only' : preferredScope
+  const scope = managedSweeps || viewerMode ? 'read-only' : preferredScope
   const lastPersistedAt = useRef<string | null>(null)
   const awaitingPersistence = useRef<{ previous: string | null } | null>(null)
   const partialRef = useRef<AeroAssistantMessage | null>(null)
@@ -231,10 +234,11 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     if (/\s/.test(trimmed)) return []
     const q = trimmed.toLowerCase()
     return SLASH_COMMANDS.filter(
-      (cmd) => (!managedSweeps || cmd.command !== '/run-sweep')
+      (cmd) => (!(managedSweeps || viewerMode) || cmd.command !== '/run-sweep')
+        && (!viewerMode || cmd.action !== 'new')
         && (cmd.command.startsWith(q) || cmd.label.toLowerCase().includes(q.slice(1))),
     )
-  }, [draft, managedSweeps])
+  }, [draft, managedSweeps, viewerMode])
 
   // Keep the selected index in range as matches narrow. Reset to 0 whenever
   // the palette toggles, so the top option is always the "enter to pick"
@@ -248,6 +252,9 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       client: heyClient,
       path: { name: projectName },
     }),
+    // Which model answers is operator knowledge, and the route refuses a
+    // viewer, so a viewer's bar never asks.
+    enabled: !viewerMode,
     staleTime: 60_000,
   })
 
@@ -262,6 +269,9 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
     const defaultId = providersQuery.data?.defaultProvider
     return defaultId ? (list.find((p) => p.id === defaultId) ?? null) : null
   }, [providerOverride, providersQuery.data])
+  // A viewer's bar is ready without a provider check: the server answers with
+  // the install's configured model or reports why it cannot.
+  const ready = viewerMode || activeProvider !== null
 
   useEffect(() => {
     if (!providersQuery.data || !providerOverride) return
@@ -300,7 +310,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
   // page refresh or a user prompt.
   useEffect(() => {
-    if (!open || !activeProvider) return
+    if (!open || !ready) return
     let cancelled = false
     setError(null)
 
@@ -329,7 +339,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [open, projectName, streaming, activeProvider, changingConversation])
+  }, [open, projectName, streaming, ready, changingConversation])
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {
@@ -342,7 +352,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
 
   async function send(promptText: string, turnContext = context) {
     const trimmed = promptText.trim()
-    if (!trimmed || historyOpen || streaming || changingConversation || conversationOperation.current || serverBusy || !activeProvider) return
+    if (!trimmed || historyOpen || streaming || changingConversation || conversationOperation.current || serverBusy || !ready) return
     if (managedSweeps && /^\/run-sweep(?:\s|$)/i.test(trimmed)) {
       setError(MANAGED_SWEEPS_COPY)
       return
@@ -387,6 +397,9 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
       }
     } catch (err: unknown) {
       if (!mounted.current) return
+      // A viewer's conversation carries no save time to wait for, so let the
+      // next poll bring the bar back in line with the server.
+      if (viewerMode) awaitingPersistence.current = null
       const partial = partialRef.current
       if (partial && extractAssistantText(partial).trim()) setMessages(previous => [...previous, partial])
       if (ctrl.signal.aborted) setNotice('Stopped. Partial response preserved. An action already dispatched may still finish.')
@@ -481,7 +494,10 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   }
 
   async function handleNewConversation() {
-    await changeConversation(() => createAgentConversation(projectName, crypto.randomUUID()))
+    // A viewer's conversation is not saved, so starting fresh clears it.
+    await changeConversation(() => viewerMode
+      ? resetAeroTranscript(projectName)
+      : createAgentConversation(projectName, crypto.randomUUID()))
   }
 
   async function loadHistory(append = false) {
@@ -507,8 +523,8 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // should discover after sending a prompt. Resolve it before showing the bar.
   // A missing provider gets one truthful recovery location; a failed CHECK is
   // reported as a failed check, since it is not evidence either way.
-  if (providersQuery.isPending) return null
-  if (providersQuery.isError) {
+  if (!viewerMode && providersQuery.isPending) return null
+  if (!viewerMode && providersQuery.isError) {
     // A FAILED readiness check is not a finding that Aero is unavailable.
     // Returning null here hid the launcher permanently while the layout still
     // reserved space for it, so say what actually happened and offer a retry
@@ -537,7 +553,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
   // fail, so it is a missing-provider state too, but Settings manages only the
   // answer-engine keys, so name the missing variable instead of linking there.
   const unkeyedDefault = activeProvider && !activeProvider.configured ? activeProvider : null
-  if (!activeProvider || unkeyedDefault) {
+  if (!viewerMode && (!activeProvider || unkeyedDefault)) {
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
@@ -608,7 +624,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                 {/* Managed deployments do not name the answering provider: the
                     client is buying an outcome, not choosing an engine. The
                     picker, and the model behind it, stays operator-only. */}
-                {!managedSweeps && (
+                {!managedSweeps && !viewerMode && (
                   <ProviderPicker
                     providers={providersQuery.data?.providers ?? []}
                     active={activeProvider}
@@ -645,12 +661,14 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-b border-subtle px-4 py-2">
-              <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title="Save this conversation and start fresh. Shared project notes are kept.">
+              <Button variant="outline" size="sm" disabled={streaming || serverBusy || changingConversation} onClick={asyncHandler(handleNewConversation)} title={viewerMode ? 'Clear this conversation and start fresh.' : 'Save this conversation and start fresh. Shared project notes are kept.'}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New conversation
               </Button>
-              <Button variant="ghost" size="sm" aria-expanded={historyOpen} aria-controls="aero-history" disabled={changingConversation} onClick={() => { if (historyOpen) setHistoryOpen(false); else void loadHistory() }}>
-                <History className="h-3.5 w-3.5" aria-hidden="true" /> History
-              </Button>
+              {!viewerMode && (
+                <Button variant="ghost" size="sm" aria-expanded={historyOpen} aria-controls="aero-history" disabled={changingConversation} onClick={() => { if (historyOpen) setHistoryOpen(false); else void loadHistory() }}>
+                  <History className="h-3.5 w-3.5" aria-hidden="true" /> History
+                </Button>
+              )}
             </div>
             {historyOpen ? (
               <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
@@ -701,7 +719,7 @@ export function AeroBar({ projectName, context }: AeroBarProps) {
                   </div>
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming)}
+              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, !viewerMode)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -1027,6 +1045,7 @@ function renderTranscript(
   scope: AeroToolScope,
   liveTrail: ToolTrail[],
   streaming: boolean,
+  cliCopy = true,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -1044,6 +1063,7 @@ function renderTranscript(
           providerOverride={providerOverride}
           scope={scope}
           context={msg.aeroContext}
+          cliCopy={cliCopy}
         />,
       )
       continue
@@ -1106,12 +1126,15 @@ function UserMessageRow({
   providerOverride,
   scope,
   context,
+  cliCopy = true,
 }: {
   text: string
   projectName: string
   providerOverride: AgentProviderId | null
   scope: AeroToolScope
   context?: AgentViewContext
+  /** False for a viewer: the command needs an operator's key to run. */
+  cliCopy?: boolean
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -1136,7 +1159,7 @@ function UserMessageRow({
     <div className="group relative mt-3 rounded-md bg-bg-elevated/60 px-3 py-2 text-strong">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[10px] uppercase tracking-wider text-muted">You</div>
-        <button
+        {cliCopy && <button
           type="button"
           onClick={asyncHandler(handleCopy)}
           className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-[10px] text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
@@ -1154,7 +1177,7 @@ function UserMessageRow({
               Copy as CLI
             </>
           )}
-        </button>
+        </button>}
       </div>
       <div className="whitespace-pre-wrap">{text}</div>
     </div>
@@ -1390,12 +1413,12 @@ function TypingIndicator() {
  * the cached project list before rendering.
  */
 export function AeroBarHost() {
-  // Aero is an administrator tool. The routes refuse a viewer outright, so
-  // this is not the security boundary — it is about not offering an analyst a
-  // command bar that could only refuse them, and not naming an agent on a
-  // screen where it is not theirs to use. An install with no accounts reports
-  // full access, which keeps the single-operator case exactly as it was.
-  const { isAdmin } = useAccount()
+  // Aero is an administrator tool unless the install sets
+  // `agent.allowViewers`. The routes enforce that, so this is not the security
+  // boundary; it is about not offering an analyst a command bar that could only
+  // refuse them. An install with no accounts reports full access, which keeps
+  // the single-operator case exactly as it was.
+  const { isAdmin, account } = useAccount()
   const location = useLocation()
   const match = /^\/projects\/([^/]+)/.exec(location.pathname)
   const urlSegment = match ? decodeURIComponent(match[1]) : null
@@ -1413,6 +1436,9 @@ export function AeroBarHost() {
 
   const viewContext = useAeroView(resolved?.name ?? urlSegment ?? '', fallback)
 
-  if (!urlSegment || !isAdmin || !resolved) return null
+  // A signed-in viewer gets the bar only where the install opted in; the
+  // server serves them their own lane and refuses them otherwise.
+  const allowed = isAdmin || (account?.role === 'viewer' && isAeroOpenToViewers())
+  if (!urlSegment || !allowed || !resolved) return null
   return <AeroBar key={resolved.name} projectName={resolved.name} context={viewContext} />
 }

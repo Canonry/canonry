@@ -756,6 +756,12 @@ function applyRoleGates(request: FastifyRequest): void {
 /** Named capabilities never become general write access, on either carrier. */
 function applyScopedWriteGates(request: FastifyRequest): void {
   if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant) return
+  // A signed-in person on a paid-read route meets that route's own gate
+  // instead. Their role scopes are not a credential's narrowed grant: a viewer
+  // on an install with viewer research holds `research.run`, and listing it
+  // here would refuse them on every OTHER paid read (Aero's prompt route) while
+  // the research routes already match it through `writeScope`.
+  if (isPaidReadRoute(request) && request.principal?.kind === 'user') return
   const scopes = principalScopes(request) ?? []
   const restricted = restrictedWriteScopes(scopes)
   if (!restricted) return

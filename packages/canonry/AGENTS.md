@@ -554,6 +554,13 @@ Insight date ranges:
   (`src/agent/mcp-to-agent-tool.ts`) in every scope and profile. Do not use
   this setting for any other authorization. See `docs/deployment.md`.
 
+- `CANONRY_AGENT_ALLOW_VIEWERS` overrides `agent.allowViewers` (default off).
+  When on, signed-in viewers use Aero through `ViewerAeroSessions`
+  (`src/agent/viewer-sessions.ts`): their own in-memory conversation and a
+  per-turn read-only key delegated to them. Never route a viewer to the
+  operator's `SessionRegistry`, whose tools run with the root key. Inject
+  `agent: { allowViewers: true }` into the client config only when on.
+
 - `CANONRY_RESEARCH_ALLOW_VIEWERS` overrides `research.allowViewers` and
   defaults to false. Inject the client research block only when true, including
   the resolved positive `viewerDailyRunLimit` (default 20). This grant applies

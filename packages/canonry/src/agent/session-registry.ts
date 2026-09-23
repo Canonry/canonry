@@ -139,7 +139,7 @@ function escapeMemoryFragment(value: string): string {
  * it while the dashboard re-fetched it on a poll. Strip it on the way to the
  * database only; the in-memory message keeps `details` for the live UI.
  */
-function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
+export function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
   return messages.map((message) => {
     if (!message || typeof message !== 'object') return message
     const row = message as Record<string, unknown>
