@@ -63,6 +63,13 @@ export function reportVisibilityEvidence(value: VisibilityReportRate): string {
 }
 
 /**
+ * Why a mention rate is unavailable when EVERY answer it read was left out as
+ * unattributable (reason `identity-ambiguous` / `identity_ambiguous`). Shared so
+ * the Property page, the overview table, and the CLI say the same thing.
+ */
+export const UNATTRIBUTED_MENTION_REASON = 'No answer could be tied to one property'
+
+/**
  * The answers a mention rate left out because they could not be tied to one
  * property, out of every answer it read. The rate's own `numerator of
  * denominator` already excludes them, so this line is what keeps the missing

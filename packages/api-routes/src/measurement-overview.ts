@@ -426,6 +426,11 @@ function validatedCursor(query: MeasurementOverviewQuery, activePlanVersionId: s
  * that phrasing asserts the Property was not cited, and nothing measured that.
  * Half-measured therefore counts as `notMeasured`, which is the honest reading
  * and keeps the buckets disjoint.
+ *
+ * A mention rate can be available while leaving `unattributed` answers out. With
+ * no verified mention, those answers are unknown rather than absent, so the
+ * Property's mention outcome is unknown too: it counts as `notMeasured`, never
+ * "neither" or "cited only". This matches reach, which also stays unknown then.
  */
 export function measurementOutcomeCounts(
   rows: readonly MeasurementPropertyRow[],
@@ -443,6 +448,10 @@ export function measurementOutcomeCounts(
     // `numerator` is optional on an available metric; a metric that reports a
     // rate without one still says whether the signal occurred at all.
     const mentioned = (mention.numerator ?? mention.value) > 0
+    if (!mentioned && mention.unattributed !== undefined) {
+      counts.notMeasured += 1
+      continue
+    }
     const cited = (citation.numerator ?? citation.value) > 0
     if (mentioned && cited) counts.bothSignals += 1
     else if (mentioned) counts.mentionedOnly += 1

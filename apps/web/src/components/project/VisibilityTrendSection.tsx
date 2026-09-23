@@ -300,7 +300,9 @@ export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow
 }
 
 function QueryResultRate({ value, singleAnswer }: { value: VisibilityReportRate; singleAnswer: boolean }) {
-  if (singleAnswer && value.denominator === 1 && (value.rate === 0 || value.rate === 1)) {
+  // A Yes/No reading only when the one answer is the whole population; a rate
+  // that left an answer out keeps its count and its unattributed line.
+  if (singleAnswer && value.denominator === 1 && value.unattributed === undefined && (value.rate === 0 || value.rate === 1)) {
     const found = value.rate === 1
     return <span className={`inline-flex items-center gap-2 text-sm ${found ? 'text-positive' : 'text-secondary'}`}>
       {found ? <Check size={16} aria-hidden="true" /> : <Minus size={16} aria-hidden="true" />}{found ? 'Yes' : 'No'}

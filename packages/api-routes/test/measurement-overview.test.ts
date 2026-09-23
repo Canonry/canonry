@@ -273,6 +273,27 @@ describe('measurement overview', () => {
     expect(body.metrics.sov).toEqual(body.metrics.brandPresence)
   })
 
+  it('keeps a Property with one negative and one unattributable answer out of the measured outcome buckets', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedRun(versionId)
+    seedSnapshot(runId, 'exec-nearby', 'openai')
+    seedSnapshot(runId, 'exec-nearby', 'gemini')
+    // Harbor's branded answers: one names only the brand (a measured negative
+    // for Harbor), one asks which Harbor Homes was meant. Both cite Harbor.
+    seedSnapshot(runId, 'exec-brand', 'openai', { answerText: 'Northstar is well reviewed.' })
+    seedSnapshot(runId, 'exec-brand', 'gemini', { answerText: 'Which Harbor Homes do you mean?' })
+
+    const { body } = await overview('scope=property&targetKey=harbor&queryClass=branded')
+
+    const harbor = body.properties.items[0]!
+    expect(harbor.mentionCoverage).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 1, unattributed: 1 })
+    expect(harbor.citationCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+    // Previously this read "cited only". The mention outcome is unknown, like reach.
+    expect(body.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 1 })
+    expect(body.metrics.propertiesMentioned).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
+  })
+
   it('reports historical source recovery without requiring evidence rows', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
@@ -819,6 +840,20 @@ describe('measurementOutcomeCounts', () => {
     const parts = counts.bothSignals + counts.mentionedOnly + counts.citedOnly + counts.neither + counts.notMeasured
     expect(parts).toBe(rows.length)
     expect(counts.total).toBe(rows.length)
+  })
+
+  it('never turns answers it could not attribute into a confirmed absence of mention', () => {
+    // One negative answer and one ambiguous one: the rate is 0 of 1 with one
+    // answer left out. With no verified mention the outcome is unknown, so the
+    // Property is not "cited only" or "neither".
+    const partialZero: MetricValue = { state: 'available', value: 0, numerator: 0, denominator: 1, unattributed: 1 }
+    const counts = measurementOutcomeCounts([
+      row('cited', partialZero, avail(2, 2)),
+      row('uncited', partialZero, avail(0, 2)),
+      // A verified mention still stands beside an excluded answer.
+      row('mentioned', { state: 'available', value: 1, numerator: 1, denominator: 1, unattributed: 9 }, avail(0, 10)),
+    ])
+    expect(counts).toEqual({ bothSignals: 0, mentionedOnly: 1, citedOnly: 0, neither: 0, notMeasured: 2, total: 3 })
   })
 
   it('reports an empty scope as all zeroes rather than throwing', () => {

@@ -128,6 +128,17 @@ describe('mention coverage over attributable answers', () => {
     expect(population.evidence.items.find(row => row.answerId === 'brand-answer-2')).toMatchObject({ mentioned: true })
   })
 
+  it('keeps one negative plus one unattributable answer an unknown outcome, consistent with reach', () => {
+    // Answer 0 is not mentioned but cited; answer 1 cannot be tied to one property.
+    const population = brandedReport(['not-mentioned', 'unattributable'])
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unattributed: 1 })
+    expect(population.summary.propertyReach).toEqual({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })
+    // North is never "cited only": its mention outcome is unknown.
+    expect(population.summary.outcomes).toMatchObject({ citedOnly: 0, neither: 0, notMeasured: 2, total: 2 })
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.mentionCoverage)
+      .toEqual({ numerator: 0, denominator: 1, rate: 0, unattributed: 1 })
+  })
+
   it('stays unavailable as identity-ambiguous when every answer is unattributable', () => {
     const population = brandedReport(['unattributable', 'unattributable'])
     expect(population.summary.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })
