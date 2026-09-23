@@ -4,10 +4,11 @@ import path from 'node:path'
 import os from 'node:os'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
-import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
+import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
+import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
+import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
+import { captureSimpleMeasurementDefinition, measurementRunSlotState, measurementSlotKey, newerFullSweep } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
@@ -66,6 +67,23 @@ interface PlanExecutionUnit {
   queryId: string | null
   /** The model frozen onto this slot at queue time, when the project pinned one. */
   requestedModel: string | undefined
+}
+
+/** What `executePlanSlot` needs from the run it is recording into. */
+interface PlanSlotContext {
+  runId: string
+  allDomains: string[]
+  competitorDomains: string[]
+  allBrandNames: string[]
+  executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
+  providerDispatchCounts: Map<ProviderName, number>
+  providerErrors: Map<ProviderName, string>
+  onInserted: () => void
+  /** Present only when completing a partial run in place. */
+  fill?: {
+    shouldSkip: (provider: ProviderName, executionId: string) => boolean
+    onOutcome: (provider: ProviderName, ok: boolean) => void
+  }
 }
 
 interface PlanExecution {
@@ -195,7 +213,7 @@ export class JobRunner {
   private readonly onFirstActivation?: () => void
   private db: DatabaseClient
   private registry: ProviderRegistry
-  onRunCompleted?: (runId: string, projectId: string) => Promise<void>
+  onRunCompleted?: (runId: string, projectId: string, opts?: { origin?: RunCompletionOrigin }) => Promise<void>
 
   constructor(
     db: DatabaseClient,
@@ -211,6 +229,16 @@ export class JobRunner {
 
 
   recoverStaleRuns(): void {
+    // A fill the process died under never finalized. Fail the attempt only:
+    // its parent stays `partial` and keeps every answer the fill recorded, so
+    // a later fill picks up exactly the slots that are still missing.
+    const staleFills = this.db
+      .update(runFills)
+      .set({ status: 'failed', finishedAt: new Date().toISOString(), error: 'Server restarted while the fill was in progress' })
+      .where(inArray(runFills.status, ['queued', 'running']))
+      .run()
+    if (staleFills.changes > 0) log.warn('fill.recovered-stale', { count: staleFills.changes })
+
     const stale = this.db
       .select({
         id: runs.id,
@@ -654,181 +682,18 @@ export class JobRunner {
         }
       }
 
-      /**
-       * The plan-aware unit of work: one execution node, one provider.
-       *
-       * Deliberately a separate worker from `processQueryForProvider` rather
-       * than a generalization of it. The legacy path is the behaviour every
-       * planless project already depends on; leaving its body alone is what
-       * makes "planless is byte-identical" a fact rather than a hope. The two
-       * want to be one function once the industrial runner lands and both can
-       * be re-tested together.
-       */
-      const processNodeForProvider = async (
-        registeredProvider: RegisteredProvider,
-        unit: PlanExecutionUnit,
-      ): Promise<void> => {
-        const { adapter, config: providerConfig } = registeredProvider
-        const providerName = adapter.name
-        const gate = executionGates.get(providerName)
-        if (!gate) {
-          throw new Error(`Missing execution gate for provider ${providerName}`)
-        }
-        // The manifest froze which model answers this slot. Honouring today's
-        // project setting instead would change what a stored row means without
-        // anything recording that it moved.
-        const config = unit.requestedModel ? { ...providerConfig, model: unit.requestedModel } : providerConfig
-        const requestedContext = unit.context
-        // Only a provider that actually forwards the location may say the
-        // answer was measured from there. Everything else stores null, which
-        // reads as "no claim" rather than as the place we asked for.
-        const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
-          ? { status: 'applied' as const, resolved: requestedContext }
-          : null
-
-        try {
-          await gate.run(async () => {
-            this.throwIfRunCancelled(runId)
-            providerDispatchCounts.set(providerName, (providerDispatchCounts.get(providerName) ?? 0) + 1)
-
-            const raw = await adapter.executeTrackedQuery(
-              {
-                query: unit.queryText,
-                canonicalDomains: allDomains,
-                competitorDomains,
-                location: requestedContext ?? undefined,
-              },
-              config,
-            )
-
-            this.throwIfRunCancelled(runId)
-
-            const providerResult = adapter.normalizeResult(raw)
-            const rawGroundingSources = providerResult.groundingSources
-            const normalized = {
-              ...providerResult,
-              groundingSources: Array.isArray(rawGroundingSources) ? rawGroundingSources : [],
-            }
-            let citedUrlCapture: CitedUrlCapture
-            try {
-              citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
-            } catch (err: unknown) {
-              citedUrlCapture = {
-                citedUrls: [],
-                captureStatus: 'failed',
-                sourceCount: normalized.groundingSources.length,
-                resolvedCount: 0,
-                captureVersion: CITED_URL_CAPTURE_VERSION,
-              }
-              log.warn('query.cited-url-capture-failed', {
-                runId,
-                provider: providerName,
-                query: unit.queryText,
-                error: describeError(err),
-              })
-            }
-            this.throwIfRunCancelled(runId)
-
-            const citationState = determineCitationState(normalized, allDomains)
-            const answerMentioned = determineAnswerMentioned(
-              normalized.answerText,
-              allBrandNames,
-              allDomains,
-            )
-            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
-            const extractedCompetitors = extractRecommendedCompetitors(
-              normalized.answerText,
-              allDomains,
-              normalized.citedDomains,
-              competitorDomains,
-              allBrandNames,
-            )
-            // A request-param location rides on the search tool, so an answer
-            // the provider reports as unsearched never received it.
-            const answerContext = supportedContext
-              && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
-              ? { status: 'ignored' as const }
-              : supportedContext
-
-            const snapshotId = crypto.randomUUID()
-            let screenshotRelPath: string | null = null
-            if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
-              const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', runId)
-              if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
-              const destPath = path.join(screenshotDir, `${snapshotId}.png`)
-              fs.renameSync(raw.screenshotPath, destPath)
-              screenshotRelPath = `${runId}/${snapshotId}.png`
-            }
-
-            this.db.insert(querySnapshots).values({
-              id: snapshotId,
-              runId,
-              queryId: unit.queryId,
-              queryText: unit.queryText,
-              provider: providerName,
-              // `model` is what was REQUESTED and `served_model` is what
-              // answered. The manifest froze the request, so it is the
-              // authority here: an adapter that reports its own default rather
-              // than what it was handed would otherwise overwrite the identity
-              // the revision recorded, and nothing would show that it moved.
-              model: unit.requestedModel ?? raw.model,
-              servedModel: raw.servedModel ?? null,
-              citationState,
-              answerMentioned,
-              answerText: normalized.answerText,
-              citedDomains: normalized.citedDomains,
-              citedUrls: citedUrlCapture.citedUrls,
-              captureStatus: citedUrlCapture.captureStatus,
-              sourceCount: citedUrlCapture.sourceCount,
-              resolvedCount: citedUrlCapture.resolvedCount,
-              captureVersion: citedUrlCapture.captureVersion,
-              retrievalStatus: normalized.retrievalStatus,
-              retrievalContract: raw.retrievalContract,
-              competitorOverlap: overlap,
-              recommendedCompetitors: extractedCompetitors,
-              // Only claim the geography the provider actually honoured. A
-              // requested-but-unsupported or ignored context stores
-              // `location: null` — "no claim" — rather than the label we asked
-              // for: this field is non-null only when the context was applied.
-              location: answerContext?.status === 'applied' ? requestedContext?.label ?? null : null,
-              measurementExecutionId: unit.executionId,
-              requestedContext,
-              supportedContext: answerContext,
-              screenshotPath: screenshotRelPath,
-              rawResponse: JSON.stringify({
-                model: raw.model,
-                servedModel: raw.servedModel ?? null,
-                groundingSources: normalized.groundingSources,
-                searchQueries: normalized.searchQueries,
-                apiResponse: raw.rawResponse,
-              }),
-              createdAt: new Date().toISOString(),
-            }).run()
-
-            totalSnapshotsInserted++
-            log.info('query.citation', {
-              runId,
-              provider: providerName,
-              query: unit.queryText,
-              executionId: unit.executionId,
-              location: requestedContext?.label ?? null,
-              citationState,
-              answerMentioned,
-            })
-          })
-        } catch (err: unknown) {
-          if (err instanceof RunCancelledError) {
-            throw err
-          }
-
-          const msg = describeError(err)
-          const stack = err instanceof Error ? err.stack : undefined
-          log.error('query.failed', { runId, provider: providerName, query: unit.queryText, executionId: unit.executionId, error: msg, stack })
-          if (!providerErrors.has(providerName)) {
-            providerErrors.set(providerName, msg)
-          }
-        }
+      const slotContext: PlanSlotContext = {
+        runId,
+        allDomains,
+        competitorDomains,
+        allBrandNames,
+        executionGates,
+        providerDispatchCounts,
+        providerErrors,
+        onInserted: () => { totalSnapshotsInserted++ },
       }
+      const processNodeForProvider = (registeredProvider: RegisteredProvider, unit: PlanExecutionUnit): Promise<void> =>
+        this.executePlanSlot(slotContext, registeredProvider, unit)
 
       // A simple run resolves its inputs at dispatch, unlike a plan-aware run
       // whose manifest is already immutable. Persist this exact resolved
@@ -1034,7 +899,9 @@ export class JobRunner {
         return
       }
 
-      // Mark run as failed
+      // Mark run as failed. Only a run this executor was actually running: a
+      // stray dispatch of a finished run (partial, completed) throws before it
+      // does any work, and must not overwrite that run's real outcome.
       const errorMessage = describeError(err)
       this.db
         .update(runs)
@@ -1043,7 +910,7 @@ export class JobRunner {
           finishedAt: new Date().toISOString(),
           error: errorMessage,
         })
-        .where(eq(runs.id, runId))
+        .where(and(eq(runs.id, runId), inArray(runs.status, ['queued', 'running'])))
         .run()
 
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
@@ -1095,6 +962,462 @@ export class JobRunner {
         })
       }
     }
+  }
+
+  /**
+   * Complete a partial plan run in place: record only the expected slots it
+   * never answered, under the same run id, then finalize the run once.
+   *
+   * The parent run is never written from an error path and only ever leaves
+   * `partial` through the completion compare-and-set, so a failed or
+   * interrupted fill leaves the run as the sweep left it, plus any answers the
+   * fill did record. Its timestamps, manifest and identity are never touched:
+   * it stays the same sweep, with the same place in every history.
+   */
+  async executeRunFill(fillId: string): Promise<void> {
+    const claim = this.db
+      .update(runFills)
+      .set({ status: 'running', startedAt: new Date().toISOString() })
+      .where(and(eq(runFills.id, fillId), eq(runFills.status, 'queued')))
+      .run()
+    if (claim.changes !== 1) {
+      log.warn('fill.not-claimed', { fillId })
+      return
+    }
+    try {
+      await this.runClaimedFill(fillId)
+    } catch (err: unknown) {
+      // Only the database can throw this far out (every provider error is
+      // caught per slot). Never leave the attempt `running`: that would block
+      // every later fill for the project until a restart.
+      const error = describeError(err)
+      log.error('fill.aborted', { fillId, error })
+      this.db.update(runFills)
+        .set({ status: 'failed', finishedAt: new Date().toISOString(), error })
+        .where(and(eq(runFills.id, fillId), eq(runFills.status, 'running')))
+        .run()
+    }
+  }
+
+  private async runClaimedFill(fillId: string): Promise<void> {
+    const fill = this.db.select().from(runFills).where(eq(runFills.id, fillId)).get()
+    if (!fill) return
+    const { runId, projectId } = fill
+    const requested = new Set(parseJsonColumn<string[]>(fill.providers, []).map(provider => provider.trim().toLocaleLowerCase('en')))
+    const providerDispatchCounts = new Map<ProviderName, number>()
+    const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
+    const providerErrors = new Map<ProviderName, string>()
+    let filled = 0
+    let fatal: string | null = null
+    let superseded = false
+
+    try {
+      const run = this.getRunState(runId)
+      if (!run) throw new Error(`Run ${runId} not found`)
+      if (run.status !== 'partial') throw new Error(`Run ${runId} is ${run.status}; only a partial run can be filled`)
+      const runCreatedAt = this.db.select({ createdAt: runs.createdAt }).from(runs).where(eq(runs.id, runId)).get()!.createdAt
+      const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+      if (!project) throw new Error(`Project ${projectId} not found`)
+      const projectQueries = this.db.select().from(queries).where(eq(queries.projectId, projectId)).all()
+      const plan = resolvePlanExecution(run, projectQueries)
+      if (!plan) throw new Error(`Run ${runId} did not measure a published plan`)
+
+      // What is missing is decided now, not at admission: an earlier fill or a
+      // racing writer may have recorded slots in between.
+      const recorded = new Set(
+        this.db.select({ executionId: querySnapshots.measurementExecutionId, provider: querySnapshots.provider })
+          .from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+          .flatMap(row => row.executionId ? [measurementSlotKey(row.executionId, row.provider)] : []),
+      )
+      const unitsByProvider = new Map<ProviderName, PlanExecutionUnit[]>()
+      for (const [provider, units] of plan.unitsByProvider) {
+        if (requested.size > 0 && !requested.has(provider)) continue
+        const missing = units.filter(unit => !recorded.has(measurementSlotKey(unit.executionId, provider)))
+        if (missing.length > 0) unitsByProvider.set(provider, missing)
+      }
+
+      const activeProviders: RegisteredProvider[] = []
+      for (const provider of unitsByProvider.keys()) {
+        const registered = this.registry.get(provider)
+        if (registered) activeProviders.push(registered)
+        else providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
+      }
+
+      // The same identity the sweep matched against, read the same way.
+      const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
+      const competitorDomains = projectCompetitors.map(c => c.domain)
+      const allDomains = effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains })
+      const allBrandNames = effectiveBrandNames({ displayName: project.displayName, aliases: project.aliases })
+
+      // Reserve what this fill will dispatch, never the run's whole manifest.
+      const todayPeriod = getCurrentUsageDay()
+      const dispatchable: RegisteredProvider[] = []
+      for (const registered of activeProviders) {
+        const name = registered.adapter.name
+        const count = unitsByProvider.get(name)?.length ?? 0
+        const scope = `${projectId}:${name}`
+        const limit = registered.config.quotaPolicy.maxRequestsPerDay
+        const quota = reserveDailyQueryQuota(this.db, { scope, period: todayPeriod, count, limit })
+        if (!quota.reserved) {
+          providerErrors.set(name, `Daily quota exceeded for ${name}: ${quota.used} queries used today, limit is ${limit}. This fill needs ${count} more.`)
+          continue
+        }
+        providerReservations.set(name, { scope, period: todayPeriod, reserved: count })
+        dispatchable.push(registered)
+      }
+
+      const executionGates = new Map<ProviderName, ProviderExecutionGate>()
+      for (const registered of dispatchable) {
+        executionGates.set(
+          registered.adapter.name,
+          getSharedProviderExecutionGate(
+            registered.adapter.name,
+            registered.config.quotaPolicy.maxConcurrency,
+            registered.config.quotaPolicy.maxRequestsPerMinute,
+          ),
+        )
+      }
+
+      const consecutiveFailures = new Map<ProviderName, number>()
+      const stopped = new Set<ProviderName>()
+      const newerSweepExists = (): boolean => {
+        if (!superseded && newerFullSweep(this.db, { id: runId, projectId, createdAt: runCreatedAt })) {
+          superseded = true
+          log.warn('fill.superseded', { fillId, runId })
+        }
+        return superseded
+      }
+      let removed = false
+      const attemptRemoved = (): boolean => {
+        if (!removed && this.db.select({ status: runFills.status }).from(runFills).where(eq(runFills.id, fillId)).get()?.status !== 'running') {
+          removed = true
+          log.warn('fill.attempt-removed', { fillId, runId })
+        }
+        return removed
+      }
+      const slotRecorded = (provider: ProviderName, executionId: string): boolean => this.db
+        .select({ id: querySnapshots.id })
+        .from(querySnapshots)
+        .where(and(
+          eq(querySnapshots.runId, runId),
+          eq(querySnapshots.measurementExecutionId, executionId),
+          eq(querySnapshots.provider, provider),
+        ))
+        .get() !== undefined
+
+      const ctx: PlanSlotContext = {
+        runId,
+        allDomains,
+        competitorDomains,
+        allBrandNames,
+        executionGates,
+        providerDispatchCounts,
+        providerErrors,
+        onInserted: () => { filled++ },
+        fill: {
+          shouldSkip: (provider, executionId) =>
+            stopped.has(provider) || attemptRemoved() || newerSweepExists() || slotRecorded(provider, executionId),
+          onOutcome: (provider, ok) => {
+            if (ok) {
+              consecutiveFailures.set(provider, 0)
+              return
+            }
+            const failures = (consecutiveFailures.get(provider) ?? 0) + 1
+            consecutiveFailures.set(provider, failures)
+            if (failures >= RUN_FILL_PROVIDER_BREAKER && !stopped.has(provider)) {
+              stopped.add(provider)
+              log.warn('fill.provider-stopped', { fillId, runId, provider, failures })
+            }
+          },
+        },
+      }
+
+      log.info('fill.dispatch', {
+        fillId,
+        runId,
+        missing: Object.fromEntries([...unitsByProvider].map(([provider, units]) => [provider, units.length])),
+      })
+      const unitsFor = (registered: RegisteredProvider): PlanExecutionUnit[] => unitsByProvider.get(registered.adapter.name) ?? []
+      const apiProviders = dispatchable.filter(p => !isBrowserProvider(p.adapter.name))
+      const browserProviders = dispatchable.filter(p => isBrowserProvider(p.adapter.name))
+      // Pulled, not queued up front: at most the provider's concurrency sits in
+      // its gate at once, so a stop (breaker, newer sweep, removed attempt)
+      // takes effect on the very next slot instead of after every queued one
+      // has cycled through the rate limiter.
+      await runWithConcurrency(apiProviders, resolveProviderFanout(), async (registered) => {
+        await runWithConcurrency(
+          unitsFor(registered),
+          Math.max(1, registered.config.quotaPolicy.maxConcurrency),
+          unit => this.executePlanSlot(ctx, registered, unit),
+        )
+      })
+      for (const registered of browserProviders) {
+        for (const unit of unitsFor(registered)) await this.executePlanSlot(ctx, registered, unit)
+      }
+    } catch (err: unknown) {
+      fatal = describeError(err)
+      log.error('fill.failed', { fillId, runId, error: fatal })
+    } finally {
+      this.flushProviderUsage(providerDispatchCounts, providerReservations)
+    }
+
+    const outcome = this.finalizeRunFill({ fillId, runId, filled, fatal, providerErrors, superseded })
+    log.info('fill.finished', { fillId, runId, filled, ...outcome })
+    // The run is whole now, so the parts of the post-run pipeline that were
+    // held back while it was partial run for the first time: insights, the
+    // citation gained/lost transitions and Aero. Its `run.completed` already
+    // went out with the partial status, so the `fill` origin keeps the
+    // notifier from sending a second one. A newer sweep owns "latest", so a
+    // completion it overtook stays quiet.
+    if (outcome.justCompleted && !outcome.superseded && this.onRunCompleted) {
+      this.onRunCompleted(runId, projectId, { origin: 'fill' }).catch((err: unknown) => {
+        log.error('notification.callback-failed', { runId, error: describeError(err) })
+      })
+    }
+  }
+
+  /** Record the fill's outcome and, if the run is now whole, complete it exactly once. */
+  private finalizeRunFill(input: {
+    fillId: string
+    runId: string
+    filled: number
+    fatal: string | null
+    providerErrors: ReadonlyMap<ProviderName, string>
+    superseded: boolean
+  }): { justCompleted: boolean; superseded: boolean } {
+    const finishedAt = new Date().toISOString()
+    return this.db.transaction((tx) => {
+      const txDb = tx as unknown as DatabaseClient
+      // Checked again here, not only before each dispatch: a sweep queued
+      // while the last slot was in flight still owns "latest".
+      const parent = txDb.select({ projectId: runs.projectId, createdAt: runs.createdAt, error: runs.error })
+        .from(runs).where(eq(runs.id, input.runId)).get()
+      const superseded = input.superseded
+        || (parent !== undefined && newerFullSweep(txDb, { id: input.runId, projectId: parent.projectId, createdAt: parent.createdAt }) !== undefined)
+      const state = measurementRunSlotState(txDb, input.runId)
+      const complete = state.planned && state.readable && state.missing.length === 0 && !state.hasUnboundSnapshot
+      let justCompleted = false
+      if (complete) {
+        justCompleted = txDb.update(runs)
+          .set({ status: 'completed', error: null })
+          .where(and(eq(runs.id, input.runId), eq(runs.status, 'partial')))
+          .run().changes === 1
+      } else if (state.readable && !input.fatal) {
+        // The run's error names only providers that still have gaps. A
+        // provider this fill tried carries its new reason; any other keeps
+        // its original entry untouched, raw detail included.
+        const previous = parseRunError(parent?.error)?.providers ?? {}
+        const fresh = buildRunErrorFromMessages(input.providerErrors).providers ?? {}
+        const remaining = new Map<string, number>()
+        for (const slot of state.missing) remaining.set(slot.provider, (remaining.get(slot.provider) ?? 0) + 1)
+        const providers: Record<string, RunProviderErrorDto> = {}
+        for (const [provider, count] of remaining) {
+          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `${count} expected measurement(s) have not run.` }
+        }
+        txDb.update(runs)
+          .set({ error: serializeRunError({ providers }) })
+          .where(and(eq(runs.id, input.runId), eq(runs.status, 'partial')))
+          .run()
+      }
+
+      const status: RunFillStatus = complete ? 'completed' : input.filled > 0 ? 'partial' : 'failed'
+      const reason = input.fatal
+        ?? (superseded ? 'Stopped because a newer sweep started; no answers were added behind it.' : null)
+        ?? (input.providerErrors.size > 0 ? formatRunErrorOneLine(buildRunErrorFromMessages(input.providerErrors)) : null)
+      txDb.update(runFills)
+        .set({ status, filled: input.filled, error: complete ? null : reason, finishedAt })
+        .where(eq(runFills.id, input.fillId))
+        .run()
+      return { justCompleted, superseded }
+    })
+  }
+
+  /**
+   * The plan-aware unit of work: one execution node, one provider.
+   *
+   * Deliberately a separate worker from the legacy query-by-query path rather
+   * than a generalization of it. The legacy path is the behaviour every
+   * planless project already depends on; leaving its body alone is what
+   * makes "planless is byte-identical" a fact rather than a hope.
+   *
+   * A method rather than a closure inside `executeRun` so a sweep and a fill
+   * record a slot through the same code: a filled answer is indistinguishable
+   * from one the sweep recorded itself, which is what lets it count.
+   */
+  private async executePlanSlot(
+    ctx: PlanSlotContext,
+    registeredProvider: RegisteredProvider,
+    unit: PlanExecutionUnit,
+  ): Promise<void> {
+    const { adapter, config: providerConfig } = registeredProvider
+    const providerName = adapter.name
+    const gate = ctx.executionGates.get(providerName)
+    if (!gate) {
+      throw new Error(`Missing execution gate for provider ${providerName}`)
+    }
+    // The manifest froze which model answers this slot. Honouring today's
+    // project setting instead would change what a stored row means without
+    // anything recording that it moved.
+    const config = unit.requestedModel ? { ...providerConfig, model: unit.requestedModel } : providerConfig
+    const requestedContext = unit.context
+    // Only a provider that actually forwards the location may say the
+    // answer was measured from there. Everything else stores null, which
+    // reads as "no claim" rather than as the place we asked for.
+    const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
+      ? { status: 'applied' as const, resolved: requestedContext }
+      : null
+
+    // A fill checks before joining the provider's queue: a slot it skips must
+    // not take a rate-limit token that this fill, or another run sharing the
+    // gate, is waiting on.
+    if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
+    try {
+      await gate.run(async () => {
+        this.throwIfRunCancelled(ctx.runId)
+        // A fill checks again once its turn comes, before paying for the call:
+        // another writer may have recorded the slot, its breaker may have
+        // stopped this provider, or a newer sweep may have started meanwhile.
+        if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
+        ctx.providerDispatchCounts.set(providerName, (ctx.providerDispatchCounts.get(providerName) ?? 0) + 1)
+
+        const raw = await adapter.executeTrackedQuery(
+          {
+            query: unit.queryText,
+            canonicalDomains: ctx.allDomains,
+            competitorDomains: ctx.competitorDomains,
+            location: requestedContext ?? undefined,
+          },
+          config,
+        )
+
+        this.throwIfRunCancelled(ctx.runId)
+
+        const providerResult = adapter.normalizeResult(raw)
+        const rawGroundingSources = providerResult.groundingSources
+        const normalized = {
+          ...providerResult,
+          groundingSources: Array.isArray(rawGroundingSources) ? rawGroundingSources : [],
+        }
+        let citedUrlCapture: CitedUrlCapture
+        try {
+          citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+        } catch (err: unknown) {
+          citedUrlCapture = {
+            citedUrls: [],
+            captureStatus: 'failed',
+            sourceCount: normalized.groundingSources.length,
+            resolvedCount: 0,
+            captureVersion: CITED_URL_CAPTURE_VERSION,
+          }
+          log.warn('query.cited-url-capture-failed', {
+            runId: ctx.runId,
+            provider: providerName,
+            query: unit.queryText,
+            error: describeError(err),
+          })
+        }
+        this.throwIfRunCancelled(ctx.runId)
+
+        const citationState = determineCitationState(normalized, ctx.allDomains)
+        const answerMentioned = determineAnswerMentioned(
+          normalized.answerText,
+          ctx.allBrandNames,
+          ctx.allDomains,
+        )
+        const overlap = computeCompetitorOverlap(normalized, ctx.competitorDomains)
+        const extractedCompetitors = extractRecommendedCompetitors(
+          normalized.answerText,
+          ctx.allDomains,
+          normalized.citedDomains,
+          ctx.competitorDomains,
+          ctx.allBrandNames,
+        )
+        const answerContext = supportedContext
+          && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+          ? { status: 'ignored' as const }
+          : supportedContext
+
+        const snapshotId = crypto.randomUUID()
+        let screenshotRelPath: string | null = null
+        if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
+          const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', ctx.runId)
+          if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
+          const destPath = path.join(screenshotDir, `${snapshotId}.png`)
+          fs.renameSync(raw.screenshotPath, destPath)
+          screenshotRelPath = `${ctx.runId}/${snapshotId}.png`
+        }
+
+        const insert = this.db.insert(querySnapshots).values({
+          id: snapshotId,
+          runId: ctx.runId,
+          queryId: unit.queryId,
+          queryText: unit.queryText,
+          provider: providerName,
+          // `model` is what was REQUESTED and `served_model` is what
+          // answered. The manifest froze the request, so it is the
+          // authority here: an adapter that reports its own default rather
+          // than what it was handed would otherwise overwrite the identity
+          // the revision recorded, and nothing would show that it moved.
+          model: unit.requestedModel ?? raw.model,
+          servedModel: raw.servedModel ?? null,
+          citationState,
+          answerMentioned,
+          answerText: normalized.answerText,
+          citedDomains: normalized.citedDomains,
+          citedUrls: citedUrlCapture.citedUrls,
+          captureStatus: citedUrlCapture.captureStatus,
+          sourceCount: citedUrlCapture.sourceCount,
+          resolvedCount: citedUrlCapture.resolvedCount,
+          captureVersion: citedUrlCapture.captureVersion,
+          retrievalStatus: normalized.retrievalStatus,
+          retrievalContract: raw.retrievalContract,
+          competitorOverlap: overlap,
+          recommendedCompetitors: extractedCompetitors,
+          // Only claim the geography the provider actually honoured. A
+          // requested-but-unsupported or ignored context stores `location: null`.
+          location: answerContext?.status === 'applied' ? requestedContext?.label ?? null : null,
+          measurementExecutionId: unit.executionId,
+          requestedContext,
+          supportedContext: answerContext,
+          screenshotPath: screenshotRelPath,
+          rawResponse: JSON.stringify({
+            model: raw.model,
+            servedModel: raw.servedModel ?? null,
+            groundingSources: normalized.groundingSources,
+            searchQueries: normalized.searchQueries,
+            apiResponse: raw.rawResponse,
+          }),
+          createdAt: new Date().toISOString(),
+        })
+        // A fill never overwrites or duplicates a recorded slot: the slot index
+        // decides, and a lost race records nothing rather than failing.
+        const written = ctx.fill ? insert.onConflictDoNothing().run() : insert.run()
+        if (written.changes > 0) ctx.onInserted()
+        ctx.fill?.onOutcome(providerName, true)
+        log.info('query.citation', {
+          runId: ctx.runId,
+          provider: providerName,
+          query: unit.queryText,
+          executionId: unit.executionId,
+          location: requestedContext?.label ?? null,
+          citationState,
+          answerMentioned,
+        })
+      })
+    } catch (err: unknown) {
+      if (err instanceof RunCancelledError) {
+        throw err
+      }
+
+      const msg = describeError(err)
+      const stack = err instanceof Error ? err.stack : undefined
+      log.error('query.failed', { runId: ctx.runId, provider: providerName, query: unit.queryText, executionId: unit.executionId, error: msg, stack })
+      if (!ctx.providerErrors.has(providerName)) {
+        ctx.providerErrors.set(providerName, msg)
+      }
+      ctx.fill?.onOutcome(providerName, false)
+    }
+
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {

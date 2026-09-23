@@ -405,6 +405,34 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   index('idx_snapshots_created_at').on(table.createdAt),
 ])
 
+/**
+ * One attempt to complete a partial plan run in place. The answers it records
+ * land in `query_snapshots` under the parent run's id; this row only tracks the
+ * attempt, so an in-flight fill can be found, polled and recovered.
+ */
+export const runFills = sqliteTable('run_fills', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull(),
+  status: text('status').notNull().default('queued'),
+  /** JSON string[] of the providers this fill was asked to complete. */
+  providers: text('providers').notNull().default('[]'),
+  expected: integer('expected').notNull().default(0),
+  filled: integer('filled').notNull().default(0),
+  error: text('error'),
+  createdAt: text('created_at').notNull(),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+}, (table) => [
+  index('idx_run_fills_run').on(table.runId, table.createdAt),
+  index('idx_run_fills_project_status').on(table.projectId, table.status),
+  foreignKey({
+    name: 'run_fills_project_run_fk',
+    columns: [table.projectId, table.runId],
+    foreignColumns: [runs.projectId, runs.id],
+  }).onDelete('cascade'),
+])
+
 export const auditLog = sqliteTable('audit_log', {
   id: text('id').primaryKey(),
   // SET NULL (not CASCADE) so deleting a project preserves its audit trail.

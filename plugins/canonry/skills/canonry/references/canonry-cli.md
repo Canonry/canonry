@@ -106,6 +106,9 @@ cnry run <project> --no-location               # explicitly skip location contex
 cnry run <project> --probe --provider openai --query "..."  # operator/agent test run — snapshot is inspectable but EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use for verification / "did this fix work?" / regression hypothesis testing.
 cnry run --all --wait                          # all projects
 cnry run cancel <project> [run-id]             # force-cancel stuck runs
+cnry run completeness <run-id>                 # answered vs missing answers per provider, and whether a fill is allowed
+cnry run fill <run-id> --dry-run               # what a fill would record, without spending quota
+cnry run fill <run-id> [--provider claude] --wait  # record a partial run's missing answers under the SAME run id
 cnry runs <project> --limit 10                 # list recent runs (includes both real and probe runs; filter on `trigger` if you only want one)
 cnry run show <id>                             # show run details
 ```
@@ -113,6 +116,8 @@ cnry run show <id>                             # show run details
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
+
+A partial run of a published measurement plan can be finished with `cnry run fill <run-id>`: it asks only the questions that have no answer yet, writes them into the same run, and marks the run `completed` once every expected answer exists. The run keeps its id, timestamps and place in history, so reports show one sweep, never two. It is refused (with a reason code) when the plan was republished since, the run started more than 24 hours ago, a newer sweep exists, or a missing answer has no frozen model. A provider that fails 3 times in a row is stopped for that fill; fill again once its limit lifts. Do not re-run the whole sweep to recover a few failed answers.
 
 ### Probe vs real runs
 

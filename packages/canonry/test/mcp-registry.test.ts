@@ -38,6 +38,8 @@ const expectedToolNames = [
   'canonry_runs_list',
   'canonry_runs_latest',
   'canonry_run_get',
+  'canonry_run_completeness',
+  'canonry_run_fill',
   'canonry_timeline_get',
   'canonry_snapshots_list',
   'canonry_snapshots_diff',
@@ -646,8 +648,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(226)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(150)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(228)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(151)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -684,7 +686,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(48)
+    expect(counts.get('monitoring')).toBe(50)
     expect(counts.get('setup')).toBe(60)
     expect(counts.get('gsc')).toBe(10)
     expect(counts.get('ga')).toBe(11)
@@ -1351,6 +1353,8 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listRuns'] },
   { tool: 'canonry_runs_latest', input: projectInput, methods: ['getLatestRun'] },
   { tool: 'canonry_run_get', input: { runId: 'run-1' }, methods: ['getRun'] },
+  { tool: 'canonry_run_completeness', input: { runId: 'run-1' }, methods: ['getRunCompleteness'] },
+  { tool: 'canonry_run_fill', input: { runId: 'run-1', dryRun: true }, methods: ['fillRun'], expectedArgs: [['run-1', { dryRun: true }]] },
   {
     tool: 'canonry_timeline_get',
     input: { project: 'acme', location: 'nyc', limit: 20 },

@@ -4200,6 +4200,32 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_agent_conversations_project_updated ON agent_conversations(project_id, updated_at)`,
     ],
   },
+  {
+    // Completing a partial plan run in place. One row per attempt: the ledger
+    // is how an in-flight fill is found, polled, and failed after a restart.
+    // The fill writes its answers into the parent run's own snapshot rows, so
+    // no reader needs this table to count them.
+    version: 160,
+    name: 'run-fills',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS run_fills (
+        id          TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id      TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'queued',
+        providers   TEXT NOT NULL DEFAULT '[]',
+        expected    INTEGER NOT NULL DEFAULT 0,
+        filled      INTEGER NOT NULL DEFAULT 0,
+        error       TEXT,
+        created_at  TEXT NOT NULL,
+        started_at  TEXT,
+        finished_at TEXT,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_run_fills_run ON run_fills(run_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_run_fills_project_status ON run_fills(project_id, status)`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

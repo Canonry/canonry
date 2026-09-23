@@ -2301,6 +2301,47 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/runs/{id}/fill',
+    summary: 'Fill a partial run\'s missing answers in place',
+    description: 'Executes only the expected measurement slots a partial plan run never recorded, under the same run id, so the run keeps one identity and one denominator and every report counts the new answers. Refused (409 RUN_FILL_REFUSED, with `details.refusal`) when the plan was republished, the run is over 24 hours old, a newer sweep exists, or a missing slot has no frozen model. `dryRun` evaluates every rule without queueing. Returns 202 with the queued fill, or 200 for a dry run or an already-complete run.',
+    tags: ['runs'],
+    parameters: [runIdParameter],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              providers: { ...stringArraySchema, description: 'Fill only these providers. Omit for every provider with missing answers.' },
+              dryRun: { ...booleanSchema, description: 'Evaluate every rule and report what would run, without queueing.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Dry run, or the run was already complete.', 'RunFillResponseDto'),
+      202: jsonResponse('Fill queued.', 'RunFillResponseDto'),
+      400: errorResponse('Invalid request.'),
+      404: errorResponse('Run not found.'),
+      409: errorResponse('The run cannot be filled, a sweep is running, or another fill is in progress.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/runs/{id}/completeness',
+    summary: 'Get a run\'s answered and missing measurement slots',
+    description: 'Expected, executed and missing slots per provider for a plan run, whether a fill would be admitted now and why not, and the latest fill.',
+    tags: ['runs'],
+    parameters: [runIdParameter],
+    responses: {
+      200: jsonResponse('Run completeness.', 'RunCompletenessDto'),
+      404: errorResponse('Run not found.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/apply',
     summary: 'Apply a Canonry config document',
     tags: ['config'],

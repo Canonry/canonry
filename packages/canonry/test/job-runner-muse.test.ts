@@ -6,10 +6,13 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   buildMeasurementRunManifestV1,
+  canonicalMeasurementPlanV2Json,
   canonicalMeasurementPlanJson,
   compileMeasurementPlan,
+  measurementPlanV2ChecksumJson,
+  type MeasurementPlanV2,
 } from '@ainyc/canonry-contracts'
-import { buildMeasurementRunManifest } from '@ainyc/canonry-api-routes'
+import { buildMeasurementRunManifest, queueRunFill } from '@ainyc/canonry-api-routes'
 import {
   createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
 } from '@ainyc/canonry-db'
@@ -206,5 +209,86 @@ test('Simple Muse does not mark a location ignored when none was requested', asy
     expect(row.location).toBeNull()
     expect(row.requestedContext).toBeNull()
     expect(row.supportedContext).toBeNull()
+  }
+})
+
+test('a Muse fill keeps an unsearched answer separate from its requested location', async () => {
+  resetSharedProviderExecutionGates()
+  const requests: MuseRequest[] = []
+  vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as MuseRequest
+    requests.push(body)
+    return new Response(JSON.stringify(noSearchResponse()), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }))
+
+  const db = createClient(':memory:')
+  migrate(db)
+  try {
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
+    const draft: MeasurementPlanV2 = {
+      schemaVersion: 2,
+      identities: { projectBrand: { canonicalHost: 'example.com', ownedHosts: ['example.com'], names: ['Northstar'] } },
+      targets: [{
+        stableKey: 'widgets', label: 'Widgets', aliases: ['Widgets'],
+        urlMatchers: [{ kind: 'prefix', host: 'example.com', pathPrefix: '/widgets', pathCase: 'insensitive' }],
+        mentionNotApplicable: false, discoveryIdentity: null,
+      }],
+      groups: [],
+      querySnapshots: [{ queryId, queryText: 'widget options', provenance: { source: 'manual', sourceId: null, capturedAt: now } }],
+      assignments: [{ targetKey: 'widgets', queryId, queryClass: 'non-brand', executionNodeKey: 'widget-query' }],
+      executionNodes: [{
+        stableKey: 'widget-query', queryId, queryText: 'widget options',
+        context: { providers: ['muse'], models: { muse: 'muse-spark-1.3' }, location },
+        expectedSnapshots: 1,
+      }],
+      usageEdges: [{ executionNodeKey: 'widget-query', targetKey: 'widgets', queryId }],
+      compiledChecksum: '0'.repeat(64),
+    }
+    const plan = { ...draft, compiledChecksum: crypto.createHash('sha256').update(measurementPlanV2ChecksumJson(draft)).digest('hex') }
+    const canonicalJson = canonicalMeasurementPlanV2Json(plan)
+    const versionId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name: 'northstar', displayName: 'Northstar', aliases: ['Northstar'], canonicalDomain: 'example.com',
+      country: 'US', language: 'en', providers: ['muse'], locations: [location], defaultLocation: location.label,
+      createdAt: now, updatedAt: now,
+    }).run()
+    db.insert(queries).values({ id: queryId, projectId, query: 'widget options', createdAt: now }).run()
+    db.insert(measurementPlanVersions).values({
+      id: versionId, projectId, revision: 1, canonicalJson,
+      checksum: crypto.createHash('sha256').update(canonicalJson).digest('hex'),
+      schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: now,
+    }).run()
+    db.insert(measurementPlans).values({ projectId, activeVersionId: versionId, createdAt: now, updatedAt: now }).run()
+    db.insert(runs).values({
+      id: runId, projectId, status: 'partial', measurementPlanVersionId: versionId,
+      measurementManifest: buildMeasurementRunManifestV1({ expectedSlots: [{
+        executionId: 'widget-query', queryText: 'widget options', provider: 'muse',
+        requestedModel: 'muse-spark-1.3', context: location,
+      }] }), createdAt: now, startedAt: now, finishedAt: now,
+    }).run()
+
+    const admitted = queueRunFill(db, runId)
+    if (admitted.kind !== 'queued') throw new Error(`expected queued fill, got ${admitted.kind}`)
+    const registry = new ProviderRegistry()
+    registry.register(museAdapter, {
+      provider: 'muse', apiKey: 'test-key', baseUrl: 'https://api.meta.ai/v1',
+      quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 1000 },
+    })
+    await new JobRunner(db, registry).executeRunFill(admitted.fill.id)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.model).toBe('muse-spark-1.3')
+    expect(JSON.stringify(requests[0]?.tools[0]?.user_location)).toContain('New York')
+    expect(db.select().from(runs).where(eq(runs.id, runId)).get()?.status).toBe('completed')
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()).toMatchObject([{
+      retrievalStatus: 'not-used', requestedContext: location, supportedContext: { status: 'ignored' }, location: null,
+    }])
+  } finally {
+    db.$client.close()
   }
 })

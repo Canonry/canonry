@@ -1033,8 +1033,8 @@ export async function createServer(opts: {
       void sessionRegistry.drainNow(project.name);
     },
   );
-  jobRunner.onRunCompleted = (runId, projectId) =>
-    runCoordinator.onRunCompleted(runId, projectId);
+  jobRunner.onRunCompleted = (runId, projectId, opts) =>
+    opts ? runCoordinator.onRunCompleted(runId, projectId, opts) : runCoordinator.onRunCompleted(runId, projectId);
   const snapshotService = new SnapshotService(registry);
 
   // Google Ads and Tag Manager share one private OAuth/config boundary while
@@ -3026,6 +3026,14 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId, err }, "Job runner failed");
         });
+    },
+    getProviderDailyLimits: () => Object.fromEntries(
+      registry.getAll().map((provider) => [provider.adapter.name, provider.config.quotaPolicy.maxRequestsPerDay]),
+    ),
+    onRunFillCreated: (fillId: string, runId: string) => {
+      jobRunner.executeRunFill(fillId).catch((err: unknown) => {
+        app.log.error({ fillId, runId, err: describeError(err) }, "Run fill failed");
+      });
     },
     onRunCancelled: (runId: string) => {
       const controller = siteAuditAbortControllers.get(runId);

@@ -3,6 +3,7 @@ import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, reso
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload } from '@ainyc/canonry-contracts'
+import type { RunCompletionOrigin } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
@@ -70,8 +71,8 @@ export class Notifier {
   }
 
   /** Called after a run completes (success, partial, or failed). */
-  async onRunCompleted(runId: string, projectId: string): Promise<void> {
-    log.info('run.completed', { runId, projectId })
+  async onRunCompleted(runId: string, projectId: string, opts?: { origin?: RunCompletionOrigin }): Promise<void> {
+    log.info('run.completed', { runId, projectId, origin: opts?.origin ?? 'sweep' })
 
     // Get project notifications
     const notifs = this.db
@@ -109,7 +110,10 @@ export class Notifier {
     const events: NotificationEvent[] = []
     log.info('run.status', { runId: run.id, status: run.status, projectId })
 
-    if (run.status === 'completed' || run.status === 'partial') {
+    // A fill completes a run whose `run.completed` already went out when the
+    // sweep ended partial. Its citation transitions are new (they are held
+    // back while a run is incomplete); a second `run.completed` is not.
+    if ((run.status === 'completed' || run.status === 'partial') && opts?.origin !== 'fill') {
       events.push('run.completed')
     }
     if (run.status === 'failed') {

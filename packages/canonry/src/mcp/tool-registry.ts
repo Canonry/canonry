@@ -289,6 +289,14 @@ const runGetInputSchema = z.object({
   runId: runIdSchema,
 })
 
+const runFillInputSchema = z.object({
+  runId: runIdSchema,
+  providers: z.array(z.string().min(1)).min(1).optional()
+    .describe('Fill only these providers. Omit for every provider with missing answers.'),
+  dryRun: z.boolean().optional()
+    .describe('Evaluate every rule and report what would run, without queueing or spending quota.'),
+})
+
 const timelineInputSchema = z.object({
   project: projectNameSchema,
   location: z.string().optional().describe('Location label. Use an empty string for locationless results.'),
@@ -1399,6 +1407,31 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/runs/{id}'],
     handler: (client, input) => client.getRun(input.runId),
+  }),
+  defineTool({
+    name: 'canonry_run_completeness',
+    title: 'Get run completeness',
+    description: 'Expected, answered and missing measurement slots per provider for a plan run, whether canonry_run_fill would be admitted now and why not, and the latest fill.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: runGetInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/runs/{id}/completeness'],
+    handler: (client, input) => client.getRunCompleteness(input.runId),
+  }),
+  defineTool({
+    name: 'canonry_run_fill',
+    title: 'Fill a partial run',
+    description: 'Record a partial plan run\'s missing answers under the SAME run id, so it stays one run in every report. Spends provider quota for each missing answer, so call with dryRun first. Refused when the plan was republished, the run is over 24 hours old, or a newer sweep exists. Returns the queued fill; poll canonry_run_completeness for the outcome.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: runFillInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/runs/{id}/fill'],
+    handler: (client, input) => client.fillRun(input.runId, {
+      ...(input.providers ? { providers: input.providers } : {}),
+      ...(input.dryRun ? { dryRun: true } : {}),
+    }),
   }),
   defineTool({
     name: 'canonry_timeline_get',
