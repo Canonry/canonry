@@ -488,6 +488,11 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
     value: z.number(),
     numerator: z.number().int().nonnegative().optional(),
     denominator: z.number().int().positive().optional(),
+    /**
+     * Mention coverage only: answers left out of numerator and denominator
+     * because they could not be tied to one Property. Absent means none.
+     */
+    unattributed: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     state: z.literal('unavailable'),

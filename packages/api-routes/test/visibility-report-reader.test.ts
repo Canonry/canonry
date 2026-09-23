@@ -34,7 +34,8 @@ describe('per-target uncertain identity and positive citation evidence', () => {
       selection: { queryClass: 'non-brand', scope: 'property', scopeKey: 'north', location: { kind: 'all' }, limit: 50 },
     }))
     const summary = report.populations[0]!.summary
-    expect(summary.mentionCoverage.reason).toBe('identity-ambiguous')
+    // The uncertain answer leaves the rate; the one attributable answer names North.
+    expect(summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1, unattributed: 1 })
     expect(summary.propertyReach).toEqual({ numerator: 1, denominator: 1, rate: 1 })
     expect(summary.outcomes).toMatchObject({ bothSignals: 1, notMeasured: 0, total: 1 })
   })
@@ -50,6 +51,107 @@ describe('per-target uncertain identity and positive citation evidence', () => {
     observations[0]!.mentionedTargetKeys = ['north']
     const known = buildVisibilityReport(input({ runs: [{ ...selected, observations }], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', location: { kind: 'all' }, limit: 50 } }))
     expect(known.populations[0]!.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+})
+
+type BrandedAnswer = 'mentioned' | 'not-mentioned' | 'unattributable' | 'no-text'
+
+/**
+ * One branded population over two Properties, one answer per slot, stored the
+ * way `v2Observations` maps a snapshot: `mentionComplete` follows the answer
+ * text, and an uncertain identity lands in `unknownMentionTargetKeys`.
+ */
+function brandedRun(answers: readonly BrandedAnswer[]) {
+  const base = definition(2)
+  const slots = answers.map((_, index) => ({
+    id: `brand-slot-${index}`, executionId: `brand-exec-${index}`, queryKey: `brand:${index % 3}`, queryId: `brand-${index % 3}`,
+    query: `Is North reliable? (${index % 3})`, provider: index % 2 === 0 ? 'openai' : 'gemini', location: 'Alpha',
+  }))
+  const edges = slots.map((slot, index) => ({
+    id: `north-brand-${index}`, executionId: slot.executionId, targetKey: 'north', queryId: slot.queryId, queryClass: 'branded' as const,
+    groupKeys: ['collection'], marketKeys: ['alpha'], competitorDomains: [],
+  }))
+  const observations = answers.map((answer, index) => ({
+    slotId: slots[index]!.id, answerId: `brand-answer-${index}`, model: 'gpt-5',
+    answerText: answer === 'no-text' ? null : answer === 'unattributable' ? 'Which North do you mean?' : 'North is reliable.',
+    mentionComplete: answer !== 'no-text',
+    mentionedTargetKeys: answer === 'mentioned' ? ['north'] : [],
+    unknownMentionTargetKeys: answer === 'unattributable' ? ['north'] : [],
+    citedTargetKeys: index === 0 ? ['north'] : [], citationComplete: true,
+    competitorMentionDomains: [], competitorCitationDomains: [], observedCompetitorNames: [],
+    sources: index === 0 ? ['https://north.example/brand'] : [], createdAt: AT,
+  }))
+  const frozen = { ...base, slots, edges }
+  return run({ definition: frozen, observations })
+}
+
+function brandedReport(answers: readonly BrandedAnswer[], selection: Partial<VisibilityReportReaderInput['selection']> = {}) {
+  const selected = brandedRun(answers)
+  return buildVisibilityReport(input({
+    activeDefinition: selected.definition,
+    runs: [selected],
+    selection: { queryClass: 'branded', scope: 'project', location: { kind: 'all' }, limit: 50, ...selection },
+  })).populations[0]!
+}
+
+/** Ten mentioned, one not, one unattributable. */
+const TWELVE: readonly BrandedAnswer[] = [...Array.from({ length: 10 }, () => 'mentioned' as const), 'not-mentioned', 'unattributable']
+
+describe('mention coverage over attributable answers', () => {
+  it('measures the attributable answers and reports how many it left out', () => {
+    const population = brandedReport(TWELVE)
+    // 10 of the 11 attributable answers. The uncertain answer is in neither side.
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 })
+    expect(population.summary.answerCount).toBe(12)
+    // Mention and citation are independent: citation still reads all twelve answers.
+    expect(population.summary.citationCoverage).toEqual({ numerator: 1, denominator: 12, rate: 1 / 12 })
+    // Every other surface of the same rate agrees with the summary.
+    expect(population.trend.at(-1)!.mentionCoverage).toEqual(population.summary.mentionCoverage)
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.mentionCoverage).toEqual(population.summary.mentionCoverage)
+    expect(population.breakdown.groups.find(row => row.id === 'collection')!.mentionCoverage).toEqual(population.summary.mentionCoverage)
+  })
+
+  it('carries the count onto the query row that holds the uncertain answer only', () => {
+    const rows = brandedReport(TWELVE).queries.items
+    const withUnattributed = rows.filter(row => row.mentionCoverage.unattributed !== undefined)
+    // Answer 11 is brand:2 on gemini (11 % 3 = 2, odd index).
+    expect(withUnattributed.map(row => [row.queryKey, row.provider, row.mentionCoverage])).toEqual([
+      ['brand:2', 'gemini', { numerator: 1, denominator: 1, rate: 1, unattributed: 1 }],
+    ])
+    expect(rows.reduce((total, row) => total + (row.mentionCoverage.denominator ?? 0) + (row.mentionCoverage.unattributed ?? 0), 0)).toBe(12)
+  })
+
+  it('keeps the unattributable answer as not checked in its evidence, never as not mentioned', () => {
+    const population = brandedReport(TWELVE, { queryKey: 'brand:2' })
+    const uncertain = population.evidence.items.find(row => row.answerId === 'brand-answer-11')!
+    expect(uncertain).toMatchObject({ mentioned: null, mentionUnavailableReason: 'identity-ambiguous' })
+    expect(population.evidence.items.find(row => row.answerId === 'brand-answer-2')).toMatchObject({ mentioned: true })
+  })
+
+  it('stays unavailable as identity-ambiguous when every answer is unattributable', () => {
+    const population = brandedReport(['unattributable', 'unattributable'])
+    expect(population.summary.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })
+    expect(population.summary.citationCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
+  })
+
+  it('still withholds the rate for a missing mention signal, even beside an uncertain answer', () => {
+    const population = brandedReport(['mentioned', 'unattributable', 'no-text'])
+    expect(population.summary.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+  })
+
+  it('compares the partial rate with the previous sweep', () => {
+    const previous = { ...brandedRun([...Array.from({ length: 9 }, () => 'mentioned' as const), 'not-mentioned', 'not-mentioned', 'not-mentioned']), id: 'run-1', createdAt: '2026-09-03T12:00:00.000Z' }
+    const current = brandedRun(TWELVE)
+    const report = buildVisibilityReport(input({
+      activeDefinition: current.definition,
+      runs: [previous, current],
+      previous: { run: previous },
+      selection: { queryClass: 'branded', scope: 'project', location: { kind: 'all' }, limit: 50 },
+    }))
+    const comparison = report.populations[0]!.comparison
+    expect(comparison?.state).toBe('available')
+    if (comparison?.state !== 'available') return
+    expect(comparison.mentionCoverage).toEqual({ state: 'available', previous: { numerator: 9, denominator: 12, rate: 0.75 }, delta: 10 / 11 - 0.75 })
   })
 })
 

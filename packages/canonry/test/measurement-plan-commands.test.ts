@@ -595,6 +595,51 @@ describe('measurement-plan CLI commands', () => {
     expect(output).not.toMatch(/\d+%/)
   })
 
+  it('prints a partial mention rate with the answers it left out, and keeps --format json unchanged', async () => {
+    const partial = { state: 'available', value: 9 / 11, numerator: 9, denominator: 11, unattributed: 1 }
+    const measured = {
+      ...OVERVIEW,
+      properties: {
+        ...OVERVIEW.properties,
+        items: [{ ...OVERVIEW.properties.items[0]!, mentionCoverage: partial, citationCoverage: { state: 'available', value: 0.25, numerator: 3, denominator: 12 } }],
+      },
+    }
+    getMeasurementOverview.mockResolvedValueOnce(measured).mockResolvedValueOnce(measured)
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+    const text = logged.splice(0).join('\n')
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'json', dryRun: false,
+    })
+
+    log.mockRestore()
+    expect(text).toContain('Mentioned  9 of 11 (82%) · 1 of 12 answers could not be tied to one property')
+    // Citation reads its own denominator; the note belongs to the mention rate only.
+    expect(text).toMatch(/^Cited {6}3 of 12 \(25%\)$/m)
+    expect(JSON.parse(logged.join('\n')).properties.items[0].mentionCoverage).toEqual(partial)
+  })
+
+  it('names an all-unattributable Property as not measured, never as zero', async () => {
+    const ambiguous = { state: 'unavailable', reason: 'identity_ambiguous' }
+    getMeasurementOverview.mockResolvedValueOnce({
+      ...OVERVIEW,
+      properties: { ...OVERVIEW.properties, items: [{ ...OVERVIEW.properties.items[0]!, mentionCoverage: ambiguous }] },
+    })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one property)')
+  })
+
   it('rejects a question class outside the published vocabulary', () => {
     expect(() => command('measurement-plan property').run({
       positionals: ['acme'], values: { 'target-key': 'harbor-view', 'query-class': 'brand' }, format: 'json', dryRun: false,

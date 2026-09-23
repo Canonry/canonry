@@ -1184,6 +1184,31 @@ test('client and agency HTML use canonical query-class populations instead of th
 })
 
 
+test('HTML report states the answers a mention rate left out, matching the SPA cell', () => {
+  const report = richReport()
+  const selection: ReportVisibility['selection'] = {
+    mode: 'advanced', queryClass: 'branded', scope: { id: 'project', label: 'Example portfolio', kind: 'project', targetCount: 2 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: 1,
+    run: { id: 'baseline', explicit: false }, provenance: { kind: 'frozen-advanced', definitionRevision: 1 },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: 1, measuredRevision: 1,
+      awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T12:00:00.000Z' },
+  }
+  const partial = { numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 }
+  report.visibility = { selection, populations: [
+    { queryClass: 'branded', trend: [], summary: { queryCount: 3, answerCount: 12,
+      mentionCoverage: partial, citationCoverage: { numerator: 1, denominator: 12, rate: 1 / 12 },
+      propertyReach: { numerator: 2, denominator: 2, rate: 1 }, outcomes: { bothSignals: 1, mentionedOnly: 1, citedOnly: 0, neither: 0, notMeasured: 0, total: 2 } } },
+  ] }
+  for (const audience of ['client', 'agency'] as const) {
+    const html = renderReportHtml(report, { audience }).split('<script')[0]!
+    expect(html).toContain(`<td><strong>${reportVisibilityRate(partial)}</strong><p class="muted">10 of 11 answers</p><p class="muted">1 of 12 answers could not be tied to one property</p></td>`)
+    expect(html).not.toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    // Only the mention rate left an answer out; citation keeps its own denominator.
+    expect(html.match(/could not be tied to one property/g)).toHaveLength(1)
+  }
+})
+
+
 test('HTML report keeps unclassified history even when the latest population is empty', () => {
   const empty = { numerator: null, denominator: null, rate: null, reason: 'no-population' as const }
   const date = '2026-08-15T10:00:00Z'

@@ -1,4 +1,4 @@
-import { REPORT_VISIBILITY_COPY as visibilityCopy, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportVisibilityComparison, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility } from '@ainyc/canonry-contracts'
+import { REPORT_VISIBILITY_COPY as visibilityCopy, reportQueryClassLabel, reportVisibilityRate, reportVisibilityEvidence, reportUnattributedAnswers, reportVisibilityComparison, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel, reportVisibilityLocationLabel, type ReportVisibility } from '@ainyc/canonry-contracts'
 import { shareOfVoiceReason, shareOfVoiceSummary } from '@ainyc/canonry-contracts'
 import type {
   AiSourceCategoryBucket,
@@ -2583,7 +2583,11 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 export function renderReportVisibility(visibility: ReportVisibility): string {
   const populations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.summary.answerCount > 0)
   const historyPopulations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.trend.some(point => point.answerCount > 0))
-  const rateCell = (rate: ReportVisibility['populations'][number]['summary']['mentionCoverage']) => `<td><strong>${escapeHtml(reportVisibilityRate(rate))}</strong><p class="muted">${escapeHtml(reportVisibilityEvidence(rate))}</p></td>`
+  const rateCell = (rate: ReportVisibility['populations'][number]['summary']['mentionCoverage']) => {
+    // Answers the mention rate left out because they could not be tied to one property.
+    const unattributed = reportUnattributedAnswers(rate)
+    return `<td><strong>${escapeHtml(reportVisibilityRate(rate))}</strong><p class="muted">${escapeHtml(reportVisibilityEvidence(rate))}</p>${unattributed ? `<p class="muted">${escapeHtml(unattributed)}</p>` : ''}</td>`
+  }
   const headers = (labels: string[]) => `<thead><tr>${labels.map(label => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>`
   const summary = `<table class="report-table">${headers([visibilityCopy.queryType, visibilityCopy.queries, visibilityCopy.answers, visibilityCopy.mentioned, visibilityCopy.cited])}<tbody>${populations.map(population => `<tr><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td><td>${population.summary.queryCount}</td><td>${population.summary.answerCount}</td>${rateCell(population.summary.mentionCoverage)}${rateCell(population.summary.citationCoverage)}</tr>`).join('')}</tbody></table>`
   const trend = `<details><summary>${escapeHtml(reportVisibilityHistoryLabel(visibility))}</summary><div class="table-scroll"><table class="report-table">${headers([visibilityCopy.date, visibilityCopy.queryType, visibilityCopy.mentioned, visibilityCopy.cited, visibilityCopy.comparison])}<tbody>${historyPopulations.flatMap(population => population.trend.map(point => `<tr><td><time datetime="${escapeHtml(point.createdAt)}">${escapeHtml(point.createdAt.slice(0, 10))}</time></td><td>${escapeHtml(reportQueryClassLabel(population.queryClass))}</td>${rateCell(point.mentionCoverage)}${rateCell(point.citationCoverage)}<td>${escapeHtml(reportVisibilityComparison(point.continuity.state, point.continuity.comparedRunId !== null && !population.trend.some(previous => previous.runId === point.continuity.comparedRunId)))}</td></tr>`)).join('')}</tbody></table></div></details>`

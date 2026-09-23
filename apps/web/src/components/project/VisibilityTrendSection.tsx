@@ -1,4 +1,4 @@
-import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
+import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -115,7 +115,7 @@ export const REPORT_CHANGE_COPY = {
 export const REPORT_HEADLINE_HELP = {
   simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
   simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
-  advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned.',
+  advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.',
   advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.',
   propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
 } as const
@@ -145,7 +145,8 @@ function reportRateReason(value: VisibilityReportRate): string {
 
 function ReportRate({ value }: { value: VisibilityReportRate }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span></span>
+  const unattributed = reportUnattributedAnswers(value)
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{unattributed ? <span className="text-sm tabular-nums text-secondary">{unattributed}</span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -228,8 +229,9 @@ function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: str
 
 /**
  * One headline tile: its own quiet surface, a labelled rate with the change
- * beside it, and one supporting line. The class is visible in the section
- * heading, so each figure repeats it for assistive tech only.
+ * beside it, and one supporting line, or two when the server left unattributable
+ * answers out of the rate. The class is visible in the section heading, so each
+ * figure repeats it for assistive tech only.
  */
 function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
   label: string
@@ -240,6 +242,10 @@ function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
   change: ReportChangeLine | null
 }) {
   const queryClassSuffix = <span className="sr-only">{` · ${classNoun}`}</span>
+  // Answers the server left out of this rate because they could not be tied to
+  // one property. The rate's own count already excludes them; this line keeps
+  // them visible. Stated by the server, never derived here.
+  const unattributed = reportUnattributedAnswers(value)
   return <div className="report-headline-tile">
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
     {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}{queryClassSuffix}</dd> : <>
@@ -249,6 +255,7 @@ function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
         {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
       </dd>
       <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}</dd>
+      {unattributed ? <dd className="text-sm tabular-nums text-secondary">{unattributed}</dd> : null}
     </>}
   </div>
 }

@@ -169,12 +169,18 @@ export const measurementMetricReasonSchema = z.enum([
 ])
 export type MeasurementMetricReason = z.infer<typeof measurementMetricReasonSchema>
 
-/** A rate is either fully measured or wholly unavailable; partial denominators are forbidden. */
+/**
+ * A rate is either measured or wholly unavailable. Missing evidence never
+ * shrinks a denominator. The one exclusion is a mention rate's unattributable
+ * answers: an answer whose identity could not be tied to one Property leaves
+ * both sides of the rate and is counted in `unattributed` (absent means none).
+ */
 export const measurementRateSchema = z.union([
   z.object({
     numerator: z.number().int().nonnegative(),
     denominator: z.number().int().positive(),
     rate: z.number().min(0).max(1),
+    unattributed: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     numerator: z.null(),

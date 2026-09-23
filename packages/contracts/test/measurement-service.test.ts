@@ -90,6 +90,11 @@ describe('measurement service contracts', () => {
   it('rejects mixed-null metrics and unknown classifications', () => {
     expect(measurementRateSchema.safeParse({ numerator: 1, denominator: null, rate: null, reason: 'incomplete' }).success).toBe(false)
     expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null }).success).toBe(false)
+    // Unattributable answers ride beside a measured rate only.
+    expect(measurementRateSchema.parse({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 }))
+      .toEqual({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 })
+    expect(measurementRateSchema.safeParse({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 0 }).success).toBe(false)
+    expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous', unattributed: 2 }).success).toBe(false)
     expect(measurementAttributionClassSchema.safeParse('unmapped').success).toBe(false)
     expect(measurementDiscoveryResponseSchema.safeParse({
       proposed: [], aliases: [], shared: [], unmatched: [], excluded: [{
