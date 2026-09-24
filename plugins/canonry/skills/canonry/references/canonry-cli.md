@@ -101,7 +101,7 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --qu
 cnry run <project>                             # sweep all configured providers
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
-cnry run <project> --wait                      # block until complete
+cnry run <project> --wait                      # block until complete (a batch run: until batch-pending, then exit 0)
 cnry run <project> --location <label>          # run with specific location context
 cnry run <project> --all-locations             # run for every configured location
 cnry run <project> --no-location               # explicitly skip location context
@@ -132,10 +132,19 @@ Manual runs stay sync unless given `--dispatch-mode batch`, which is refused
 batch. Only a full sweep of a published plan batches: planless runs, slices and
 probes always run sync. While a batch is outstanding the run stays `running`,
 `cnry run show <id>` prints `waiting on provider batch: ...`, and the project's
-next scheduled sweep is skipped. Missing answers after the deadline make the run
-`partial`; fill them with `cnry run fill` (sync price, 24 hours after the run
-finalized). `cnry run show` also prints tokens, searches and estimated cost per
-provider and tier; `--format json` is the API response (`dispatchModes`,
+next scheduled sweep is skipped. `--wait` (also with `--all` and
+`--all-locations`) never waits for a batch to end: once the run is
+batch-pending (a batch `submitted` or `ended`) it stops polling and exits 0.
+Text output adds `Waiting on provider batch(es): <provider> — N requests,
+submitted <t>, deadline <t>; check with canonry run show <id>`; `--format json`
+is the run detail unchanged (`status: running`, outstanding `providerBatches`).
+Treat that as success, not a timeout, and read the outcome later with
+`cnry run show <id>`; re-triggering gets `RUN_IN_PROGRESS`. Missing answers
+after the deadline make the run `partial`; fill them with `cnry run fill` (sync
+price, 24 hours after the run finalized). `cnry run show` also prints tokens,
+searches and estimated cost per provider and tier (a priced cost under $0.00005
+prints `<$0.0001`; only a real zero prints `$0.0000`); `--format json` is the
+API response (`dispatchModes`,
 `providerBatches`, `usage`). Batch mode is not zero-data-retention eligible on
 Anthropic, so keep it off on deployments that need ZDR.
 

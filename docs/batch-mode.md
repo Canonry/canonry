@@ -109,6 +109,20 @@ does not break a chart series. Each answer records `dispatchMode`
   waiting on provider batch: claude — 120 requests, submitted 2026-09-24T06:00:05.000Z, deadline 2026-09-25T06:00:05.000Z
   ```
 
+- `canonry run <project> --wait` (and `run --all --wait`, `--all-locations
+  --wait`) never waits for a batch to end. It stops polling as soon as the run
+  is batch-pending (a batch is `submitted` or `ended`) and exits 0. The text
+  output is the run detail plus one line:
+
+  ```
+  Waiting on provider batch(es): claude — 120 requests, submitted 2026-09-24T06:00:05.000Z, deadline 2026-09-25T06:00:05.000Z; check with canonry run show <run-id>
+  ```
+
+  `--format json` prints the run detail exactly as `GET /api/v1/runs/{id}`
+  returns it: `status` is still `running`, and `providerBatches` lists the
+  outstanding batch. Sync providers in the run may still be answering at that
+  point, so read the outcome later with `canonry run show <id>`. A run with no
+  outstanding batch is waited on as before (up to 10 minutes).
 - Sync providers in the same run answer as usual. Their rows appear immediately,
   and their errors are held until the run finalizes.
 - `canonry serve` checks a batch as soon as it sees it (within 15 seconds of the
@@ -181,7 +195,9 @@ whose model has no known price records `estimatedCostMicros: null`.
 `GET /api/v1/runs/{id}` sums it per provider and price tier in `usage`, and
 `canonry run show` prints it as a table. Answers recorded before usage capture
 count nowhere. Cost sums the priced answers only, and a group with no priced
-answer reports its cost as unknown, never as zero.
+answer reports its cost as unknown, never as zero. The table shows cost to four
+decimals, so a priced group under $0.00005 prints as `<$0.0001`, never as
+`$0.0000`, which only a real zero prints.
 
 Only tokens are discounted. The search fee stays at the full sync price in batch
 (Claude: $10 per 1,000 searches, and canonry caps an answer at 5 searches). So
@@ -227,6 +243,6 @@ not 50%. The more of an answer's cost is search, the smaller the saving. The
 |---|---|
 | `config.yaml` | `providers.<name>.batch`, `providers.<name>.pricing` |
 | API | `dispatchMode` on `POST /projects/{name}/runs` and `POST /runs`, `providerDispatchModes` on project writes and apply, `dispatchModes` / `providerBatches` / `usage` on runs, `dispatchMode` / `stopReason` / `usage` on snapshots |
-| CLI | `canonry run --dispatch-mode`, `canonry project create/update --dispatch-mode` / `--clear-dispatch-mode`, `canonry run show` |
+| CLI | `canonry run --dispatch-mode` (`--wait` returns at batch-pending), `canonry project create/update --dispatch-mode` / `--clear-dispatch-mode`, `canonry run show` |
 | MCP | `canonry_run_trigger` (`request.dispatchMode`), `canonry_project_upsert` / `canonry_apply_config` (`providerDispatchModes`), `canonry_run_get` |
 | Storage | `docs/data-model.md`: `provider_batches`, `provider_batch_requests`, and the dispatch columns on `projects`, `runs` and `query_snapshots` |
