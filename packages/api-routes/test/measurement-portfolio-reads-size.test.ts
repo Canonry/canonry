@@ -274,6 +274,8 @@ describe('portfolio summary size at portfolio scale', () => {
       expect(row.mentionCoverage).toMatchObject({ state: 'available', numerator: 0, denominator: row.queries * 3 })
       expect(row.namedInsteadInAnswerText).toHaveLength(5)
       expect(row.citedDomains).toHaveLength(5)
+      // The deprecated names ride along for existing consumers and count against the cap.
+      expect(row.recommendedInstead).toHaveLength(5)
     }
     expect(body.engines).toEqual(['claude', 'gemini', 'openai'])
     expect(body.tiedAtWeakest).toMatchObject({ count: TIED_AT_ZERO, mentionRate: 0, citationRate: 0 })

@@ -421,8 +421,9 @@ function frozenRunScopes(
 /**
  * Plan query classes for every answer a v2 run measured, keyed by run id and
  * then by the answer's `measurementExecutionId`. Uses the same all-markets
- * scope as the landscape, so a class-filtered read of any surface counts the
- * same answers. One execution can carry both classes when two Target usages
+ * scope as the landscape (every frozen assignment, whatever its group
+ * membership), so a class-filtered read of any surface counts the same
+ * answers. One execution can carry both classes when two Target usages
  * assign it differently.
  */
 export function planQueryClassesByRun(
@@ -437,27 +438,41 @@ export function planQueryClassesByRun(
   return byRun
 }
 
+/**
+ * A market reads the usages of the Properties its group holds. All markets
+ * reads the whole frozen plan: groups are reporting-only membership, so a
+ * Property in no group, or a plan that defines no groups at all, still
+ * measured answers under frozen assignment classes. Deriving the plan-wide
+ * scope from group membership dropped those answers from every class-filtered
+ * read, and rejected a zero-group plan outright.
+ */
 function scopeForFrozenPlan(
   plan: ReturnType<typeof parseStoredMeasurementPlanAnyVersion>,
   kind: AdvancedScope['kind'],
   groupKey: string | undefined,
 ): FrozenPlanScope | null {
   if (plan.schemaVersion !== 2) return null
-  const groups = kind === 'group'
-    ? plan.groups.filter(group => group.stableKey === groupKey)
-    : plan.groups
-  if (groups.length === 0) return null
-  const targetKeys = new Set(groups.flatMap(group => group.targetKeys))
-  const scopedUsageEdges = plan.usageEdges.filter(edge => targetKeys.has(edge.targetKey))
-  const executionNodeKeys = new Set(scopedUsageEdges.map(edge => edge.executionNodeKey))
-  const scopedUsages = new Set(scopedUsageEdges.map(edge => JSON.stringify([
-    edge.executionNodeKey, edge.targetKey, edge.queryId,
-  ])))
-  const queryClassesByExecution = new Map<string, Set<'branded' | 'non-brand'>>()
-  for (const assignment of plan.assignments) {
-    if (!scopedUsages.has(JSON.stringify([
+  let groups = plan.groups
+  let scopedUsageEdges = plan.usageEdges
+  let scopedAssignments = plan.assignments
+  if (kind === 'group') {
+    groups = plan.groups.filter(group => group.stableKey === groupKey)
+    if (groups.length === 0) return null
+    const targetKeys = new Set(groups.flatMap(group => group.targetKeys))
+    scopedUsageEdges = plan.usageEdges.filter(edge => targetKeys.has(edge.targetKey))
+    const scopedUsages = new Set(scopedUsageEdges.map(edge => JSON.stringify([
+      edge.executionNodeKey, edge.targetKey, edge.queryId,
+    ])))
+    scopedAssignments = plan.assignments.filter(assignment => scopedUsages.has(JSON.stringify([
       assignment.executionNodeKey, assignment.targetKey, assignment.queryId,
-    ]))) continue
+    ])))
+  }
+  const executionNodeKeys = new Set([
+    ...scopedUsageEdges.map(edge => edge.executionNodeKey),
+    ...scopedAssignments.map(assignment => assignment.executionNodeKey),
+  ])
+  const queryClassesByExecution = new Map<string, Set<'branded' | 'non-brand'>>()
+  for (const assignment of scopedAssignments) {
     const classes = queryClassesByExecution.get(assignment.executionNodeKey) ?? new Set<'branded' | 'non-brand'>()
     classes.add(assignment.queryClass)
     queryClassesByExecution.set(assignment.executionNodeKey, classes)

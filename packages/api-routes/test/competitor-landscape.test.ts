@@ -1272,6 +1272,107 @@ describe('GET /projects/:name/analytics/competitors', () => {
     })
     expect(landscape.json()).toMatchObject({ scope: { kind: 'all-markets' }, evidence: { answeredResults: 2, sourceResults: 2 } })
   })
+
+  it('reads class splits on a valid v2 plan with no groups from its frozen assignments', async () => {
+    // Groups are reporting-only membership. A plan that defines none still
+    // measured its Properties, and every answer carries a frozen class.
+    const plan = marketPlan('no-group-node', 'plan-rival.example', 'Plan Rival')
+    plan.groups.splice(0)
+    seedVersion('no-group-plan', 1, plan)
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'no-group-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(runs).values({
+      id: 'no-group-run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', measurementPlanVersionId: 'no-group-plan', location: null, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values([
+      marketSnapshot('no-group-openai', 'no-group-run', 'no-group-node', 'Northwind and Plan Rival are alternatives.', 'plan-rival.example'),
+      { ...marketSnapshot('no-group-gemini', 'no-group-run', 'no-group-node', 'Northwind.', 'listings.example'), provider: 'gemini' },
+    ]).run()
+
+    for (const scope of ['', '&scope=all-markets']) {
+      const nonBrand = await app.inject({
+        method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand${scope}`,
+      })
+      expect(nonBrand.statusCode, nonBrand.body).toBe(200)
+      expect(nonBrand.json()).toMatchObject({
+        scope: { kind: 'all-markets' },
+        filters: { scope: 'all-markets', groupKey: null, queryClass: 'non-brand' },
+        evidence: { answeredResults: 2, sourceResults: 2 },
+        marketState: { activeRevision: 1, draft: null },
+      })
+      const branded = await app.inject({
+        method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=branded${scope}`,
+      })
+      expect(branded.statusCode, branded.body).toBe(200)
+      expect(branded.json()).toMatchObject({ evidence: { answeredResults: 0 } })
+    }
+
+    const sources = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=non-brand&runId=no-group-run&includeByQuery=false',
+    })
+    expect(sources.statusCode, sources.body).toBe(200)
+    expect(sources.json()).toMatchObject({
+      answerTotal: 2,
+      unclassifiedAnswers: 0,
+      filters: { queryClass: 'non-brand', queryClassBasis: 'measurement-plan' },
+    })
+    expect(sources.json().ranked.entries.map((entry: { domain: string }) => entry.domain).sort())
+      .toEqual(['listings.example', 'plan-rival.example'])
+  })
+
+  it('includes ungrouped Properties in class-filtered reads while a market keeps its own', async () => {
+    const plan = marketPlan('grouped-node', 'plan-rival.example', 'Plan Rival')
+    // A second Property that no group holds, measured on its own question.
+    plan.targets.push({ ...plan.targets[0]!, stableKey: 'ungrouped-target', label: 'Ungrouped Target' })
+    plan.querySnapshots.push({
+      queryId: 'second-query', queryText: 'apartments downtown',
+      provenance: { source: 'manual', sourceId: null, capturedAt: NOW },
+    })
+    plan.executionNodes.push({
+      stableKey: 'ungrouped-node', queryId: 'second-query', queryText: 'apartments downtown',
+      context: { providers: ['openai'], models: {}, location: null }, expectedSnapshots: 1,
+    })
+    plan.assignments.push({ targetKey: 'ungrouped-target', queryId: 'second-query', queryClass: 'non-brand', executionNodeKey: 'ungrouped-node' })
+    plan.usageEdges.push({ targetKey: 'ungrouped-target', queryId: 'second-query', executionNodeKey: 'ungrouped-node' })
+    seedVersion('mixed-plan', 1, plan)
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'mixed-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(queries).values({ id: 'second-query', projectId: 'project_northwind', query: 'apartments downtown', createdAt: NOW }).run()
+    db.insert(runs).values({
+      id: 'mixed-run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', measurementPlanVersionId: 'mixed-plan', location: null, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values([
+      marketSnapshot('grouped-answer', 'mixed-run', 'grouped-node', 'Northwind and Plan Rival are alternatives.', 'plan-rival.example'),
+      marketSnapshot('ungrouped-answer', 'mixed-run', 'ungrouped-node', 'Northwind.', 'listings.example', NOW, 'second-query', 'apartments downtown'),
+    ]).run()
+
+    const defaulted = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand',
+    })
+    expect(defaulted.statusCode, defaulted.body).toBe(200)
+    expect(defaulted.json()).toMatchObject({ scope: { kind: 'all-markets' }, evidence: { answeredResults: 2, sourceResults: 2 } })
+    // The market's frozen competitor is still pinned on the plan-wide read.
+    expect(defaulted.json().pinned.map((row: { domain: string }) => row.domain)).toContain('plan-rival.example')
+
+    // A market still reads only the Properties it holds.
+    const market = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&groupKey=regional',
+    })
+    expect(market.statusCode, market.body).toBe(200)
+    expect(market.json()).toMatchObject({ scope: { kind: 'group', groupKey: 'regional' }, evidence: { answeredResults: 1 } })
+
+    const sources = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=non-brand&runId=mixed-run&includeByQuery=false',
+    })
+    expect(sources.statusCode, sources.body).toBe(200)
+    expect(sources.json()).toMatchObject({ answerTotal: 2, unclassifiedAnswers: 0 })
+    expect(sources.json().ranked.entries.map((entry: { domain: string }) => entry.domain).sort())
+      .toEqual(['listings.example', 'plan-rival.example'])
+  })
 })
 
 describe('share of voice comparison policy', () => {

@@ -27,6 +27,8 @@ function capture(fn: () => Promise<void>): Promise<string> {
 }
 
 const { showSources } = await import('../src/commands/sources.js')
+const { dispatchRegisteredCommand } = await import('../src/cli-dispatch.js')
+const { OPERATOR_CLI_COMMANDS } = await import('../src/cli-commands/operator.js')
 
 function fixture(): SourceBreakdownDto {
   const ranked = {
@@ -151,5 +153,92 @@ describe('showSources', () => {
     mockGetAnalyticsSources.mockResolvedValue(emptyFixture)
     const json = await capture(() => showSources('p', { format: 'json' }))
     expect(JSON.parse(json).ranked.entries).toHaveLength(0)
+  })
+
+  it('says how many answers a class filter could not place', async () => {
+    mockGetAnalyticsSources.mockResolvedValue({
+      ...fixture(),
+      answerTotal: 8,
+      runCount: 1,
+      unclassifiedAnswers: 3,
+      filters: { runId: 'run_1', queryClass: 'non-brand', queryClassBasis: 'measurement-plan', includeByQuery: true },
+    } satisfies SourceBreakdownDto)
+    const out = await capture(() => showSources('p', {}))
+    expect(out).toContain('8 answers · run run_1 · non-brand queries only · 3 unclassified answers excluded')
+  })
+})
+
+/**
+ * The registered `canonry sources` command, parsed exactly as the CLI parses
+ * argv. The API and MCP accept runId / queryClass / includeByQuery; before
+ * these flags were registered the CLI rejected them as unknown options.
+ */
+describe('canonry sources (registered command)', () => {
+  const dispatch = (args: string[]) => capture(async () => {
+    await dispatchRegisteredCommand(args, 'text', OPERATOR_CLI_COMMANDS)
+  })
+
+  beforeEach(() => {
+    mockGetAnalyticsSources.mockReset()
+    mockGetAnalyticsSources.mockResolvedValue(fixture())
+  })
+
+  it('sources --query-class non-brand reaches the API client', async () => {
+    await dispatch(['sources', 'p', '--query-class', 'non-brand', '--format', 'json'])
+    expect(mockGetAnalyticsSources).toHaveBeenCalledTimes(1)
+    expect(mockGetAnalyticsSources.mock.calls[0]![1]).toMatchObject({ queryClass: 'non-brand' })
+  })
+
+  it('sources --run-id reaches the API client', async () => {
+    await dispatch(['sources', 'p', '--run-id', 'run_7', '--format', 'json'])
+    expect(mockGetAnalyticsSources.mock.calls[0]![1]).toMatchObject({ runId: 'run_7' })
+  })
+
+  it('forwards every filter together, with --include-by-query false dropping the per-query breakdown', async () => {
+    await dispatch([
+      'sources', 'p',
+      '--query-class', 'branded', '--run-id', 'run_7', '--include-by-query', 'false',
+      '--limit', '5', '--window', '30d', '--format', 'json',
+    ])
+    expect(mockGetAnalyticsSources).toHaveBeenCalledWith('p', {
+      window: '30d',
+      limit: 5,
+      runId: 'run_7',
+      queryClass: 'branded',
+      includeByQuery: false,
+    })
+  })
+
+  it('leaves the server defaults alone when no filter is passed', async () => {
+    const out = await dispatch(['sources', 'p', '--format', 'json'])
+    const opts = mockGetAnalyticsSources.mock.calls[0]![1] as Record<string, unknown>
+    expect(opts.runId).toBeUndefined()
+    expect(opts.queryClass).toBeUndefined()
+    expect(opts.includeByQuery).toBeUndefined()
+    expect(JSON.parse(out).ranked.entries[0].domain).toBe('acme.com')
+  })
+
+  it('accepts --include-by-query true', async () => {
+    await dispatch(['sources', 'p', '--include-by-query', 'true', '--format', 'json'])
+    expect(mockGetAnalyticsSources.mock.calls[0]![1]).toMatchObject({ includeByQuery: true })
+  })
+
+  it('rejects an unknown --query-class with a usage error naming the valid classes', async () => {
+    const err = await dispatch(['sources', 'p', '--query-class', 'brand', '--format', 'json']).catch((e: unknown) => e)
+    expect(err).toMatchObject({
+      code: 'CLI_USAGE_ERROR',
+      message: '--query-class must be one of all, branded, non-brand',
+      details: { command: 'sources', option: 'query-class', value: 'brand' },
+    })
+    expect(mockGetAnalyticsSources).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-boolean --include-by-query with a usage error', async () => {
+    const err = await dispatch(['sources', 'p', '--include-by-query', 'yes', '--format', 'json']).catch((e: unknown) => e)
+    expect(err).toMatchObject({
+      code: 'CLI_USAGE_ERROR',
+      message: '--include-by-query must be true or false',
+    })
+    expect(mockGetAnalyticsSources).not.toHaveBeenCalled()
   })
 })

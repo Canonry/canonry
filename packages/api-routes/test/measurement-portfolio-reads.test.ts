@@ -398,7 +398,17 @@ describe('measurement portfolio reads', () => {
       { name: 'Ignored For Harbor', answers: 1 },
       { name: 'Rival One', answers: 1 },
     ])
-    expect(body.weakestProperties[0]).not.toHaveProperty('recommendedInstead')
+    // Existing consumers still read the deprecated names: the same names, with
+    // `occurrences` counting answers exactly as `answers` does.
+    expect(body.weakestProperties[0]).toMatchObject({
+      recommendedInstead: [
+        { name: 'Harbor Homes', occurrences: 2 },
+        { name: 'Ignored For Harbor', occurrences: 1 },
+        { name: 'Rival One', occurrences: 1 },
+      ],
+      recommendedInsteadTotal: 3,
+      recommendedInsteadTruncated: false,
+    })
 
     const harbor = await portfolio(`groupKey=regional&runId=${measured}&limit=2`)
     expect(harbor.body.weakestProperties.find(row => row.targetKey === 'harbor')?.namedInsteadInAnswerText)
@@ -678,6 +688,7 @@ describe('measurement portfolio reads', () => {
     expect(harbor.otherMetros).toEqual([{ groupKey: 'regional', label: 'Regional comparison' }])
     // Before any run: placement and the planned query basis, never a rate.
     expect(harbor).toMatchObject({ submarkets: [], queries: 1, mentionCoverage: { state: 'unavailable', reason: 'no_completed_run' } })
+    expect(harbor).toMatchObject({ recommendedInstead: [], recommendedInsteadTotal: 0, recommendedInsteadTruncated: false })
     expect(body).toMatchObject({ engines: [], tiedAtWeakest: null, weakestAnswerSources: null })
   })
 
@@ -767,6 +778,81 @@ describe('measurement portfolio reads', () => {
     expect(untied.weakestAnswerSources).toMatchObject({ properties: 1, answers: 2 })
   })
 
+  it('counts the hosts of captured citation URLs when the stored domain list is empty', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const nearby = (provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider),
+    )
+    // Gemini hides each source behind a grounding redirect. When a redirect
+    // does not decode and its title is not a domain, normalization stores no
+    // domain, while URL capture resolved every source. Citation coverage reads
+    // those URLs, so the source lists must read them too.
+    db.update(querySnapshots).set({
+      citedDomains: [],
+      citedUrls: ['https://northstar.example/locations/harbor', 'https://www.Listings.example/harbor-homes'],
+    }).where(nearby('gemini')).run()
+    // A host in both stored lists is one source for that answer, not two.
+    db.update(querySnapshots).set({
+      citedDomains: ['listings.example'],
+      citedUrls: ['https://www.listings.example/harbor-homes'],
+    }).where(nearby('openai')).run()
+
+    const gemini = await portfolio('provider=gemini&limit=2')
+    expect(gemini.status).toBe(200)
+    const harbor = gemini.body.weakestProperties.find(row => row.targetKey === 'harbor')!
+    expect(harbor.citationCoverage).toMatchObject({ state: 'available', numerator: 1, denominator: 1 })
+    expect(harbor).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 1 }, { domain: 'northstar.example', answers: 1 }],
+      citedDomainsTotal: 2,
+    })
+    expect(gemini.body.weakestAnswerSources).toEqual({
+      properties: 2,
+      answers: 1,
+      domains: [{ domain: 'listings.example', answers: 1 }, { domain: 'northstar.example', answers: 1 }],
+      domainTotal: 2,
+    })
+
+    const everyEngine = await portfolio('limit=2')
+    expect(everyEngine.body.weakestProperties.find(row => row.targetKey === 'harbor')).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'northstar.example', answers: 1 }],
+      citedDomainsTotal: 2,
+    })
+  })
+
+  it('counts the sources of answers whose text was not captured', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    // Source capture is independent of answer-text capture: both answers lost
+    // their text, but their sources landed and citation coverage counts them.
+    db.update(querySnapshots).set({
+      answerText: null,
+      citedDomains: ['northstar.example', 'listings.example'],
+      citedUrls: ['https://northstar.example/locations/harbor/details', 'https://listings.example/harbor-homes'],
+      recommendedCompetitors: ['Rival One'],
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+
+    const { status, body } = await portfolio('limit=2')
+    expect(status).toBe(200)
+    const harbor = body.weakestProperties.find(row => row.targetKey === 'harbor')!
+    expect(harbor.citationCoverage).toMatchObject({ state: 'available', numerator: 2, denominator: 2 })
+    expect(harbor).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'northstar.example', answers: 2 }],
+      citedDomainsTotal: 2,
+      // Names written instead still come only from answers that have text.
+      namedInsteadInAnswerText: [],
+      namedInsteadInAnswerTextTotal: 0,
+    })
+    expect(body.weakestAnswerSources).toEqual({
+      properties: 2,
+      answers: 2,
+      domains: [{ domain: 'listings.example', answers: 2 }, { domain: 'northstar.example', answers: 2 }],
+      domainTotal: 2,
+    })
+  })
+
   it('counts a name written instead once per answer, however the answer spells it', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
@@ -778,6 +864,8 @@ describe('measurement portfolio reads', () => {
     const { body } = await portfolio(`runId=${runId}`)
     expect(body.weakestProperties.find(row => row.targetKey === 'harbor')).toMatchObject({
       namedInsteadInAnswerText: [{ name: 'RIVAL ONE', answers: 1 }], namedInsteadInAnswerTextTotal: 1,
+      // The deprecated field counts the same way: one answer, not three spellings.
+      recommendedInstead: [{ name: 'RIVAL ONE', occurrences: 1 }], recommendedInsteadTotal: 1, recommendedInsteadTruncated: false,
     })
     const replacements = await competitors(`targetKey=harbor&runId=${runId}&queryClass=non-brand`)
     expect(replacements.body.competitors).toEqual([expect.objectContaining({ occurrences: 1 })])
@@ -858,6 +946,8 @@ describe('measurement portfolio reads', () => {
     expect(status).toBe(200)
     expect(bayside.namedInsteadInAnswerText).toHaveLength(5)
     expect(bayside.namedInsteadInAnswerTextTotal).toBe(7)
+    expect(bayside.recommendedInstead).toEqual(bayside.namedInsteadInAnswerText.map(({ name, answers }) => ({ name, occurrences: answers })))
+    expect(bayside).toMatchObject({ recommendedInsteadTotal: 7, recommendedInsteadTruncated: true })
   })
 
   it('puts a Property with an unavailable coverage metric after every measured weak row', async () => {

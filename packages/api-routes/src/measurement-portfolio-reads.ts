@@ -86,11 +86,17 @@ interface MeasurementFilters {
   location?: string
 }
 
-interface TargetAnswer {
+/** One measured answer, whether or not its text was captured. */
+interface SourceAnswer {
   slotId: string
+  snapshot: typeof querySnapshots.$inferSelect
+  /** The source URLs citation coverage read for this answer: captured, or recovered from its stored raw response. */
+  citedUrls: readonly string[]
+}
+
+interface TargetAnswer extends SourceAnswer {
   provider: string
   question: string
-  snapshot: typeof querySnapshots.$inferSelect
   mentioned: boolean | null
   cited: boolean | null
 }
@@ -231,7 +237,14 @@ interface TargetPopulation {
   queries: number
   /** Engines behind those slots. */
   providers: Set<string>
+  /** Measured answers with text: the population every mention-based field reads. */
   answers: TargetAnswer[]
+  /**
+   * Every measured answer, with or without text: the population the source
+   * lists read. Source capture is independent of answer-text capture, and
+   * citation coverage already counts an answer whose text did not land.
+   */
+  sourceAnswers: SourceAnswer[]
 }
 
 type TargetAnswerReader = (target: MeasurementPlanV2['targets'][number]) => TargetPopulation
@@ -302,10 +315,11 @@ function createTargetAnswerReader(
     const assignments = assignmentsByTarget.get(target.stableKey)
     const edges = edgesByTarget.get(target.stableKey)
     const answers: TargetAnswer[] = []
+    const sourceAnswers: SourceAnswer[] = []
     const queries = new Set<string>()
     const providers = new Set<string>()
     let expected = 0
-    if (!assignments || !edges) return { expected, queries: 0, providers, answers }
+    if (!assignments || !edges) return { expected, queries: 0, providers, answers, sourceAnswers }
     for (const [executionId, assignment] of assignments) {
       const edge = edges.get(executionId)
       const slots = slotsByExecution.get(executionId)
@@ -318,12 +332,18 @@ function createTargetAnswerReader(
         providers.add(slot.provider)
         const observation = materialized.observationsBySlot.get(slot.id)
         const snapshot = observation === undefined ? undefined : materialized.snapshotsById.get(observation.id)
-        if (!snapshot || snapshot.answerText === null) continue
-        answers.push({
+        if (!observation || !snapshot) continue
+        const sourced: SourceAnswer = {
           slotId: slot.id,
+          snapshot,
+          citedUrls: observation.citedUrls ?? observation.historicalCitedUrls ?? [],
+        }
+        sourceAnswers.push(sourced)
+        if (snapshot.answerText === null) continue
+        answers.push({
+          ...sourced,
           provider: slot.provider,
           question: questionsById.get(assignment.queryId) ?? slot.queryText,
-          snapshot,
           mentioned: target.mentionNotApplicable
             ? null
             : answerBySlot?.get(slot.id)?.mentioned ?? null,
@@ -331,8 +351,10 @@ function createTargetAnswerReader(
         })
       }
     }
-    answers.sort((left, right) => slotOrder.get(left.slotId)! - slotOrder.get(right.slotId)!)
-    return { expected, queries: queries.size, providers, answers }
+    const inRunOrder = (left: SourceAnswer, right: SourceAnswer) => slotOrder.get(left.slotId)! - slotOrder.get(right.slotId)!
+    answers.sort(inRunOrder)
+    sourceAnswers.sort(inRunOrder)
+    return { expected, queries: queries.size, providers, answers, sourceAnswers }
   }
 }
 
@@ -404,10 +426,16 @@ function propertyLocations(plan: MeasurementPlanV2): (targetKey: string) => Prop
   }
 }
 
-/** Hosts an answer cited, once each, without provider plumbing such as grounding redirects. */
-function answerDomains(snapshot: typeof querySnapshots.$inferSelect): Set<string> {
+/**
+ * Hosts an answer cited, once each, without provider plumbing such as
+ * grounding redirects: its stored domains plus the hosts of the URLs citation
+ * coverage read. Gemini can store no domain for a redirect it could not
+ * decode while URL capture resolved the source, so the stored domains alone
+ * report a cited answer as citing nothing.
+ */
+function answerDomains(answer: Pick<SourceAnswer, 'snapshot' | 'citedUrls'>): Set<string> {
   const domains = new Set<string>()
-  for (const raw of snapshot.citedDomains) {
+  for (const raw of [...answer.snapshot.citedDomains, ...answer.citedUrls]) {
     const host = hostOf(raw)
     if (!host || hostMatchesAnyDomain(host, AI_PROVIDER_INFRA_DOMAINS)) continue
     domains.add(host)
@@ -417,12 +445,12 @@ function answerDomains(snapshot: typeof querySnapshots.$inferSelect): Set<string
 
 /** Domains ranked by how many of these answers cite them, most first. */
 function domainRows(
-  answers: readonly Pick<TargetAnswer, 'snapshot'>[],
+  answers: readonly Pick<SourceAnswer, 'snapshot' | 'citedUrls'>[],
   limit: number,
 ): { rows: Array<{ domain: string; answers: number }>; total: number } {
   const counts = new Map<string, number>()
   for (const answer of answers) {
-    for (const domain of answerDomains(answer.snapshot)) counts.set(domain, (counts.get(domain) ?? 0) + 1)
+    for (const domain of answerDomains(answer)) counts.set(domain, (counts.get(domain) ?? 0) + 1)
   }
   const rows = [...counts]
     .map(([domain, count]) => ({ domain, answers: count }))
@@ -488,6 +516,22 @@ function recommendationRows(
       }
     })
     .sort((left, right) => right.occurrences - left.occurrences || compareText(left.name, right.name))
+}
+
+/**
+ * A weakest row's names written instead, under the current field and the
+ * deprecated one existing consumers still read. Both carry the same names in
+ * the same order; `occurrences` is the same per-answer count as `answers`.
+ */
+function namedInsteadFields(names: readonly RecommendationRow[]) {
+  const returned = names.slice(0, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+  return {
+    namedInsteadInAnswerText: returned.map(({ name, occurrences }) => ({ name, answers: occurrences })),
+    namedInsteadInAnswerTextTotal: names.length,
+    recommendedInstead: returned.map(({ name, occurrences }) => ({ name, occurrences })),
+    recommendedInsteadTotal: names.length,
+    recommendedInsteadTruncated: names.length > returned.length,
+  }
 }
 
 function propertyDto(target: MeasurementPlanV2['targets'][number]) {
@@ -746,8 +790,7 @@ function portfolioResponse(
       mentionCoverage: unavailable('no_completed_run'),
       citationCoverage: unavailable('no_completed_run'),
       flags: 0,
-      namedInsteadInAnswerText: [],
-      namedInsteadInAnswerTextTotal: 0,
+      ...namedInsteadFields([]),
       citedDomains: [],
       citedDomainsTotal: 0,
     })).sort(compareWeakest)
@@ -794,13 +837,10 @@ function portfolioResponse(
   }).sort(compareWeakest)
   const displayed = ranked.slice(0, limit)
   const rows = displayed.map(({ target, population, ...row }) => {
-    const names = recommendationRows(target, population)
-    const domains = domainRows(population.answers, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+    const domains = domainRows(population.sourceAnswers, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
     return {
       ...row,
-      namedInsteadInAnswerText: names.slice(0, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
-        .map(({ name, occurrences }) => ({ name, answers: occurrences })),
-      namedInsteadInAnswerTextTotal: names.length,
+      ...namedInsteadFields(recommendationRows(target, population)),
       citedDomains: domains.rows,
       citedDomainsTotal: domains.total,
     }
@@ -857,15 +897,18 @@ function weakestTie<Row extends { mentionCoverage: MetricValue; citationCoverage
   }
 }
 
-/** Cited domains over the weakest Properties' answers, each stored answer counted once. */
+/**
+ * Cited domains over the weakest Properties' measured answers, each stored
+ * answer counted once, whether or not its text was captured.
+ */
 function weakestAnswerSources(
   rows: readonly { targetKey: string; population: TargetPopulation }[],
 ): MeasurementPortfolioAnswerSources {
   const properties = new Set<string>()
-  const answers = new Map<string, TargetAnswer>()
+  const answers = new Map<string, SourceAnswer>()
   for (const row of rows) {
     properties.add(row.targetKey)
-    for (const answer of row.population.answers) answers.set(answer.snapshot.id, answer)
+    for (const answer of row.population.sourceAnswers) answers.set(answer.snapshot.id, answer)
   }
   const domains = domainRows([...answers.values()], MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT)
   return { properties: properties.size, answers: answers.size, domains: domains.rows, domainTotal: domains.total }

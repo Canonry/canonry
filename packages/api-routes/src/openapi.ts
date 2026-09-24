@@ -391,7 +391,7 @@ const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
 const competitorLandscapeScopeParameter: OpenApiParameter = {
   name: 'scope',
   in: 'query',
-  description: 'Set to "all-markets" to aggregate raw stored evidence across every Advanced Measurement market. It cannot be combined with groupKey.',
+  description: 'Set to "all-markets" to aggregate raw stored evidence across every Property in the Advanced Measurement plan, including Properties in no market. It cannot be combined with groupKey.',
   schema: { type: 'string', enum: ['project', 'all-markets'] },
 }
 

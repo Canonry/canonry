@@ -6869,6 +6869,27 @@ export type MeasurementPortfolioSummaryResponse = {
             answers: number;
         }>;
         citedDomainsTotal: number;
+        /**
+         * Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.
+         *
+         * @deprecated
+         */
+        recommendedInstead: Array<{
+            name: string;
+            occurrences: number;
+        }>;
+        /**
+         * Deprecated: read namedInsteadInAnswerTextTotal, which it always equals.
+         *
+         * @deprecated
+         */
+        recommendedInsteadTotal: number;
+        /**
+         * Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.
+         *
+         * @deprecated
+         */
+        recommendedInsteadTruncated: boolean;
     }>;
     tiedAtWeakest: {
         count: number;
@@ -16800,7 +16821,7 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
          */
         groupKey?: string;
         /**
-         * Set to "all-markets" to aggregate raw stored evidence across every Advanced Measurement market. It cannot be combined with groupKey.
+         * Set to "all-markets" to aggregate raw stored evidence across every Property in the Advanced Measurement plan, including Properties in no market. It cannot be combined with groupKey.
          */
         scope?: 'project' | 'all-markets';
         /**

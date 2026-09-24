@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NOTE,
@@ -9,6 +10,7 @@ import {
   measurementPortfolioMentionRankingSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPortfolioSummaryResponseSchema,
+  measurementPortfolioWeakestPropertySchema,
   measurementPropertyCompetitorsQuerySchema,
   measurementPropertyCompetitorsResponseSchema,
   measurementPropertyQuestionsQuerySchema,
@@ -57,6 +59,9 @@ const SUMMARY = {
     namedInsteadInAnswerTextTotal: 1,
     citedDomains: [{ domain: 'listings.example', answers: 3 }],
     citedDomainsTotal: 1,
+    recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }],
+    recommendedInsteadTotal: 1,
+    recommendedInsteadTruncated: false,
   }],
   tiedAtWeakest: { count: 2, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE },
   weakestAnswerSources: { properties: 2, answers: 4, domains: [{ domain: 'listings.example', answers: 3 }], domainTotal: 1 },
@@ -95,11 +100,6 @@ describe('advanced measurement demo reads', () => {
 
   it('names what an answer wrote instead without calling it a citation', () => {
     const [row] = SUMMARY.weakestProperties
-    // The old field read as "cited instead"; it is gone rather than kept beside the new one.
-    expect(measurementPortfolioSummaryResponseSchema.safeParse({
-      ...SUMMARY,
-      weakestProperties: [{ ...row, recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }] }],
-    }).success).toBe(false)
     expect(measurementPortfolioSummaryResponseSchema.safeParse({
       ...SUMMARY,
       weakestProperties: [{ ...row, namedInsteadInAnswerTextTotal: 0 }],
@@ -108,6 +108,40 @@ describe('advanced measurement demo reads', () => {
       ...SUMMARY,
       weakestProperties: [{ ...row, citedDomains: Array.from({ length: 6 }, (_, index) => ({ domain: `source-${index}.example`, answers: 1 })), citedDomainsTotal: 6 }],
     }).success).toBe(false)
+  })
+
+  it('keeps the deprecated recommendedInstead fields beside the new names for existing consumers', () => {
+    const [row] = SUMMARY.weakestProperties
+    const parse = (changes: Record<string, unknown>) => measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, weakestProperties: [{ ...row, ...changes }],
+    }).success
+    // A patch release cannot drop fields a consumer already reads.
+    for (const field of ['recommendedInstead', 'recommendedInsteadTotal', 'recommendedInsteadTruncated'] as const) {
+      const { [field]: _dropped, ...withoutField } = row
+      expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, weakestProperties: [withoutField] }).success).toBe(false)
+    }
+    // The nested `occurrences` count keeps its name.
+    expect(parse({ recommendedInstead: [{ name: 'Harborline Homes', answers: 2 }] })).toBe(false)
+    // Its totals agree with what is returned and with the new field.
+    expect(parse({ recommendedInsteadTruncated: true })).toBe(false)
+    expect(parse({ recommendedInsteadTotal: 2, recommendedInsteadTruncated: true })).toBe(false)
+    expect(parse({
+      recommendedInstead: Array.from({ length: 6 }, (_, index) => ({ name: `Name ${index}`, occurrences: 1 })),
+      recommendedInsteadTotal: 6, namedInsteadInAnswerTextTotal: 6,
+    })).toBe(false)
+    expect(parse({ recommendedInsteadTotal: 7, recommendedInsteadTruncated: true, namedInsteadInAnswerTextTotal: 7 })).toBe(true)
+
+    // Published as deprecated, pointing at the recommended field.
+    const json = z.toJSONSchema(measurementPortfolioWeakestPropertySchema, { target: 'openapi-3.0' }) as {
+      properties: Record<string, { deprecated?: boolean; description?: string }>
+    }
+    for (const field of ['recommendedInstead', 'recommendedInsteadTotal', 'recommendedInsteadTruncated']) {
+      expect(json.properties[field]).toMatchObject({ deprecated: true, description: expect.stringContaining('namedInsteadInAnswerText') })
+    }
+    // Only the old names: the shared count schema the new totals use is not marked.
+    for (const field of ['namedInsteadInAnswerText', 'namedInsteadInAnswerTextTotal', 'citedDomainsTotal']) {
+      expect(json.properties[field]?.deprecated).toBeUndefined()
+    }
   })
 
   it('keeps tie, source and market totals consistent with what is returned', () => {

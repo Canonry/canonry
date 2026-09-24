@@ -48,10 +48,11 @@ const measurementDemoRecommendedNameSchema = z.string().trim().min(1)
 /**
  * Rows every portfolio-summary list returns when `limit` is omitted. An agent
  * reads this response as indented JSON through a 20,000-character tool-result
- * cap. Each weakest row carries its own answer evidence (about 1,700
- * characters), so ten of them alone overran it. Four keeps the whole default
- * response, markets and both rankings included, near 17,000 characters on a
- * 200-Property, 150-market portfolio.
+ * cap. Each weakest row carries its own answer evidence (about 2,300
+ * characters with the deprecated `recommendedInstead` copy), so ten of them
+ * alone overran it. Four keeps the whole default response, markets and both
+ * rankings included, near 19,000 characters on a 200-Property, 150-market
+ * portfolio.
  */
 export const MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT = 4
 /** Names and cited domains returned per weakest Property row. */
@@ -113,6 +114,12 @@ const measurementPortfolioCountedNameSchema = z.object({
   answers: measurementDemoCountSchema,
 }).strict()
 
+const measurementPortfolioRecommendedInsteadSchema = z.object({
+  name: measurementDemoRecommendedNameSchema,
+  /** Answers that wrote this name, one per answer however it spells it: the same count as `namedInsteadInAnswerText[].answers`. */
+  occurrences: measurementDemoCountSchema,
+}).strict()
+
 const measurementPortfolioCountedDomainSchema = z.object({
   domain: z.string().trim().min(1),
   /** Answers citing at least one URL on this domain. */
@@ -128,21 +135,48 @@ export const measurementPortfolioWeakestPropertySchema = measurementDemoProperty
    * Names WRITTEN IN THE ANSWER TEXT of this Property's answers that neither
    * named nor cited it, counted by answer. These are mentions, never
    * citations: a name here says nothing about which sources were linked.
-   * Replaces `recommendedInstead`, whose name read as a citation.
+   * Supersedes the deprecated `recommendedInstead`, whose name read as a
+   * citation.
    */
   namedInsteadInAnswerText: z.array(measurementPortfolioCountedNameSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
   /** Distinct names across those answers; more than returned means the list was cut. */
   namedInsteadInAnswerTextTotal: measurementDemoCountSchema,
-  /** Domains cited by this Property's stored answers in this run and class, every engine included. */
+  /**
+   * Domains cited by this Property's stored answers in this run and class,
+   * every engine included: each answer's stored domains plus the hosts of its
+   * captured source URLs, and answers whose text was not captured count too.
+   */
   citedDomains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
   /** Distinct cited domains; more than returned means the list was cut. */
   citedDomainsTotal: measurementDemoCountSchema,
+  /**
+   * Deprecated: read `namedInsteadInAnswerText`. The same names in the same
+   * order, kept for existing consumers. `occurrences` counts answers, one per
+   * answer however it spells the name, exactly as `answers` does there.
+   */
+  recommendedInstead: z.array(measurementPortfolioRecommendedInsteadSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+    .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.' }),
+  /** Deprecated: read `namedInsteadInAnswerTextTotal`, which it always equals. */
+  recommendedInsteadTotal: measurementDemoCountSchema
+    .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerTextTotal, which it always equals.' }),
+  /** Deprecated: true when `namedInsteadInAnswerTextTotal` exceeds the names returned. */
+  recommendedInsteadTruncated: z.boolean()
+    .meta({ deprecated: true, description: 'Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.' }),
 }).strict().superRefine((row, ctx) => {
   if (row.namedInsteadInAnswerText.length > row.namedInsteadInAnswerTextTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['namedInsteadInAnswerTextTotal'], message: 'Total cannot be smaller than the returned names' })
   }
   if (row.citedDomains.length > row.citedDomainsTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomainsTotal'], message: 'Total cannot be smaller than the returned domains' })
+  }
+  if (row.recommendedInsteadTotal !== row.namedInsteadInAnswerTextTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'The deprecated total must equal namedInsteadInAnswerTextTotal' })
+  }
+  if (row.recommendedInstead.length > row.recommendedInsteadTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'Total cannot be smaller than the returned replacements' })
+  }
+  if (row.recommendedInsteadTruncated !== (row.recommendedInstead.length < row.recommendedInsteadTotal)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTruncated'], message: 'Truncation must agree with the replacement total' })
   }
 })
 export type MeasurementPortfolioWeakestProperty = z.output<typeof measurementPortfolioWeakestPropertySchema>
@@ -162,7 +196,9 @@ export type MeasurementPortfolioWeakestTie = z.output<typeof measurementPortfoli
 /**
  * Where engines got their answers for the weakest Properties: the returned
  * weakest rows plus every Property tied with the weakest. Each stored answer
- * counts once even when it serves several of those Properties.
+ * counts once even when it serves several of those Properties. `answers`
+ * counts every measured answer, including one whose text was not captured:
+ * source capture does not depend on answer text.
  */
 export const measurementPortfolioAnswerSourcesSchema = z.object({
   properties: measurementDemoCountSchema,
