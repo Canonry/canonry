@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { GroundingSource } from './run.js'
 import type { ModelDefinition, ProviderModelRegistry } from './models.js'
 import type { RetrievalContract, RetrievalStatus } from './retrieval.js'
+import type { ProviderBatchCapability, ProviderBatchConfig, ProviderPricing, ProviderUsage, TrackedQueryRequest } from './provider-batch.js'
 
 export const providerQuotaPolicySchema = z.object({
   maxConcurrency: z.number().int().positive(),
@@ -87,6 +88,10 @@ export interface ProviderConfig {
   vertexRegion?: string
   /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
   vertexCredentials?: string
+  /** Instance batch settings (config.yaml `providers.<name>.batch`). Absent = batch off. */
+  batch?: ProviderBatchConfig
+  /** Operator price overrides (config.yaml `providers.<name>.pricing`). */
+  pricing?: ProviderPricing
 }
 
 export interface LocationContext {
@@ -218,6 +223,18 @@ export interface RawQueryResult {
   retrievalContract: RetrievalContract
   /** Filesystem path to cropped screenshot PNG (CDP providers only) */
   screenshotPath?: string
+  /**
+   * Billable usage the provider reported for this answer. Undefined when the
+   * response carries none (CDP, or a reconstruction from a stored row).
+   */
+  usage?: ProviderUsage
+  /**
+   * Why the provider stopped generating, verbatim from the response (Claude
+   * `stop_reason`, OpenAI `status` / `incomplete_details.reason`, Gemini
+   * `candidates[0].finishReason`). Stored so answers cut short (for example
+   * Claude `pause_turn`) can be found later; never used to drop an answer.
+   */
+  stopReason?: string
 }
 
 /**
@@ -275,6 +292,21 @@ export interface ProviderAdapter {
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
   healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
+  /**
+   * The first half of `executeTrackedQuery`: the exact request it sends. An
+   * adapter that implements it must make `executeTrackedQuery` equal to
+   * build, call, `parseTrackedQueryResponse`, so a batch line and a sync call
+   * ask the identical question and are read back the identical way.
+   */
+  buildTrackedQueryRequest?(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest
+  /**
+   * The second half: read one response body (in the shape the sync path
+   * stores as `apiResponse`) into a result. `model` is the model the request
+   * asked for. Throws where the sync path throws for the same body.
+   */
+  parseTrackedQueryResponse?(body: Record<string, unknown>, model: string): RawQueryResult
+  /** Asynchronous batch dispatch, for providers whose API has one. */
+  batch?: ProviderBatchCapability
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
   generateText(prompt: string, config: ProviderConfig): Promise<string>
 }
