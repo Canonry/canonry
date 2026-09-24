@@ -610,6 +610,44 @@ describe('cancelling a run with a batch', () => {
     expect(completed).toHaveBeenCalledTimes(1)
   })
 
+  it('stops a batch the provider creates after the run was cancelled mid-submit, and never ingests it', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, poller, completed } = harness(db)
+    const submitGate = deferred()
+    transport.submitOutcomes = [async () => { await submitGate.promise }]
+    const execution = runner.executeRun(runId, projectId)
+    await vi.waitFor(() => {
+      expect(batchRows(db, runId)[0]?.status).toBe('submitting')
+      expect(snapshotRows(db, runId).map(row => row.provider)).toEqual(['gemini', 'gemini'])
+    })
+
+    cancelLikeTheRoute(db, runId)
+    await runner.cancelRunBatches(runId, projectId)
+    // Still in flight: there is no provider id to cancel yet.
+    expect(transport.cancelCalls).toEqual([])
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', providerBatchId: null })
+
+    submitGate.resolve()
+    await execution
+
+    const created = transport.only()
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', providerBatchId: created.id, submittedAt: null, quotaReleased: 0 })
+    expect(transport.cancelCalls).toEqual([created.id])
+    expect(runRow(db, runId).status).toBe('cancelled')
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+    // The provider created it: whatever it processed before the cancel may be billed.
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+
+    transport.end(created.id)
+    await poller.tick()
+    expect(transport.resultsCalls).toEqual([])
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toEqual([])
+    expect(events('run.completed')).toHaveLength(1)
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     { outcome: 'ok' as const, settled: 'batch.cancelled', providerBatchId: 'fakebatch_1', cancelCalls: ['fakebatch_1'], quotaReleased: 0, quota: 3 },
     { outcome: 'ambiguous' as const, settled: 'batch.submit-unknown', providerBatchId: null, cancelCalls: [], quotaReleased: 0, quota: 3 },
