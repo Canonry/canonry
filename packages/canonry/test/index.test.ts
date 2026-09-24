@@ -1601,6 +1601,27 @@ describe('canonry', () => {
     ])
   })
 
+  it('ApiClient scopes analytics sources to one run and class and sends includeByQuery only when set', async () => {
+    const fakeFetch = vi.fn(async () =>
+      new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fakeFetch)
+
+    const client = new ApiClient('https://example.test/canonry', 'cnry_test', { skipProbe: true })
+    await client.getAnalyticsSources('acme', { window: '30d', limit: 10, runId: 'run-1', queryClass: 'non-brand', includeByQuery: false })
+    await client.getAnalyticsSources('acme', { includeByQuery: true })
+    await client.getAnalyticsSources('acme', { queryClass: 'branded' })
+
+    expect(fakeFetch.mock.calls.map(([request]) => (request as Request).url)).toEqual([
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?window=30d&limit=10&runId=run-1&queryClass=non-brand&includeByQuery=false',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?includeByQuery=true',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?queryClass=branded',
+    ])
+  })
+
   it('ApiClient reports an HTML SPA fallback as a response-format error', async () => {
     const fakeFetch = vi.fn(async () =>
       new Response('<!doctype html><html><body>Canonry</body></html>', {

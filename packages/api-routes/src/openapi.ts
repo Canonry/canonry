@@ -391,7 +391,7 @@ const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
 const competitorLandscapeScopeParameter: OpenApiParameter = {
   name: 'scope',
   in: 'query',
-  description: 'Set to "all-markets" to aggregate raw stored evidence across every Advanced Measurement market. It cannot be combined with groupKey.',
+  description: 'Set to "all-markets" to aggregate raw stored evidence across every Property in the Advanced Measurement plan, including Properties in no market. It cannot be combined with groupKey.',
   schema: { type: 'string', enum: ['project', 'all-markets'] },
 }
 
@@ -419,7 +419,7 @@ const competitorLandscapeGroupByParameter: OpenApiParameter = {
 const competitorLandscapeQueryClassParameter: OpenApiParameter = {
   name: 'queryClass',
   in: 'query',
-  description: 'Restrict evidence to a question class. Advanced groups use their frozen assignment classes; simple projects classify stored query text.',
+  description: 'Restrict evidence to a query class. Advanced groups use their frozen assignment classes; simple projects classify stored query text. On a project with an active v2 measurement plan, branded or non-brand without scope or groupKey defaults to scope=all-markets, so the class comes from the plan rather than the text classifier.',
   schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
 }
 
@@ -435,6 +435,27 @@ const competitorLandscapeRunIdParameter: OpenApiParameter = {
   in: 'query',
   description: 'Restrict evidence to one stored answer-visibility run.',
   schema: stringSchema,
+}
+
+const sourcesRunIdParameter: OpenApiParameter = {
+  name: 'runId',
+  in: 'query',
+  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400.',
+  schema: stringSchema,
+}
+
+const sourcesQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  description: 'Restrict to branded or non-brand answers. With an active v2 measurement plan the class comes from each run\'s frozen plan assignments (the same answers as the competitor landscape at scope=all-markets); otherwise from the project\'s brand-name classifier over the query text. Answers neither basis can place are excluded and counted in unclassifiedAnswers. Defaults to all, which pools both classes.',
+  schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
+}
+
+const sourcesIncludeByQueryParameter: OpenApiParameter = {
+  name: 'includeByQuery',
+  in: 'query',
+  description: 'Set to false to omit the per-query breakdown (byQuery), which grows with every tracked query. Defaults to true.',
+  schema: { type: 'string', enum: ['true', 'false', '1', '0'] },
 }
 
 const analyticsStartDateParameter: OpenApiParameter = {
@@ -1312,7 +1333,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-portfolio-summary',
     summary: 'Get the weakest measured Properties',
-    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first roll-up of every named market. It defaults to Non-brand questions, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. The markets array is empty when the request already narrowed to one group. Replacement names come only from stored answer extraction. It never starts provider work.',
+    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates, and weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (top-level markets, or the selected group\'s direct children), worst-first and capped at limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1321,7 +1342,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Maximum Property rows. Defaults to 10, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
+      { name: 'limit', in: 'query', description: 'Rows per list (weakest Properties, both mention rankings, markets). Defaults to 4, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
+      { name: 'includeNestedMarkets', in: 'query', description: 'Return every market in scope at every level, uncapped. Defaults to false: one level (top-level markets, or the selected group\'s direct children), capped at limit.', schema: { type: 'boolean' } },
     ],
     responses: {
       200: jsonResponse('Compact portfolio summary returned.', 'MeasurementPortfolioSummaryResponse'),
@@ -2452,11 +2474,21 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/analytics/sources',
     summary: 'Get source origin analytics',
+    description:
+      'Cited domains ranked by how many answers cite them, read from each answer\'s stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers.',
     tags: ['analytics'],
-    parameters: [nameParameter, analyticsWindowParameter, limitQueryParameter],
+    parameters: [
+      nameParameter,
+      analyticsWindowParameter,
+      limitQueryParameter,
+      sourcesRunIdParameter,
+      sourcesQueryClassParameter,
+      sourcesIncludeByQueryParameter,
+    ],
     responses: {
       200: jsonResponse('Source breakdown returned.', 'SourceBreakdownDto'),
-      404: errorResponse('Project not found.'),
+      400: errorResponse('Invalid query parameters.'),
+      404: errorResponse('Project or run not found.'),
     },
   },
   {

@@ -34,6 +34,7 @@ import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { configureAeroRuntime } from './runtime.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
+import { aeroProjectShape } from './project-shape.js'
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
@@ -464,9 +465,12 @@ export class SessionRegistry {
       preferences?.signal?.throwIfAborted()
       await this.maybeCompact(projectName, agent)
       preferences?.signal?.throwIfAborted()
-      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt) + aeroViewPrompt(preferences?.context)
       const progressive = (preferences?.toolProfile ?? AeroToolProfiles.default) === AeroToolProfiles.default
-      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive)
+      const shape = aeroProjectShape(this.opts.db, projectId)
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
+        + shape.prompt
+        + aeroViewPrompt(preferences?.context)
+      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive, shape.pinned)
       return agent
     } finally {
       this.acquisitions.delete(projectName)

@@ -1,12 +1,12 @@
 import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, queryBasketVersions, competitors, domainClassifications, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, queryBasketVersions, competitors, domainClassifications, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
-  windowCutoff, validationError, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
-  matcherMatchesText, normalizeQueryText,
+  RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
+  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -17,6 +17,8 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitorsFromDomains, projectQueryClassifier } from './mention-share-inputs.js'
+import { planQueryClassesByRun } from './competitor-landscape.js'
+import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
 import {
@@ -707,9 +709,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/sources — source origin breakdown.
   // `?limit=N` caps the ranked / per-provider lists to the top N domains
   // (with an explicit long-tail rollup); omitted = the full ranked list.
+  // `?runId=` reads one run, `?queryClass=` one query class, and
+  // `?includeByQuery=false` drops the large per-query breakdown.
   app.get<{
     Params: { name: string }
-    Querystring: { window?: string; limit?: string }
+    Querystring: { window?: string; limit?: string; runId?: string; queryClass?: string; includeByQuery?: string }
   }>('/projects/:name/analytics/sources', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -721,6 +725,36 @@ export async function analyticsRoutes(app: FastifyInstance) {
       const n = Number(request.query.limit)
       if (!Number.isInteger(n) || n <= 0) throw validationError('"limit" must be a positive integer')
       limit = n
+    }
+
+    const parsedFilters = sourceBreakdownQuerySchema.safeParse({
+      runId: request.query.runId,
+      queryClass: request.query.queryClass,
+      includeByQuery: request.query.includeByQuery,
+    })
+    if (!parsedFilters.success) {
+      throw validationError('Invalid source breakdown query', { issues: parsedFilters.error.issues })
+    }
+    const requestedRunId = parsedFilters.data.runId ?? null
+    const queryClass = parsedFilters.data.queryClass ?? 'all'
+    const includeByQuery = parsedFilters.data.includeByQuery !== 'false' && parsedFilters.data.includeByQuery !== '0'
+
+    // A class split on a v2 project reads each run's frozen assignment classes,
+    // exactly as the competitor landscape does, so both tools count the same
+    // non-brand answers. Everything else classifies the query text.
+    const splitByClass = queryClass !== 'all'
+    const planClassified = splitByClass && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2
+    const classifyQueryText = splitByClass && !planClassified ? projectQueryClassifier(project) : null
+    if (splitByClass && !planClassified && !classifyQueryText) {
+      throw validationError(
+        `Query class "${queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled source list.`,
+      )
+    }
+    const filters = {
+      runId: requestedRunId,
+      queryClass,
+      queryClassBasis: !splitByClass ? null : planClassified ? 'measurement-plan' as const : 'query-text' as const,
+      includeByQuery,
     }
 
     // Deterministic classification context — own/competitor membership is read
@@ -751,11 +785,43 @@ export async function analyticsRoutes(app: FastifyInstance) {
       if (mapped) storedSurfaceClasses.set(normalizeProjectDomain(row.domain), mapped)
     }
 
-    // All sweep runs in window
+    if (requestedRunId) {
+      // An unknown id and an excluded run both used to read as "no sources".
+      // Say which one it is instead.
+      const requested = app.db
+        .select()
+        .from(runs)
+        .where(and(
+          eq(runs.id, requestedRunId),
+          eq(runs.projectId, project.id),
+          eq(runs.kind, RunKinds['answer-visibility']),
+        ))
+        .get()
+      if (!requested) throw notFound('Answer-visibility run', requestedRunId)
+      if (requested.trigger === RunTriggers.probe) {
+        throw validationError(`Run "${requestedRunId}" is a probe run; probes never enter source analytics.`)
+      }
+      if (requested.status !== RunStatuses.completed && requested.status !== RunStatuses.partial) {
+        throw validationError(`Run "${requestedRunId}" is ${requested.status}; only completed or partial runs have source analytics.`)
+      }
+      if (!measuredWhole(app.db, requested)) {
+        throw validationError(`Run "${requestedRunId}" did not fill every slot its measurement plan promised, so it is excluded from source analytics.`)
+      }
+      if (cutoff && requested.createdAt < cutoff) {
+        throw validationError(`Run "${requestedRunId}" is older than the ${window} window. Omit window, or widen it, to read this run.`)
+      }
+    }
+
+    // All sweep runs in window (or the one requested run)
     const windowRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
+      .where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        notProbeRun(),
+        requestedRunId ? eq(runs.id, requestedRunId) : undefined,
+      ))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -764,10 +830,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     if (windowRuns.length === 0) {
       return reply.send({
-        overall: [], byQuery: {},
-        ranked: buildRankedList(new Map(), limit),
+        ranked: buildRankedList(new Map(), limit, 0, 0),
         byProvider: {},
+        providersWithoutSources: [],
+        answerTotal: 0,
+        runCount: 0,
+        unclassifiedAnswers: 0,
+        filters,
         runId: '', window, limit,
+        overall: [],
+        ...(includeByQuery ? { byQuery: {} } : {}),
       } satisfies SourceBreakdownDto)
     }
 
@@ -780,46 +852,89 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latestRunId = pickGroupRepresentative(latestGroup)?.id ?? windowRuns[0]!.id
     const windowRunIds = windowRuns.map(r => r.id)
 
-    const snapshots = app.db
+    // The stored source list, not `rawResponse.groundingSources`: every Gemini
+    // grounding link is a vertexaisearch redirect that the infra filter drops,
+    // so reading the raw links silently removed Gemini from every count. The
+    // run writer resolves those redirects into `citedDomains` / `citedUrls`.
+    const loadedSnapshots = app.db
       .select({
+        runId: querySnapshots.runId,
         queryId: querySnapshots.queryId,
+        queryText: querySnapshots.queryText,
         query: queries.query,
         provider: querySnapshots.provider,
-        rawResponse: querySnapshots.rawResponse,
+        citedDomains: querySnapshots.citedDomains,
+        citedUrls: querySnapshots.citedUrls,
+        measurementExecutionId: querySnapshots.measurementExecutionId,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(inArray(querySnapshots.runId, windowRunIds))
       .all()
 
+    let unclassifiedAnswers = 0
+    let snapshots = loadedSnapshots
+    if (splitByClass) {
+      const planClasses = planClassified ? planQueryClassesByRun(app.db, project.id, windowRuns) : null
+      snapshots = loadedSnapshots.filter(snap => {
+        let classes: ReadonlySet<string> | undefined
+        if (planClasses) {
+          classes = snap.measurementExecutionId
+            ? planClasses.get(snap.runId)?.get(snap.measurementExecutionId)
+            : undefined
+        } else {
+          const text = snap.query ?? snap.queryText
+          classes = text?.trim() ? new Set([classifyQueryText!(text)]) : undefined
+        }
+        if (!classes || classes.size === 0) {
+          unclassifiedAnswers += 1
+          return false
+        }
+        return classes.has(queryClass)
+      })
+    }
+
     // Aggregate sources overall and per-query (legacy category breakdown), plus
     // a flat per-domain aggregation overall and per provider (the #675 ranked /
     // classified / per-provider surface). Probes are already excluded because
-    // windowRunIds derives from the notProbeRun()-filtered run query above.
+    // windowRunIds derives from the probe-filtered run list above. Every count
+    // is one credit per (answer, domain): an answer listing three pages of one
+    // site cites that site once.
     const overallCounts = new Map<SourceCategory, Map<string, number>>()
-    const byQuery: Record<string, SourceCategoryCount[]> = {}
+    const queryCounts = new Map<string, Map<SourceCategory, Map<string, number>>>()
     const overallDomains = new Map<string, DomainAgg>()
     const providerDomains = new Map<string, Map<string, DomainAgg>>()
+    const answersByProvider = new Map<string, { total: number; withSources: number }>()
+    let answersWithSources = 0
 
     for (const snap of snapshots) {
-      const sources = parseGroundingSources(snap.rawResponse)
-      const qCounts = new Map<SourceCategory, Map<string, number>>()
+      const domains = sourceDomainsOf(snap)
+      const providerAnswers = answersByProvider.get(snap.provider) ?? { total: 0, withSources: 0 }
+      providerAnswers.total += 1
+      if (domains.length > 0) {
+        providerAnswers.withSources += 1
+        answersWithSources += 1
+      }
+      answersByProvider.set(snap.provider, providerAnswers)
 
-      for (const source of sources) {
-        const { category, label, domain } = categorizeSource(source.uri)
+      const queryKey = includeByQuery && domains.length > 0 ? snap.query : null
+      let qCounts: Map<SourceCategory, Map<string, number>> | undefined
+      if (queryKey) {
+        qCounts = queryCounts.get(queryKey)
+        if (!qCounts) { qCounts = new Map(); queryCounts.set(queryKey, qCounts) }
+      }
+
+      for (const host of domains) {
+        const { category, label, domain } = categorizeSource(host)
         const surfaceClass = classifySurfaceFromCategory(
           domain, category, classifyCtx, storedSurfaceClasses.get(normalizeProjectDomain(domain)),
         )
 
         // Overall (legacy category breakdown)
-        if (!overallCounts.has(category)) overallCounts.set(category, new Map())
-        const oDomains = overallCounts.get(category)!
-        oDomains.set(domain, (oDomains.get(domain) ?? 0) + 1)
-
-        // Per-query (legacy category breakdown)
-        if (!qCounts.has(category)) qCounts.set(category, new Map())
-        const qDomains = qCounts.get(category)!
-        qDomains.set(domain, (qDomains.get(domain) ?? 0) + 1)
+        bumpCategory(overallCounts, category, domain)
+        // Per-query (legacy category breakdown), summed over every answer to
+        // the query rather than whichever answer happened to be read last.
+        if (qCounts) bumpCategory(qCounts, category, domain)
 
         // Flat ranked + classified — overall and per provider
         bumpDomain(overallDomains, domain, category, label, surfaceClass)
@@ -827,20 +942,41 @@ export async function analyticsRoutes(app: FastifyInstance) {
         if (!pm) { pm = new Map(); providerDomains.set(snap.provider, pm) }
         bumpDomain(pm, domain, category, label, surfaceClass)
       }
-
-      if (sources.length > 0 && snap.query) {
-        byQuery[snap.query] = buildCategoryCounts(qCounts)
-      }
     }
 
-    const overall = buildCategoryCounts(overallCounts)
-    const ranked = buildRankedList(overallDomains, limit)
+    const ranked = buildRankedList(overallDomains, limit, snapshots.length, answersWithSources)
     const byProvider: Record<string, RankedSourceList> = {}
     for (const [provider, domains] of providerDomains) {
-      byProvider[provider] = buildRankedList(domains, limit)
+      const answers = answersByProvider.get(provider)!
+      byProvider[provider] = buildRankedList(domains, limit, answers.total, answers.withSources)
+    }
+    const providersWithoutSources = [...answersByProvider]
+      .filter(([, answers]) => answers.withSources === 0)
+      .map(([provider]) => provider)
+      .sort()
+
+    let byQuery: Record<string, SourceCategoryCount[]> | undefined
+    if (includeByQuery) {
+      byQuery = {}
+      for (const [query, counts] of queryCounts) byQuery[query] = buildCategoryCounts(counts)
     }
 
-    return reply.send({ overall, byQuery, ranked, byProvider, runId: latestRunId, window, limit } satisfies SourceBreakdownDto)
+    // Key order is deliberate: the ranked list leads, the large legacy
+    // breakdowns trail, so a reader that only sees the start still gets it.
+    return reply.send({
+      ranked,
+      byProvider,
+      providersWithoutSources,
+      answerTotal: snapshots.length,
+      runCount: windowRuns.length,
+      unclassifiedAnswers,
+      filters,
+      runId: requestedRunId ?? latestRunId,
+      window,
+      limit,
+      overall: buildCategoryCounts(overallCounts),
+      ...(byQuery ? { byQuery } : {}),
+    } satisfies SourceBreakdownDto)
   })
 }
 
@@ -870,14 +1006,26 @@ function isProviderInfraDomain(uri: string): boolean {
   return hostMatchesAnyDomain(uri, AI_PROVIDER_INFRA_DOMAINS)
 }
 
-function parseGroundingSources(rawResponse: string | null): Array<{ uri: string; title: string }> {
-  const parsed = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
-  const sources = parsed.groundingSources as Array<{ uri?: string; title?: string }> | undefined
-  if (!Array.isArray(sources)) return []
-  return sources.filter(
-    (s): s is { uri: string; title: string } =>
-      typeof s.uri === 'string' && !isProviderInfraDomain(s.uri),
-  )
+/**
+ * The distinct hosts one answer cites, from its stored source list: the
+ * resolved `citedDomains` plus the hosts of any captured `citedUrls`. Provider
+ * infrastructure (redirect proxies, the engines' own sites) never counts.
+ */
+function sourceDomainsOf(snapshot: { citedDomains: readonly string[] | null; citedUrls: readonly string[] | null }): string[] {
+  const hosts = new Set<string>()
+  for (const value of [...(snapshot.citedDomains ?? []), ...(snapshot.citedUrls ?? [])]) {
+    if (typeof value !== 'string') continue
+    const host = hostOf(value)
+    if (!host || isProviderInfraDomain(host)) continue
+    hosts.add(host)
+  }
+  return [...hosts]
+}
+
+function bumpCategory(counts: Map<SourceCategory, Map<string, number>>, category: SourceCategory, domain: string): void {
+  let domains = counts.get(category)
+  if (!domains) { domains = new Map(); counts.set(category, domains) }
+  domains.set(domain, (domains.get(domain) ?? 0) + 1)
 }
 
 function bucketSizeForSpan(spanDays: number): number {
@@ -1171,8 +1319,15 @@ function bumpDomain(
  *   entries.length + truncatedDomainCount === domainTotal
  *   sum(entries.count) + truncatedCitedSlots === totalCitedSlots
  *   sum(bySurfaceClass.count) === totalCitedSlots
+ * `answerTotal` counts every answer in the scope, including answers that cite
+ * nothing, so `answerShare` reads as "share of answers citing this domain".
  */
-function buildRankedList(domains: Map<string, DomainAgg>, limit: number | null): RankedSourceList {
+function buildRankedList(
+  domains: Map<string, DomainAgg>,
+  limit: number | null,
+  answerTotal: number,
+  answersWithSources: number,
+): RankedSourceList {
   const all = [...domains.values()]
   const totalCitedSlots = all.reduce((sum, d) => sum + d.count, 0)
   const domainTotal = all.length
@@ -1184,6 +1339,7 @@ function buildRankedList(domains: Map<string, DomainAgg>, limit: number | null):
     domain: d.domain,
     count: d.count,
     percentage: totalCitedSlots > 0 ? round4(d.count / totalCitedSlots) : 0,
+    answerShare: answerTotal > 0 ? round4(d.count / answerTotal) : 0,
     category: d.category,
     label: d.label,
     surfaceClass: d.surfaceClass,
@@ -1211,6 +1367,8 @@ function buildRankedList(domains: Map<string, DomainAgg>, limit: number | null):
 
   return {
     totalCitedSlots,
+    answerTotal,
+    answersWithSources,
     domainTotal,
     entries,
     truncatedDomainCount: domainTotal - shownEntries.length,

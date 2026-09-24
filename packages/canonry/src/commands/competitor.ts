@@ -153,7 +153,10 @@ function printCompetitorLandscape(data: CompetitorLandscapeResponse): void {
     + `excluded: ${data.evidence.excludedProbeResults} probe, ${data.evidence.excludedNonCompletedResults} non-completed.`,
   )
   if (data.observedNames?.length) {
-    console.log('Names observed in answers (not a comparison set):')
+    const total = data.observedNamesTotal ?? data.observedNames.length
+    console.log(total > data.observedNames.length
+      ? `Names observed in answers (not a comparison set), top ${data.observedNames.length} of ${total}:`
+      : 'Names observed in answers (not a comparison set):')
     for (const row of data.observedNames) console.log(`  ${row.name} · ${row.answerCount} answers`)
   }
   if (data.modelComparison) printModelComparison(data.modelComparison, data.filters.queryClass)
