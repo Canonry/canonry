@@ -7,7 +7,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -221,6 +221,30 @@ type RunExecutionContext = {
   trigger?: string
   /** Project canonical domain — hashed for telemetry; never stored raw. */
   canonicalDomain?: string
+}
+
+/** Daily provider capacity one execution reserved up front, and what it sent against it. */
+interface RunQuotaReservations {
+  dispatched: ReadonlyMap<ProviderName, number>
+  reservations: Map<ProviderName, { scope: string; period: string; reserved: number }>
+}
+
+/** What `finalizeRun` needs: the values the execution that measured the run computed. */
+export interface RunFinalization {
+  runId: string
+  projectId: string
+  /** The run's kind, which decides whether it can be the project's activation. */
+  kind: string
+  /** Snapshots this execution recorded. */
+  inserted: number
+  providerErrors: ReadonlyMap<ProviderName, string>
+  /** Expected plan slots left without an answer; 0 for a planless run. */
+  planShortfall: number
+  executionContext: RunExecutionContext
+  startTime: number
+  phases: RunPhaseTimings | undefined
+  /** The caller's own reservation, released whether or not this call wins. */
+  quota?: RunQuotaReservations
 }
 
 /**
@@ -853,91 +877,22 @@ export class JobRunner {
         ? Math.max(0, planExecution.manifest.expectedSlots.length - totalSnapshotsInserted)
         : 0
 
-      // Determine final run status
-      const allFailed = totalSnapshotsInserted === 0 && (providerErrors.size > 0 || planShortfall > 0)
-      const someFailed = providerErrors.size > 0 || planShortfall > 0
-
-      if (allFailed) {
-        const errorDetail = serializeRunError(buildRunErrorFromMessages(providerErrors))
-        this.db
-          .update(runs)
-          .set({ status: 'failed', finishedAt: new Date().toISOString(), error: errorDetail })
-          .where(eq(runs.id, runId))
-          .run()
-      } else if (someFailed) {
-        const errorDetail = serializeRunError(buildRunErrorFromMessages(providerErrors))
-        this.db
-          .update(runs)
-          .set({ status: 'partial', finishedAt: new Date().toISOString(), error: errorDetail })
-          .where(eq(runs.id, runId))
-          .run()
-      } else {
-        this.db
-          .update(runs)
-          .set({ status: 'completed', finishedAt: new Date().toISOString() })
-          .where(eq(runs.id, runId))
-          .run()
-      }
-
-      this.flushProviderUsage(providerDispatchCounts, providerReservations)
-
-      // Track run completion telemetry. When providers actually ran but some
-      // failed, emit an `errorCode` so dashboards can break down real failures
-      // by category (auth, rate-limit, network, parse, …) instead of lumping
-      // them all into "failed."
-      const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'completed'
-      const failureCode = providerErrors.size > 0
-        ? classifyProviderErrors(providerErrors)
-        : undefined
-      const phases = buildPhases({ startTime, providerCallStart, providerCallEnd })
-      trackEvent(
-        'run.completed',
-        buildRunCompletedProps({
-          status: finalStatus,
-          providerCount: executionContext.providerCount,
-          providers: executionContext.providers,
-          queryCount: executionContext.queryCount,
-          startTime,
-          trigger: executionContext.trigger,
-          canonicalDomain: executionContext.canonicalDomain,
-          phases,
-          location: executionContext.location,
-        }),
-        failureCode ? { errorCode: failureCode } : undefined,
-      )
-
-      // Activation is a non-empty first answer-visibility result, not merely a
-      // run row reaching "completed". This excludes probes, zero-query runs,
-      // and later routine sweeps so the funnel has one durable success event.
-      if (
-        existingRun.kind === 'answer-visibility'
-        && runTrigger !== 'probe'
-        && totalSnapshotsInserted > 0
-        && !this.hasPriorActivation(projectId, runId)
-      ) {
-        trackEvent('activation.completed', {
-          flowVersion: ONBOARDING_FLOW_VERSION,
-          kind: 'answer_visibility',
-          status: finalStatus,
-          providerCountBucket: bucketOnboardingCount(executionContext.providerCount),
-          queryCountBucket: bucketOnboardingCount(executionContext.queryCount),
-          snapshotCountBucket: bucketOnboardingCount(totalSnapshotsInserted),
-        })
-        try {
-          this.onFirstActivation?.()
-        } catch {
-          // A celebration must never fail a run.
-        }
-      }
-
-      this.incrementUsage(projectId, 'runs', 1)
-
-      // Notify after run completion
-      if (this.onRunCompleted) {
-        this.onRunCompleted(runId, projectId).catch((err: unknown) => {
-          log.error('notification.callback-failed', { runId, error: describeError(err) })
-        })
-      }
+      const finalized = this.finalizeRun({
+        runId,
+        projectId,
+        kind: existingRun.kind,
+        inserted: totalSnapshotsInserted,
+        providerErrors,
+        planShortfall,
+        executionContext,
+        startTime,
+        phases: buildPhases({ startTime, providerCallStart, providerCallEnd }),
+        quota: { dispatched: providerDispatchCounts, reservations: providerReservations },
+      })
+      // A cancel that lands after the check above leaves the run cancelled
+      // rather than overwritten, and this execution reports it as the
+      // cancellation it is.
+      if (!finalized && this.isRunCancelled(runId)) throw new RunCancelledError(runId)
     } catch (err: unknown) {
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
@@ -1017,6 +972,110 @@ export class JobRunner {
         })
       }
     }
+  }
+
+  /**
+   * Move a running run to its terminal status, exactly once.
+   *
+   * The status write is a compare-and-set on `running`. Only the call that
+   * wins it emits `run.completed` (and `activation.completed`), counts the
+   * run, and hands it to the post-run pipeline. A run that is no longer
+   * running (cancelled, or finished by another attempt) keeps its row as it
+   * is and nothing is reported for it here, so a late or repeated attempt is
+   * harmless.
+   *
+   * Quota sits outside that exclusivity on purpose. A reservation belongs to
+   * the execution that made it: each `executeRun` and each fill keeps its own
+   * map, and no path ever shares one. `flushProviderUsage` empties the map it
+   * releases, so the same reservation can never be released twice; and a
+   * losing attempt must still give back its own unsent capacity, because no
+   * other path knows it exists and it would stay counted for the rest of the
+   * day. A reservation that outlives the execution that made it, and so could
+   * be seen by two finalizers, does not belong in `quota`: release it from
+   * wherever it is stored, under a guard of its own.
+   *
+   * Returns whether this call finalized the run.
+   */
+  finalizeRun(input: RunFinalization): boolean {
+    const { runId, projectId, providerErrors, executionContext } = input
+    const someFailed = providerErrors.size > 0 || input.planShortfall > 0
+    const allFailed = input.inserted === 0 && someFailed
+    const finalStatus = allFailed ? RunStatuses.failed : someFailed ? RunStatuses.partial : RunStatuses.completed
+    const won = this.db
+      .update(runs)
+      .set({
+        status: finalStatus,
+        finishedAt: new Date().toISOString(),
+        ...(someFailed ? { error: serializeRunError(buildRunErrorFromMessages(providerErrors)) } : {}),
+      })
+      .where(and(eq(runs.id, runId), eq(runs.status, RunStatuses.running)))
+      .run()
+      .changes === 1
+
+    if (input.quota) this.flushProviderUsage(input.quota.dispatched, input.quota.reservations)
+
+    if (!won) {
+      const current = this.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).get()
+      log.info('run.finalize-skipped', { runId, status: current?.status ?? null })
+      return false
+    }
+
+    // Track run completion telemetry. When providers actually ran but some
+    // failed, emit an `errorCode` so dashboards can break down real failures
+    // by category (auth, rate-limit, network, parse, …) instead of lumping
+    // them all into "failed."
+    const failureCode = providerErrors.size > 0
+      ? classifyProviderErrors(providerErrors)
+      : undefined
+    trackEvent(
+      'run.completed',
+      buildRunCompletedProps({
+        status: finalStatus,
+        providerCount: executionContext.providerCount,
+        providers: executionContext.providers,
+        queryCount: executionContext.queryCount,
+        startTime: input.startTime,
+        trigger: executionContext.trigger,
+        canonicalDomain: executionContext.canonicalDomain,
+        phases: input.phases,
+        location: executionContext.location,
+      }),
+      failureCode ? { errorCode: failureCode } : undefined,
+    )
+
+    // Activation is a non-empty first answer-visibility result, not merely a
+    // run row reaching "completed". This excludes probes, zero-query runs,
+    // and later routine sweeps so the funnel has one durable success event.
+    if (
+      input.kind === RunKinds['answer-visibility']
+      && executionContext.trigger !== RunTriggers.probe
+      && input.inserted > 0
+      && !this.hasPriorActivation(projectId, runId)
+    ) {
+      trackEvent('activation.completed', {
+        flowVersion: ONBOARDING_FLOW_VERSION,
+        kind: 'answer_visibility',
+        status: finalStatus,
+        providerCountBucket: bucketOnboardingCount(executionContext.providerCount),
+        queryCountBucket: bucketOnboardingCount(executionContext.queryCount),
+        snapshotCountBucket: bucketOnboardingCount(input.inserted),
+      })
+      try {
+        this.onFirstActivation?.()
+      } catch {
+        // A celebration must never fail a run.
+      }
+    }
+
+    this.incrementUsage(projectId, 'runs', 1)
+
+    // Notify after run completion
+    if (this.onRunCompleted) {
+      this.onRunCompleted(runId, projectId).catch((err: unknown) => {
+        log.error('notification.callback-failed', { runId, error: describeError(err) })
+      })
+    }
+    return true
   }
 
   /**
