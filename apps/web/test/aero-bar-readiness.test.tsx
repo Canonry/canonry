@@ -620,3 +620,22 @@ test('unmounting the demo bar stops playback', async () => {
   unmount()
   expect(abort).toHaveBeenCalled()
 })
+
+test('grows the composer with a multi-line message up to a cap, so its first lines stay in view', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ messages: [], modelProvider: null, modelId: null, updatedAt: null })
+  let contentHeight = 72
+  vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => contentHeight)
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const input = screen.getByRole('textbox', { name: 'Message Aero' }) as HTMLTextAreaElement
+
+  fireEvent.change(input, { target: { value: 'line one\nline two\nline three' } })
+  expect(input.style.height).toBe('72px')
+
+  contentHeight = 600
+  fireEvent.change(input, { target: { value: 'a much longer message\n'.repeat(20) } })
+  expect(input.style.height).toBe('144px')
+})

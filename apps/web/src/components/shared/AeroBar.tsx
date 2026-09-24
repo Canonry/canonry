@@ -246,6 +246,15 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   const abortRef = useRef<AbortController | null>(null)
   const { ref: transcriptRef } = useChatScroll<HTMLDivElement>([messages, streamingText, liveTrail])
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  // Grow the composer with its text, up to a cap, so the start of a long or
+  // multi-line message stays in view instead of scrolling out of a one-row box.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    const cap = expanded ? COMPOSER_MAX_HEIGHT_EXPANDED_PX : COMPOSER_MAX_HEIGHT_PX
+    if (textarea.scrollHeight > 0) textarea.style.height = `${Math.min(textarea.scrollHeight, cap)}px`
+  }, [draft, expanded, open])
   const [paletteIndex, setPaletteIndex] = useState(0)
 
   // Palette opens when the draft starts with `/` and has no whitespace yet —
@@ -927,7 +936,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   placeholder={historyOpen ? 'Open a conversation to continue…' : preview ? 'Type / for a starting point' : 'Ask Aero, or / for commands…'}
                   aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
-                  className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
+                  className="flex-1 resize-none overflow-y-auto bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
                 />
                 {streaming ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()} aria-label="Stop Aero">
@@ -1071,6 +1080,10 @@ function ProviderPicker({
     </div>
   )
 }
+
+/** Tallest the composer grows before it scrolls: about 6 lines compact, 12 expanded. */
+const COMPOSER_MAX_HEIGHT_PX = 144
+const COMPOSER_MAX_HEIGHT_EXPANDED_PX = 288
 
 /** The list's tallest size, in px, when the panel has room (Tailwind `max-h-72`). */
 const PALETTE_MAX_LIST_PX = 288
