@@ -1899,11 +1899,11 @@ export class JobRunner {
     line: ProviderBatchResultLine,
   ): Promise<{ outcome: ProviderBatchRequestOutcome; error: string | null }> {
     if (line.type !== 'succeeded') return { outcome: unansweredOutcome(line.type), error: line.error }
-    const parse = registered.adapter.parseTrackedQueryResponse
-    if (!parse) throw new Error(`Provider ${registered.adapter.name} cannot read a batch answer`)
+    const { adapter } = registered
+    if (!adapter.parseTrackedQueryResponse) throw new Error(`Provider ${adapter.name} cannot read a batch answer`)
     let raw: RawQueryResult
     try {
-      raw = parse(line.body, request.requestedModel)
+      raw = adapter.parseTrackedQueryResponse(line.body, request.requestedModel)
     } catch (err: unknown) {
       // Where the sync call would have thrown on the same body (Claude: a
       // failed web search). The answer was billed but cannot be read.
