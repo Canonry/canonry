@@ -151,7 +151,7 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 ### `packages/intelligence/` — Insights + health snapshot logic
 
 ### Providers (`packages/provider-*`)
-`provider-gemini`, `provider-openai`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`. Every API provider (not cdp) splits `executeTrackedQuery` into `buildTrackedQueryRequest` + `parseTrackedQueryResponse`.
+`provider-gemini`, `provider-openai`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`. Every API provider (not cdp) splits `executeTrackedQuery` into `buildTrackedQueryRequest` + `parseTrackedQueryResponse`; `provider-claude/src/batch.ts` is the Message Batches capability (`adapter.batch`).
 
 ### Integrations (`packages/integration-*`)
 `integration-google`, `integration-google-ads` (read-only Google Ads discovery and snapshots), `integration-google-analytics`, `integration-bing`, `integration-google-business-profile`, `integration-google-places`, `integration-google-tag-manager` (read-only GTM discovery and live-container snapshots), `integration-openai-ads`, `integration-wordpress`, `integration-commoncrawl`, `integration-cloud-run`, `integration-cloudflare-worker` (transport-neutral edge batch + ES-module direct-push / Queue-producer delivery), `integration-cloudflare-queue` (Queues HTTP pull/ack client), `integration-vercel`, `integration-traffic`, `integration-wordpress-traffic`.

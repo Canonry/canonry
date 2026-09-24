@@ -1,4 +1,5 @@
 import { listModels } from './list-models.js'
+import { claudeBatch } from './batch.js'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -105,6 +106,9 @@ export const claudeAdapter: ProviderAdapter = {
   parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
     return toRawQueryResult(claudeParseTrackedQueryResponse(body, model))
   },
+
+  // Message Batches: the same request bodies at half the token price. See batch.ts.
+  batch: claudeBatch,
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {
     const claudeRaw = {

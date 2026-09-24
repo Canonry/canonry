@@ -10,6 +10,7 @@ Claude/Anthropic adapter — implements `ProviderAdapter` for Anthropic's Messag
 |------|------|
 | `src/adapter.ts` | Exports `claudeAdapter` — the `ProviderAdapter` object |
 | `src/normalize.ts` | Core logic: `validateConfig`, `healthcheck`, `buildTrackedQueryRequest`, `executeTrackedQuery`, `parseTrackedQueryResponse`, `normalizeResult`, `generateText` |
+| `src/batch.ts` | `claudeBatch` — the Message Batches capability (`adapter.batch`): submit/poll/results/cancel. Retries are canonry's (SDK `maxRetries: 0`); a submit is retried only on a 429, and its error is `definite` only when nothing was sent or the provider answered a 4xx other than 408/409 |
 | `src/types.ts` | Claude-specific config and response types |
 | `src/index.ts` | Re-exports public API |
 
