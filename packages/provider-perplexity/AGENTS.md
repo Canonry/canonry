@@ -2,14 +2,15 @@
 
 ## Purpose
 
-Perplexity adapter — implements `ProviderAdapter` for Perplexity's API. Extracts cited domains from Perplexity's citation metadata.
+Perplexity adapter — implements `ProviderAdapter` over Perplexity's Agent API (`POST /v1/agent`). Extracts cited domains from the `search_results` output item. Full behavior: `docs/providers/perplexity.md`.
 
 ## Key Files
 
 | File | Role |
 |------|------|
 | `src/adapter.ts` | Exports `perplexityAdapter` — the `ProviderAdapter` object |
-| `src/normalize.ts` | Core logic: `validateConfig`, `healthcheck`, `buildTrackedQueryRequest`, `executeTrackedQuery`, `parseTrackedQueryResponse`, `normalizeResult`, `generateText` |
+| `src/normalize.ts` | Core logic: `validateConfig`, `healthcheck`, `buildTrackedQueryRequest`, `executeTrackedQuery`, `parseTrackedQueryResponse`, `normalizeResult`, `generateText`, plus the Agent and stored-Sonar parsers |
+| `test/fixtures/` | Agent API response fixtures (schema-derived, not live captures — see its README) |
 | `src/types.ts` | Perplexity-specific config and response types |
 | `src/index.ts` | Re-exports public API |
 
@@ -20,9 +21,16 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
 - **`executeTrackedQuery(input)`** — send a tracked query and capture citations
-  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
+  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (status check, usage, and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
+
+## Rules
+
+- **The Agent API is strict.** Any unknown request field, top-level or nested, is a 400. Send only fields in `PerplexityAgentRequest` (`src/types.ts`).
+- **Branch on `status`, not the HTTP code.** Failed and cancelled runs return HTTP 200.
+- **Keep the Sonar parser.** Stored rows are Sonar Chat Completions; `reparseStoredResult` dispatches on the `output` array.
+- **Retired model ids resolve in one table.** Add a rename or retirement to `PROVIDER_MODEL_ALIASES` in `packages/contracts/src/models.ts`, never inline here, and keep `validationPattern` accepting every key (a test pins it). Mirror registry changes in `apps/api/src/app.ts`.
 
 ## Common Mistakes
 

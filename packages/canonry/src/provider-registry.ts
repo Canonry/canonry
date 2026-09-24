@@ -1,5 +1,5 @@
 import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
-import { isBrowserProvider } from '@ainyc/canonry-contracts'
+import { isBrowserProvider, resolveProviderModel } from '@ainyc/canonry-contracts'
 
 export interface RegisteredProvider {
   adapter: ProviderAdapter
@@ -10,7 +10,13 @@ export class ProviderRegistry {
   private providers = new Map<ProviderName, RegisteredProvider>()
 
   register(adapter: ProviderAdapter, config: ProviderConfig): void {
-    this.providers.set(adapter.name, { adapter, config })
+    // A retired model id in config.yaml (Perplexity's `sonar`) is stored as the
+    // id that now answers, so settings, run manifests, and snapshots all name
+    // the engine that actually ran.
+    const resolved = config.model === undefined
+      ? config
+      : { ...config, model: resolveProviderModel(adapter.name, config.model) }
+    this.providers.set(adapter.name, { adapter, config: resolved })
   }
 
   get(name: ProviderName): RegisteredProvider | undefined {

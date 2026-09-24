@@ -67,11 +67,14 @@ export const PricingTiers = pricingTierSchema.enum
  *
  * - `inputTokens`       — uncached input tokens (billed at the input rate)
  * - `cachedInputTokens` — cache-read input tokens
- * - `cacheWriteTokens`  — cache-creation input tokens (Claude only; 0 elsewhere)
+ * - `cacheWriteTokens`  — cache-creation input tokens (Claude, and Perplexity
+ *   when its Agent API reports them; 0 elsewhere)
  * - `outputTokens`      — output tokens, reasoning included
  * - `searchCount`       — web searches the provider executed for this answer
  *   (Claude `usage.server_tool_use.web_search_requests`, OpenAI `web_search_call`
- *   output items, Gemini `groundingMetadata.webSearchQueries` length)
+ *   output items, Gemini `groundingMetadata.webSearchQueries` length, Perplexity
+ *   `usage.tool_calls_details.web_search.invocation` or else its
+ *   `search_results` output items)
  */
 export const providerUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),

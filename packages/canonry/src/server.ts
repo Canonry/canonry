@@ -3143,7 +3143,7 @@ export async function createServer(opts: {
       const entry = providerSummary.find((p) => p.name === name);
       if (entry) {
         entry.configured = true;
-        entry.model = model || registry.get(name)?.config.model;
+        entry.model = registry.get(name)?.config.model;
         entry.quota = quota;
         if (name === "gemini") {
           entry.vertexConfigured =

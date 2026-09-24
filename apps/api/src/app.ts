@@ -115,15 +115,15 @@ export function buildApp(env: PlatformEnv) {
     },
     {
       name: 'perplexity', displayName: 'Perplexity', mode: 'api' as const, modelConfigurable: true,
-      defaultModel: 'sonar',
+      defaultModel: 'fast',
       knownModels: [
-        { id: 'sonar', displayName: 'Sonar', tier: 'standard' as const },
-        { id: 'sonar-pro', displayName: 'Sonar Pro', tier: 'flagship' as const },
-        { id: 'sonar-reasoning', displayName: 'Sonar Reasoning', tier: 'flagship' as const },
-        { id: 'sonar-reasoning-pro', displayName: 'Sonar Reasoning Pro', tier: 'flagship' as const },
+        { id: 'fast', displayName: 'Fast preset', tier: 'standard' as const },
+        { id: 'low', displayName: 'Low preset (pro search)', tier: 'flagship' as const },
+        { id: 'medium', displayName: 'Medium preset (deep research)', tier: 'flagship' as const },
+        { id: 'perplexity/sonar', displayName: 'Sonar model + web search', tier: 'fast' as const },
       ],
-      modelValidationPattern: /^sonar/,
-      modelValidationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
+      modelValidationPattern: /^(?:fast|low|medium|high|xhigh|fast-search|pro-search|deep-research|advanced-deep-research|sonar(?:-pro|-reasoning|-reasoning-pro|-deep-research)?|[a-z0-9][a-z0-9-]*\/[A-Za-z0-9][\w.:-]*)$/,
+      modelValidationHint: 'expected an Agent API preset (fast, low, medium, high, xhigh) or a provider/model slug (e.g. perplexity/sonar)',
     },
     {
       name: 'local', displayName: 'Local', mode: 'api' as const, modelConfigurable: true,

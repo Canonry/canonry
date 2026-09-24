@@ -14,7 +14,7 @@ import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
  *   openai      normalize.ts sets `user_location` on the web_search tool
  *   claude      normalize.ts sets `user_location` on the web_search tool
  *   gemini      normalize.ts appends the location to the prompt text
- *   perplexity  normalize.ts appends the location to the prompt text
+ *   perplexity  normalize.ts sets `user_location` on the web_search tool
  *   local       normalize.ts appends the location to the system message
  *   cdp:chatgpt sends nothing; the browser session's own geolocation decides
  */

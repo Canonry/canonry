@@ -14,7 +14,7 @@ model-selection criteria and the answer and citation evidence that each adapter 
 | Gemini | `provider-gemini` | API | Google Gemini with `googleSearch` grounding |
 | OpenAI | `provider-openai` | API | OpenAI Responses API with `web_search` |
 | Claude | `provider-claude` | API | Anthropic Messages API with `web_search_20250305` |
-| Perplexity | `provider-perplexity` | API | Perplexity Sonar / OpenAI-compatible Chat Completions |
+| Perplexity | `provider-perplexity` | API | Perplexity Agent API (`/v1/agent`, `fast` preset) with forced `web_search` |
 | Local | `provider-local` | API | Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM) |
 | CDP | `provider-cdp` | Browser | Chrome DevTools Protocol (e.g., ChatGPT UI automation) |
 
@@ -54,7 +54,7 @@ interface ProviderAdapter {
 - [Gemini](./gemini.md) — googleSearch grounding, support-based citation selection, base64 proxy URLs
 - [OpenAI](./openai.md) — web_search tool, URL annotation extraction, web_search_call query parsing
 - [Claude](./claude.md) — web_search_20250305 tool, final-text citation extraction, tool error handling
-- [Perplexity](./perplexity.md) — `search_results` vs `citations`, no returned search-query telemetry
+- [Perplexity](./perplexity.md) — Agent API presets, `search_results` output item, retired Sonar ids, stored Sonar history
 - [Local](./local.md) — OpenAI-compatible endpoints, no web search grounding
 
 

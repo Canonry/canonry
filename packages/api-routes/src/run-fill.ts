@@ -7,6 +7,7 @@ import {
   RunFillRefusalCodes,
   RunKinds,
   RunTriggers,
+  resolveProviderModel,
   type RunCompletenessDto,
   type RunFillDto,
   type RunFillRefusalCode,
@@ -92,6 +93,22 @@ export function newerFullSweep(db: DatabaseClient, run: Pick<RunRow, 'id' | 'pro
   )).orderBy(desc(runs.createdAt)).get()
 }
 
+/**
+ * Whether a run answered `provider` on a model id that has since been retired
+ * (Perplexity's `sonar`, now served by the Agent API's `fast`). A fill would run
+ * the replacement engine under the run's original identity.
+ *
+ * The stored identity decides: runs queued since the switch record the id that
+ * answers (never a retired one), while earlier runs recorded the retired id
+ * itself. A mixed-model engine is absent from earlier identities, so the
+ * frozen slots decide for it; from the switch on it is always recorded.
+ */
+function measuredOnRetiredModel(run: RunRow, provider: string, missing: readonly MeasurementRunSlot[]): boolean {
+  const recorded = run.measurementExecutionIdentity?.models[provider]
+  if (recorded !== undefined) return resolveProviderModel(provider, recorded) !== recorded
+  return missing.some(slot => typeof slot.requestedModel === 'string' && resolveProviderModel(provider, slot.requestedModel) !== slot.requestedModel)
+}
+
 /** Every rule, in the order an operator would want to hear about them. */
 export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillInput = {}): RunFillEvaluation {
   const slots = measurementRunSlotState(db, run.id)
@@ -171,6 +188,13 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   if (unfrozen.length) {
     return refuse(RunFillRefusalCodes.model_not_frozen,
       `${unfrozen.length} missing answer(s) have no model frozen in the run's manifest, so filling them would use today's model instead of the one the run measured with.`)
+  }
+
+  const retired = providers.filter(provider => measuredOnRetiredModel(run, provider, missingByProvider.get(provider) ?? []))
+  if (retired.length) {
+    return refuse(RunFillRefusalCodes.model_retired,
+      `This run measured ${retired.join(', ')} on a model the provider has since retired, and the replacement is a different engine. `
+      + 'Filling it now would mix two engines in one run; run a new sweep instead.')
   }
 
   if (input.runnableProviders) {

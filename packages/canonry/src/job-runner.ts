@@ -6,7 +6,7 @@ import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzl
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
-import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
+import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -750,7 +750,10 @@ export class JobRunner {
       } else {
         const projectProviders = providerOverride ?? (project.providers as ProviderName[])
         activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
-          const model = project.providerModels[entry.adapter.name]
+          const override = project.providerModels[entry.adapter.name]
+          // An override stored before its model was retired resolves to the id
+          // that answers now, matching what the registry holds for config.yaml.
+          const model = override === undefined ? undefined : resolveProviderModel(entry.adapter.name, override)
           // Clone the registration instead of mutating the shared registry: two
           // projects can run different models through the same provider process.
           return model === undefined
