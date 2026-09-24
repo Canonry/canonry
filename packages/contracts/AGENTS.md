@@ -15,6 +15,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
+| `src/provider-batch.ts` / `src/run-dispatch.ts` | Batch dispatch (#1201): provider-level vocabulary (dispatch mode, batch status, usage, prices, the adapter capability) and the run layer on top of it — `resolveRunDispatchModes` (the one eligibility rule set, applied at queue time), `describeBatchIneligibility` (the only wording of each reason), the batch ledger `outcome` enum, and `summarizeRunUsage` (the run detail's usage sum; an answer without usage counts nowhere, an unpriced group's cost is null). |
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/research.ts` | Research DTOs and shared helpers for exact-text deduplication and declared template bindings/expansion. |
