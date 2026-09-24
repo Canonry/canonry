@@ -732,7 +732,9 @@ describe('a run that already reached a provider batch', () => {
     expect(await runner.ingestProviderBatch(batch!.id)).toEqual({ kind: 'cancelled' })
 
     expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
-    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 0, quotaReleased: 0 })
+    // It reports the line it recorded before the cancel; its reservation stays.
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 1, recordedCount: 1, quotaReleased: 0 })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(3)
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
