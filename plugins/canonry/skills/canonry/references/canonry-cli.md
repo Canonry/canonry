@@ -255,11 +255,14 @@ cnry sources <project> --rank --limit 20        # top 20 domains; an explicit lo
 cnry sources <project> --by-provider            # per-provider cited-domain mix + each provider's total cited slots
 cnry sources <project> --window 30d --format json   # window-filterable; --format json emits the SourceBreakdownDto directly
 cnry sources <project> --rank --format jsonl    # stream the ranked domains, one self-contained record per line
+cnry sources <project> --query-class non-brand --run-id <run-id> --rank   # sources behind the non-brand answers of one sweep
+cnry sources <project> --include-by-query false --format json             # drop the large per-query breakdown (byQuery)
 ```
 
 - **Surface class** is deterministic (no LLM): `own` = the project's `canonicalDomain`/`ownedDomains`; `direct-competitor` = a tracked competitor; `ota-aggregator` = directories/marketplaces (Yelp, Booking.com, Tripadvisor, Amazon…); `editorial-media` = news/blogs/reference; `other` = everything else. When discovery has run, its stored per-domain classifications (`domain_classifications`) enrich recall for niche OTAs/regional media the static allow-list misses — `own` and tracked competitors always stay authoritative. Running `cnry discover run` improves coverage.
 - The ranked list is **not truncated** by default (the old top-5-per-category cap is gone). Pass `--limit N` to cap each list; the response carries `truncatedDomainCount` / `truncatedCitedSlots` so totals always reconcile.
-- Counts are **cited slots** (grounding citations), so a domain cited 3× in one answer counts 3. Probe runs are excluded.
+- Counts are **cited slots**: one per (answer, cited domain) pair, so a domain cited 3× in one answer counts once. Probe runs are excluded.
+- Without `--run-id` every run in the window is pooled (the scope line and `runCount` say how many); without `--query-class` branded and non-brand answers are pooled, and branded queries inflate your own domain. `--query-class branded|non-brand` takes the class from an active v2 measurement plan, otherwise from the project's brand name/aliases (a project with neither is refused). Answers the class filter cannot place are excluded and counted in `unclassifiedAnswers`. `--include-by-query` defaults to the server's `true`.
 
 ### Aggregated visibility stats (`cnry visibility-stats`)
 

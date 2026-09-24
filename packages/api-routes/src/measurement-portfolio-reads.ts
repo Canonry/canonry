@@ -9,11 +9,18 @@
 import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  AI_PROVIDER_INFRA_DOMAINS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT,
+  MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+  MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   RunKinds,
   RunStatuses,
   RunTriggers,
   brandKeyFromText,
+  hostMatchesAnyDomain,
+  hostOf,
   measurementChangesQuerySchema,
   measurementChangesResponseSchema,
   measurementDataQualityQuerySchema,
@@ -30,9 +37,12 @@ import {
   type MeasurementDataQualityResponse,
   type MeasurementMetricUnavailableReason,
   type MeasurementPlanV2,
+  type MeasurementPortfolioAnswerSources,
   type MeasurementPortfolioMarket,
   type MeasurementPortfolioMentionRanking,
+  type MeasurementPortfolioMetro,
   type MeasurementPortfolioSummaryQuery,
+  type MeasurementPortfolioWeakestTie,
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsQuery,
   type MeasurementPropertyCompetitorsResponse,
@@ -61,7 +71,10 @@ import {
 import { comparableMeasurementVersionIds, measurementRunExpectedSlots } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 
-/** Compact demo lists intentionally stop at ten unless the caller asks for more. */
+/**
+ * Compact demo lists intentionally stop at ten unless the caller asks for more.
+ * The portfolio summary stops at `MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT` instead.
+ */
 const DEFAULT_LIMIT = 10
 
 type RunRow = typeof runs.$inferSelect
@@ -73,11 +86,17 @@ interface MeasurementFilters {
   location?: string
 }
 
-interface TargetAnswer {
+/** One measured answer, whether or not its text was captured. */
+interface SourceAnswer {
   slotId: string
+  snapshot: typeof querySnapshots.$inferSelect
+  /** The source URLs citation coverage read for this answer: captured, or recovered from its stored raw response. */
+  citedUrls: readonly string[]
+}
+
+interface TargetAnswer extends SourceAnswer {
   provider: string
   question: string
-  snapshot: typeof querySnapshots.$inferSelect
   mentioned: boolean | null
   cited: boolean | null
 }
@@ -211,55 +230,232 @@ function filteredOverviewWithDb(
   }
 }
 
+interface TargetPopulation {
+  /** Filtered expected slots for this Property, answered or not. */
+  expected: number
+  /** Distinct queries behind those slots. */
+  queries: number
+  /** Engines behind those slots. */
+  providers: Set<string>
+  /** Measured answers with text: the population every mention-based field reads. */
+  answers: TargetAnswer[]
+  /**
+   * Every measured answer, with or without text: the population the source
+   * lists read. Source capture is independent of answer-text capture, and
+   * citation coverage already counts an answer whose text did not land.
+   */
+  sourceAnswers: SourceAnswer[]
+}
+
+type TargetAnswerReader = (target: MeasurementPlanV2['targets'][number]) => TargetPopulation
+
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const existing = map.get(key)
+  if (existing) existing.push(value)
+  else map.set(key, [value])
+}
+
+function innerMap<V>(outer: Map<string, Map<string, V>>, key: string): Map<string, V> {
+  let inner = outer.get(key)
+  if (!inner) {
+    inner = new Map<string, V>()
+    outer.set(key, inner)
+  }
+  return inner
+}
+
+/**
+ * Index the filtered run once, then read any number of Properties from it.
+ *
+ * A portfolio read needs answers for its displayed rows and for every
+ * Property tied with the weakest, which can be most of a large portfolio.
+ * Filtering the whole run once per Property was quadratic in its size.
+ */
+function createTargetAnswerReader(
+  plan: MeasurementPlanV2,
+  materialized: MaterializedRun,
+  filters: MeasurementFilters,
+): TargetAnswerReader {
+  const assignmentsByTarget = new Map<string, Map<string, MeasurementPlanV2['assignments'][number]>>()
+  for (const assignment of plan.assignments) {
+    if (filters.queryClass !== 'all' && assignment.queryClass !== filters.queryClass) continue
+    innerMap(assignmentsByTarget, assignment.targetKey).set(assignment.executionNodeKey, assignment)
+  }
+  const edgesByTarget = new Map<string, Map<string, MaterializedRun['input']['usageEdges'][number]>>()
+  for (const edge of materialized.input.usageEdges) {
+    if (edge.type !== 'target') continue
+    innerMap(edgesByTarget, edge.targetId).set(edge.executionId, edge)
+  }
+  const answersByEdge = new Map<string, Map<string, MaterializedRun['evidence']['answers'][number]>>()
+  for (const answer of materialized.evidence.answers) {
+    innerMap(answersByEdge, answer.usageEdgeId).set(answer.expectedSlotId, answer)
+  }
+  const citedSlotsByEdge = new Map<string, Set<string>>()
+  for (const row of materialized.evidence.evidence) {
+    if (row.classification !== 'assigned') continue
+    const slots = citedSlotsByEdge.get(row.usageEdgeId)
+    if (slots) slots.add(row.expectedSlotId)
+    else citedSlotsByEdge.set(row.usageEdgeId, new Set([row.expectedSlotId]))
+  }
+  const incompleteObservationIds = new Set(materialized.evidence.diagnostics.evidenceIncompleteObservationIds)
+  const questionsById = new Map(plan.querySnapshots.map(question => [question.queryId, question.queryText]))
+  const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
+  const location = filters.location === undefined ? undefined : normalizeMeasurementLocation(filters.location)
+  // Run order, so every reader sees a Property's answers in the same sequence.
+  const slotsByExecution = new Map<string, Array<MaterializedRun['input']['expectedSlots'][number]>>()
+  const slotOrder = new Map<string, number>()
+  materialized.input.expectedSlots.forEach((slot, index) => {
+    if (provider !== undefined && normalizeText(slot.provider) !== provider) return
+    if (location !== undefined && normalizeMeasurementLocation(slot.location) !== location) return
+    pushTo(slotsByExecution, slot.executionId, slot)
+    slotOrder.set(slot.id, index)
+  })
+
+  return target => {
+    const assignments = assignmentsByTarget.get(target.stableKey)
+    const edges = edgesByTarget.get(target.stableKey)
+    const answers: TargetAnswer[] = []
+    const sourceAnswers: SourceAnswer[] = []
+    const queries = new Set<string>()
+    const providers = new Set<string>()
+    let expected = 0
+    if (!assignments || !edges) return { expected, queries: 0, providers, answers, sourceAnswers }
+    for (const [executionId, assignment] of assignments) {
+      const edge = edges.get(executionId)
+      const slots = slotsByExecution.get(executionId)
+      if (!edge || !slots) continue
+      queries.add(assignment.queryId)
+      const answerBySlot = answersByEdge.get(edge.id)
+      const citedSlotIds = citedSlotsByEdge.get(edge.id)
+      for (const slot of slots) {
+        expected++
+        providers.add(slot.provider)
+        const observation = materialized.observationsBySlot.get(slot.id)
+        const snapshot = observation === undefined ? undefined : materialized.snapshotsById.get(observation.id)
+        if (!observation || !snapshot) continue
+        const sourced: SourceAnswer = {
+          slotId: slot.id,
+          snapshot,
+          citedUrls: observation.citedUrls ?? observation.historicalCitedUrls ?? [],
+        }
+        sourceAnswers.push(sourced)
+        if (snapshot.answerText === null) continue
+        answers.push({
+          ...sourced,
+          provider: slot.provider,
+          question: questionsById.get(assignment.queryId) ?? slot.queryText,
+          mentioned: target.mentionNotApplicable
+            ? null
+            : answerBySlot?.get(slot.id)?.mentioned ?? null,
+          cited: citedSlotIds?.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false,
+        })
+      }
+    }
+    const inRunOrder = (left: SourceAnswer, right: SourceAnswer) => slotOrder.get(left.slotId)! - slotOrder.get(right.slotId)!
+    answers.sort(inRunOrder)
+    sourceAnswers.sort(inRunOrder)
+    return { expected, queries: queries.size, providers, answers, sourceAnswers }
+  }
+}
+
 function targetAnswers(
   plan: MeasurementPlanV2,
   target: MeasurementPlanV2['targets'][number],
   materialized: MaterializedRun,
   filters: MeasurementFilters,
-): { expected: number; answers: TargetAnswer[] } {
-  const assignmentsByExecution = new Map(plan.assignments
-    .filter(assignment => assignment.targetKey === target.stableKey)
-    .filter(assignment => filters.queryClass === 'all' || assignment.queryClass === filters.queryClass)
-    .map(assignment => [assignment.executionNodeKey, assignment]))
-  const edgesByExecution = new Map(materialized.input.usageEdges
-    .filter(edge => edge.type === 'target' && edge.targetId === target.stableKey)
-    .filter(edge => assignmentsByExecution.has(edge.executionId))
-    .map(edge => [edge.executionId, edge]))
-  const ownEdgeIds = new Set([...edgesByExecution.values()].map(edge => edge.id))
-  const answerBySlot = new Map(materialized.evidence.answers.filter(answer => ownEdgeIds.has(answer.usageEdgeId)).map(answer => [answer.expectedSlotId, answer]))
-  const citedSlotIds = new Set(materialized.evidence.evidence
-    .filter(row => ownEdgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
-    .map(row => row.expectedSlotId))
-  const incompleteObservationIds = new Set(materialized.evidence.diagnostics.evidenceIncompleteObservationIds)
-  const questionsById = new Map(plan.querySnapshots.map(question => [question.queryId, question.queryText]))
-  const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
-  const location = filters.location === undefined ? undefined : normalizeMeasurementLocation(filters.location)
+): TargetPopulation {
+  return createTargetAnswerReader(plan, materialized, filters)(target)
+}
 
-  const slots = materialized.input.expectedSlots.filter(slot => (
-    assignmentsByExecution.has(slot.executionId)
-    && edgesByExecution.has(slot.executionId)
-    && (provider === undefined || normalizeText(slot.provider) === provider)
-    && (location === undefined || normalizeMeasurementLocation(slot.location) === location)
-  ))
-  const answers: TargetAnswer[] = []
-  for (const slot of slots) {
-    const observation = materialized.observationsBySlot.get(slot.id)
-    const snapshot = observation === undefined ? undefined : materialized.snapshotsById.get(observation.id)
-    if (!snapshot || snapshot.answerText === null) continue
-    const assignment = assignmentsByExecution.get(slot.executionId)
-    if (!assignment) throw new Error(`measurement assignment provenance is corrupt for execution ${slot.executionId}`)
-    answers.push({
-      slotId: slot.id,
-      provider: slot.provider,
-      question: questionsById.get(assignment.queryId) ?? slot.queryText,
-      snapshot,
-      mentioned: target.mentionNotApplicable
-        ? null
-        : answerBySlot.get(slot.id)?.mentioned ?? null,
-      cited: citedSlotIds.has(slot.id) ? true : incompleteObservationIds.has(snapshot.id) ? null : false,
-    })
+/** Distinct queries the plan assigns a Property in one class; the basis before any run completes. */
+function plannedQueryCount(plan: MeasurementPlanV2, targetKey: string, queryClass: MeasurementQueryClassFilter): number {
+  return new Set(plan.assignments
+    .filter(assignment => assignment.targetKey === targetKey)
+    .filter(assignment => queryClass === 'all' || assignment.queryClass === queryClass)
+    .map(assignment => assignment.queryId)).size
+}
+
+interface PropertyLocation {
+  metro: MeasurementPortfolioMetro | null
+  otherMetros?: MeasurementPortfolioMetro[]
+  submarkets: string[]
+}
+
+/**
+ * Each Property's place in the plan's reporting groups. A Property is only
+ * ever placed by the groups that hold it: grouping by a label is how a Property
+ * ends up filed under a metro it is not in.
+ */
+function propertyLocations(plan: MeasurementPlanV2): (targetKey: string) => PropertyLocation {
+  const groupsByKey = new Map(plan.groups.map(group => [group.stableKey, group]))
+  const depth = (group: MeasurementPlanV2['groups'][number]): number => {
+    let levels = 0
+    const seen = new Set([group.stableKey])
+    let parentKey = group.parentGroupKey
+    while (parentKey !== undefined && !seen.has(parentKey)) {
+      const parent = groupsByKey.get(parentKey)
+      if (!parent) break
+      seen.add(parentKey)
+      levels++
+      parentKey = parent.parentGroupKey
+    }
+    return levels
   }
-  return { expected: slots.length, answers }
+  const byLabel = (left: { label: string; stableKey: string }, right: { label: string; stableKey: string }) =>
+    compareText(left.label, right.label) || compareText(left.stableKey, right.stableKey)
+  const metros = new Map<string, MeasurementPlanV2['groups'][number][]>()
+  const submarkets = new Map<string, Array<{ group: MeasurementPlanV2['groups'][number]; depth: number }>>()
+  for (const group of plan.groups) {
+    const level = depth(group)
+    for (const targetKey of new Set(group.targetKeys)) {
+      if (level === 0) pushTo(metros, targetKey, group)
+      else pushTo(submarkets, targetKey, { group, depth: level })
+    }
+  }
+  const metroDto = (group: MeasurementPlanV2['groups'][number]): MeasurementPortfolioMetro =>
+    ({ groupKey: group.stableKey, label: group.label })
+  return targetKey => {
+    const own = [...(metros.get(targetKey) ?? [])].sort(byLabel)
+    const nested = [...(submarkets.get(targetKey) ?? [])]
+      .sort((left, right) => left.depth - right.depth || byLabel(left.group, right.group))
+    return {
+      metro: own.length === 0 ? null : metroDto(own[0]!),
+      ...(own.length > 1 ? { otherMetros: own.slice(1).map(metroDto) } : {}),
+      submarkets: nested.map(row => row.group.label),
+    }
+  }
+}
+
+/**
+ * Hosts an answer cited, once each, without provider plumbing such as
+ * grounding redirects: its stored domains plus the hosts of the URLs citation
+ * coverage read. Gemini can store no domain for a redirect it could not
+ * decode while URL capture resolved the source, so the stored domains alone
+ * report a cited answer as citing nothing.
+ */
+function answerDomains(answer: Pick<SourceAnswer, 'snapshot' | 'citedUrls'>): Set<string> {
+  const domains = new Set<string>()
+  for (const raw of [...answer.snapshot.citedDomains, ...answer.citedUrls]) {
+    const host = hostOf(raw)
+    if (!host || hostMatchesAnyDomain(host, AI_PROVIDER_INFRA_DOMAINS)) continue
+    domains.add(host)
+  }
+  return domains
+}
+
+/** Domains ranked by how many of these answers cite them, most first. */
+function domainRows(
+  answers: readonly Pick<SourceAnswer, 'snapshot' | 'citedUrls'>[],
+  limit: number,
+): { rows: Array<{ domain: string; answers: number }>; total: number } {
+  const counts = new Map<string, number>()
+  for (const answer of answers) {
+    for (const domain of answerDomains(answer)) counts.set(domain, (counts.get(domain) ?? 0) + 1)
+  }
+  const rows = [...counts]
+    .map(([domain, count]) => ({ domain, answers: count }))
+    .sort((left, right) => right.answers - left.answers || compareText(left.domain, right.domain))
+  return { rows: rows.slice(0, limit), total: rows.length }
 }
 
 function targetAliasKeys(target: MeasurementPlanV2['targets'][number]): Set<string> {
@@ -278,16 +474,21 @@ function recommendationRows(
     // An incomplete source capture makes target citation unknown. Treating that
     // as a miss would manufacture a competitor from evidence that did not land.
     if (answer.mentioned !== false || answer.cited !== false) continue
+    // One answer counts once per brand, so `occurrences` is a count of answers
+    // even when the stored list spells one brand two ways.
+    const seenInAnswer = new Set<string>()
     for (const rawName of answer.snapshot.recommendedCompetitors) {
       const name = rawName.normalize('NFKC').trim().replace(/\s+/g, ' ')
       const key = brandKeyFromText(name)
       if (!key || aliases.has(key)) continue
       const existing = grouped.get(key)
       if (existing) {
+        // Every spelling competes for the displayed name; only the first in an answer counts it.
+        if (compareText(name, existing.name) < 0) existing.name = name
+        if (seenInAnswer.has(key)) continue
         existing.occurrences++
         existing.providers.add(answer.provider)
         existing.questions.add(answer.question)
-        if (compareText(name, existing.name) < 0) existing.name = name
       } else {
         grouped.set(key, {
           name,
@@ -296,6 +497,7 @@ function recommendationRows(
           questions: new Set([answer.question]),
         })
       }
+      seenInAnswer.add(key)
     }
   }
   return [...grouped.values()]
@@ -314,6 +516,22 @@ function recommendationRows(
       }
     })
     .sort((left, right) => right.occurrences - left.occurrences || compareText(left.name, right.name))
+}
+
+/**
+ * A weakest row's names written instead, under the current field and the
+ * deprecated one existing consumers still read. Both carry the same names in
+ * the same order; `occurrences` is the same per-answer count as `answers`.
+ */
+function namedInsteadFields(names: readonly RecommendationRow[]) {
+  const returned = names.slice(0, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+  return {
+    namedInsteadInAnswerText: returned.map(({ name, occurrences }) => ({ name, answers: occurrences })),
+    namedInsteadInAnswerTextTotal: names.length,
+    recommendedInstead: returned.map(({ name, occurrences }) => ({ name, occurrences })),
+    recommendedInsteadTotal: names.length,
+    recommendedInsteadTruncated: names.length > returned.length,
+  }
 }
 
 function propertyDto(target: MeasurementPlanV2['targets'][number]) {
@@ -393,8 +611,13 @@ function targetKeysForRun(
  * Doing this server-side is what keeps the dashboard to one request and gives
  * the CLI and MCP the same table for free.
  *
- * Returns [] when the caller already narrowed to one group: repeating that
- * group's own numbers under a "compare markets" heading says nothing.
+ * By default the roll-up is one level: the top-level markets, or the selected
+ * group's direct children, worst-first and capped at the response limit. A
+ * large portfolio nests every submarket under a metro, and listing them all
+ * by default pushed the Property rows an agent asked for past its result cap.
+ * The selected group itself is never listed: repeating its own numbers under a
+ * "compare markets" heading says nothing. `includeNestedMarkets` returns every
+ * market in scope at every level, uncapped.
  *
  * Every market is scoped through `targetKeysForRun`, the same narrowing the
  * group-scoped read applies. Scoping on raw `group.targetKeys` instead made one
@@ -406,28 +629,71 @@ function targetKeysForRun(
  */
 function marketRollup(
   plan: MeasurementPlanV2,
-  run: RunRow,
-  evaluator: MeasurementOverviewEvaluator,
-  scopedToOneGroup: boolean,
-): MeasurementPortfolioMarket[] {
-  if (scopedToOneGroup) return []
-  return plan.groups.map(group => {
+  measured: { run: RunRow; evaluator: MeasurementOverviewEvaluator } | undefined,
+  scope: MeasurementPlanV2['groups'][number] | undefined,
+  includeNested: boolean,
+  limit: number,
+): { markets: MeasurementPortfolioMarket[]; totalMarkets: number; marketsTruncated: boolean } {
+  const childCounts = new Map<string, number>()
+  for (const group of plan.groups) {
+    if (group.parentGroupKey !== undefined) childCounts.set(group.parentGroupKey, (childCounts.get(group.parentGroupKey) ?? 0) + 1)
+  }
+  const groupKeys = new Set(plan.groups.map(group => group.stableKey))
+  const isTopLevel = (group: MeasurementPlanV2['groups'][number]) =>
+    group.parentGroupKey === undefined || !groupKeys.has(group.parentGroupKey)
+  let candidates: MeasurementPlanV2['groups']
+  if (scope === undefined) {
+    candidates = includeNested ? plan.groups : plan.groups.filter(isTopLevel)
+  } else if (!includeNested) {
+    candidates = plan.groups.filter(group => group.parentGroupKey === scope.stableKey)
+  } else {
+    const descendants = new Set<string>([scope.stableKey])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const group of plan.groups) {
+        if (group.parentGroupKey !== undefined && descendants.has(group.parentGroupKey) && !descendants.has(group.stableKey)) {
+          descendants.add(group.stableKey)
+          grew = true
+        }
+      }
+    }
+    candidates = plan.groups.filter(group => group.stableKey !== scope.stableKey && descendants.has(group.stableKey))
+  }
+
+  const markets = candidates.map((group): MeasurementPortfolioMarket => {
+    const identity = {
+      groupKey: group.stableKey,
+      label: group.label,
+      parentGroupKey: isTopLevel(group) ? null : group.parentGroupKey!,
+      childMarketCount: childCounts.get(group.stableKey) ?? 0,
+    }
+    if (measured === undefined) {
+      return {
+        ...identity,
+        propertyCount: group.targetKeys.length,
+        propertiesMentioned: unavailable('no_completed_run'),
+        mentionCoverage: unavailable('no_completed_run'),
+        citationCoverage: unavailable('no_completed_run'),
+      }
+    }
     // A market with no member inside the displayed run still goes through the
     // kernel with an empty scope rather than short-circuiting to a hand-picked
     // reason. The kernel is what decides why a metric is unavailable, and the
     // group-scoped read of the same market reaches it the same way — inventing
     // a reason here is how the two surfaces start disagreeing again.
-    const targetKeys = targetKeysForRun(plan, run, group.targetKeys, false)
-    const overview = evaluator.evaluate(targetKeys)
+    const targetKeys = targetKeysForRun(plan, measured.run, group.targetKeys, false)
+    const overview = measured.evaluator.evaluate(targetKeys)
     return {
-      groupKey: group.stableKey,
-      label: group.label,
+      ...identity,
       propertyCount: targetKeys.length,
       propertiesMentioned: countMetric(overview.propertiesMentioned),
       mentionCoverage: coverageMetric(overview.mentionCoverage),
       citationCoverage: coverageMetric(overview.citationCoverage),
     }
   }).sort(compareWeakestMarket)
+  const returned = includeNested ? markets : markets.slice(0, limit)
+  return { markets: returned, totalMarkets: markets.length, marketsTruncated: returned.length < markets.length }
 }
 
 /**
@@ -461,17 +727,22 @@ export function compareWeakestMarket(a: MeasurementPortfolioMarket, b: Measureme
   return compareText(a.label, b.label) || compareText(a.groupKey, b.groupKey)
 }
 
+type PropertyContext = PropertyLocation & { queries: number }
+
 function mentionRanking(
-  rows: readonly { targetKey: string; label: string; mentionCoverage: MetricValue; citationCoverage: MetricValue }[],
+  rows: readonly ({ targetKey: string; label: string; mentionCoverage: MetricValue; citationCoverage: MetricValue } & PropertyContext)[],
   limit: number,
 ): MeasurementPortfolioMentionRanking {
   const eligible: MeasurementPortfolioMentionRanking['strongest'] = []
   const excluded: MeasurementPortfolioMentionRanking['excluded'] = []
-  for (const { targetKey, label, mentionCoverage, citationCoverage } of rows) {
+  for (const { targetKey, label, mentionCoverage, citationCoverage, metro, otherMetros, submarkets, queries } of rows) {
     if (mentionCoverage.state === 'unavailable') {
       excluded.push({ targetKey, label, reason: mentionCoverage.reason })
     } else {
-      eligible.push({ targetKey, label, mentionCoverage, citationCoverage })
+      eligible.push({
+        targetKey, label, metro, ...(otherMetros === undefined ? {} : { otherMetros }), submarkets, queries,
+        mentionCoverage, citationCoverage,
+      })
     }
   }
   const byLabel = (a: { label: string; targetKey: string }, b: { label: string; targetKey: string }) =>
@@ -507,66 +778,76 @@ function portfolioResponse(
     location: query.location,
   }
 
+  const limit = query.limit ?? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT
+  const includeNestedMarkets = query.includeNestedMarkets ?? false
+  const locate = propertyLocations(plan)
+
   if (!run) {
     const rows = targets.map(target => ({
       ...propertyDto(target),
+      ...locate(target.stableKey),
+      queries: plannedQueryCount(plan, target.stableKey, query.queryClass),
       mentionCoverage: unavailable('no_completed_run'),
       citationCoverage: unavailable('no_completed_run'),
       flags: 0,
-      recommendedInstead: [],
-      recommendedInsteadTotal: 0,
-      recommendedInsteadTruncated: false,
+      ...namedInsteadFields([]),
+      citedDomains: [],
+      citedDomainsTotal: 0,
     })).sort(compareWeakest)
-    const limit = query.limit ?? DEFAULT_LIMIT
     return measurementPortfolioSummaryResponseSchema.parse({
       portfolio: { groupKey: group?.stableKey ?? null, label: group?.label ?? null, measurementScope: null },
       measurement,
       queryClass: query.queryClass,
+      engines: [],
       metrics: {
         propertiesMentioned: unavailable('no_completed_run'),
         mentionCoverage: unavailable('no_completed_run'),
         citationCoverage: unavailable('no_completed_run'),
       },
       weakestProperties: rows.slice(0, limit),
+      tiedAtWeakest: null,
+      weakestAnswerSources: null,
       mentionRanking: mentionRanking(rows, limit),
       // Sorted through the same comparator as the measured branch. Plan order
       // is `stableKey`, so emitting it raw put markets in an order the schema
       // documents as worst-first and that changes the moment a run lands.
-      markets: group !== undefined ? [] : plan.groups.map(g => ({
-        groupKey: g.stableKey,
-        label: g.label,
-        propertyCount: g.targetKeys.length,
-        propertiesMentioned: unavailable('no_completed_run'),
-        mentionCoverage: unavailable('no_completed_run'),
-        citationCoverage: unavailable('no_completed_run'),
-      })).sort(compareWeakestMarket),
+      ...marketRollup(plan, undefined, group, includeNestedMarkets, limit),
       totalProperties: rows.length,
       truncated: rows.length > limit,
     })
   }
 
   const { materialized, overview, evaluator } = filteredOverviewWithDb(db, active, plan, run, filters, targetKeys)
+  const readTarget = createTargetAnswerReader(plan, materialized, filters)
+  const populations = new Map(targets.map(target => [target.stableKey, readTarget(target)]))
   const measured = new Map(overview.properties.map(row => [row.targetId, row]))
   const ranked = targets.map(target => {
     const row = measured.get(target.stableKey)
+    const population = populations.get(target.stableKey)!
     return {
       target,
+      population,
       ...propertyDto(target),
+      ...locate(target.stableKey),
+      queries: population.queries,
       mentionCoverage: row ? coverageMetric(row.mentionCoverage) : unavailable('no_population'),
       citationCoverage: row ? coverageMetric(row.citationCoverage) : unavailable('no_population'),
       flags: row?.flags ?? 0,
     }
   }).sort(compareWeakest)
-  const limit = query.limit ?? DEFAULT_LIMIT
-  const rows = ranked.slice(0, limit).map(({ target, ...row }) => {
-    const recommendations = recommendationRows(target, targetAnswers(plan, target, materialized, filters))
+  const displayed = ranked.slice(0, limit)
+  const rows = displayed.map(({ target, population, ...row }) => {
+    const domains = domainRows(population.sourceAnswers, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
     return {
       ...row,
-      recommendedInstead: recommendations.slice(0, 5).map(({ name, occurrences }) => ({ name, occurrences })),
-      recommendedInsteadTotal: recommendations.length,
-      recommendedInsteadTruncated: recommendations.length > 5,
+      ...namedInsteadFields(recommendationRows(target, population)),
+      citedDomains: domains.rows,
+      citedDomainsTotal: domains.total,
     }
   })
+  const tie = weakestTie(ranked)
+  const engines = new Set<string>()
+  for (const population of populations.values()) for (const provider of population.providers) engines.add(provider)
   return measurementPortfolioSummaryResponseSchema.parse({
     portfolio: {
       groupKey: group?.stableKey ?? null,
@@ -575,17 +856,62 @@ function portfolioResponse(
     },
     measurement,
     queryClass: query.queryClass,
+    engines: [...engines].sort(compareText),
     metrics: {
       propertiesMentioned: countMetric(overview.propertiesMentioned),
       mentionCoverage: coverageMetric(overview.mentionCoverage),
       citationCoverage: coverageMetric(overview.citationCoverage),
     },
-    weakestProperties: rows.slice(0, limit),
+    weakestProperties: rows,
+    tiedAtWeakest: tie.summary,
+    weakestAnswerSources: weakestAnswerSources([...displayed, ...tie.rows]),
     mentionRanking: mentionRanking(ranked, limit),
-    markets: marketRollup(plan, run, evaluator, group !== undefined),
+    ...marketRollup(plan, { run, evaluator }, group, includeNestedMarkets, limit),
     totalProperties: ranked.length,
     truncated: ranked.length > limit,
   })
+}
+
+/**
+ * Properties sharing the weakest row's exact rates. Among them the order is
+ * only the label tie-break, so "first" is alphabetical, not worst.
+ */
+function weakestTie<Row extends { mentionCoverage: MetricValue; citationCoverage: MetricValue }>(
+  ranked: readonly Row[],
+): { summary: MeasurementPortfolioWeakestTie | null; rows: Row[] } {
+  if (ranked.length === 0) return { summary: null, rows: [] }
+  const first = ranked[0]!
+  if (first.mentionCoverage.state !== 'available' || first.citationCoverage.state !== 'available') {
+    return { summary: null, rows: [] }
+  }
+  const mentionRate = first.mentionCoverage.value
+  const citationRate = first.citationCoverage.value
+  const rows = ranked.filter(row => (
+    row.mentionCoverage.state === 'available' && row.mentionCoverage.value === mentionRate
+    && row.citationCoverage.state === 'available' && row.citationCoverage.value === citationRate
+  ))
+  if (rows.length < 2) return { summary: null, rows: [] }
+  return {
+    summary: { count: rows.length, mentionRate, citationRate, note: MEASUREMENT_PORTFOLIO_TIE_NOTE },
+    rows,
+  }
+}
+
+/**
+ * Cited domains over the weakest Properties' measured answers, each stored
+ * answer counted once, whether or not its text was captured.
+ */
+function weakestAnswerSources(
+  rows: readonly { targetKey: string; population: TargetPopulation }[],
+): MeasurementPortfolioAnswerSources {
+  const properties = new Set<string>()
+  const answers = new Map<string, SourceAnswer>()
+  for (const row of rows) {
+    properties.add(row.targetKey)
+    for (const answer of row.population.sourceAnswers) answers.set(answer.snapshot.id, answer)
+  }
+  const domains = domainRows([...answers.values()], MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT)
+  return { properties: properties.size, answers: answers.size, domains: domains.rows, domainTotal: domains.total }
 }
 
 function propertyCompetitorsResponse(
@@ -969,7 +1295,12 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
     '/projects/:name/measurement-portfolio-summary',
     async request => {
       const project = resolveProject(app.db, request.params.name)
-      const query = parseLimitQuery(request.query, measurementPortfolioSummaryQuerySchema, 'Invalid measurement portfolio summary query')
+      const nested = request.query.includeNestedMarkets
+      // A query string carries the flag as text; anything but true/false is left to fail validation.
+      const raw = nested === 'true' || nested === 'false'
+        ? { ...request.query, includeNestedMarkets: nested === 'true' }
+        : request.query
+      const query = parseLimitQuery(raw, measurementPortfolioSummaryQuerySchema, 'Invalid measurement portfolio summary query')
       const { active, plan } = activeV2Plan(app.db, project.id, 'Portfolio summary')
       return portfolioResponse(app.db, active, plan, query)
     },

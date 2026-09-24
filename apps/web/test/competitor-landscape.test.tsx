@@ -103,6 +103,16 @@ describe('CompetitorLandscape', () => {
     for (const pin of pinned) expect(screen.getByRole('rowheader', { name: pin.label })).toBeTruthy()
   })
 
+  test('says when the observed-name list is the top slice of a longer list', () => {
+    const observedNames = [{ name: 'Harbor Lofts', answerCount: 3 }, { name: 'Pier Flats', answerCount: 2 }]
+    renderLandscape({ landscape: landscape({ observedNames, observedNamesTotal: 75 }) })
+    expect(screen.getByText('Showing the 2 most frequent of 75 names.')).toBeTruthy()
+    expect(screen.getByText('Harbor Lofts · 3 answers')).toBeTruthy()
+    cleanup()
+    renderLandscape({ landscape: landscape({ observedNames, observedNamesTotal: 2 }) })
+    expect(screen.queryByText(/most frequent of/)).toBeNull()
+  })
+
   test.each([0, 1, 5])('does not offer expansion for %s observed competitors', (count) => {
     renderLandscape({ landscape: landscape({ observed: observedRows(count) }) })
     expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull()

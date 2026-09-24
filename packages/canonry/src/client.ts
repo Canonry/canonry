@@ -2284,13 +2284,26 @@ export class ApiClient {
 
   async getAnalyticsSources(
     project: string,
-    opts: { window?: string; limit?: number } = {},
+    opts: {
+      window?: string
+      limit?: number
+      runId?: string
+      queryClass?: 'all' | 'branded' | 'non-brand'
+      /** Omit to keep the server default (byQuery included). */
+      includeByQuery?: boolean
+    } = {},
   ): Promise<SourceBreakdownDto> {
     return this.invoke<SourceBreakdownDto>(() =>
       getApiV1ProjectsByNameAnalyticsSources({
         client: this.heyClient,
         path: { name: project },
-        query: { window: opts.window, limit: opts.limit } as never,
+        query: {
+          window: opts.window,
+          limit: opts.limit,
+          runId: opts.runId,
+          queryClass: opts.queryClass,
+          ...(opts.includeByQuery === undefined ? {} : { includeByQuery: opts.includeByQuery ? 'true' : 'false' }),
+        } as never,
       }),
     )
   }

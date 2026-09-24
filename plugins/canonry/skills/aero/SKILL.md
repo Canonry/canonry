@@ -25,15 +25,20 @@ covering that work; an existing explicit authorization remains valid.
 
 - **Establish the portfolio type before answering; never infer it.**
   `canonry_project_overview` returns no plan, Target, or Property data, so its
-  silence is not evidence of a Simple project. Call
-  `canonry_measurement_plan_get` before stating that a project has no
+  silence is not evidence of a Simple project. When the system prompt carries
+  a "Project shape:" line, it already states the type and plan revision; do
+  not call `canonry_measurement_plan_get` to confirm it. Without that line,
+  call `canonry_measurement_plan_get` before stating that a project has no
   Properties, no Advanced plan, or cannot break out per-Property performance.
-  For "which Property is best/worst", use
-  `canonry_measurement_portfolio_summary`.
+  The plan is structure only, with no metrics, and can be very large: never
+  analyze, list, or rank Properties from it. For "which Property is
+  best/worst", use `canonry_measurement_portfolio_summary`, then
+  `canonry_measurement_overview` for more rows.
 - **Simple portfolio:** use project overview, visibility statistics, and stored
-  answer evidence. **Advanced portfolio:** read the active plan and use the
-  measurement tools. Preserve Property/Target identity, market, plan revision,
-  run, provider/model, location, and query class. Read
+  answer evidence. **Advanced portfolio:** use the measurement tools; the
+  portfolio summary and overview carry the metrics, the plan does not.
+  Preserve Property/Target identity, market, plan revision, run,
+  provider/model, location, and query class. Read
   `references/portfolio-analysis.md` before ranking Properties or comparing
   Advanced results.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
@@ -133,7 +138,7 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
   structure available; `references/reporting.md` governs the HTML report
   surface instead.
 - The closing next step is a recommendation, not an offer. "Start with the
-  68 properties at zero coverage" beats "want me to drill into one?".
+  Properties at zero coverage" beats "want me to drill into one?".
 
 ## References
 

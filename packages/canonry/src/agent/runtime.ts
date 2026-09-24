@@ -7,6 +7,12 @@ import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 
 const DISCOVER = 'aero_list_toolkits'
+/**
+ * Most tools one model request may carry. Several providers refuse a request
+ * with more than 128 functions, so loading a toolkit unloads the oldest others
+ * rather than cross it. Core and pinned tools are never unloaded.
+ */
+export const MAX_VISIBLE_TOOLS = 128
 const LOAD = 'aero_load_toolkit'
 const metadata = new Map(canonryMcpTools.map(tool => [tool.name as string, tool]))
 
@@ -21,6 +27,8 @@ interface Runtime {
   reason: 'completed' | 'stopped' | 'tool-limit' | 'time-limit' | 'error'
   timer?: ReturnType<typeof setTimeout>
   progressive: boolean
+  /** Tools a progressive turn keeps visible without loading their toolkit. */
+  pinned: Set<string>
 }
 const runtimes = new WeakMap<Agent, Runtime>()
 
@@ -32,7 +40,7 @@ function visibleTools(runtime: Runtime): AgentTool[] {
   if (!runtime.progressive) return runtime.allowed
   const visible = runtime.allowed.filter(tool => {
     const entry = metadata.get(tool.name)
-    return !entry || entry.tier === 'core' || runtime.loaded.has(entry.tier)
+    return !entry || entry.tier === 'core' || runtime.pinned.has(tool.name) || runtime.loaded.has(entry.tier)
   })
   const available = CANONRY_MCP_TOOLKITS.filter(kit => runtime.allowed.some(tool => metadata.get(tool.name)?.tier === kit.name))
   return [...visible, {
@@ -49,17 +57,53 @@ function visibleTools(runtime: Runtime): AgentTool[] {
     execute: async (_id: string, input: unknown) => {
       const args = z.object({ toolkit: z.string() }).parse(input)
       if (!available.some(kit => kit.name === args.toolkit)) throw new Error('Toolkit is unavailable for this turn.')
+      // Re-adding moves the toolkit to the newest position, so eviction below
+      // drops the ones loaded longest ago.
+      runtime.loaded.delete(args.toolkit)
       runtime.loaded.add(args.toolkit)
-      return result({ tools: runtime.allowed.filter(tool => metadata.get(tool.name)?.tier === args.toolkit).map(tool => ({ name: tool.name, description: tool.description })) })
+      const unloaded: string[] = []
+      for (const older of [...runtime.loaded]) {
+        if (visibleTools(runtime).length <= MAX_VISIBLE_TOOLS || older === args.toolkit) continue
+        runtime.loaded.delete(older)
+        unloaded.push(older)
+      }
+      return result({
+        tools: runtime.allowed.filter(tool => metadata.get(tool.name)?.tier === args.toolkit).map(tool => ({ name: tool.name, description: tool.description })),
+        ...(unloaded.length > 0 ? { unloaded, note: `Unloaded ${unloaded.join(', ')} to stay within the tool limit; load again if needed.` } : {}),
+      })
     },
   }]
 }
 
+/**
+ * pi answers a call to a tool outside the visible list with a bare
+ * "Tool X not found". A model that learned a tool's name from a skill doc
+ * then retries or gives up. Say what to do instead: which toolkit to load when
+ * the tool is allowed but not loaded yet, or that it is not available at all.
+ */
+function explainMissingTool(runtime: Runtime, message: { isError?: boolean; content?: unknown }): void {
+  if (!message.isError || !Array.isArray(message.content)) return
+  const first = message.content[0] as { type?: string; text?: string } | undefined
+  const name = first?.type === 'text' ? /^Tool (\S+) not found$/.exec(first.text ?? '')?.[1] : undefined
+  if (!name) return
+  let text: string
+  if (!runtime.progressive) {
+    // No toolkits to load in this turn: every tool it may use is already listed.
+    text = `${name} is not available in this conversation. Use only the tools listed for you.`
+  } else {
+    const toolkit = metadata.get(name)?.tier
+    text = runtime.allowed.some(tool => tool.name === name) && toolkit && toolkit !== 'core'
+      ? `${name} is not loaded yet. Call ${LOAD} with toolkit "${toolkit}", then call ${name} again.`
+      : `${name} is not available in this conversation. Use ${DISCOVER} to see the tools you can load.`
+  }
+  message.content = [{ type: 'text', text }]
+}
+
 /** Rebuild from the already-authorized catalog every turn, including scope downgrades. */
-export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true): void {
+export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true, pinned: readonly string[] = []): void {
   let runtime = runtimes.get(agent)
   if (!runtime) {
-    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive }
+    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned) }
     runtimes.set(agent, runtime)
     const state = runtime
     const stream = agent.streamFn
@@ -98,6 +142,7 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
         const message = event.message
+        explainMissingTool(state, message)
         const startedAt = toolStarts.get(message.toolCallId)
         Object.assign(message, {
           aeroToolLabel: state.allowed.find(tool => tool.name === message.toolName)?.label,
@@ -126,6 +171,7 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
   runtime.loaded = new Set()
   runtime.limits = agentTurnLimitsSchema.parse(limits ?? {})
   runtime.progressive = progressive
+  runtime.pinned = new Set(pinned)
   agent.state.tools = visibleTools(runtime)
 }
 

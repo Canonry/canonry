@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
+  MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   measurementChangesQuerySchema,
   measurementChangesResponseSchema,
   measurementDataQualityQuerySchema,
@@ -7,6 +10,7 @@ import {
   measurementPortfolioMentionRankingSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPortfolioSummaryResponseSchema,
+  measurementPortfolioWeakestPropertySchema,
   measurementPropertyCompetitorsQuerySchema,
   measurementPropertyCompetitorsResponseSchema,
   measurementPropertyQuestionsQuerySchema,
@@ -23,6 +27,59 @@ const MEASUREMENT = {
   completedAt: '2026-08-02T12:00:00.000Z',
 }
 const PROPERTY = { targetKey: 'cedar-bay', label: 'Cedar Bay' }
+const PLACED = {
+  ...PROPERTY,
+  metro: { groupKey: 'harbor-metro', label: 'Harbor Metro' },
+  submarkets: ['Harbor District'],
+  queries: 2,
+}
+const SUMMARY = {
+  portfolio: { groupKey: 'harbor-district', label: 'Harbor District', measurementScope: 'full' as const },
+  measurement: MEASUREMENT,
+  queryClass: 'non-brand' as const,
+  engines: ['gemini', 'openai'],
+  metrics: {
+    propertiesMentioned: METRIC,
+    mentionCoverage: METRIC,
+    citationCoverage: METRIC,
+  },
+  mentionRanking: {
+    eligiblePropertyCount: 1,
+    strongest: [{ ...PLACED, mentionCoverage: METRIC, citationCoverage: METRIC }],
+    weakest: [{ ...PLACED, mentionCoverage: METRIC, citationCoverage: METRIC }],
+    excluded: [],
+    truncated: false,
+  },
+  weakestProperties: [{
+    ...PLACED,
+    mentionCoverage: METRIC,
+    citationCoverage: { state: 'unavailable' as const, reason: 'evidence_incomplete' as const },
+    flags: 1,
+    namedInsteadInAnswerText: [{ name: 'Harborline Homes', answers: 2 }],
+    namedInsteadInAnswerTextTotal: 1,
+    citedDomains: [{ domain: 'listings.example', answers: 3 }],
+    citedDomainsTotal: 1,
+    recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }],
+    recommendedInsteadTotal: 1,
+    recommendedInsteadTruncated: false,
+  }],
+  tiedAtWeakest: { count: 2, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE },
+  weakestAnswerSources: { properties: 2, answers: 4, domains: [{ domain: 'listings.example', answers: 3 }], domainTotal: 1 },
+  markets: [{
+    groupKey: 'harbor-district',
+    label: 'Harbor District',
+    parentGroupKey: 'harbor-metro',
+    childMarketCount: 0,
+    propertyCount: 3,
+    propertiesMentioned: METRIC,
+    mentionCoverage: METRIC,
+    citationCoverage: METRIC,
+  }],
+  totalMarkets: 1,
+  marketsTruncated: false,
+  totalProperties: 1,
+  truncated: false,
+}
 
 describe('advanced measurement demo reads', () => {
   it('parses a bounded portfolio summary and defaults its comparison basket to non-brand', () => {
@@ -30,48 +87,84 @@ describe('advanced measurement demo reads', () => {
     expect(measurementPortfolioSummaryQuerySchema.safeParse({ limit: 51 }).success).toBe(false)
     expect(measurementPortfolioSummaryQuerySchema.parse({ queryClass: 'all' })).toEqual({ queryClass: 'all' })
 
-    expect(measurementPortfolioSummaryResponseSchema.parse({
-      portfolio: { groupKey: 'harbor-district', label: 'Harbor District', measurementScope: 'full' },
-      measurement: MEASUREMENT,
-      queryClass: 'non-brand',
-      metrics: {
-        propertiesMentioned: METRIC,
-        mentionCoverage: METRIC,
-        citationCoverage: METRIC,
-      },
-      mentionRanking: { eligiblePropertyCount: 1, strongest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], weakest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], excluded: [], truncated: false },
-      weakestProperties: [{
-        ...PROPERTY,
-        mentionCoverage: METRIC,
-        citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' },
-        flags: 1,
-        recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }],
-        recommendedInsteadTotal: 1,
-        recommendedInsteadTruncated: false,
-      }],
-      markets: [{
-        groupKey: 'harbor-district',
-        label: 'Harbor District',
-        propertyCount: 3,
-        propertiesMentioned: METRIC,
-        mentionCoverage: METRIC,
-        citationCoverage: METRIC,
-      }],
-      totalProperties: 1,
-      truncated: false,
-    })).toMatchObject({ measurement: { displayedRunId: 'run-cedar-01' } })
+    expect(measurementPortfolioSummaryResponseSchema.parse(SUMMARY)).toMatchObject({ measurement: { displayedRunId: 'run-cedar-01' } })
 
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, extra: true }).success).toBe(false)
+  })
+
+  it('accepts the nested-markets flag only as a boolean and leaves it unset by default', () => {
+    expect(measurementPortfolioSummaryQuerySchema.parse({ includeNestedMarkets: true })).toEqual({ queryClass: 'non-brand', includeNestedMarkets: true })
+    expect(measurementPortfolioSummaryQuerySchema.safeParse({ includeNestedMarkets: 'true' }).success).toBe(false)
+    expect(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT).toBeLessThan(10)
+  })
+
+  it('names what an answer wrote instead without calling it a citation', () => {
+    const [row] = SUMMARY.weakestProperties
     expect(measurementPortfolioSummaryResponseSchema.safeParse({
-      portfolio: { groupKey: null, label: null, measurementScope: null },
-      measurement: MEASUREMENT,
-      queryClass: 'non-brand',
-      metrics: { propertiesMentioned: METRIC, mentionCoverage: METRIC, citationCoverage: METRIC },
-      weakestProperties: [], markets: [], totalProperties: 0, truncated: false, extra: true,
+      ...SUMMARY,
+      weakestProperties: [{ ...row, namedInsteadInAnswerTextTotal: 0 }],
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY,
+      weakestProperties: [{ ...row, citedDomains: Array.from({ length: 6 }, (_, index) => ({ domain: `source-${index}.example`, answers: 1 })), citedDomainsTotal: 6 }],
     }).success).toBe(false)
   })
 
+  it('keeps the deprecated recommendedInstead fields beside the new names for existing consumers', () => {
+    const [row] = SUMMARY.weakestProperties
+    const parse = (changes: Record<string, unknown>) => measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, weakestProperties: [{ ...row, ...changes }],
+    }).success
+    // A patch release cannot drop fields a consumer already reads.
+    for (const field of ['recommendedInstead', 'recommendedInsteadTotal', 'recommendedInsteadTruncated'] as const) {
+      const { [field]: _dropped, ...withoutField } = row
+      expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, weakestProperties: [withoutField] }).success).toBe(false)
+    }
+    // The nested `occurrences` count keeps its name.
+    expect(parse({ recommendedInstead: [{ name: 'Harborline Homes', answers: 2 }] })).toBe(false)
+    // Its totals agree with what is returned and with the new field.
+    expect(parse({ recommendedInsteadTruncated: true })).toBe(false)
+    expect(parse({ recommendedInsteadTotal: 2, recommendedInsteadTruncated: true })).toBe(false)
+    expect(parse({
+      recommendedInstead: Array.from({ length: 6 }, (_, index) => ({ name: `Name ${index}`, occurrences: 1 })),
+      recommendedInsteadTotal: 6, namedInsteadInAnswerTextTotal: 6,
+    })).toBe(false)
+    expect(parse({ recommendedInsteadTotal: 7, recommendedInsteadTruncated: true, namedInsteadInAnswerTextTotal: 7 })).toBe(true)
+
+    // Published as deprecated, pointing at the recommended field.
+    const json = z.toJSONSchema(measurementPortfolioWeakestPropertySchema, { target: 'openapi-3.0' }) as {
+      properties: Record<string, { deprecated?: boolean; description?: string }>
+    }
+    for (const field of ['recommendedInstead', 'recommendedInsteadTotal', 'recommendedInsteadTruncated']) {
+      expect(json.properties[field]).toMatchObject({ deprecated: true, description: expect.stringContaining('namedInsteadInAnswerText') })
+    }
+    // Only the old names: the shared count schema the new totals use is not marked.
+    for (const field of ['namedInsteadInAnswerText', 'namedInsteadInAnswerTextTotal', 'citedDomainsTotal']) {
+      expect(json.properties[field]?.deprecated).toBeUndefined()
+    }
+  })
+
+  it('keeps tie, source and market totals consistent with what is returned', () => {
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, tiedAtWeakest: { ...SUMMARY.tiedAtWeakest, note: 'ranked' },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, tiedAtWeakest: { ...SUMMARY.tiedAtWeakest, count: 1 },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, weakestAnswerSources: { properties: 2, answers: 3, domains: [{ domain: 'listings.example', answers: 4 }], domainTotal: 1 },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, marketsTruncated: true }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, totalMarkets: 4, marketsTruncated: true }).success).toBe(true)
+    // Before a run completes there is no tie and no answer to take sources from.
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, tiedAtWeakest: null, weakestAnswerSources: null, engines: [] }).success).toBe(true)
+  })
+
   it('refuses to present an ambiguous mention as a ranked Property even when its citations are known', () => {
-    const uncertain = { ...PROPERTY, mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' }, citationCoverage: METRIC }
+    const uncertain = { ...PLACED, mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' }, citationCoverage: METRIC }
+    expect(measurementPortfolioMentionRankingSchema.safeParse({
+      eligiblePropertyCount: 1, strongest: [{ ...uncertain, mentionCoverage: METRIC }], weakest: [], excluded: [], truncated: false,
+    }).success).toBe(true)
     expect(measurementPortfolioMentionRankingSchema.safeParse({
       eligiblePropertyCount: 1, strongest: [uncertain], weakest: [], excluded: [], truncated: false,
     }).success).toBe(false)
