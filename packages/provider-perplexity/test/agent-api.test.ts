@@ -106,6 +106,26 @@ describe('Agent API request', () => {
     expect(result.model).toBe(preset)
   })
 
+  it('sends the token limit the API requires for anthropic slugs on every request path', async () => {
+    const config = { apiKey: 'k', quotaPolicy, model: 'anthropic/claude-sonnet-4-6' }
+    const calls = stubAgent(200, fixture('agent-no-search'))
+    await executeTrackedQuery({ query: 'q', canonicalDomains: [], competitorDomains: [], config })
+    await healthcheck(config)
+    await generateText('Summarize.', config)
+
+    expect(calls.map(call => call.body)).toEqual([
+      {
+        model: 'anthropic/claude-sonnet-4-6',
+        max_output_tokens: 4096,
+        input: 'q',
+        tools: [{ type: 'web_search' }],
+        tool_choice: { type: 'web_search' },
+      },
+      { model: 'anthropic/claude-sonnet-4-6', max_output_tokens: 4096, input: 'Say "ok"' },
+      { model: 'anthropic/claude-sonnet-4-6', max_output_tokens: 4096, input: 'Summarize.' },
+    ])
+  })
+
   it('sends a provider/model slug as model, not preset', async () => {
     const calls = stubAgent(200, fixture('agent-fast-cited'))
     const result = await executeTrackedQuery({
@@ -259,6 +279,46 @@ describe('Agent API errors', () => {
       competitorDomains: [],
       config: { apiKey: 'k', quotaPolicy },
     })).rejects.toThrow('[provider-perplexity] agent response cancelled: no error detail')
+  })
+
+  it('throws on an incomplete run that stopped before any answer', async () => {
+    const searchOnly = (fixture('agent-fast-cited').output as Record<string, unknown>[]).slice(0, 1)
+    const calls = stubAgent(200, {
+      object: 'response',
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      output: searchOnly,
+    })
+    await expect(executeTrackedQuery({
+      query: 'q',
+      canonicalDomains: [],
+      competitorDomains: [],
+      config: { apiKey: 'k', quotaPolicy },
+    })).rejects.toThrow('[provider-perplexity] agent response incomplete with no answer: max_output_tokens')
+    expect(calls).toHaveLength(1)
+  })
+
+  it('keeps an incomplete run that still carries an answer', async () => {
+    stubAgent(200, { ...fixture('agent-fast-cited'), status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } })
+    const raw = await executeTrackedQuery({
+      query: 'q',
+      canonicalDomains: [],
+      competitorDomains: [],
+      config: { apiKey: 'k', quotaPolicy },
+    })
+    expect(normalizeResult(raw).answerText).toBe(
+      "HubSpot's free tier is the usual starting point for startups [1][2]. Pipedrive suits pipeline-heavy sales teams [4].",
+    )
+  })
+
+  it('reports an incomplete key check with no answer as failed, with its reason', async () => {
+    stubAgent(200, { object: 'response', status: 'incomplete', output: [] })
+    expect(await healthcheck({ apiKey: 'k', quotaPolicy })).toEqual({
+      ok: false,
+      provider: 'perplexity',
+      message: 'agent response incomplete with no answer: no reason given',
+      model: 'fast',
+    })
   })
 
   it('surfaces a 400 without retrying it', async () => {

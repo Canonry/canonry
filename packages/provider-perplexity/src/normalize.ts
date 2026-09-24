@@ -65,9 +65,23 @@ export function resolveModel(model: string | undefined): string {
   return resolveProviderModel('perplexity', trimmed ? trimmed : DEFAULT_MODEL)
 }
 
-/** A `vendor/model` slug names one model; anything else is a preset. */
+/**
+ * The Agent API requires `max_output_tokens` for `anthropic/*` models and
+ * answers 400 without it. 4096 is the Claude provider's answer budget. Other
+ * slugs and presets stay uncapped: on presets a tight cap can be spent on
+ * reasoning before any answer appears.
+ * Docs: https://docs.perplexity.ai/api-reference/agent-post
+ */
+export const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
+
+/**
+ * A `vendor/model` slug names one model; anything else is a preset. Every
+ * request path (sweep, key check, text generation) builds on this, so a
+ * model's required fields travel with it.
+ */
 export function agentSelection(model: string): PerplexityAgentSelection {
-  return model.includes('/') ? { model } : { preset: model }
+  if (!model.includes('/')) return { preset: model }
+  return model.startsWith('anthropic/') ? { model, max_output_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS } : { model }
 }
 
 /**
@@ -231,11 +245,19 @@ function postAgent(client: OpenAI, body: PerplexityAgentRequest): Promise<Record
 /**
  * The Agent API reports a failed or cancelled run as HTTP 200 with `status`
  * and `error` set, so the HTTP layer alone would store it as an empty answer.
- * `incomplete` still carries a usable answer and passes.
+ * `incomplete` (stopped before finishing, e.g. truncated) passes only when it
+ * still carries answer text: one with none would otherwise be stored as a
+ * measured non-mention and sit in every coverage denominator.
  */
 function assertUsableResponse(response: Record<string, unknown>): void {
   const status = response.status
-  if (status === undefined || status === 'completed' || status === 'incomplete') return
+  if (status === undefined || status === 'completed') return
+  if (status === 'incomplete') {
+    if (extractAgentAnswerText(response).trim().length > 0) return
+    const details = isRecord(response.incomplete_details) ? response.incomplete_details : undefined
+    const reason = typeof details?.reason === 'string' && details.reason.length > 0 ? details.reason : 'no reason given'
+    throw new Error(`agent response incomplete with no answer: ${reason}`)
+  }
   const error = isRecord(response.error) ? response.error : undefined
   const message = typeof error?.message === 'string' && error.message.length > 0 ? error.message : 'no error detail'
   const type = typeof error?.type === 'string' && error.type.length > 0 ? ` (${error.type})` : ''

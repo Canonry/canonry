@@ -32,9 +32,12 @@ export interface PerplexityTrackedQueryInput {
 /**
  * What a configured model id asks the Agent API for: a preset (`fast`, `low`,
  * …) or one `vendor/model` slug (`perplexity/sonar`). The two are separate
- * request fields.
+ * request fields. `anthropic/*` slugs also carry the `max_output_tokens` the
+ * API requires for them.
  */
-export type PerplexityAgentSelection = { preset: string } | { model: string }
+export type PerplexityAgentSelection =
+  | { preset: string }
+  | { model: string; max_output_tokens?: number }
 
 /**
  * The `web_search` tool as Canonry sends it. The Agent API rejects unknown

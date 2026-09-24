@@ -32,6 +32,7 @@ Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `pa
 - The query goes in unmodified. The location rides on the `web_search` tool as `user_location` (treatment `request-param`), not in the text as it did with Sonar.
 - `tool_choice` forces the search, so the retrieval contract is `search-required-v1`, the same as Claude. Canonry sends no `instructions`; a preset's built-in prompt is part of the engine being measured.
 - The Agent API rejects unknown fields with a 400, so `user_location` carries only `city`, `region`, and `country` (no `type` or `timezone`, unlike OpenAI's).
+- `anthropic/*` slugs also send `max_output_tokens: 4096`, which the API requires for them, on every request path (sweep, key check, text generation). Presets and other slugs stay uncapped.
 - The key check sends the same preset or model with `input: 'Say "ok"'` and no forced search.
 
 ## Response parsing
@@ -46,7 +47,7 @@ Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `pa
 | `servedModel` | Top-level `model` (the model a preset resolved to) |
 | `model` | The resolved preset or slug that was requested |
 
-There is no top-level `citations` or `search_results` on an Agent response. A failed or cancelled run comes back as HTTP 200 with `status` and `error` set, so the adapter checks `status` and throws for anything but `completed` or `incomplete`. HTTP 429 and 5xx retry through `withRetry`; other 4xx do not.
+There is no top-level `citations` or `search_results` on an Agent response. A failed or cancelled run comes back as HTTP 200 with `status` and `error` set, so the adapter checks `status` and throws for anything but `completed` or `incomplete`. An `incomplete` run passes only when it still carries answer text; one that stopped before any answer throws, so it is recorded as a failed slot rather than a measured non-mention. HTTP 429 and 5xx retry through `withRetry`; other 4xx do not.
 
 ## Comparability
 
@@ -54,7 +55,8 @@ Switching the engine behind `perplexity` is treated as a model change:
 
 - `normalizeExecutionIdentity` (contracts) resolves retired ids, so a plan run whose config still says `sonar` gets an execution identity naming `fast` and starts a new series.
 - The provider registry, `packages/config`, project overrides (on write, and on read in the job runner, run queue, query tracking, and research) resolve the same way, so the frozen slot, snapshot `model`, and identity agree.
-- A v2 plan revision published with a frozen `sonar` keeps that id in its slots and snapshots (the revision is immutable); its identity still resolves to `fast`, and `servedModel` shows the Agent model.
+- A v2 plan revision published with a frozen `sonar` keeps that id in its slots and snapshots (the revision is immutable); its identity still resolves to `fast`, and `servedModel` shows the Agent model. A revision that froze different retired ids on different nodes (`sonar` and `sonar-pro`) records every model that now answers (`fast + low`); before the switch such a mixed-model engine was left out of the identity, so without this its checksum would not move. Mixed-model engines with no retired id are still left out.
+- A partial run measured before the switch cannot be filled (refusal `model_retired`): its missing slots would run the replacement engine under the old run's identity. The run's stored identity decides, since runs queued since the switch never record a retired id; for a mixed-model engine an earlier identity omitted, the frozen slots decide.
 
 ## Stored history
 

@@ -44,7 +44,7 @@ const NORTH: LocationContext = { label: 'north-city', city: 'North City', region
 const MODELS = { openai: 'gpt-planned', gemini: 'gemini-planned' }
 
 /** A published v2 revision: `count` questions for one Property, each answered by every provider. */
-function plan(count: number, models: Record<string, string> = MODELS): MeasurementPlanV2 {
+function plan(count: number, models: Record<string, string> = MODELS, providers: readonly string[] = ['openai', 'gemini']): MeasurementPlanV2 {
   const questions = Array.from({ length: count }, (_, index) => ({ id: `q-${index + 1}`, text: `widget question ${index + 1}` }))
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,
@@ -64,8 +64,8 @@ function plan(count: number, models: Record<string, string> = MODELS): Measureme
       stableKey: `exec-${index + 1}`,
       queryId: q.id,
       queryText: q.text,
-      context: { providers: ['openai', 'gemini'], models, location: NORTH },
-      expectedSnapshots: 2,
+      context: { providers: [...providers], models, location: NORTH },
+      expectedSnapshots: providers.length,
     })),
     usageEdges: questions.map((q, index) => ({ executionNodeKey: `exec-${index + 1}`, targetKey: 'property-001', queryId: q.id })),
     compiledChecksum: '0'.repeat(64),
@@ -73,7 +73,7 @@ function plan(count: number, models: Record<string, string> = MODELS): Measureme
   return { ...draft, compiledChecksum: crypto.createHash('sha256').update(measurementPlanV2ChecksumJson(draft)).digest('hex') }
 }
 
-function seed(count: number, models?: Record<string, string>): { db: DatabaseClient; projectId: string } {
+function seed(count: number, models?: Record<string, string>, providers?: readonly string[]): { db: DatabaseClient; projectId: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-run-fill-'))
   onTestFinished(() => fs.rmSync(dir, { recursive: true, force: true }))
   const db = createClient(path.join(dir, 'test.db'))
@@ -83,7 +83,7 @@ function seed(count: number, models?: Record<string, string>): { db: DatabaseCli
     id: projectId, name: 'planned', displayName: 'Planned Co', canonicalDomain: 'example.com', aliases: ['Planned Co'],
     country: 'US', language: 'en', providers: [], locations: [NORTH], createdAt: NOW, updatedAt: NOW,
   }).run()
-  const revision = plan(count, models)
+  const revision = plan(count, models, providers)
   for (const q of revision.querySnapshots) db.insert(queries).values({ id: q.queryId, projectId, query: q.queryText, createdAt: NOW }).run()
   publish(db, projectId, revision, 1)
   return { db, projectId }
@@ -134,12 +134,12 @@ const runRow = (db: DatabaseClient, id: string) => db.select().from(runs).where(
 const answered = (db: DatabaseClient, id: string, provider: string) =>
   db.select().from(querySnapshots).where(eq(querySnapshots.runId, id)).all().filter(row => row.provider === provider).length
 
-/** A finished sweep in which openai failed every call and gemini answered everything. */
-async function partialSweep(count: number, models?: Record<string, string>) {
-  const { db, projectId } = seed(count, models)
+/** A finished sweep in which the first provider (openai) failed every call and the other answered everything. */
+async function partialSweep(count: number, models?: Record<string, string>, providers: readonly [string, string] = ['openai', 'gemini']) {
+  const { db, projectId } = seed(count, models, providers)
   const queued = queueRunIfProjectIdle(db, { projectId })
   if (queued.conflict) throw new Error('unexpected conflict')
-  await new JobRunner(db, registry([adapter('openai', [], () => true), adapter('gemini', [])])).executeRun(queued.runId, projectId)
+  await new JobRunner(db, registry([adapter(providers[0], [], () => true), adapter(providers[1], [])])).executeRun(queued.runId, projectId)
   expect(runRow(db, queued.runId).status).toBe('partial')
   return { db, projectId, runId: queued.runId }
 }
@@ -272,6 +272,46 @@ describe('fill admission', () => {
   it('refuses a missing answer with no frozen model instead of silently using today\'s', async () => {
     const { db, runId } = await partialSweep(2, {})
     expect(evaluateRunFill(db, runRow(db, runId))).toMatchObject({ kind: 'refused', code: 'model_not_frozen' })
+  })
+
+  describe('a run measured on a model the provider has since retired', () => {
+    const SONAR_ERA = { perplexity: 'sonar', gemini: 'gemini-planned' }
+    const sonarEraSweep = () => partialSweep(2, SONAR_ERA, ['perplexity', 'gemini'])
+    const stampIdentity = (db: DatabaseClient, runId: string, models: Record<string, string>) => {
+      const identity = runRow(db, runId).measurementExecutionIdentity!
+      db.update(runs).set({ measurementExecutionIdentity: { ...identity, models } }).where(eq(runs.id, runId)).run()
+    }
+
+    it('refuses to fill it, before anything is dispatched', async () => {
+      const { db, runId } = await sonarEraSweep()
+      // Queued before the switch, the identity recorded the retired id itself.
+      stampIdentity(db, runId, SONAR_ERA)
+
+      const refused = { kind: 'refused', code: 'model_retired' }
+      expect(evaluateRunFill(db, runRow(db, runId))).toMatchObject(refused)
+      expect(queueRunFill(db, runId)).toMatchObject(refused)
+      expect(readRunCompleteness(db, runRow(db, runId))).toMatchObject({ fillable: false, refusal: { code: 'model_retired' } })
+      expect(db.select().from(runFills).all()).toHaveLength(0)
+    })
+
+    it('refuses a mixed-model run, whose earlier identity left the engine out, by its frozen slots', async () => {
+      const { db, runId } = await sonarEraSweep()
+      stampIdentity(db, runId, { gemini: 'gemini-planned' })
+      expect(evaluateRunFill(db, runRow(db, runId))).toMatchObject({ kind: 'refused', code: 'model_retired' })
+    })
+
+    it('still fills a run of the same revision queued since the switch', async () => {
+      const { db, runId } = await sonarEraSweep()
+      // The run queue now records the engine that answers.
+      expect(runRow(db, runId).measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-planned', perplexity: 'fast' })
+      expect(evaluateRunFill(db, runRow(db, runId))).toMatchObject({ kind: 'fillable', providers: ['perplexity'] })
+    })
+
+    it('does not refuse a provider that has nothing to fill', async () => {
+      const { db, runId } = await partialSweep(2, { openai: 'gpt-planned', perplexity: 'sonar' }, ['openai', 'perplexity'])
+      stampIdentity(db, runId, { openai: 'gpt-planned', perplexity: 'sonar' })
+      expect(evaluateRunFill(db, runRow(db, runId))).toMatchObject({ kind: 'fillable', providers: ['openai'] })
+    })
   })
 
   it('admits one fill per project at a time, and reports a complete run as complete', async () => {
