@@ -217,6 +217,10 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
     requestedContext: NORTH,
     supportedContext: { status: 'applied', resolved: NORTH },
     screenshotPath: null,
+    dispatchMode: null,
+    providerBatchId: null,
+    stopReason: null,
+    usage: null,
     rawResponse: JSON.stringify({
       model,
       servedModel: `${model}-2026-07-01`,
