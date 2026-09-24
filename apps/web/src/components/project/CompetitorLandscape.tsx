@@ -452,6 +452,9 @@ export function CompetitorLandscape({
             <details className="inline-disclosure text-sm text-secondary">
               <summary>Names observed in answers</summary>
               <p>Names are observations. Only classified competitor domains enter share of voice.</p>
+              {(landscape?.observedNamesTotal ?? 0) > (landscape?.observedNames?.length ?? 0) ? (
+                <p>Showing the {landscape?.observedNames?.length} most frequent of {landscape?.observedNamesTotal} names.</p>
+              ) : null}
               <ul>{landscape?.observedNames?.map(row => <li key={row.name}>{row.name} · {row.answerCount} answers</li>)}</ul>
             </details>
           ) : null}

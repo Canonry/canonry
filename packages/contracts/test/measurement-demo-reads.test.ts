@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   measurementChangesQuerySchema,
   measurementChangesResponseSchema,
   measurementDataQualityQuerySchema,
@@ -23,6 +25,56 @@ const MEASUREMENT = {
   completedAt: '2026-08-02T12:00:00.000Z',
 }
 const PROPERTY = { targetKey: 'cedar-bay', label: 'Cedar Bay' }
+const PLACED = {
+  ...PROPERTY,
+  metro: { groupKey: 'harbor-metro', label: 'Harbor Metro' },
+  submarkets: ['Harbor District'],
+  queries: 2,
+}
+const SUMMARY = {
+  portfolio: { groupKey: 'harbor-district', label: 'Harbor District', measurementScope: 'full' as const },
+  measurement: MEASUREMENT,
+  queryClass: 'non-brand' as const,
+  engines: ['gemini', 'openai'],
+  metrics: {
+    propertiesMentioned: METRIC,
+    mentionCoverage: METRIC,
+    citationCoverage: METRIC,
+  },
+  mentionRanking: {
+    eligiblePropertyCount: 1,
+    strongest: [{ ...PLACED, mentionCoverage: METRIC, citationCoverage: METRIC }],
+    weakest: [{ ...PLACED, mentionCoverage: METRIC, citationCoverage: METRIC }],
+    excluded: [],
+    truncated: false,
+  },
+  weakestProperties: [{
+    ...PLACED,
+    mentionCoverage: METRIC,
+    citationCoverage: { state: 'unavailable' as const, reason: 'evidence_incomplete' as const },
+    flags: 1,
+    namedInsteadInAnswerText: [{ name: 'Harborline Homes', answers: 2 }],
+    namedInsteadInAnswerTextTotal: 1,
+    citedDomains: [{ domain: 'listings.example', answers: 3 }],
+    citedDomainsTotal: 1,
+  }],
+  tiedAtWeakest: { count: 2, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE },
+  weakestAnswerSources: { properties: 2, answers: 4, domains: [{ domain: 'listings.example', answers: 3 }], domainTotal: 1 },
+  markets: [{
+    groupKey: 'harbor-district',
+    label: 'Harbor District',
+    parentGroupKey: 'harbor-metro',
+    childMarketCount: 0,
+    propertyCount: 3,
+    propertiesMentioned: METRIC,
+    mentionCoverage: METRIC,
+    citationCoverage: METRIC,
+  }],
+  totalMarkets: 1,
+  marketsTruncated: false,
+  totalProperties: 1,
+  truncated: false,
+}
 
 describe('advanced measurement demo reads', () => {
   it('parses a bounded portfolio summary and defaults its comparison basket to non-brand', () => {
@@ -30,48 +82,55 @@ describe('advanced measurement demo reads', () => {
     expect(measurementPortfolioSummaryQuerySchema.safeParse({ limit: 51 }).success).toBe(false)
     expect(measurementPortfolioSummaryQuerySchema.parse({ queryClass: 'all' })).toEqual({ queryClass: 'all' })
 
-    expect(measurementPortfolioSummaryResponseSchema.parse({
-      portfolio: { groupKey: 'harbor-district', label: 'Harbor District', measurementScope: 'full' },
-      measurement: MEASUREMENT,
-      queryClass: 'non-brand',
-      metrics: {
-        propertiesMentioned: METRIC,
-        mentionCoverage: METRIC,
-        citationCoverage: METRIC,
-      },
-      mentionRanking: { eligiblePropertyCount: 1, strongest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], weakest: [{ ...PROPERTY, mentionCoverage: METRIC, citationCoverage: METRIC }], excluded: [], truncated: false },
-      weakestProperties: [{
-        ...PROPERTY,
-        mentionCoverage: METRIC,
-        citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' },
-        flags: 1,
-        recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }],
-        recommendedInsteadTotal: 1,
-        recommendedInsteadTruncated: false,
-      }],
-      markets: [{
-        groupKey: 'harbor-district',
-        label: 'Harbor District',
-        propertyCount: 3,
-        propertiesMentioned: METRIC,
-        mentionCoverage: METRIC,
-        citationCoverage: METRIC,
-      }],
-      totalProperties: 1,
-      truncated: false,
-    })).toMatchObject({ measurement: { displayedRunId: 'run-cedar-01' } })
+    expect(measurementPortfolioSummaryResponseSchema.parse(SUMMARY)).toMatchObject({ measurement: { displayedRunId: 'run-cedar-01' } })
 
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, extra: true }).success).toBe(false)
+  })
+
+  it('accepts the nested-markets flag only as a boolean and leaves it unset by default', () => {
+    expect(measurementPortfolioSummaryQuerySchema.parse({ includeNestedMarkets: true })).toEqual({ queryClass: 'non-brand', includeNestedMarkets: true })
+    expect(measurementPortfolioSummaryQuerySchema.safeParse({ includeNestedMarkets: 'true' }).success).toBe(false)
+    expect(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT).toBeLessThan(10)
+  })
+
+  it('names what an answer wrote instead without calling it a citation', () => {
+    const [row] = SUMMARY.weakestProperties
+    // The old field read as "cited instead"; it is gone rather than kept beside the new one.
     expect(measurementPortfolioSummaryResponseSchema.safeParse({
-      portfolio: { groupKey: null, label: null, measurementScope: null },
-      measurement: MEASUREMENT,
-      queryClass: 'non-brand',
-      metrics: { propertiesMentioned: METRIC, mentionCoverage: METRIC, citationCoverage: METRIC },
-      weakestProperties: [], markets: [], totalProperties: 0, truncated: false, extra: true,
+      ...SUMMARY,
+      weakestProperties: [{ ...row, recommendedInstead: [{ name: 'Harborline Homes', occurrences: 2 }] }],
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY,
+      weakestProperties: [{ ...row, namedInsteadInAnswerTextTotal: 0 }],
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY,
+      weakestProperties: [{ ...row, citedDomains: Array.from({ length: 6 }, (_, index) => ({ domain: `source-${index}.example`, answers: 1 })), citedDomainsTotal: 6 }],
     }).success).toBe(false)
   })
 
+  it('keeps tie, source and market totals consistent with what is returned', () => {
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, tiedAtWeakest: { ...SUMMARY.tiedAtWeakest, note: 'ranked' },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, tiedAtWeakest: { ...SUMMARY.tiedAtWeakest, count: 1 },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({
+      ...SUMMARY, weakestAnswerSources: { properties: 2, answers: 3, domains: [{ domain: 'listings.example', answers: 4 }], domainTotal: 1 },
+    }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, marketsTruncated: true }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, totalMarkets: 4, marketsTruncated: true }).success).toBe(true)
+    // Before a run completes there is no tie and no answer to take sources from.
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, tiedAtWeakest: null, weakestAnswerSources: null, engines: [] }).success).toBe(true)
+  })
+
   it('refuses to present an ambiguous mention as a ranked Property even when its citations are known', () => {
-    const uncertain = { ...PROPERTY, mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' }, citationCoverage: METRIC }
+    const uncertain = { ...PLACED, mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' }, citationCoverage: METRIC }
+    expect(measurementPortfolioMentionRankingSchema.safeParse({
+      eligiblePropertyCount: 1, strongest: [{ ...uncertain, mentionCoverage: METRIC }], weakest: [], excluded: [], truncated: false,
+    }).success).toBe(true)
     expect(measurementPortfolioMentionRankingSchema.safeParse({
       eligiblePropertyCount: 1, strongest: [uncertain], weakest: [], excluded: [], truncated: false,
     }).success).toBe(false)

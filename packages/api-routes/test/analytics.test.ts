@@ -97,7 +97,9 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'cited',
       answerText: 'Example.com is great...',
-      citedDomains: ['example.com'],
+      // The run writer derives `citedDomains` from the grounding sources; the
+      // source analytics read this stored list, not the raw response.
+      citedDomains: ['reddit.com', 'example.com', 'forbes.com'],
       competitorOverlap: [],
       location: null,
       rawResponse: JSON.stringify({
@@ -120,7 +122,7 @@ describe('analytics routes', () => {
       model: 'gpt-4o',
       citationState: 'not-cited',
       answerText: 'Here are tools...',
-      citedDomains: ['competitor.com'],
+      citedDomains: ['linkedin.com', 'competitor.com'],
       competitorOverlap: ['competitor.com'],
       location: null,
       rawResponse: JSON.stringify({
@@ -143,7 +145,7 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerText: 'AEO monitoring is...',
-      citedDomains: ['competitor.com'],
+      citedDomains: ['en.wikipedia.org', 'competitor.com'],
       competitorOverlap: ['competitor.com'],
       location: null,
       rawResponse: JSON.stringify({
@@ -165,7 +167,7 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerText: 'Website analytics are...',
-      citedDomains: [],
+      citedDomains: ['youtube.com'],
       competitorOverlap: [],
       location: null,
       rawResponse: JSON.stringify({
@@ -974,7 +976,11 @@ describe('analytics routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: infraRunId, queryId: infraQId,
       provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'not-cited',
-      answerText: 'test', citedDomains: [], competitorOverlap: [], location: null,
+      answerText: 'test', competitorOverlap: [], location: null,
+      // Infra hosts are never persisted by the writer; seeded here anyway so the
+      // read-side filter is exercised on both stored fields.
+      citedDomains: ['reddit.com', 'openai.com'],
+      citedUrls: ['https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', 'https://reddit.com/r/real'],
       rawResponse: JSON.stringify({
         groundingSources: [
           { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'Vertex proxy' },
@@ -990,6 +996,10 @@ describe('analytics routes', () => {
     const allDomains = body.overall.flatMap((c: { topDomains: Array<{ domain: string }> }) => c.topDomains.map(d => d.domain))
     expect(allDomains).not.toContain('vertexaisearch.cloud.google.com')
     expect(allDomains).not.toContain('openai.com')
+    const ranked = body.ranked.entries.map((e: { domain: string }) => e.domain)
+    expect(ranked).not.toContain('vertexaisearch.cloud.google.com')
+    expect(ranked).not.toContain('openai.com')
+    expect(ranked).toContain('reddit.com')
   })
 
   it('omits buckets for days with no sweep data', async () => {
@@ -1375,7 +1385,13 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     }).run()
 
     const qId = crypto.randomUUID()
-    db.insert(queries).values({ id: qId, projectId, query: 'best hotels', createdAt: iso }).run()
+    const qId2 = crypto.randomUUID()
+    const qId3 = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: qId, projectId, query: 'best hotels', createdAt: iso },
+      { id: qId2, projectId, query: 'hotels near the harbor', createdAt: iso },
+      { id: qId3, projectId, query: 'boutique hotel deals', createdAt: iso },
+    ]).run()
 
     const realRunId = crypto.randomUUID()
     db.insert(runs).values({
@@ -1383,42 +1399,53 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
       trigger: 'manual', location: null, startedAt: iso, finishedAt: iso, error: null, createdAt: iso,
     }).run()
 
-    // gemini: 12 cited slots over 11 distinct domains (acme x2), plus 6 'other'
-    // long-tail domains to prove the old top-5-per-category cap is gone. Two
-    // infra URIs are mixed in and must be filtered out (not counted).
+    // Counts come from each answer's STORED source list (citedDomains plus the
+    // hosts of citedUrls), one credit per (answer, domain). Gemini's raw
+    // grounding links are vertexaisearch redirects, so the raw response names
+    // no real host at all; only the stored list the writer resolved does.
+    const vertexRedirect = (id: string) => ({
+      uri: `https://vertexaisearch.cloud.google.com/grounding-api-redirect/${id}`, title: 'redirect',
+    })
+
+    // gemini answer 1: 11 distinct domains, including the 6 long-tail 'other'
+    // ones that prove the old top-5-per-category cap is gone. acme.com appears
+    // as a domain AND as two URLs, www.booking.com as a URL: still one credit
+    // each. Infra hosts are seeded defensively and must never count.
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'gemini',
       model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'acme is great',
-      citedDomains: [], competitorOverlap: [], location: null,
-      rawResponse: JSON.stringify({
-        groundingSources: [
-          { uri: 'https://acme.com/a', title: 'Acme' },
-          { uri: 'https://acme.com/b', title: 'Acme 2' },
-          { uri: 'https://acme.com/c', title: 'Acme 3' },
-          { uri: 'https://rival.com/x', title: 'Rival' },
-          { uri: 'https://www.booking.com/hotel/y', title: 'Booking' },
-          { uri: 'https://www.forbes.com/article', title: 'Forbes' },
-          { uri: 'https://reddit.com/r/travel', title: 'Reddit' },
-          { uri: 'https://g1.io/p', title: 'g1' },
-          { uri: 'https://g2.io/p', title: 'g2' },
-          { uri: 'https://g3.io/p', title: 'g3' },
-          { uri: 'https://g4.io/p', title: 'g4' },
-          { uri: 'https://g5.io/p', title: 'g5' },
-          { uri: 'https://g6.io/p', title: 'g6' },
-          // infra — filtered, never counted:
-          { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/Z', title: 'proxy' },
-          { uri: 'https://openai.com/research', title: 'infra' },
-        ],
-      }),
+      citedDomains: [
+        'acme.com', 'rival.com', 'booking.com', 'forbes.com', 'reddit.com',
+        'g1.io', 'g2.io', 'g3.io', 'g4.io', 'g5.io', 'g6.io', 'openai.com',
+      ],
+      citedUrls: [
+        'https://acme.com/a', 'https://acme.com/b', 'https://www.booking.com/hotel/y',
+        'https://vertexaisearch.cloud.google.com/grounding-api-redirect/Z',
+      ],
+      captureStatus: 'complete',
+      competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({ groundingSources: Array.from({ length: 12 }, (_, i) => vertexRedirect(`a${i}`)) }),
       createdAt: iso,
     }).run()
 
-    // openai: 4 cited slots over 4 distinct domains. acme + rival overlap with
-    // gemini; expedia + oa1.io are openai-only.
+    // gemini answers 2 and 3 cite acme.com again: 3 answers → count 3.
+    for (const [queryId, url] of [[qId2, 'https://acme.com/c'], [qId3, 'https://acme.com/d']] as const) {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId: realRunId, queryId, provider: 'gemini',
+        model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'acme again',
+        citedDomains: ['acme.com'], citedUrls: [url], captureStatus: 'complete',
+        competitorOverlap: [], location: null,
+        rawResponse: JSON.stringify({ groundingSources: [vertexRedirect(queryId)] }),
+        createdAt: iso,
+      }).run()
+    }
+
+    // openai: 4 distinct domains. acme + rival overlap with gemini; expedia +
+    // oa1.io are openai-only. A legacy row with no URL capture (citedUrls null).
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'openai',
       model: 'gpt-4o', citationState: 'cited', answerText: 'hotels',
-      citedDomains: [], competitorOverlap: [], location: null,
+      citedDomains: ['rival.com', 'expedia.com', 'acme.io', 'oa1.io'], competitorOverlap: [], location: null,
       rawResponse: JSON.stringify({
         groundingSources: [
           { uri: 'https://rival.com/y', title: 'Rival' },
@@ -1432,7 +1459,7 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
 
     // claude: answered but grounded on nothing usable (empty list). Contributes
     // zero slots/domains — must be OMITTED from byProvider entirely, not surfaced
-    // as an empty bucket.
+    // as an empty bucket, and named in providersWithoutSources instead.
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'claude',
       model: 'claude-sonnet', citationState: 'cited', answerText: 'no sources',
@@ -1446,7 +1473,8 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     await app.close()
   })
 
-  // Expected overall (gemini 13 + openai 4 = 17 slots, 14 distinct domains):
+  // Expected overall (gemini 13 + openai 4 = 17 answer credits, 14 distinct domains,
+  // 5 answers of which 4 cite something):
   //   own:               acme.com 3 + acme.io 1 = count 4, domainCount 2
   //   direct-competitor: rival.com 2,                       domainCount 1
   //   ota-aggregator:    booking 1 + expedia 1 = count 2,   domainCount 2
@@ -1658,6 +1686,9 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(body.runId).toBe(realRun) // anchored to the real run, not ''
     expect(body.ranked).toMatchObject({ totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] })
     expect(body.byProvider).toEqual({}) // gemini produced no usable domains → omitted
+    // ...but its answers are not silently dropped: the omission is named.
+    expect(body.providersWithoutSources).toEqual(['gemini'])
+    expect(body.answerTotal).toBe(1)
   })
 
   it('enriches the surface class from discovery domain_classifications (LLM), with own/competitor still authoritative', async () => {
@@ -1679,7 +1710,7 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: runId2, queryId: qId2, provider: 'gemini',
       model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'x',
-      citedDomains: [], competitorOverlap: [], location: null,
+      citedDomains: ['enrich.com', 'erival.com', 'nicheota.io', 'plainsite.io'], competitorOverlap: [], location: null,
       rawResponse: JSON.stringify({
         groundingSources: [
           { uri: 'https://enrich.com/a', title: 'own' },
@@ -1725,6 +1756,183 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(body.ranked).toMatchObject({ totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] })
     expect(body.byProvider).toEqual({})
     expect(body.limit).toBeNull()
+  })
+
+  it('counts Gemini answers from the stored source list even though every raw grounding link is a redirect', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    // Every gemini rawResponse link is a vertexaisearch redirect. Reading the raw
+    // links dropped gemini entirely; the stored list keeps all 13 credits.
+    expect(body.byProvider.gemini).toMatchObject({ totalCitedSlots: 13, domainTotal: 11, answerTotal: 3, answersWithSources: 3 })
+    expect(body.byProvider.gemini.entries[0]).toMatchObject({ domain: 'acme.com', count: 3, answerShare: 1 })
+    expect(body.byProvider.gemini.entries.map((e: { domain: string }) => e.domain)).toContain('booking.com')
+  })
+
+  it('credits a domain once per answer and reports answer shares over every answer in scope', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    // 5 answers: 3 gemini, 1 openai, 1 claude (no sources).
+    expect(body.answerTotal).toBe(5)
+    expect(body.ranked).toMatchObject({ answerTotal: 5, answersWithSources: 4 })
+    // acme.com: 2 URLs + the domain in answer 1, one each in answers 2 and 3.
+    expect(body.ranked.entries[0]).toMatchObject({ domain: 'acme.com', count: 3, answerShare: 0.6 })
+    expect(body.ranked.entries.find((e: { domain: string }) => e.domain === 'booking.com')).toMatchObject({ count: 1, answerShare: 0.2 })
+    expect(body.providersWithoutSources).toEqual(['claude'])
+    expect(body.byProvider.openai).toMatchObject({ answerTotal: 1, answersWithSources: 1 })
+  })
+})
+
+describe('GET /projects/:name/analytics/sources: run, query class and byQuery filters', () => {
+  let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
+  let tmpDir: string
+
+  const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString()
+  const RUN_OLD = 'aaaaaaaa-0000-4000-8000-000000000001'
+  const RUN_NEW = 'aaaaaaaa-0000-4000-8000-000000000002'
+  const RUN_PROBE = 'aaaaaaaa-0000-4000-8000-000000000003'
+  const RUN_FAILED = 'aaaaaaaa-0000-4000-8000-000000000004'
+  const OTHER_PROJECT_RUN = 'aaaaaaaa-0000-4000-8000-000000000005'
+
+  const get = async (query = '') => {
+    const res = await app.inject({ method: 'GET', url: `/api/v1/projects/harbor-homes/analytics/sources${query}` })
+    return { status: res.statusCode, body: JSON.parse(res.payload) }
+  }
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    const otherProjectId = crypto.randomUUID()
+    db.insert(projects).values([
+      {
+        id: projectId, name: 'harbor-homes', displayName: 'Harbor Homes', canonicalDomain: 'harborhomes.example',
+        ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {}, providers: ['gemini', 'openai'],
+        locations: [], defaultLocation: null, configSource: 'api', configRevision: 1, createdAt: iso(20), updatedAt: iso(20),
+      },
+      {
+        id: otherProjectId, name: 'other-homes', displayName: 'Other Homes', canonicalDomain: 'otherhomes.example',
+        ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {}, providers: ['gemini'],
+        locations: [], defaultLocation: null, configSource: 'api', configRevision: 1, createdAt: iso(20), updatedAt: iso(20),
+      },
+    ]).run()
+    const brandedQ = crypto.randomUUID()
+    const nonBrandQ = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: brandedQ, projectId, query: 'harbor homes reviews', createdAt: iso(20) },
+      { id: nonBrandQ, projectId, query: 'apartments near the waterfront', createdAt: iso(20) },
+    ]).run()
+    db.insert(runs).values([
+      { id: RUN_OLD, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: iso(10) },
+      { id: RUN_NEW, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: iso(2) },
+      { id: RUN_PROBE, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'probe', location: null, createdAt: iso(1) },
+      { id: RUN_FAILED, projectId, kind: 'answer-visibility', status: 'failed', trigger: 'manual', location: null, createdAt: iso(1) },
+      { id: OTHER_PROJECT_RUN, projectId: otherProjectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: iso(1) },
+    ]).run()
+    const snapshot = (runId: string, queryId: string, provider: string, citedDomains: string[], citedUrls: string[] | null = null) => ({
+      id: crypto.randomUUID(), runId, queryId, provider, citationState: 'not-cited', answerText: 'answer',
+      citedDomains, citedUrls, competitorOverlap: [], location: null, rawResponse: '{}', createdAt: iso(1),
+    })
+    db.insert(querySnapshots).values([
+      snapshot(RUN_OLD, brandedQ, 'gemini', ['harborhomes.example']),
+      snapshot(RUN_NEW, nonBrandQ, 'gemini', ['listings.example', 'harborhomes.example'], ['https://listings.example/a']),
+      snapshot(RUN_NEW, brandedQ, 'openai', ['harborhomes.example', 'reviews.example']),
+      snapshot(RUN_NEW, nonBrandQ, 'openai', ['listings.example']),
+      snapshot(RUN_PROBE, nonBrandQ, 'openai', ['probe.example']),
+      snapshot(RUN_FAILED, nonBrandQ, 'openai', ['failed.example']),
+    ]).run()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('leads with the ranked list, echoes the filters, and keeps byQuery by default', async () => {
+    const { status, body } = await get()
+    expect(status).toBe(200)
+    const keys = Object.keys(body)
+    expect(keys[0]).toBe('ranked')
+    expect(keys.at(-1)).toBe('byQuery')
+    expect(body.filters).toEqual({ runId: null, queryClass: 'all', queryClassBasis: null, includeByQuery: true })
+    expect(body.runCount).toBe(2)
+    expect(body.runId).toBe(RUN_NEW)
+    expect(body.answerTotal).toBe(4)
+    expect(body.unclassifiedAnswers).toBe(0)
+  })
+
+  it('sums the per-query breakdown over every answer to the query', async () => {
+    const { body } = await get()
+    const rows = body.byQuery['apartments near the waterfront'] as Array<{ topDomains: Array<{ domain: string; count: number }> }>
+    const listings = rows.flatMap(row => row.topDomains).find(d => d.domain === 'listings.example')
+    // gemini and openai both cite it; the last-read answer no longer wins.
+    expect(listings?.count).toBe(2)
+  })
+
+  it.each(['false', '0'])('omits byQuery with includeByQuery=%s and leaves every other field unchanged', async flag => {
+    const full = await get()
+    const { status, body } = await get(`?includeByQuery=${flag}`)
+    expect(status).toBe(200)
+    expect(body).not.toHaveProperty('byQuery')
+    expect(body.filters.includeByQuery).toBe(false)
+    expect(body.ranked).toEqual(full.body.ranked)
+    expect(body.byProvider).toEqual(full.body.byProvider)
+    expect(body.overall).toEqual(full.body.overall)
+  })
+
+  it('rejects an unrecognised includeByQuery or queryClass value', async () => {
+    expect((await get('?includeByQuery=maybe')).status).toBe(400)
+    expect((await get('?queryClass=brand')).status).toBe(400)
+  })
+
+  it('reads one run with runId instead of pooling the window', async () => {
+    const { status, body } = await get(`?runId=${RUN_OLD}`)
+    expect(status).toBe(200)
+    expect(body.runId).toBe(RUN_OLD)
+    expect(body.runCount).toBe(1)
+    expect(body.answerTotal).toBe(1)
+    expect(body.filters.runId).toBe(RUN_OLD)
+    expect(body.ranked.entries.map((e: { domain: string }) => e.domain)).toEqual(['harborhomes.example'])
+  })
+
+  it('says why a runId has no source analytics instead of returning an empty list', async () => {
+    expect((await get('?runId=aaaaaaaa-0000-4000-8000-00000000ffff')).status).toBe(404)
+    expect((await get(`?runId=${OTHER_PROJECT_RUN}`)).status).toBe(404)
+    const probe = await get(`?runId=${RUN_PROBE}`)
+    expect(probe.status).toBe(400)
+    expect(probe.body.error.message).toContain('probe')
+    const failed = await get(`?runId=${RUN_FAILED}`)
+    expect(failed.status).toBe(400)
+    expect(failed.body.error.message).toContain('failed')
+  })
+
+  it('refuses a runId outside the requested window instead of answering empty', async () => {
+    const outside = await get(`?runId=${RUN_OLD}&window=7d`)
+    expect(outside.status).toBe(400)
+    expect(outside.body.error.message).toContain('7d')
+    expect((await get(`?runId=${RUN_NEW}&window=7d`)).status).toBe(200)
+  })
+
+  it('splits by query class with the text classifier when the project has no v2 plan', async () => {
+    const nonBrand = await get('?queryClass=non-brand')
+    expect(nonBrand.status).toBe(200)
+    expect(nonBrand.body.filters).toMatchObject({ queryClass: 'non-brand', queryClassBasis: 'query-text' })
+    expect(nonBrand.body.answerTotal).toBe(2)
+    expect(nonBrand.body.ranked.entries[0]).toMatchObject({ domain: 'listings.example', count: 2, answerShare: 1 })
+    expect(nonBrand.body.ranked.entries.map((e: { domain: string }) => e.domain)).not.toContain('reviews.example')
+
+    const branded = await get('?queryClass=branded')
+    expect(branded.body.answerTotal).toBe(2)
+    expect(branded.body.ranked.entries[0]).toMatchObject({ domain: 'harborhomes.example', count: 2 })
+
+    const brandedLatest = await get(`?queryClass=branded&runId=${RUN_NEW}`)
+    expect(brandedLatest.body.answerTotal).toBe(1)
+    expect(brandedLatest.body.byProvider).toHaveProperty('openai')
+    expect(brandedLatest.body.byProvider).not.toHaveProperty('gemini')
   })
 })
 

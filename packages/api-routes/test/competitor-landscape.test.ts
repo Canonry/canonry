@@ -1162,6 +1162,116 @@ describe('GET /projects/:name/analytics/competitors', () => {
       drafts: db.select().from(measurementPlanDrafts).all(),
     }).toEqual(before)
   })
+
+  it('caps observed answer-text names at the top 50 and reports the full count', async () => {
+    // 60 distinct names; Name 00 and Name 01 each appear in 2 answers, the rest in 1.
+    const names = Array.from({ length: 60 }, (_, index) => `Name ${String(index).padStart(2, '0')}`)
+    db.insert(querySnapshots).values([
+      ...names.map((name, index) => ({
+        ...marketSnapshot(`observed-name-${index}`, 'run_normal', null, 'Northwind is one choice.', 'guide.example'),
+        queryId: null,
+        recommendedCompetitors: index === 0 ? [name, names[1]!] : [name],
+      })),
+      { ...marketSnapshot('observed-name-extra', 'run_normal', null, 'Northwind again.', 'guide.example'), queryId: null, recommendedCompetitors: [names[0]!] },
+    ]).run()
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&groupBy=model' })
+    expect(response.statusCode, response.body).toBe(200)
+    const body = competitorLandscapeResponseSchema.parse(response.json())
+    expect(body.observedNames).toHaveLength(50)
+    expect(body.observedNamesTotal).toBe(60)
+    expect(body.observedNames!.slice(0, 2)).toEqual([
+      { name: 'Name 00', answerCount: 2 },
+      { name: 'Name 01', answerCount: 2 },
+    ])
+    for (const group of body.modelComparison!.groups) {
+      expect(group.observedNames!.length).toBeLessThanOrEqual(50)
+      expect(group.observedNamesTotal).toBeGreaterThanOrEqual(group.observedNames!.length)
+    }
+  })
+
+  it('reads a class split on a v2 project from the plan (all-markets) unless a scope is explicit', async () => {
+    // The plan assigns "homes near northwind" NON-BRAND; the text classifier
+    // calls it branded because it names the brand. The plan must win.
+    seedVersion('class-plan', 1, marketPlan('class-node', 'plan-rival.example', 'Plan Rival'))
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'class-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(runs).values({
+      id: 'class-run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', measurementPlanVersionId: 'class-plan', location: null, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values(
+      marketSnapshot('class-snapshot', 'class-run', 'class-node', 'Northwind and Plan Rival are alternatives.', 'plan-rival.example'),
+    ).run()
+
+    const defaulted = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand',
+    })
+    expect(defaulted.statusCode, defaulted.body).toBe(200)
+    expect(defaulted.json()).toMatchObject({
+      scope: { kind: 'all-markets' },
+      filters: { scope: 'all-markets', groupKey: null, queryClass: 'non-brand' },
+      evidence: { answeredResults: 1 },
+      marketState: { activeRevision: 1 },
+    })
+
+    const explicitProject = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&scope=project',
+    })
+    expect(explicitProject.statusCode, explicitProject.body).toBe(200)
+    // Project scope keeps the text classifier: the plan's non-brand query reads as branded there.
+    expect(explicitProject.json()).toMatchObject({ scope: { kind: 'project' }, evidence: { answeredResults: 0 } })
+
+    // A pooled read has no class to resolve, so it keeps the project scope.
+    const pooled = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all' })
+    expect(pooled.json()).toMatchObject({ scope: { kind: 'project' } })
+  })
+
+  it('splits analytics sources by the plan classes and counts the same answers as the landscape', async () => {
+    seedVersion('sources-plan', 1, marketPlan('sources-node', 'plan-rival.example', 'Plan Rival'))
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'sources-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(runs).values({
+      id: 'sources-run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', measurementPlanVersionId: 'sources-plan', location: null, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values([
+      marketSnapshot('sources-openai', 'sources-run', 'sources-node', 'Northwind and Plan Rival.', 'plan-rival.example'),
+      // Gemini: the stored list is resolved hosts, whatever the raw links were.
+      { ...marketSnapshot('sources-gemini', 'sources-run', 'sources-node', 'Northwind.', 'listings.example'), provider: 'gemini', citedUrls: ['https://listings.example/unit'] },
+    ]).run()
+
+    const nonBrand = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=non-brand&runId=sources-run&includeByQuery=false',
+    })
+    expect(nonBrand.statusCode, nonBrand.body).toBe(200)
+    const body = nonBrand.json()
+    expect(body.filters).toEqual({ runId: 'sources-run', queryClass: 'non-brand', queryClassBasis: 'measurement-plan', includeByQuery: false })
+    expect(body).not.toHaveProperty('byQuery')
+    expect(body.answerTotal).toBe(2)
+    expect(body.unclassifiedAnswers).toBe(0)
+    expect(Object.keys(body.byProvider).sort()).toEqual(['gemini', 'openai'])
+    expect(body.ranked.entries.map((e: { domain: string }) => e.domain).sort()).toEqual(['listings.example', 'plan-rival.example'])
+
+    // The text classifier would call this query branded; the plan says otherwise.
+    const branded = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=branded&runId=sources-run',
+    })
+    expect(branded.json()).toMatchObject({ answerTotal: 0, ranked: { entries: [] } })
+
+    // Across the window the fixture's planless run cannot be classified: it is
+    // excluded and counted, never guessed into a class.
+    const windowed = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=non-brand&includeByQuery=false',
+    })
+    expect(windowed.json()).toMatchObject({ answerTotal: 2, unclassifiedAnswers: 2, runCount: 2 })
+
+    const landscape = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&runId=sources-run',
+    })
+    expect(landscape.json()).toMatchObject({ scope: { kind: 'all-markets' }, evidence: { answeredResults: 2, sourceResults: 2 } })
+  })
 })
 
 describe('share of voice comparison policy', () => {

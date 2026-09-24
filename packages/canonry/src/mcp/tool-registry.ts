@@ -201,6 +201,14 @@ const measurementPropertyEvidenceInputSchema = measurementPropertyEvidenceQueryS
 }).strict()
 const measurementPortfolioSummaryInputSchema = measurementPortfolioSummaryQuerySchema.extend({
   project: projectNameSchema,
+  groupKey: measurementPortfolioSummaryQuerySchema.shape.groupKey
+    .describe('A market stable key (a row\'s metro.groupKey). Scopes rows to that market and lists its direct submarkets.'),
+  // Capped below the route's 50: past about 10 rows the per-row evidence
+  // (names given instead, cited domains) no longer fits the tool-result cap.
+  limit: z.number().int().positive().max(10).optional()
+    .describe('Rows per list, at most 10. Default 4 keeps the whole result under the tool-result cap; prefer groupKey over a larger limit.'),
+  includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets
+    .describe('Every market at every level, uncapped. Off by default; large portfolios exceed the cap with it on.'),
 }).strict()
 const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuerySchema.extend({
   project: projectNameSchema,
@@ -1271,22 +1279,33 @@ export const canonryMcpTools = [
     name: 'canonry_analytics_sources',
     title: 'Get cited-source rankings',
     description:
-      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). The surface class is deterministic (own/competitor from project data, the rest from the source allow-list) and enriched by discovery\'s stored per-domain classifications when present — no new LLM calls. Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
+      'Where AI engines cite from for a project: cited domains ranked by how many answers cite them, each tagged with a category and a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), plus a surface-class roll-up and a per-provider breakdown. Project-wide: without `runId` it pools every sweep in the window (`runCount` says how many); without `queryClass` it pools branded and non-brand answers, where branded queries inflate your own domain. For the sources behind non-brand answers, set `queryClass=non-brand` and the latest `runId`; on a v2 measurement plan the class comes from the plan, the same answers as canonry_competitor_landscape with scope=all-markets. Counts come from each answer\'s stored source list, so every engine is included, Gemini too. A domain counts at most once per answer; `answerShare` is the share of all answers in scope that cite it. `providersWithoutSources` names engines that answered but cited nothing. `limit` caps each ranked list (default 10 for this tool, which keeps each engine list whole); a long-tail rollup keeps the totals. The per-query breakdown is omitted unless `includeByQuery` is true. No LLM calls; probe runs excluded.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
       window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
-      limit: z.number().int().positive().optional().describe('Cap each ranked list to the top N domains. Omit for the full list.'),
+      limit: z.number().int().positive().max(50).optional().describe('Cap each ranked list to the top N domains. Default 10; larger lists can exceed the tool-result cap.'),
+      runId: z.string().trim().min(1).optional().describe('Read one answer-visibility run (for example the latest sweep) instead of pooling every run in the window.'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand answers only. With an active v2 measurement plan the class comes from the plan assignments. Default all pools both classes.'),
+      includeByQuery: z.boolean().optional().describe('Include the per-query breakdown. It is large; default false for this tool.'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/analytics/sources'],
-    handler: (client, input) => client.getAnalyticsSources(input.project, { window: input.window, limit: input.limit }),
+    handler: (client, input) => client.getAnalyticsSources(input.project, {
+      window: input.window,
+      // The full ranked lists run past the agent's tool-result cap on a large
+      // project, and the per-engine lists are the first thing lost.
+      limit: input.limit ?? 10,
+      runId: input.runId,
+      queryClass: input.queryClass,
+      includeByQuery: input.includeByQuery ?? false,
+    }),
   }),
   defineTool({
     name: 'canonry_competitor_landscape',
     title: 'Get historical competitor landscape',
-    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. Model groups are capped at 50 and disclose truncation.',
+    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` is the full count. Model groups are capped at 50 and disclose truncation.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: competitorLandscapeInputSchema,
@@ -2435,7 +2454,7 @@ export const canonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_measurement_plan_get', title: 'Get measurement plan', description: 'Get the active measurement plan for a project.', access: 'read', tier: 'setup', inputSchema: projectInputSchema, annotations: readAnnotations(), openApiOperations: ['GET /api/v1/projects/{name}/measurement-plan'], handler: (client, input) => client.getMeasurementPlan(input.project),
+    name: 'canonry_measurement_plan_get', title: 'Get measurement plan', description: 'Get the active measurement plan for a project: plan structure only (targets, groups, query assignments), no metrics. It can be very large on a big portfolio; for analysis prefer canonry_measurement_portfolio_summary and canonry_measurement_overview.', access: 'read', tier: 'setup', inputSchema: projectInputSchema, annotations: readAnnotations(), openApiOperations: ['GET /api/v1/projects/{name}/measurement-plan'], handler: (client, input) => client.getMeasurementPlan(input.project),
   }),
   defineTool({
     name: 'canonry_measurement_plan_versions', title: 'List measurement plan versions', description: 'List immutable measurement-plan revisions.', access: 'read', tier: 'setup', inputSchema: projectInputSchema, annotations: readAnnotations(), openApiOperations: ['GET /api/v1/projects/{name}/measurement-plan/versions'], handler: (client, input) => client.listMeasurementPlanVersions(input.project),
@@ -2500,7 +2519,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_portfolio_summary',
     title: 'Summarize measured Properties',
-    description: 'Start here for best/worst Property mention performance. Defaults to non-brand questions; state the returned queryClass and keep branded comparisons separate unless all was requested. mentionRanking.strongest and .weakest rank every Property with an available mention rate before applying limit, independently of citation availability or an unavailable portfolio aggregate. mentionRanking.excluded names every excluded Property and its reason; flag those separately, never call all mention rankings unavailable because one identity is ambiguous. Report numerator/denominator with each rate, and any unattributed count beside it: answers left out of both because their Property identity was unresolved, never not-mentioned answers. Rates may tie (stable label/key order); this is descriptive coverage, not a confidence-adjusted or unique-winner claim. weakestProperties retains combined mention/citation weaknesses with stored replacement names; markets compares every named market worst-first. Each market is scoped to the displayed run; markets may share Properties, so they never sum to portfolio totals. Reads stored data only; it never starts provider work.',
+    description: 'Start here for best and worst Properties. One call returns the weakest Properties, the names answers wrote instead of them, and the domains engines cited for them. Defaults to non-brand queries; state the returned queryClass and never pool branded with non-brand. Keep the default limit; for more rows narrow with groupKey (a metro) rather than raising limit, which can overflow the tool-result cap. Mention (answer text names the Property) and citation (a source URL on its page) are separate: report each as numerator/denominator, with any unattributed count beside mention. Denominators count answers, one per query per engine (queries x engines = answers). Group Properties only by each row\'s metro and submarkets, never by label. namedInsteadInAnswerText lists names written in the answer text of answers that neither named nor cited the Property, counted by answer: they are not citations. citedDomains and weakestAnswerSources count answers citing each domain, every engine included; weakestAnswerSources covers the weakest rows plus every tied Property, each answer once. When tiedAtWeakest is set, that many Properties share the weakest rates and are ordered by name, not ranked. mentionRanking.strongest/.weakest rank every Property with an available mention rate; .excluded lists the rest with reasons. markets lists one level worst-first (metros, or a groupKey\'s submarkets), capped at limit, with totalMarkets; includeNestedMarkets returns every level. Markets may share Properties and never sum to portfolio totals. Reads stored data only; never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPortfolioSummaryInputSchema,

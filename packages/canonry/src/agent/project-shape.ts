@@ -27,6 +27,7 @@ const ADVANCED_TOOLS = [
   'canonry_measurement_property_competitors',
   'canonry_measurement_changes',
   'canonry_visibility_report',
+  'canonry_analytics_sources',
 ]
 /** Schema-v1 plans: the overview reads them; the portfolio and Property reads need v2. */
 const LEGACY_TOOLS = ['canonry_measurement_overview', 'canonry_measurement_plan_get']
@@ -67,7 +68,7 @@ export function aeroProjectShape(db: DatabaseClient, projectId: string): AeroPro
         .filter(assignment => assignment.queryClass === queryClass)
         .map(assignment => assignment.queryId)).size
       return {
-        prompt: `\n\nProject shape: an Advanced Measurement portfolio (plan revision ${version.revision}) with ${size}, ${queriesIn('branded')} branded and ${queriesIn('non-brand')} non-brand queries. Measure per Property, group or market, never pool branded and non-brand, and a query shared by several Properties is one answer scored for each. Start portfolio questions with canonry_measurement_portfolio_summary (weakest-first ranking with names given instead) or canonry_measurement_overview; drill into one Property with canonry_measurement_property_evidence and canonry_measurement_property_competitors; compare sweeps with canonry_measurement_changes. Project-wide tools such as canonry_visibility_report describe the whole project, not one Property.`,
+        prompt: `\n\nProject shape: an Advanced Measurement portfolio (plan revision ${version.revision}) with ${size}, ${queriesIn('branded')} branded and ${queriesIn('non-brand')} non-brand queries. Measure per Property, group or market, never pool branded and non-brand, and a query shared by several Properties is one answer scored for each. Start portfolio questions with canonry_measurement_portfolio_summary (weakest-first ranking with each Property's metro, the names answers wrote instead, and the domains they cited) or canonry_measurement_overview; drill into one Property with canonry_measurement_property_evidence and canonry_measurement_property_competitors; compare sweeps with canonry_measurement_changes. Project-wide tools such as canonry_visibility_report describe the whole project, not one Property. Group Properties only by the metro and submarkets the tools return, never by name. Names given instead were written in the answer text, not cited. Denominators count answers (queries x engines), not queries. Properties tied at the weakest rate are not ranked against each other. For sources, use each Property's citedDomains in the portfolio summary, or canonry_analytics_sources with queryClass and runId set; without them it pools both classes and every sweep. canonry_measurement_plan_get is plan structure with no metrics; do not read it for analysis.`,
         pinned: ADVANCED_TOOLS,
       }
     }

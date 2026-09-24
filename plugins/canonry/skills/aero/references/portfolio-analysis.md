@@ -7,9 +7,15 @@ description: Interpret Simple and Advanced portfolios, compare Properties and ma
 
 ## Establish the measurement
 
-Use `canonry_project_get` and `canonry_measurement_plan_get` to establish the
-project and active plan. A Simple portfolio uses the standard project flow;
-an Advanced portfolio uses a versioned measurement plan. "Multiportfolio"
+Use `canonry_project_get` to establish the project. When the system prompt
+carries a "Project shape:" line, it already names the portfolio type and plan
+revision: skip `canonry_measurement_plan_get` and read metrics from
+`canonry_measurement_portfolio_summary` and `canonry_measurement_overview`.
+Without that line, call `canonry_measurement_plan_get` to establish the active
+plan. The plan is structure only, with no metrics, and can be very large;
+never list, rank, or group Properties from it. A Simple portfolio uses the
+standard project flow; an Advanced portfolio uses a versioned measurement
+plan. "Multiportfolio"
 may mean Properties within one project or several projects. Built-in Aero's
 project-scoped tools operate on the current session's project. Do not present
 one project's results as an account-wide comparison.
@@ -24,7 +30,7 @@ by each tool; never invent a model or market parameter.
 The chat does not inherit dashboard selections. Resolve names and URLs from
 the request; ask for the selection when a reference such as "this market"
 cannot be resolved. For an unqualified portfolio ranking, use non-brand
-questions and state the returned scope. Keep branded recall separate. An
+queries and state the returned scope. Keep branded recall separate. An
 explicit request for all classes permits a combined coverage read, not an
 invented combined share-of-voice ratio.
 
@@ -33,11 +39,12 @@ invented combined share-of-voice ratio.
 | Question | Stored evidence |
 |---|---|
 | How is a Simple portfolio doing? | `canonry_project_overview`, `canonry_visibility_stats`; preserve sample sizes and returned class |
-| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use `mentionRanking.strongest`, `.weakest`, and `.excluded` |
+| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use `mentionRanking.strongest`, `.weakest`, and `.excluded`, plus `tiedAtWeakest`. Keep the default `limit`; narrow with `groupKey` for more rows |
 | What is measured for one Property or market? | `canonry_measurement_overview` with `scope: property` / `targetKey` or `scope: group` / `groupKey` |
 | Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
-| Who appeared instead? | `canonry_measurement_property_competitors`; report stored replacement names as observations |
+| Who appeared instead? | `namedInsteadInAnswerText` on each weakest row, or `canonry_measurement_property_competitors` for one Property; these names were written in the answer text, not cited |
+| Where do engines get these answers? | `citedDomains` on each weakest row and `weakestAnswerSources` in the portfolio summary; project-wide, `canonry_analytics_sources` with `queryClass` and `runId` set, since without them it pools both classes and every sweep |
 | Did performance change? | `populations[].comparison` from `canonry_visibility_report` for the displayed selection (Simple and Advanced); `canonry_measurement_changes` for changed Properties (Advanced); `canonry_visibility_compare` for Simple month comparisons |
 | Can these results support a conclusion? | `canonry_measurement_data_quality` for Advanced completeness, capture, retrieval, and comparability |
 
@@ -50,6 +57,8 @@ change the plan to make a read work.
 - Quote the server's numerator and denominator with a rate. Mention and
   citation are independent signals; `mentioned: null` or
   `answerMentioned: null` means unchecked, not a measured miss.
+- Coverage denominators count answers, one per query per engine: 8 queries
+  on 3 engines is 24 answers. Label them answers, never queries.
 - An empty result with `measurement.state: not_measured` means no
   measurement. An unavailable aggregate does not invalidate available
   Property metrics. Report ranked Properties and list excluded Properties
@@ -57,7 +66,11 @@ change the plan to make a read work.
 - `mentionRanking` ranks all eligible Properties before applying its limit.
   Do not recompute a best/worst ranking from one overview page. Tied rates
   are ties; stable label/key order does not establish a unique winner or
-  statistical significance.
+  statistical significance. When `tiedAtWeakest` is set, report that many
+  Properties share the weakest rates instead of calling the first rows the
+  worst.
+- Group Properties only by each row's `metro` and `submarkets`. Never infer a
+  market from a Property's name, and never merge two metros into one group.
 - Markets can share Properties and do not sum to a portfolio total. Do not
   average Property percentages, add overlapping market counts, or substitute
   project-brand performance for an individual Property's performance.
@@ -83,9 +96,13 @@ A revision or evidence change can invalidate a cursor; restart that read
 without merging pages from incompatible snapshots. Overview search narrows
 displayed rows without changing metric denominators.
 
-Tool output can be trimmed. Inspect `__truncated`, `__omittedRows`, and
-`__omittedRowsByField` as well as API pagination metadata. Request a smaller
-page or narrower scope before treating the returned rows as exhaustive.
+Tool output can be trimmed. Inspect `__truncated`, `__truncation` (the keys
+dropped and `k of n` items kept per list), `__omittedRows`, and
+`__omittedRowsByField` as well as API pagination metadata. A text result that
+ends with a `__truncation:` line and the truncation note is a partial slice.
+Never list, rank, count, or group items you did not see; say what was cut,
+then request a smaller page or narrower scope (a `groupKey` for the portfolio
+summary) before treating the returned rows as exhaustive.
 
 Lead the answer with the scoped result, give numerator/denominator and the
 evidence explaining it, state missing data or comparison limits, then suggest

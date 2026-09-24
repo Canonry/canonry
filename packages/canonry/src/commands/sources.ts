@@ -52,6 +52,8 @@ export async function showSources(project: string, options: SourcesOptions): Pro
 function printSourceRankings(data: SourceBreakdownDto, options: SourcesOptions): void {
   console.log(`\nSource Rankings (${data.window})`)
   console.log('─'.repeat(50))
+  const scope = describeScope(data)
+  if (scope) console.log(`  ${scope}`)
 
   if (data.ranked.totalCitedSlots === 0) {
     console.log('  No source data available')
@@ -72,7 +74,25 @@ function printSourceRankings(data: SourceBreakdownDto, options: SourcesOptions):
       console.log(`\n    ${provider} (${list.totalCitedSlots} cited slots):`)
       printRankedEntries(list, '    ')
     }
+    for (const provider of data.providersWithoutSources ?? []) {
+      console.log(`\n    ${provider}: answered, but no answer named a source`)
+    }
   }
+}
+
+/**
+ * What the counts pool. Each field is optional so an older server's response
+ * still renders; nothing is printed when the server does not say.
+ */
+function describeScope(data: SourceBreakdownDto): string | null {
+  const parts: string[] = []
+  if (data.answerTotal !== undefined) parts.push(`${data.answerTotal} answers`)
+  if (data.filters?.runId) parts.push(`run ${data.filters.runId}`)
+  else if (data.runCount !== undefined) parts.push(`${data.runCount} ${data.runCount === 1 ? 'run' : 'runs'} pooled`)
+  if (data.filters) {
+    parts.push(data.filters.queryClass === 'all' ? 'branded and non-brand pooled' : `${data.filters.queryClass} queries only`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 function printSurfaceClasses(list: RankedSourceList): void {

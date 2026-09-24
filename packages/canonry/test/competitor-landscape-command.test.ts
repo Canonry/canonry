@@ -134,6 +134,16 @@ describe('showCompetitorLandscape', () => {
     expect(output).not.toContain('Model comparison')
   })
 
+  it('says when observed names are the top slice of a longer list', async () => {
+    const response = fixture()
+    response.observedNames = [{ name: 'Harbor Lofts', answerCount: 3 }, { name: 'Pier Flats', answerCount: 2 }]
+    response.observedNamesTotal = 60
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    const output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).toContain('Names observed in answers (not a comparison set), top 2 of 60:')
+    expect(output).toContain('Harbor Lofts · 3 answers')
+  })
+
   it('prints model-group counts, requested and served identities, and comparison limits separately', async () => {
     mockGetCompetitorLandscape.mockResolvedValue(comparisonFixture())
     const output = await captureLog(() => showCompetitorLandscape('acme', { groupBy: 'model' }))

@@ -61,6 +61,17 @@ describe('aeroProjectShapePrompt', () => {
     // Every tool the prompt tells Aero to start with is pinned visible.
     for (const tool of shape.pinned) expect(shape.prompt).toContain(tool)
     expect(shape.pinned).toContain('canonry_measurement_portfolio_summary')
+    expect(shape.pinned).toContain('canonry_analytics_sources')
+    // Reading rules for the portfolio summary: markets come from the tools,
+    // names given instead are answer text, denominators are answers, ties are
+    // not ranks, and sources are read per class and run.
+    expect(shape.prompt).toContain('Group Properties only by the metro and submarkets the tools return')
+    expect(shape.prompt).toContain('written in the answer text, not cited')
+    expect(shape.prompt).toContain('Denominators count answers (queries x engines)')
+    expect(shape.prompt).toContain('tied at the weakest rate are not ranked')
+    expect(shape.prompt).toContain('canonry_analytics_sources with queryClass and runId set')
+    expect(shape.prompt).toContain('canonry_measurement_plan_get is plan structure with no metrics')
+    expect(shape.prompt).not.toContain('—')
   })
 
   it('describes a legacy schema-v1 plan without inventing query classes, and names only tools that read it', () => {

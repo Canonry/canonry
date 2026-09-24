@@ -7,11 +7,13 @@ import {
   querySnapshots,
   queries,
   runs,
+  type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
   brandLabelFromDomain,
   competitorLandscapeQuerySchema,
   COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT,
+  COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT,
   hostOf,
   parseStoredMeasurementPlanAnyVersion,
   parseWindow,
@@ -95,7 +97,15 @@ export function readCompetitorLandscape(
       throw validationError('Invalid competitor landscape query', { issues: parsed.error.issues })
     }
     const filters = parsed.data
-    if (selection?.autoAdvanced && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
+    // A class split on a v2 project must use the plan's frozen assignment
+    // classes. The text classifier disagrees with them (a plan can mark a query
+    // branded that names no brand alias, and the reverse), so a project-scope
+    // read would report a different non-brand base than every plan surface.
+    // An explicit `scope` or `groupKey` still wins.
+    const classSplitByDefault = filters.scope === undefined && filters.groupKey === undefined
+      && filters.queryClass !== undefined && filters.queryClass !== 'all'
+    if ((selection?.autoAdvanced || classSplitByDefault)
+      && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
     const cutoff = windowCutoff(window)
 
@@ -202,8 +212,12 @@ export function readCompetitorLandscape(
     const pinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
       const inputs = buildMentionShareInputs({ project, competitorDomains: [], snapshots: selectedSnapshots, queryTextById })
+      // Sorted by answer count, so the cap keeps the most-named. On a large
+      // portfolio the full list runs to thousands of names.
+      const allObservedNames = observedCompetitorNames(selectedSnapshots)
       return {
-        observedNames: observedCompetitorNames(selectedSnapshots),
+        observedNames: allObservedNames.slice(0, COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT),
+        observedNamesTotal: allObservedNames.length,
         ...buildCompetitorLandscapeHistory({
           project: {
             domain: project.canonicalDomain,
@@ -349,25 +363,7 @@ function resolveAdvancedScope(
   if (kind === 'group' && (!groupKey || !active.plan.groups.some(group => group.stableKey === groupKey))) {
     throw validationError(`Unknown Advanced Measurement group "${groupKey ?? ''}".`)
   }
-  const planVersionIds = [...new Set(candidateRuns
-    .map(run => run.measurementPlanVersionId)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0))]
-  const historicalVersions = planVersionIds.length === 0
-    ? []
-    : app.db.select().from(measurementPlanVersions).where(and(
-      eq(measurementPlanVersions.projectId, projectId),
-      inArray(measurementPlanVersions.id, planVersionIds),
-    )).all()
-  const frozenByVersionId = new Map(historicalVersions.map(version => [
-    version.id,
-    scopeForFrozenPlan(parseStoredMeasurementPlanAnyVersion(version.canonicalJson), kind, groupKey),
-  ]))
-  const runScopes = new Map<string, FrozenPlanScope>()
-  for (const run of candidateRuns) {
-    if (!run.measurementPlanVersionId) continue
-    const frozen = frozenByVersionId.get(run.measurementPlanVersionId)
-    if (frozen) runScopes.set(run.id, frozen)
-  }
+  const runScopes = frozenRunScopes(app.db, projectId, kind, groupKey, candidateRuns)
   const activeScope = scopeForFrozenPlan(active.plan, kind, groupKey)
   if (!activeScope) throw validationError('The active Advanced Measurement plan cannot resolve this market scope.')
   const draft = draftRow(app.db, projectId)
@@ -386,6 +382,59 @@ function resolveAdvancedScope(
     } : null,
     runScopes,
   }
+}
+
+/**
+ * Each run's market scope under the v2 plan version it ran against. Runs with
+ * no frozen plan, or a frozen v1 plan, are absent: their answers have no
+ * assignment class or market membership to read.
+ */
+function frozenRunScopes(
+  db: DatabaseClient,
+  projectId: string,
+  kind: AdvancedScope['kind'],
+  groupKey: string | undefined,
+  candidateRuns: readonly Pick<typeof runs.$inferSelect, 'id' | 'measurementPlanVersionId'>[],
+): Map<string, FrozenPlanScope> {
+  const planVersionIds = [...new Set(candidateRuns
+    .map(run => run.measurementPlanVersionId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0))]
+  const historicalVersions = planVersionIds.length === 0
+    ? []
+    : db.select().from(measurementPlanVersions).where(and(
+      eq(measurementPlanVersions.projectId, projectId),
+      inArray(measurementPlanVersions.id, planVersionIds),
+    )).all()
+  const frozenByVersionId = new Map(historicalVersions.map(version => [
+    version.id,
+    scopeForFrozenPlan(parseStoredMeasurementPlanAnyVersion(version.canonicalJson), kind, groupKey),
+  ]))
+  const runScopes = new Map<string, FrozenPlanScope>()
+  for (const run of candidateRuns) {
+    if (!run.measurementPlanVersionId) continue
+    const frozen = frozenByVersionId.get(run.measurementPlanVersionId)
+    if (frozen) runScopes.set(run.id, frozen)
+  }
+  return runScopes
+}
+
+/**
+ * Plan query classes for every answer a v2 run measured, keyed by run id and
+ * then by the answer's `measurementExecutionId`. Uses the same all-markets
+ * scope as the landscape, so a class-filtered read of any surface counts the
+ * same answers. One execution can carry both classes when two Target usages
+ * assign it differently.
+ */
+export function planQueryClassesByRun(
+  db: DatabaseClient,
+  projectId: string,
+  candidateRuns: readonly Pick<typeof runs.$inferSelect, 'id' | 'measurementPlanVersionId'>[],
+): Map<string, ReadonlyMap<string, ReadonlySet<'branded' | 'non-brand'>>> {
+  const byRun = new Map<string, ReadonlyMap<string, ReadonlySet<'branded' | 'non-brand'>>>()
+  for (const [runId, scope] of frozenRunScopes(db, projectId, 'all-markets', undefined, candidateRuns)) {
+    byRun.set(runId, scope.queryClassesByExecution)
+  }
+  return byRun
 }
 
 function scopeForFrozenPlan(

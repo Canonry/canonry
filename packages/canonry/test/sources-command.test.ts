@@ -121,6 +121,24 @@ describe('showSources', () => {
     expect(mockGetAnalyticsSources).toHaveBeenCalledWith('p', { window: '30d', limit: 5 })
   })
 
+  it('states what the counts pool and names providers that cited nothing', async () => {
+    mockGetAnalyticsSources.mockResolvedValue({
+      ...fixture(),
+      answerTotal: 12,
+      runCount: 2,
+      providersWithoutSources: ['claude'],
+      filters: { runId: null, queryClass: 'all', queryClassBasis: null, includeByQuery: true },
+    } satisfies SourceBreakdownDto)
+    const out = await capture(() => showSources('p', { byProvider: true }))
+    expect(out).toContain('12 answers · 2 runs pooled · branded and non-brand pooled')
+    expect(out).toContain('claude: answered, but no answer named a source')
+  })
+
+  it('omits the scope line for an older server that does not report it', async () => {
+    const out = await capture(() => showSources('p', {}))
+    expect(out).not.toMatch(/pooled/)
+  })
+
   it('rejects a non-positive limit before calling the API', async () => {
     await expect(showSources('p', { limit: 0 })).rejects.toThrow()
     expect(mockGetAnalyticsSources).not.toHaveBeenCalled()

@@ -1055,7 +1055,7 @@ export const getApiV1ProjectsByNameMeasurementPropertyEvidence = <ThrowOnError e
 /**
  * Get the weakest measured Properties
  *
- * Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first roll-up of every named market. It defaults to Non-brand questions, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. The markets array is empty when the request already narrowed to one group. Replacement names come only from stored answer extraction. It never starts provider work.
+ * Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property's answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates, and weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (top-level markets, or the selected group's direct children), worst-first and capped at limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.
  */
 export const getApiV1ProjectsByNameMeasurementPortfolioSummary = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameMeasurementPortfolioSummaryData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameMeasurementPortfolioSummaryResponses, GetApiV1ProjectsByNameMeasurementPortfolioSummaryErrors, ThrowOnError>({
@@ -2210,6 +2210,8 @@ export const getApiV1ProjectsByNameAnalyticsGaps = <ThrowOnError extends boolean
 
 /**
  * Get source origin analytics
+ *
+ * Cited domains ranked by how many answers cite them, read from each answer's stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers.
  */
 export const getApiV1ProjectsByNameAnalyticsSources = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAnalyticsSourcesData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameAnalyticsSourcesResponses, GetApiV1ProjectsByNameAnalyticsSourcesErrors, ThrowOnError>({

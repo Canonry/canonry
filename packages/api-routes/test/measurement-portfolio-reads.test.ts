@@ -393,15 +393,16 @@ describe('measurement portfolio reads', () => {
     expect(body.totalProperties).toBe(2)
     expect(body.truncated).toBe(true)
     expect(body.weakestProperties[0]).toMatchObject({ targetKey: 'bayside' })
-    expect(body.weakestProperties[0]?.recommendedInstead).toEqual([
-      { name: 'Harbor Homes', occurrences: 2 },
-      { name: 'Ignored For Harbor', occurrences: 1 },
-      { name: 'Rival One', occurrences: 1 },
+    expect(body.weakestProperties[0]?.namedInsteadInAnswerText).toEqual([
+      { name: 'Harbor Homes', answers: 2 },
+      { name: 'Ignored For Harbor', answers: 1 },
+      { name: 'Rival One', answers: 1 },
     ])
+    expect(body.weakestProperties[0]).not.toHaveProperty('recommendedInstead')
 
     const harbor = await portfolio(`groupKey=regional&runId=${measured}&limit=2`)
-    expect(harbor.body.weakestProperties.find(row => row.targetKey === 'harbor')?.recommendedInstead)
-      .toEqual([{ name: 'Rival One', occurrences: 1 }])
+    expect(harbor.body.weakestProperties.find(row => row.targetKey === 'harbor')?.namedInsteadInAnswerText)
+      .toEqual([{ name: 'Rival One', answers: 1 }])
   })
 
   it('prepares the filtered run once and reads recommendations only for displayed Properties', async () => {
@@ -610,6 +611,178 @@ describe('measurement portfolio reads', () => {
     expect(body.markets).toEqual([])
   })
 
+  function nestPlan(): void {
+    // One metro holding both Properties, with submarkets two levels deep. The
+    // labels deliberately sort differently from the keys.
+    plan = {
+      ...plan,
+      groups: [
+        { stableKey: 'coastal-metro', label: 'Coastal Metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+        { stableKey: 'a-waterfront', label: 'Waterfront', parentGroupKey: 'coastal-metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+        { stableKey: 'z-harbor-district', label: 'Harbor District', parentGroupKey: 'coastal-metro', targetKeys: ['harbor'], competitors: [] },
+        { stableKey: 'harbor-pier', label: 'Harbor Pier', parentGroupKey: 'z-harbor-district', targetKeys: ['harbor'], competitors: [] },
+      ],
+    }
+  }
+
+  it('places every Property row in its metro and submarkets and states the queries behind its answers', async () => {
+    nestPlan()
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is listed.' })
+      .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+
+    const { status, body } = await portfolio()
+    expect(status).toBe(200)
+    expect(body.engines).toEqual(['gemini', 'openai'])
+    const harbor = body.weakestProperties.find(row => row.targetKey === 'harbor')!
+    // Shallowest submarket first, then by label; the metro is the group itself, never a label guess.
+    expect(harbor).toMatchObject({
+      metro: { groupKey: 'coastal-metro', label: 'Coastal Metro' },
+      submarkets: ['Harbor District', 'Waterfront', 'Harbor Pier'],
+      queries: 1,
+      mentionCoverage: { state: 'available', numerator: 2, denominator: 2 },
+    })
+    expect(harbor).not.toHaveProperty('otherMetros')
+    // The denominator counts answers: 1 query on 2 engines.
+    const mention = harbor.mentionCoverage
+    expect(mention.state === 'available' ? mention.denominator : null).toBe(harbor.queries * body.engines.length)
+    expect(body.weakestProperties.find(row => row.targetKey === 'bayside')).toMatchObject({
+      metro: { groupKey: 'coastal-metro', label: 'Coastal Metro' }, submarkets: ['Waterfront'], queries: 1,
+    })
+    // Ranked rows carry the same placement, so best and worst lists can be grouped too.
+    expect(body.mentionRanking.strongest[0]).toMatchObject({
+      targetKey: 'harbor', metro: { groupKey: 'coastal-metro' }, submarkets: ['Harbor District', 'Waterfront', 'Harbor Pier'], queries: 1,
+    })
+    expect(body.mentionRanking.weakest[0]).toMatchObject({ targetKey: 'bayside', metro: { groupKey: 'coastal-metro' }, queries: 1 })
+
+    // Both classes: Harbor also carries the branded query.
+    const all = await portfolio('queryClass=all')
+    expect(all.body.weakestProperties.find(row => row.targetKey === 'harbor')?.queries).toBe(2)
+  })
+
+  it('names every metro a Property belongs to rather than picking one silently', async () => {
+    plan = {
+      ...plan,
+      groups: [
+        ...plan.groups,
+        { stableKey: 'coastal-metro', label: 'Coastal Metro', targetKeys: ['harbor'], competitors: [] },
+      ],
+    }
+    activate(seedVersion(1))
+
+    const { body } = await portfolio()
+    const harbor = body.weakestProperties.find(row => row.targetKey === 'harbor')!
+    expect(harbor.metro).toEqual({ groupKey: 'coastal-metro', label: 'Coastal Metro' })
+    expect(harbor.otherMetros).toEqual([{ groupKey: 'regional', label: 'Regional comparison' }])
+    // Before any run: placement and the planned query basis, never a rate.
+    expect(harbor).toMatchObject({ submarkets: [], queries: 1, mentionCoverage: { state: 'unavailable', reason: 'no_completed_run' } })
+    expect(body).toMatchObject({ engines: [], tiedAtWeakest: null, weakestAnswerSources: null })
+  })
+
+  it('lists one market level by default and every level only when asked', async () => {
+    nestPlan()
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId)
+
+    const top = (await portfolio()).body
+    expect(top.markets.map(market => [market.groupKey, market.parentGroupKey, market.childMarketCount]))
+      .toEqual([['coastal-metro', null, 2]])
+    expect(top).toMatchObject({ totalMarkets: 1, marketsTruncated: false })
+
+    // A scope asks for the next level down: the metro's direct children.
+    const children = (await portfolio('groupKey=coastal-metro')).body
+    expect(children.markets.map(market => [market.label, market.parentGroupKey, market.childMarketCount]).sort())
+      .toEqual([['Harbor District', 'coastal-metro', 1], ['Waterfront', 'coastal-metro', 0]])
+    // A child market row is the same computation as that market read on its own.
+    for (const market of children.markets) {
+      const scoped = await portfolio(`groupKey=${market.groupKey}`)
+      expect(market.mentionCoverage).toEqual(scoped.body.metrics.mentionCoverage)
+      expect(market.propertiesMentioned).toEqual(scoped.body.metrics.propertiesMentioned)
+      expect(market.propertyCount).toBe(scoped.body.totalProperties)
+    }
+
+    const nestedInScope = (await portfolio('groupKey=coastal-metro&includeNestedMarkets=true')).body
+    expect(nestedInScope.markets.map(market => market.groupKey).sort()).toEqual(['a-waterfront', 'harbor-pier', 'z-harbor-district'])
+    const everything = (await portfolio('includeNestedMarkets=true&limit=1')).body
+    // The previous full roll-up, uncapped by the row limit.
+    expect(everything.markets).toHaveLength(4)
+    expect(everything).toMatchObject({ totalMarkets: 4, marketsTruncated: false })
+    expect(everything.markets.find(market => market.groupKey === 'harbor-pier')?.parentGroupKey).toBe('z-harbor-district')
+
+    expect((await portfolio('includeNestedMarkets=yes')).status).toBe(400)
+  })
+
+  it('caps the default market level at the row limit and says how many were cut', async () => {
+    plan = {
+      ...plan,
+      groups: ['north', 'south', 'east'].map(name => ({
+        stableKey: `${name}-metro`, label: `${name} metro`, targetKeys: ['harbor', 'bayside'], competitors: [],
+      })),
+    }
+    activate(seedVersion(1))
+    const { body } = await portfolio('limit=2')
+    expect(body.markets).toHaveLength(2)
+    expect(body).toMatchObject({ totalMarkets: 3, marketsTruncated: true })
+    expect((await portfolio('limit=2&includeNestedMarkets=true')).body.markets).toHaveLength(3)
+  })
+
+  it('reports a tie at the weakest rate and where engines got the tied answers, each answer counted once', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const nearby = (provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider),
+    )
+    db.update(querySnapshots).set({
+      citedDomains: ['www.Listings.example', 'rentals.example', 'vertexaisearch.cloud.google.com'],
+    }).where(nearby('openai')).run()
+    // Gemini's stored domains are resolved; they count like any engine's.
+    db.update(querySnapshots).set({ citedDomains: ['listings.example', 'reviews.example'] }).where(nearby('gemini')).run()
+
+    const { body } = await portfolio('limit=1')
+    // Both Properties missed both answers. Their order is the label tie-break.
+    expect(body.tiedAtWeakest).toEqual({ count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked' })
+    expect(body.weakestProperties.map(row => row.targetKey)).toEqual(['bayside'])
+    expect(body.weakestProperties[0]).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }, { domain: 'reviews.example', answers: 1 }],
+      citedDomainsTotal: 3,
+    })
+    // The shared execution serves both Properties: 2 stored answers, not 4,
+    // and the tied Property beyond the limit is still in the basis.
+    expect(body.weakestAnswerSources).toEqual({
+      properties: 2,
+      answers: 2,
+      domains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }, { domain: 'reviews.example', answers: 1 }],
+      domainTotal: 3,
+    })
+
+    // Once Harbor is named, nothing ties: the sources cover the displayed rows only.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is listed.' }).where(nearby('openai')).run()
+    const untied = (await portfolio('limit=1')).body
+    expect(untied.tiedAtWeakest).toBeNull()
+    expect(untied.weakestProperties.map(row => row.targetKey)).toEqual(['bayside'])
+    expect(untied.weakestAnswerSources).toMatchObject({ properties: 1, answers: 2 })
+  })
+
+  it('counts a name written instead once per answer, however the answer spells it', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ recommendedCompetitors: ['Rival One', 'RIVAL ONE', 'Rival-One'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
+    )).run()
+
+    const { body } = await portfolio(`runId=${runId}`)
+    expect(body.weakestProperties.find(row => row.targetKey === 'harbor')).toMatchObject({
+      namedInsteadInAnswerText: [{ name: 'RIVAL ONE', answers: 1 }], namedInsteadInAnswerTextTotal: 1,
+    })
+    const replacements = await competitors(`targetKey=harbor&runId=${runId}&queryClass=non-brand`)
+    expect(replacements.body.competitors).toEqual([expect.objectContaining({ occurrences: 1 })])
+  })
+
   it('counts Property competitors only from target-miss answers and preserves their provider and question evidence', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
@@ -658,15 +831,15 @@ describe('measurement portfolio reads', () => {
     const replacements = await competitors(`targetKey=harbor&runId=${runId}&queryClass=non-brand`)
 
     expect(summary.status).toBe(200)
-    expect(summary.body.weakestProperties.find(row => row.targetKey === 'harbor')?.recommendedInstead)
-      .toEqual([{ name: 'Rival One', occurrences: 1 }])
+    expect(summary.body.weakestProperties.find(row => row.targetKey === 'harbor')?.namedInsteadInAnswerText)
+      .toEqual([{ name: 'Rival One', answers: 1 }])
     expect(replacements.status).toBe(200)
     expect(replacements.body.competitors).toEqual([expect.objectContaining({
       name: 'Rival One', occurrences: 1,
     })])
   })
 
-  it('caps replacement names per compact portfolio row and reports the omitted count', async () => {
+  it('caps names written instead per compact portfolio row and reports the omitted count', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
     const runId = seedFullRun(versionId)
@@ -683,9 +856,8 @@ describe('measurement portfolio reads', () => {
     const bayside = body.weakestProperties.find(row => row.targetKey === 'bayside')!
 
     expect(status).toBe(200)
-    expect(bayside.recommendedInstead).toHaveLength(5)
-    expect(bayside.recommendedInsteadTotal).toBe(7)
-    expect(bayside.recommendedInsteadTruncated).toBe(true)
+    expect(bayside.namedInsteadInAnswerText).toHaveLength(5)
+    expect(bayside.namedInsteadInAnswerTextTotal).toBe(7)
   })
 
   it('puts a Property with an unavailable coverage metric after every measured weak row', async () => {
@@ -948,7 +1120,7 @@ describe('compareWeakestMarket', () => {
     label: string,
     mentionCoverage: ReturnType<typeof rate> | typeof gone,
     citationCoverage: ReturnType<typeof rate> | typeof gone,
-  ) => ({ groupKey, label, propertyCount: 1, propertiesMentioned: rate(1, 1, 1), mentionCoverage, citationCoverage })
+  ) => ({ groupKey, label, parentGroupKey: null, childMarketCount: 0, propertyCount: 1, propertiesMentioned: rate(1, 1, 1), mentionCoverage, citationCoverage })
   const order = (...rows: ReturnType<typeof market>[]) =>
     [...rows].sort(compareWeakestMarket).map(row => row.groupKey)
 
