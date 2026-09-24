@@ -1,10 +1,11 @@
 import { eq, sql } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { ProviderBatchSubmitError, parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
 import { queueRunFill } from '@ainyc/canonry-api-routes'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { providerBatches, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
+import { addLogListener } from '../src/logger.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 import {
@@ -606,6 +607,56 @@ describe('cancelling a run with a batch', () => {
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(batchRows(db, runId)[0]!.status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { outcome: 'ok' as const, settled: 'batch.cancelled', providerBatchId: 'fakebatch_1', cancelCalls: ['fakebatch_1'], quotaReleased: 0, quota: 3 },
+    { outcome: 'ambiguous' as const, settled: 'batch.submit-unknown', providerBatchId: null, cancelCalls: [], quotaReleased: 0, quota: 3 },
+    // Refused: nothing was created, so the lines the aborted sweep kept reserved come back.
+    { outcome: 'definite' as const, settled: 'batch.submit-refused', providerBatchId: null, cancelCalls: [], quotaReleased: 3, quota: 0 },
+  ])('settles the quota of a submit still in flight when a cancel aborts the sweep ($outcome submit)', async (expected) => {
+    const { db, projectId } = seedPlannedProject({ count: 3 })
+    const runId = queueBatchRun(db, projectId)
+    const geminiGate = deferred()
+    const { runner, transport, completed, syncCalls } = harness(db, { geminiGate: geminiGate.promise })
+    const submitGate = deferred()
+    transport.submitOutcomes = [async () => {
+      await submitGate.promise
+      if (expected.outcome !== 'ok') {
+        throw new ProviderBatchSubmitError('[fake] batch submit failed', { definite: expected.outcome === 'definite' })
+      }
+    }]
+    const logged: string[] = []
+    onTestFinished(addLogListener(entry => { if (entry.module === 'JobRunner') logged.push(entry.action) }))
+    const execution = runner.executeRun(runId, projectId)
+    await vi.waitFor(() => {
+      expect(batchRows(db, runId)[0]?.status).toBe('submitting')
+      expect(syncCalls.filter(call => call.provider === 'gemini')).toHaveLength(3)
+    })
+
+    cancelLikeTheRoute(db, runId)
+    await runner.cancelRunBatches(runId, projectId)
+    // The held sync answers see the cancel and abort the sweep, while the
+    // claude submit is still waiting on the provider.
+    geminiGate.resolve()
+    await execution
+    expect(runRow(db, runId).status).toBe('cancelled')
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+
+    submitGate.resolve()
+    await vi.waitFor(() => expect(logged).toContain(expected.settled))
+
+    expect(batchRows(db, runId)[0]).toMatchObject({
+      status: 'cancelled', providerBatchId: expected.providerBatchId, quotaReserved: 3, quotaReleased: expected.quotaReleased,
+    })
+    expect(transport.cancelCalls).toEqual(expected.cancelCalls)
+    expect(quotaUsed(db, projectId, 'claude')).toBe(expected.quota)
+    expect(quotaUsed(db, projectId, 'gemini')).toBe(3)
+    // A run that is over answers nothing more, sync or batch.
+    expect(syncCalls.filter(call => call.provider === 'claude')).toEqual([])
+    expect(snapshotRows(db, runId)).toEqual([])
     expect(completed).toHaveBeenCalledTimes(1)
   })
 })

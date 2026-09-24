@@ -1705,6 +1705,10 @@ export class JobRunner {
       return lines.map(line => line.unit)
     }
     ctx.batchRowIds.push(rowId)
+    // Counted as sent before the call: a sweep that aborts while this submit
+    // is in flight settles its reservation then, and must keep what a batch
+    // the provider may still create carries.
+    this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
 
     let result: ProviderBatchSubmitResult
     try {
@@ -1713,17 +1717,28 @@ export class JobRunner {
       const message = describeError(err)
       const at = new Date().toISOString()
       if (err instanceof ProviderBatchSubmitError && err.definite) {
-        // Nothing was created, so the reservation goes back to the sweep,
-        // which spends it answering the same slots sync.
-        this.db.update(providerBatches)
-          .set({ status: ProviderBatchStatuses.failed, error: message, quotaReleased: lines.length, updatedAt: at })
-          .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
-          .run()
+        // Nothing was created, so the row's reservation is handed back: to a
+        // live sweep, which spends it answering the same slots sync, or, when
+        // the sweep aborted and settled meanwhile, to the day's quota.
+        const sweepLive = ctx.reservations.has(providerName)
+        this.db.transaction((tx) => {
+          const txDb = tx as unknown as DatabaseClient
+          txDb.update(providerBatches)
+            .set({ status: ProviderBatchStatuses.failed, error: message, updatedAt: at })
+            .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
+            .run()
+          // Also on a row cancelled with its run meanwhile, which keeps that status.
+          txDb.update(providerBatches).set({ quotaReleased: lines.length, updatedAt: at }).where(eq(providerBatches.id, rowId)).run()
+          if (!sweepLive) releaseDailyQueryQuota(txDb, { scope: reservation.scope, period: reservation.period, count: lines.length })
+        })
         log.warn('batch.submit-refused', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
+        // A run that is over answers nothing more.
+        if (!sweepLive) return []
+        this.countDispatched(ctx.providerDispatchCounts, providerName, -lines.length)
         return lines.map(line => line.unit)
       }
-      // The provider may have created (and will bill) it: its lines count as
-      // sent, and its slots stay missing rather than risk paying twice.
+      // The provider may have created (and will bill) it: its lines stay
+      // counted as sent, and its slots missing rather than risk paying twice.
       this.db.update(providerBatches)
         .set({
           status: ProviderBatchStatuses.unknown,
@@ -1732,13 +1747,11 @@ export class JobRunner {
         })
         .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
         .run()
-      this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
       log.error('batch.submit-unknown', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
       return []
     }
 
     const submitted = new Date()
-    this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
     const accepted = this.db.update(providerBatches)
       .set({
         status: ProviderBatchStatuses.submitted,
