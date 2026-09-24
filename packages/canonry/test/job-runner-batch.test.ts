@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
 import { queueRunFill } from '@ainyc/canonry-api-routes'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
-import { runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { providerBatches, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
@@ -552,6 +552,46 @@ describe('cancelling a run with a batch', () => {
     await execution
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(batchRows(db, runId)[0]!.status).toBe('cancelled')
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a run that already reached a provider batch', () => {
+  it('is never swept again: a stray second dispatch submits and calls nothing', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, syncCalls } = harness(db)
+    await runner.executeRun(runId, projectId)
+
+    await runner.executeRun(runId, projectId)
+
+    expect(transport.submitCalls).toHaveLength(1)
+    expect(syncCalls).toHaveLength(2)
+    expect(batchRows(db, runId)).toHaveLength(1)
+    expect(runRow(db, runId)).toMatchObject({ status: 'running', pendingProviderErrors: {} })
+    expect(events('run.completed')).toHaveLength(0)
+  })
+
+  it('stops an ingest midway when the run is cancelled, recording nothing after it', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 3 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, completed } = harness(db)
+    await runner.executeRun(runId, projectId)
+    const [batch] = batchRows(db, runId)
+    transport.end(batch!.providerBatchId!)
+    db.update(providerBatches).set({ status: 'ended' }).where(eq(providerBatches.id, batch!.id)).run()
+    transport.onResultLine = (index) => {
+      if (index !== 1) return
+      cancelLikeTheRoute(db, runId)
+      void runner.cancelRunBatches(runId, projectId)
+    }
+
+    expect(await runner.ingestProviderBatch(batch!.id)).toEqual({ kind: 'cancelled' })
+
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 0, quotaReleased: 0 })
+    expect(runRow(db, runId).status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
   })

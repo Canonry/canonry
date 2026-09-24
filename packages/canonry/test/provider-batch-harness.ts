@@ -332,6 +332,8 @@ export class FakeBatchTransport {
   breakResultsAfter: number | null = null
   /** Thrown by every `results` call while set. */
   resultsFailure: Error | null = null
+  /** Called before each result line is handed over, with its index. */
+  onResultLine: ((index: number) => void) | null = null
   private sequence = 0
 
   constructor(readonly limits: { maxRequestsPerBatch?: number; maxBytesPerBatch?: number; defaultDeadlineHours?: number } = {}) {}
@@ -371,6 +373,7 @@ export class FakeBatchTransport {
             transport.breakResultsAfter = null
             throw new Error('[fake] results stream dropped')
           }
+          transport.onResultLine?.(sent)
           sent += 1
           yield line
         }

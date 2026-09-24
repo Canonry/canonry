@@ -476,6 +476,11 @@ export class JobRunner {
     return this.executing.has(runId)
   }
 
+  private hasProviderBatches(runId: string): boolean {
+    return this.db.select({ id: providerBatches.id }).from(providerBatches)
+      .where(eq(providerBatches.runId, runId)).limit(1).get() !== undefined
+  }
+
   recoverStaleRuns(): void {
     // A fill the process died under never finalized. Fail the attempt only:
     // its parent stays `partial` and keeps every answer the fill recorded, so
@@ -654,10 +659,13 @@ export class JobRunner {
         throw new Error(`Run ${runId} not found`)
       }
       runTrigger = existingRun.trigger ?? undefined
-      // A run already handed to the batch poller is past its sweep. Running
-      // it again would resubmit batches that are already paid for.
-      if (existingRun.status === RunStatuses.running && existingRun.pendingProviderErrors !== null) {
-        log.warn('run.already-handed-off', { runId })
+      // A running run that already reached a provider batch is past (or in)
+      // its sweep. Running it again would resubmit batches already paid for.
+      if (
+        existingRun.status === RunStatuses.running
+        && (existingRun.pendingProviderErrors !== null || this.hasProviderBatches(runId))
+      ) {
+        log.warn('run.already-dispatched', { runId })
         return
       }
       if (existingRun.status === 'cancelled') {
@@ -1183,8 +1191,9 @@ export class JobRunner {
 
       if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
         this.flushProviderUsage(providerDispatchCounts, providerReservations)
-        await this.abandonProviderBatches(batchRowIds, 'Cancelled with its run.')
+        const cancelled = this.markBatchesCancelled(batchRowIds, 'Cancelled with its run.')
         this.handleCancelledRun(runId, projectId, startTime, executionContext)
+        await this.cancelAtProvider(cancelled)
         return
       }
 
@@ -1203,9 +1212,10 @@ export class JobRunner {
         .run()
 
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
-      // A failed run must not be left with a batch still working for it: stop
-      // the provider (best effort) so the poller never ingests into it.
-      await this.abandonProviderBatches(batchRowIds, `Cancelled because the run failed: ${errorMessage}`)
+      // A failed run must not be left with a batch still working for it:
+      // cancelled here so nothing ingests into it, and stopped at the provider
+      // (best effort) once the failure is reported.
+      const abandoned = this.markBatchesCancelled(batchRowIds, `Cancelled because the run failed: ${errorMessage}`)
 
       // Distinguish config-validation aborts (no providers configured, project
       // missing, quota exceeded) from real runtime failures. The former never
@@ -1253,6 +1263,7 @@ export class JobRunner {
           log.error('notification.callback-failed', { runId, error: describeError(notifErr) })
         })
       }
+      await this.cancelAtProvider(abandoned)
     } finally {
       releaseExecution()
     }
@@ -1861,6 +1872,10 @@ export class JobRunner {
         }
         // Handled by an earlier pass that was interrupted.
         if (request.outcome !== null) continue
+        // Cancelled with its run while the lines were streaming: record nothing more.
+        if (this.db.select({ status: providerBatches.status }).from(providerBatches).where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) {
+          return { kind: 'cancelled' }
+        }
         const settled = await this.ingestBatchLine(ctx, registered, batch, request, line)
         this.db.update(providerBatchRequests)
           .set({ outcome: settled.outcome, error: settled.error })
