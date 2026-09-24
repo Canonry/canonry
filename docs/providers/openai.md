@@ -16,12 +16,14 @@ Makes a lightweight OpenAI API call to verify the key works. Returns ok/error wi
 
 ### `executeTrackedQuery(input: OpenAITrackedQueryInput): Promise<OpenAIRawResult>`
 
-Sends the query to the OpenAI Responses API with `web_search` tool enabled. The query is sent as-is. Returns:
+Sends the query to the OpenAI Responses API with `web_search` as the only tool and `tool_choice: "required"`, so the model must search before it answers (see [Retrieval contract](#retrieval-contract)). The query is sent as-is, with no `instructions`. Returns:
 
 - `rawResponse` — the full OpenAI API response (output items, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from URL citation annotations
 - `searchQueries` — web search queries extracted from `web_search_call.action.query` / `action.queries`
 - `model` — the model used (default: `gpt-5.4`)
+- `retrievalStatus` — whether the response shows a search (see [Retrieval detection](#retrieval-detection))
+- `retrievalContract` — always `search-required-v1` (`OPENAI_RETRIEVAL_CONTRACT`)
 
 ### `normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult`
 
@@ -31,6 +33,28 @@ Extracts analyst-relevant fields from the raw response:
 - `citedDomains` — unique domains extracted from URL citation annotations (www. stripped)
 - `groundingSources` — pass-through of `{ uri, title }` pairs
 - `searchQueries` — pass-through of search queries used
+- `retrievalStatus` — re-derived from the response output when present, otherwise the recorded value
+
+## Retrieval contract
+
+Every snapshot records the search policy its request was built under (`query_snapshots.retrieval_contract`; definitions in `packages/contracts/src/retrieval.ts`). OpenAI runs **`search-required-v1`**: the unmodified query as `input`, no `instructions`, and `tool_choice: "required"` with `web_search` as the only tool. `required` forces a call to *some* tool, so it forces a search only because no other tool is offered; adding a tool to this request changes the contract. It measures a search-grounded answer, not a reproduction of ChatGPT, whose system instructions, routing, and search policy are not public. Claude runs the same contract through `tool_choice: { type: "tool", name: "web_search" }`.
+
+### Retrieval detection
+
+`retrievalStatus` is read from the response, not assumed from the contract:
+
+| Response | `retrievalStatus` |
+|---|---|
+| any `web_search_call` output item (any action: `search`, `open_page`, `find_in_page`; with or without a query) | `used` |
+| `status: "completed"` and no `web_search_call` item | `not-used` (the contract did not hold for this answer) |
+| no search call and `status` is `incomplete`, `failed`, or any other unfinished state | `unknown` |
+| `output` missing, not an array, or empty | `unknown` |
+
+`unknown` never collapses into `not-used`: only an intact response can prove that no search happened. Under forced search nearly every row reads `used`; that is the contract holding, and a `not-used` row is the visible breach.
+
+### Stored rows labelled `native-auto-v1`
+
+Releases 4.139.0 (the first to record a contract) through 5.19.0 labelled OpenAI rows `native-auto-v1` and `retrievalStatus: unknown`, although every one of those releases sent the identical forced-search request above. The label was wrong, not merely old, and left alone it would show a contract change at the upgrade where the method never changed. `canonry backfill answer-visibility` corrects those rows: `native-auto-v1` becomes `search-required-v1`, and the status is re-derived from the stored `apiResponse` (left `unknown` when no payload was stored). It reports the count as `retrievalRelabeled`, touches no other provider, and never moves a row already on `search-required-v1`. Rows with a NULL contract predate the field and stay NULL: early releases wrapped the query in a search prompt, so those rows were not all built one way.
 
 ## Model
 
@@ -87,6 +111,8 @@ The job runner stores the following in `query_snapshots.raw_response` as JSON:
   "apiResponse": { "output": [...] }
 }
 ```
+
+`retrieval_status` and `retrieval_contract` are separate `query_snapshots` columns, not part of this envelope.
 
 ## Implementation Status
 

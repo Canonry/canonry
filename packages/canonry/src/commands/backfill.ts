@@ -1,11 +1,11 @@
 import { createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
-import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
+import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
 import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
@@ -42,6 +42,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   let mentioned = 0
   let reparsed = 0
   let providerErrors = 0
+  let retrievalRelabeled = 0
   if (scopedProjects.length > 0) {
     const runRows = projectFilter
       ? db
@@ -100,6 +101,8 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           competitorOverlap: querySnapshots.competitorOverlap,
           recommendedCompetitors: querySnapshots.recommendedCompetitors,
           rawResponse: querySnapshots.rawResponse,
+          retrievalStatus: querySnapshots.retrievalStatus,
+          retrievalContract: querySnapshots.retrievalContract,
         }).from(querySnapshots)
           .where(inArray(querySnapshots.runId, batchRunIds))
           .all()
@@ -133,10 +136,9 @@ export async function backfillAnswerVisibilityCommand(opts?: {
               citedDomains: reparsedResult.citedDomains,
               groundingSources: reparsedResult.groundingSources,
               searchQueries: reparsedResult.searchQueries,
-              // Backfill recomputes mention and citation state from stored
-              // rows; it never observes retrieval and never writes it back
-              // (nextPatch carries no retrieval field). `unknown` keeps this
-              // reconstruction from asserting anything about a search.
+              // Only feeds the citation/mention helpers below, which ignore
+              // it. Retrieval is written back solely by the narrow OpenAI
+              // contract correction after this block.
               retrievalStatus: 'unknown',
             }
 
@@ -174,6 +176,12 @@ export async function backfillAnswerVisibilityCommand(opts?: {
             }
           }
 
+          const retrievalCorrection = correctStoredOpenAIRetrieval(snapshot, reparsedResult)
+          if (retrievalCorrection) {
+            retrievalRelabeled++
+            Object.assign(nextPatch, retrievalCorrection)
+          }
+
           if (Object.keys(nextPatch).length > 0) {
             pendingUpdates.push({ id: snapshot.id, patch: nextPatch })
           }
@@ -206,6 +214,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     mentioned,
     reparsed,
     providerErrors,
+    retrievalRelabeled,
   }
   if (isDryRun) {
     result.dryRun = true
@@ -231,6 +240,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   console.log(`  Mentioned:    ${mentioned}`)
   console.log(`  Reparsed:     ${reparsed}`)
   console.log(`  Errors:       ${providerErrors}`)
+  console.log(`  Relabeled:    ${retrievalRelabeled} (OpenAI retrieval contract)`)
   if (isDryRun) {
     console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
   }
@@ -564,7 +574,8 @@ export function backfillProjectAnswerMentions(
         answerText,
         citedDomains,
         groundingSources,
-        // See the note above: retrieval is not observed or written here.
+        // Only feeds the competitor helpers, which ignore it. This pass never
+        // observes or writes retrieval.
         retrievalStatus: 'unknown',
 
         searchQueries: [],
@@ -1121,7 +1132,43 @@ type ReparsedProviderSnapshot = {
   citedDomains: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** Set by adapters that detect retrieval (OpenAI, Claude). */
+  retrievalStatus?: RetrievalStatus
   providerError?: string
+}
+
+/**
+ * Correct the retrieval contract on OpenAI rows labelled `native-auto-v1`.
+ *
+ * That label was never true for OpenAI. Every published release sent tracked
+ * queries with `tool_choice: "required"` and `web_search` as the only tool, and
+ * every release that recorded a contract (4.139.0 through 5.19.0) built the
+ * identical request: verbatim query, no instructions, forced search. So these
+ * rows were produced under `search-required-v1`; relabelling them states a fact
+ * about the request, not an assumption. Left alone, they would show a contract
+ * change at the upgrade where the method never changed.
+ *
+ * Deliberately narrow:
+ * - Only `native-auto-v1` becomes the current OpenAI contract. A row already on
+ *   a recorded OpenAI contract is never moved, so a future contract change
+ *   cannot relabel history.
+ * - NULL rows predate the field and stay NULL. Early releases wrapped the query
+ *   in a search prompt, so those rows were not all built one way, and no row
+ *   says which release wrote it.
+ * - The status is re-derived from the stored response, since the adapter
+ *   recorded `unknown` rather than observing. Without a stored response the
+ *   status is left as recorded; the contract still holds, being a declaration.
+ */
+function correctStoredOpenAIRetrieval(
+  snapshot: { provider: string; retrievalContract: RetrievalContract | null },
+  reparsed: ReparsedProviderSnapshot | null,
+): { retrievalContract: RetrievalContract; retrievalStatus?: RetrievalStatus } | null {
+  if (snapshot.provider !== ProviderNames.openai) return null
+  if (snapshot.retrievalContract !== RetrievalContracts['native-auto-v1']) return null
+  return {
+    retrievalContract: OPENAI_RETRIEVAL_CONTRACT,
+    ...(reparsed?.retrievalStatus === undefined ? {} : { retrievalStatus: reparsed.retrievalStatus }),
+  }
 }
 
 function reparseProviderSnapshot(

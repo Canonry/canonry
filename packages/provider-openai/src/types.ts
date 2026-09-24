@@ -1,6 +1,12 @@
-import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
+import type {
+  ProviderQuotaPolicy,
+  GroundingSource,
+  LocationContext,
+  RetrievalContract,
+  RetrievalStatus,
+} from '@ainyc/canonry-contracts'
 
-export type { GroundingSource }
+export type { GroundingSource, RetrievalContract, RetrievalStatus }
 
 export interface OpenAIConfig {
   apiKey: string
@@ -36,6 +42,10 @@ export interface OpenAIRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** See {@link RetrievalStatus}. */
+  retrievalStatus: RetrievalStatus
+  /** See {@link RetrievalContract}. */
+  retrievalContract: RetrievalContract
 }
 
 export interface OpenAINormalizedResult {
@@ -44,4 +54,6 @@ export interface OpenAINormalizedResult {
   citedDomains: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** See {@link RetrievalStatus}. */
+  retrievalStatus: RetrievalStatus
 }

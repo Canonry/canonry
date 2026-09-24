@@ -284,6 +284,8 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
+It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.
+
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
 ### Server and SPA serving
