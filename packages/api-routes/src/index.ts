@@ -206,6 +206,8 @@ export interface ApiRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
   /** Pre-delete durable cleanup. May throw to abort the database delete. */
   onProjectDeleting?: ProjectRoutesOptions['onProjectDeleting']
+  /** Stops a run's provider batches before its project is deleted. See `ProjectRoutesOptions.cancelRunProviderBatches`. */
+  cancelRunProviderBatches?: ProjectRoutesOptions['cancelRunProviderBatches']
   /** Callback when a project is created or updated */
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit callback for newly created projects. Errors are logged and isolated by the route. */
@@ -534,6 +536,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(projectRoutes, {
       onProjectDeleting: opts.onProjectDeleting,
       onProjectDeleted: opts.onProjectDeleted,
+      cancelRunProviderBatches: opts.cancelRunProviderBatches,
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,

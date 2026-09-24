@@ -180,6 +180,43 @@ function unansweredOutcome(type: Exclude<ProviderBatchResultLine['type'], 'succe
   }
 }
 
+/** What a batch's ledger shows was handled. A line with no outcome was never read. */
+interface BatchLedgerTally {
+  /** Lines with an outcome. */
+  ingestedCount: number
+  recordedCount: number
+  notRecorded: number
+  unbilled: number
+}
+
+function tallyBatchLedger(db: DatabaseClient, batchId: string): BatchLedgerTally {
+  const handled = db.select({ outcome: providerBatchRequests.outcome }).from(providerBatchRequests)
+    .where(eq(providerBatchRequests.batchId, batchId)).all()
+    .flatMap(row => row.outcome === null ? [] : [row.outcome])
+  return {
+    ingestedCount: handled.length,
+    recordedCount: handled.filter(outcome => outcome === ProviderBatchRequestOutcomes.recorded).length,
+    notRecorded: handled.filter(outcome => UNRECORDED_OUTCOMES.includes(outcome)).length,
+    unbilled: handled.filter(outcome => UNBILLED_OUTCOMES.includes(outcome)).length,
+  }
+}
+
+/**
+ * Give back the reservation of a batch's unbilled lines: never more than the
+ * row reserved, and never what was already given back. Returns the count
+ * released now, which the caller adds to the row's `quota_released` in the
+ * same transaction.
+ */
+function releaseUnbilledBatchQuota(
+  db: DatabaseClient,
+  batch: Pick<typeof providerBatches.$inferSelect, 'quotaScope' | 'quotaPeriod' | 'quotaReserved' | 'quotaReleased'>,
+  unbilled: number,
+): number {
+  const released = Math.max(0, Math.min(unbilled, batch.quotaReserved) - batch.quotaReleased)
+  releaseDailyQueryQuota(db, { scope: batch.quotaScope, period: batch.quotaPeriod, count: released })
+  return released
+}
+
 /** One slot on its way into a batch: the exact request the sync call would send. */
 interface BatchLine {
   unit: PlanExecutionUnit
@@ -191,6 +228,12 @@ interface BatchLine {
   /** Serialized size of the line as the provider receives it. */
   bytes: number
 }
+
+/**
+ * Ledger rows per INSERT. Each binds seven values, and SQLite refuses a
+ * statement past 32,766 (4,680 rows), well inside a provider's request cap.
+ */
+const LEDGER_INSERT_ROWS = 1_000
 
 /** `{"requests":[` and `]}`: what one submission adds around its lines. */
 const BATCH_ENVELOPE_BYTES = 15
@@ -1668,34 +1711,50 @@ export class JobRunner {
     const deadlineMs = (config.batch?.deadlineHours ?? capability.defaultDeadlineHours) * HOUR_MS
     const created = new Date()
     const rowId = crypto.randomUUID()
-    this.db.transaction((tx) => {
-      tx.insert(providerBatches).values({
-        id: rowId,
-        projectId: ctx.projectId,
-        runId: ctx.runId,
-        provider: providerName,
-        model,
-        status: ProviderBatchStatuses.submitting,
-        requestCount: lines.length,
-        quotaScope: reservation.scope,
-        quotaPeriod: reservation.period,
-        quotaReserved: lines.length,
-        // Provisional: the deadline runs from acceptance and is rewritten then.
-        deadlineAt: new Date(created.getTime() + deadlineMs).toISOString(),
-        createdAt: created.toISOString(),
-        updatedAt: created.toISOString(),
-      }).run()
-      tx.insert(providerBatchRequests).values(lines.map(line => ({
-        id: line.customId,
-        batchId: rowId,
-        executionId: line.unit.executionId,
-        queryId: line.unit.queryId,
-        queryText: line.unit.queryText,
-        requestedModel: line.requestedModel,
-        requestedContext: line.unit.context,
-      }))).run()
-    })
+    const ledger = lines.map(line => ({
+      id: line.customId,
+      batchId: rowId,
+      executionId: line.unit.executionId,
+      queryId: line.unit.queryId,
+      queryText: line.unit.queryText,
+      requestedModel: line.requestedModel,
+      requestedContext: line.unit.context,
+    }))
+    try {
+      this.db.transaction((tx) => {
+        tx.insert(providerBatches).values({
+          id: rowId,
+          projectId: ctx.projectId,
+          runId: ctx.runId,
+          provider: providerName,
+          model,
+          status: ProviderBatchStatuses.submitting,
+          requestCount: lines.length,
+          quotaScope: reservation.scope,
+          quotaPeriod: reservation.period,
+          quotaReserved: lines.length,
+          // Provisional: the deadline runs from acceptance and is rewritten then.
+          deadlineAt: new Date(created.getTime() + deadlineMs).toISOString(),
+          createdAt: created.toISOString(),
+          updatedAt: created.toISOString(),
+        }).run()
+        // Sliced so no one statement binds past SQLite's variable limit; the
+        // transaction still commits the row and its whole ledger together.
+        for (let start = 0; start < ledger.length; start += LEDGER_INSERT_ROWS) {
+          tx.insert(providerBatchRequests).values(ledger.slice(start, start + LEDGER_INSERT_ROWS)).run()
+        }
+      })
+    } catch (err: unknown) {
+      // The row and its ledger rolled back and nothing reached the provider,
+      // so these slots are answered sync like a refused batch's.
+      log.warn('batch.ledger-failed', { runId: ctx.runId, providerName, requests: lines.length, error: describeError(err) })
+      return lines.map(line => line.unit)
+    }
     ctx.batchRowIds.push(rowId)
+    // Counted as sent before the call: a sweep that aborts while this submit
+    // is in flight settles its reservation then, and must keep what a batch
+    // the provider may still create carries.
+    this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
 
     let result: ProviderBatchSubmitResult
     try {
@@ -1704,17 +1763,28 @@ export class JobRunner {
       const message = describeError(err)
       const at = new Date().toISOString()
       if (err instanceof ProviderBatchSubmitError && err.definite) {
-        // Nothing was created, so the reservation goes back to the sweep,
-        // which spends it answering the same slots sync.
-        this.db.update(providerBatches)
-          .set({ status: ProviderBatchStatuses.failed, error: message, quotaReleased: lines.length, updatedAt: at })
-          .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
-          .run()
+        // Nothing was created, so the row's reservation is handed back: to a
+        // live sweep, which spends it answering the same slots sync, or, when
+        // the sweep aborted and settled meanwhile, to the day's quota.
+        const sweepLive = ctx.reservations.has(providerName)
+        this.db.transaction((tx) => {
+          const txDb = tx as unknown as DatabaseClient
+          txDb.update(providerBatches)
+            .set({ status: ProviderBatchStatuses.failed, error: message, updatedAt: at })
+            .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
+            .run()
+          // Also on a row cancelled with its run meanwhile, which keeps that status.
+          txDb.update(providerBatches).set({ quotaReleased: lines.length, updatedAt: at }).where(eq(providerBatches.id, rowId)).run()
+          if (!sweepLive) releaseDailyQueryQuota(txDb, { scope: reservation.scope, period: reservation.period, count: lines.length })
+        })
         log.warn('batch.submit-refused', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
+        // A run that is over answers nothing more.
+        if (!sweepLive) return []
+        this.countDispatched(ctx.providerDispatchCounts, providerName, -lines.length)
         return lines.map(line => line.unit)
       }
-      // The provider may have created (and will bill) it: its lines count as
-      // sent, and its slots stay missing rather than risk paying twice.
+      // The provider may have created (and will bill) it: its lines stay
+      // counted as sent, and its slots missing rather than risk paying twice.
       this.db.update(providerBatches)
         .set({
           status: ProviderBatchStatuses.unknown,
@@ -1723,13 +1793,11 @@ export class JobRunner {
         })
         .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
         .run()
-      this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
       log.error('batch.submit-unknown', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
       return []
     }
 
     const submitted = new Date()
-    this.countDispatched(ctx.providerDispatchCounts, providerName, lines.length)
     const accepted = this.db.update(providerBatches)
       .set({
         status: ProviderBatchStatuses.submitted,
@@ -1780,11 +1848,24 @@ export class JobRunner {
       .all()
     const marked: Array<{ id: string; provider: string; providerBatchId: string | null }> = []
     for (const row of rows) {
-      const changed = this.db.update(providerBatches)
-        .set({ status: ProviderBatchStatuses.cancelled, error: reason, cancelRequestedAt: row.cancelRequestedAt ?? now, updatedAt: now })
-        .where(and(eq(providerBatches.id, row.id), eq(providerBatches.status, row.status)))
-        .run()
-        .changes === 1
+      const changed = this.db.transaction((tx) => {
+        const txDb = tx as unknown as DatabaseClient
+        const moved = txDb.update(providerBatches)
+          .set({ status: ProviderBatchStatuses.cancelled, error: reason, cancelRequestedAt: row.cancelRequestedAt ?? now, updatedAt: now })
+          .where(and(eq(providerBatches.id, row.id), eq(providerBatches.status, row.status)))
+          .run()
+          .changes === 1
+        // An ended batch may be cancelled mid-ingest: it reports what it had
+        // recorded. Only its counts change; its reservation stays as it is.
+        if (moved && row.status === ProviderBatchStatuses.ended) {
+          const tally = tallyBatchLedger(txDb, row.id)
+          txDb.update(providerBatches)
+            .set({ ingestedCount: tally.ingestedCount, recordedCount: tally.recordedCount })
+            .where(eq(providerBatches.id, row.id))
+            .run()
+        }
+        return moved
+      })
       if (changed) marked.push({ id: row.id, provider: row.provider, providerBatchId: row.providerBatchId })
     }
     return marked
@@ -1953,8 +2034,7 @@ export class JobRunner {
     const at = new Date().toISOString()
     return this.db.transaction((tx) => {
       const txDb = tx as unknown as DatabaseClient
-      const current = txDb.select({ status: providerBatches.status, quotaReleased: providerBatches.quotaReleased })
-        .from(providerBatches).where(eq(providerBatches.id, batch.id)).get()
+      const current = txDb.select().from(providerBatches).where(eq(providerBatches.id, batch.id)).get()
       // Cancelled while its lines were being read: it keeps what was recorded
       // and nothing else changes.
       if (current?.status !== ProviderBatchStatuses.ended) return { kind: 'skipped' } as const
@@ -1963,30 +2043,64 @@ export class JobRunner {
         .set({ outcome: ProviderBatchRequestOutcomes.errored, error: 'The provider returned no result for this request.' })
         .where(and(eq(providerBatchRequests.batchId, batch.id), isNull(providerBatchRequests.outcome)))
         .run()
-      const outcomes = txDb.select({ outcome: providerBatchRequests.outcome }).from(providerBatchRequests)
-        .where(eq(providerBatchRequests.batchId, batch.id)).all()
-        .map(row => row.outcome)
-      const recorded = outcomes.filter(outcome => outcome === ProviderBatchRequestOutcomes.recorded).length
-      const unbilled = outcomes.filter(outcome => outcome !== null && UNBILLED_OUTCOMES.includes(outcome)).length
-      const notRecorded = outcomes.filter(outcome => outcome !== null && UNRECORDED_OUTCOMES.includes(outcome)).length
-      // Never more than the row reserved, and never what an earlier pass
-      // already gave back.
-      const released = Math.max(0, Math.min(unbilled, batch.quotaReserved) - current.quotaReleased)
-      releaseDailyQueryQuota(txDb, { scope: batch.quotaScope, period: batch.quotaPeriod, count: released })
+      const tally = tallyBatchLedger(txDb, batch.id)
+      const released = releaseUnbilledBatchQuota(txDb, current, tally.unbilled)
       txDb.update(providerBatches)
         .set({
           status: ProviderBatchStatuses.ingested,
-          ingestedCount: outcomes.length,
-          recordedCount: recorded,
+          ingestedCount: tally.ingestedCount,
+          recordedCount: tally.recordedCount,
           quotaReleased: current.quotaReleased + released,
           ingestedAt: at,
           updatedAt: at,
         })
         .where(and(eq(providerBatches.id, batch.id), eq(providerBatches.status, ProviderBatchStatuses.ended)))
         .run()
+      const { recordedCount: recorded, notRecorded } = tally
       log.info('batch.ingested', { runId: batch.runId, batchId: batch.id, providerName: batch.provider, recorded, notRecorded, released })
       return { kind: 'ingested', recorded, notRecorded, released } as const
     })
+  }
+
+  /**
+   * Give up on an ended batch whose results cannot be read in time. It
+   * becomes `cancelled` with what an interrupted ingest already recorded, and
+   * the reservation of the lines that ingest saw go unbilled is released,
+   * exactly as a complete ingest would have. A line nothing read keeps no
+   * outcome and its reservation: the provider may have billed it.
+   *
+   * Returns whether this call gave the batch up.
+   */
+  abandonUnreadableProviderBatch(batchId: string, error: string): boolean {
+    const at = new Date().toISOString()
+    const abandoned = this.db.transaction((tx) => {
+      const txDb = tx as unknown as DatabaseClient
+      const claimed = txDb.update(providerBatches)
+        .set({ status: ProviderBatchStatuses.cancelled, error, updatedAt: at })
+        .where(and(eq(providerBatches.id, batchId), eq(providerBatches.status, ProviderBatchStatuses.ended)))
+        .run()
+        .changes === 1
+      const batch = claimed ? txDb.select().from(providerBatches).where(eq(providerBatches.id, batchId)).get() : undefined
+      if (!batch) return null
+      const tally = tallyBatchLedger(txDb, batch.id)
+      const released = releaseUnbilledBatchQuota(txDb, batch, tally.unbilled)
+      txDb.update(providerBatches)
+        .set({ ingestedCount: tally.ingestedCount, recordedCount: tally.recordedCount, quotaReleased: batch.quotaReleased + released })
+        .where(eq(providerBatches.id, batch.id))
+        .run()
+      return { batch, tally, released }
+    })
+    if (!abandoned) return false
+    const { batch, tally, released } = abandoned
+    log.warn('batch.abandoned-unreadable', {
+      runId: batch.runId,
+      batchId: batch.id,
+      providerName: batch.provider,
+      recorded: tally.recordedCount,
+      unread: batch.requestCount - tally.ingestedCount,
+      released,
+    })
+    return true
   }
 
   /**

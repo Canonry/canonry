@@ -26,6 +26,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes, evaluateRunFill } from '../src/index.js'
 import { queueRunIfProjectIdle, type QueueRunParams } from '../src/run-queue.js'
+import type { ProviderAdapterInfo } from '../src/settings.js'
 
 // Batch dispatch is decided once, at queue time, and frozen onto the run
 // (runs.provider_dispatch_modes). These tests drive both portfolio kinds
@@ -34,6 +35,16 @@ import { queueRunIfProjectIdle, type QueueRunParams } from '../src/run-queue.js'
 const NOW = '2026-09-24T00:00:00.000Z'
 const NORTH: LocationContext = { label: 'north-city', city: 'North City', region: 'NC', country: 'US' }
 const INSTANCE_MODELS = { claude: 'claude-sonnet-4-6', openai: 'gpt-5.4', gemini: 'gemini-2.5-flash' }
+const ADAPTERS: ProviderAdapterInfo[] = ['claude', 'openai', 'gemini'].map(name => ({
+  name,
+  displayName: name,
+  mode: 'api',
+  modelConfigurable: true,
+  defaultModel: `${name}-default`,
+  knownModels: [],
+  modelValidationPattern: /./,
+  modelValidationHint: '',
+}))
 
 let tmpDir: string
 let db: DatabaseClient
@@ -158,6 +169,7 @@ beforeEach(async () => {
     getEffectiveProviderModels: () => INSTANCE_MODELS,
     getBatchEligibleProviderNames: () => batchEligible,
     onRunCreated: (runId) => { created.push(runId) },
+    providerAdapters: ADAPTERS,
   })
   await app.ready()
 })
@@ -279,6 +291,56 @@ describe('dispatch rules that depend on the portfolio kind', () => {
 
     expect(result.dispatch.modes).toEqual({ claude: 'batch' })
     expect(result.dispatch.ineligible).toEqual({ openai: 'model_not_frozen' })
+  })
+})
+
+// A project's batch preference is kept for exactly the engines its runs
+// measure. A simple portfolio measures the project's provider list; an Advanced
+// one measures the engines its published revision froze, whatever the project
+// row lists. Narrowing that list must not cost an Advanced project a preference
+// its sweeps still measure, nor refuse one it asks for.
+describe.each([
+  { portfolio: 'simple', kept: {}, frozen: null },
+  { portfolio: 'advanced', kept: { claude: 'batch' }, frozen: { claude: 'batch' } },
+] as const)('project dispatch preference for the engines a $portfolio portfolio measures', ({ portfolio, kept, frozen }) => {
+  // Swaps claude for gemini on the project row. The engine count stays 2, so a
+  // simple plan can still run; the Advanced revision still measures claude.
+  const narrowed = { displayName: 'planned', canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['openai', 'gemini'] }
+  const applyConfig = (extra: Record<string, unknown> = {}) => ({
+    apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'planned' }, spec: { ...narrowed, ...extra },
+  })
+
+  it('PUT stores it, and the next scheduled sweep freezes it', async () => {
+    const projectId = await seedPortfolio(portfolio)
+
+    const response = await inject('PUT', '/api/v1/projects/planned', { ...narrowed, providerDispatchModes: { claude: 'batch' } })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().providerDispatchModes).toEqual(kept)
+    expect(db.select({ modes: projects.providerDispatchModes }).from(projects).where(eq(projects.id, projectId)).get())
+      .toEqual({ modes: kept })
+    expect(runRow(queue(projectId, { trigger: 'scheduled' }).runId).providerDispatchModes).toEqual(frozen)
+  })
+
+  it('a PUT that omits it prunes only what the project neither lists nor measures', async () => {
+    const projectId = await seedPortfolio(portfolio)
+    setPreference(projectId, { claude: 'batch', gemini: 'batch' })
+
+    const response = await inject('PUT', '/api/v1/projects/planned', { ...narrowed, providers: ['openai'] })
+
+    expect(response.json().providerDispatchModes).toEqual(kept)
+  })
+
+  it('apply stores it the same way, and a converge that omits it leaves it alone', async () => {
+    const projectId = await seedPortfolio(portfolio)
+
+    const applied = await inject('POST', '/api/v1/apply', applyConfig({ providerDispatchModes: { claude: 'batch' } }))
+    expect(applied.statusCode).toBe(200)
+    expect(applied.json().providerDispatchModes).toEqual(kept)
+
+    const converged = await inject('POST', '/api/v1/apply', applyConfig())
+    expect(converged.json().providerDispatchModes).toEqual(kept)
+    expect(runRow(queue(projectId, { trigger: 'scheduled' }).runId).providerDispatchModes).toEqual(frozen)
   })
 })
 

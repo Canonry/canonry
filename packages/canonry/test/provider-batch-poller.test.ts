@@ -215,6 +215,44 @@ describe('results that cannot be read', () => {
     expect(quotaUsed(db, projectId, 'claude')).toBe(2)
     expect(statuses()).toEqual(['partial'])
   })
+
+  it('keeps what a broken ingest recorded when it gives up, and releases only the lines it saw go unbilled', async () => {
+    const { db, projectId, runId, transport, clock, poller, batch } = await batchPendingRun(3)
+    // Lines stream last-submitted first: an answer, an expired line, then the
+    // stream breaks before the third.
+    transport.end(batch.providerBatchId!, (request, index) => index === 1
+      ? { customId: request.customId, type: 'expired', error: '[fake] expired line' }
+      : succeeded(request))
+    transport.breakResultsAfter = 2
+    await poller.tick()
+    const outcomes = () => requestRows(db, batch.id).map(row => row.outcome ?? 'unread').sort()
+    expect(outcomes()).toEqual(['expired', 'recorded', 'unread'])
+    expect(batchRows(db, runId)[0]!.status).toBe('ended')
+
+    transport.resultsFailure = new Error('[fake] 500 results unavailable')
+    clock.now = Date.parse(batch.deadlineAt) + PROVIDER_BATCH_CANCEL_GRACE_MS + PROVIDER_BATCH_POLL_MAX_MS
+    await poller.tick()
+
+    expect(batchRows(db, runId)[0]).toMatchObject({
+      status: 'cancelled',
+      error: 'The provider batch ended but its results could not be read in time; its unread answer(s) were not recorded: [fake] 500 results unavailable',
+      ingestedCount: 2,
+      recordedCount: 1,
+      quotaReserved: 3,
+      // The expired line was not billed; the unread one may have been.
+      quotaReleased: 1,
+    })
+    expect(outcomes()).toEqual(['expired', 'recorded', 'unread'])
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
+    expect(runRow(db, runId).status).toBe('partial')
+    expect(statuses()).toEqual(['partial'])
+
+    // Given up once: another pass releases nothing more.
+    await poller.tick()
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', quotaReleased: 1 })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+  })
 })
 
 describe('ingest is idempotent', () => {

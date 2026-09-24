@@ -5,6 +5,7 @@ import { projects, queries, competitors, schedules, notifications, runs, querySn
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
+  describeError,
   forbidden,
   hostOf,
   validationError,
@@ -24,7 +25,9 @@ import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { activeRevisionProviders } from './run-queue.js'
+import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
 
 export interface ProjectRoutesOptions {
   /**
@@ -34,6 +37,15 @@ export interface ProjectRoutesOptions {
    */
   onProjectDeleting?: (projectId: string) => void | (() => void)
   onProjectDeleted?: (projectId: string) => void
+  /**
+   * Stops one run's outstanding provider batches at the provider. Awaited
+   * before the project-delete transaction for each of the project's runs still
+   * waiting on a batch: the delete cascades away the only rows holding the
+   * provider's batch id, so afterwards nothing could cancel a batch that keeps
+   * processing and billing. Best effort: a rejection is logged and the delete
+   * goes ahead.
+   */
+  cancelRunProviderBatches?: (runId: string, projectId: string) => Promise<void>
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit lifecycle hook; failures must not turn a committed create into an HTTP 500. */
   onProjectCreated?: (projectId: string, projectName: string) => void
@@ -233,11 +245,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
     // Omitted keeps the stored preference (the dashboard's settings save and
     // other full-replace callers predate the field and never send it).
-    const providerDispatchModes = pruneProviderModelsForProviders(
+    const providerDispatchModes = pruneProviderDispatchModes(
       body.providerDispatchModes !== undefined
         ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
         : existing?.providerDispatchModes ?? {},
       nextProviders,
+      existing ? activeRevisionProviders(app.db, existing.id) : [],
     )
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
@@ -427,6 +440,17 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // and the caller can retry rather than leaving an orphaned secret behind.
     const rollback = opts.onProjectDeleting?.(project.id)
     try {
+      // After the credential removal, so a delete it aborts leaves the
+      // project's runs and their batches as they were.
+      if (opts.cancelRunProviderBatches) {
+        for (const runId of readProjectRunsWithOutstandingProviderBatch(app.db, project.id)) {
+          try {
+            await opts.cancelRunProviderBatches(runId, project.id)
+          } catch (error) {
+            app.log.warn({ runId, projectId: project.id, error: describeError(error) }, 'Provider batch cancellation failed before project delete')
+          }
+        }
+      }
       app.db.transaction((tx) => {
         writeAuditLog(tx, {
           projectId: project.id,

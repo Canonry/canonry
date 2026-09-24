@@ -96,6 +96,27 @@ export function hasActiveMeasurementPlan(db: DatabaseClient, projectId: string):
     .where(eq(measurementPlans.projectId, projectId)).get() !== undefined
 }
 
+/**
+ * The engines an Advanced project's runs measure: those its active v2 revision
+ * froze on its execution nodes, whatever the project row lists (see
+ * `measurementStampV2`). Empty for a project with no published plan or a v1
+ * plan, whose runs measure the project's own provider list.
+ */
+export function activeRevisionProviders(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
+  const version = db.select({ canonicalJson: measurementPlanVersions.canonicalJson })
+    .from(measurementPlans)
+    .innerJoin(measurementPlanVersions, and(
+      eq(measurementPlanVersions.projectId, measurementPlans.projectId),
+      eq(measurementPlanVersions.id, measurementPlans.activeVersionId),
+    ))
+    .where(eq(measurementPlans.projectId, projectId))
+    .get()
+  if (!version) return []
+  const stored = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+  if (stored.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return []
+  return normalizeProviders(stored.executionNodes.flatMap(node => node.context.providers))
+}
+
 /** The checksum layer contracts deliberately leaves to whoever owns hashing. */
 function executionIdentityChecksum(input: { providers: readonly string[]; models: Record<string, string> }): string {
   return crypto.createHash('sha256')
