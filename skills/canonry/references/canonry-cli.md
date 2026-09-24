@@ -412,8 +412,10 @@ cnry settings                                  # show config: providers, apiUrl,
 cnry settings --format json
 cnry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
-cnry settings provider perplexity --api-key <KEY>
+cnry settings provider perplexity --api-key <KEY> --model fast
 ```
+
+Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
 

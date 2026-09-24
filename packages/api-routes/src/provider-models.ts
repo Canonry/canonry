@@ -1,4 +1,4 @@
-import { validationError, type ProviderModels } from '@ainyc/canonry-contracts'
+import { resolveProviderModel, validationError, type ProviderModels } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 
 /**
@@ -45,7 +45,9 @@ export function validateProviderModels(
         { provider, model, hint: adapter.modelValidationHint },
       )
     }
-    normalized[provider] = model
+    // Store the id that answers, not a retired alias of it (Perplexity's
+    // `sonar-pro` is stored as `low`), so every reader sees the engine that runs.
+    normalized[provider] = resolveProviderModel(provider, model)
   }
   return normalized
 }

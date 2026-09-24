@@ -115,7 +115,7 @@ describe('validateConfig', () => {
     })
     expect(result.ok).toBe(true)
     expect(result.provider).toBe('perplexity')
-    expect(result.model).toBe('sonar')
+    expect(result.model).toBe('fast')
   })
 
   it('returns not ok for missing api key', () => {
@@ -130,14 +130,32 @@ describe('validateConfig', () => {
   it('uses custom model when provided', () => {
     const result = validateConfig({
       apiKey: 'pplx-test-key',
+      model: 'perplexity/sonar',
+      quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+    })
+    expect(result.model).toBe('perplexity/sonar')
+  })
+
+  it('reports the preset a retired Sonar model now runs as', () => {
+    const result = validateConfig({
+      apiKey: 'pplx-test-key',
       model: 'sonar-pro',
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
     })
-    expect(result.model).toBe('sonar-pro')
+    expect(result.model).toBe('low')
+  })
+
+  it('falls back to the default for a blank model', () => {
+    const result = validateConfig({
+      apiKey: 'pplx-test-key',
+      model: '  ',
+      quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+    })
+    expect(result.model).toBe('fast')
   })
 })
 
-describe('normalizeResult', () => {
+describe('normalizeResult (Sonar history)', () => {
   it('extracts answer text and cited domains from raw result', () => {
     const raw: PerplexityRawResult = {
       provider: 'perplexity',
@@ -208,7 +226,7 @@ describe('normalizeResult', () => {
   })
 })
 
-describe('reparseStoredResult', () => {
+describe('reparseStoredResult (Sonar history)', () => {
   it('reparseStoredResult does not invent search queries and prefers search result titles', () => {
     const result = reparseStoredResult({
       choices: [{
@@ -224,6 +242,8 @@ describe('reparseStoredResult', () => {
     expect(result.groundingSources).toEqual([
       { uri: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
     ])
+    // Sonar's retrieval marker never discriminated, so stored rows stay unknown.
+    expect(result.retrievalStatus).toBe('unknown')
   })
 
   it('reparseStoredResult falls back to citations when search_results are absent', () => {

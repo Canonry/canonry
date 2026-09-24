@@ -10375,7 +10375,7 @@ export type RunCompletenessDto = {
     };
     fillable: boolean;
     refusal: {
-        code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
+        code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'model_retired' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
         message: string;
     } | null;
     latestFill: {
@@ -10501,7 +10501,7 @@ export type RunFillResponseDto = {
         };
         fillable: boolean;
         refusal: {
-            code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
+            code: 'not_answer_visibility' | 'not_plan_run' | 'scoped_or_probe' | 'status_not_partial' | 'plan_revision_changed' | 'manifest_unreadable' | 'model_not_frozen' | 'model_retired' | 'provider_not_in_plan' | 'provider_nothing_missing' | 'provider_not_configured' | 'too_old' | 'superseded' | 'quota_insufficient';
             message: string;
         } | null;
         latestFill: {

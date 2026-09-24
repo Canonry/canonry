@@ -7,6 +7,8 @@ import type {
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
+  DEFAULT_MODEL,
+  PERPLEXITY_RETRIEVAL_CONTRACT,
   validateConfig as perplexityValidateConfig,
   healthcheck as perplexityHealthcheck,
   executeTrackedQuery as perplexityExecuteTrackedQuery,
@@ -27,19 +29,22 @@ export const perplexityAdapter: ProviderAdapter = {
   name: 'perplexity',
   displayName: 'Perplexity',
   mode: 'api',
-  // normalize.ts folds the location into the prompt the model receives.
+  // normalize.ts sends the location as `user_location` on the web_search tool.
   supportsLocationContext: true,
   keyUrl: 'https://www.perplexity.ai/settings/api',
-  // Upstream model list: https://docs.perplexity.ai/guides/model-cards
+  // Agent API presets: https://docs.perplexity.ai/docs/agent-api/presets
+  // Model slugs (GET https://api.perplexity.ai/v1/models): provider-prefixed, e.g. perplexity/sonar.
   modelRegistry: {
-    defaultModel: 'sonar',
-    validationPattern: /^sonar/,
-    validationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
+    defaultModel: DEFAULT_MODEL,
+    // Presets, `vendor/model` slugs, and the retired Sonar names and previous
+    // preset names that PROVIDER_MODEL_ALIASES resolves (`sonar` → `fast`).
+    validationPattern: /^(?:fast|low|medium|high|xhigh|fast-search|pro-search|deep-research|advanced-deep-research|sonar(?:-pro|-reasoning|-reasoning-pro|-deep-research)?|[a-z0-9][a-z0-9-]*\/[A-Za-z0-9][\w.:-]*)$/,
+    validationHint: 'expected an Agent API preset (fast, low, medium, high, xhigh) or a provider/model slug (e.g. perplexity/sonar)',
     knownModels: [
-      { id: 'sonar', displayName: 'Sonar', tier: 'standard' },
-      { id: 'sonar-pro', displayName: 'Sonar Pro', tier: 'flagship' },
-      { id: 'sonar-reasoning', displayName: 'Sonar Reasoning', tier: 'flagship' },
-      { id: 'sonar-reasoning-pro', displayName: 'Sonar Reasoning Pro', tier: 'flagship' },
+      { id: 'fast', displayName: 'Fast preset', tier: 'standard' },
+      { id: 'low', displayName: 'Low preset (pro search)', tier: 'flagship' },
+      { id: 'medium', displayName: 'Medium preset (deep research)', tier: 'flagship' },
+      { id: 'perplexity/sonar', displayName: 'Sonar model + web search', tier: 'fast' },
     ],
   },
 
@@ -78,13 +83,10 @@ export const perplexityAdapter: ProviderAdapter = {
       servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
-      // Retrieval detection is not implemented for this provider. Its candidate
-      // marker is present on 100% of stored rows, so it has never been shown to
-      // discriminate a non-retrieving answer and wiring it up would hardcode
-      // `used`. `unknown` states what we actually know. The contract is a
-      // declaration about how we build the request, so it is always knowable.
-      retrievalStatus: 'unknown' as const,
-      retrievalContract: 'native-auto-v1' as const,
+      // Read off the Agent API output: a `search_results` item is the retrieval
+      // call. The contract is how we built the request, so it is always known.
+      retrievalStatus: raw.retrievalStatus ?? 'unknown',
+      retrievalContract: PERPLEXITY_RETRIEVAL_CONTRACT,
     }
   },
 
@@ -95,6 +97,7 @@ export const perplexityAdapter: ProviderAdapter = {
       model: raw.model,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
+      retrievalStatus: raw.retrievalStatus,
     }
     const normalized = perplexityNormalizeResult(perplexityRaw)
     return {
@@ -103,7 +106,7 @@ export const perplexityAdapter: ProviderAdapter = {
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
-      retrievalStatus: 'unknown' as const,
+      retrievalStatus: normalized.retrievalStatus,
     }
   },
 

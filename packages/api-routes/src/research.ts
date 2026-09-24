@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { measurementQueryTemplates, projects, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
 import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection, type ResearchRunCreate } from '@ainyc/canonry-contracts'
 import { canRunResearch, requireResearchGrant } from './auth.js'
-import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE } from '@ainyc/canonry-contracts'
+import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -71,7 +71,8 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
       ? resolveResearchTemplate(app, project.id, input.template, scope, location)
       : null
     const requestedModel = input.model ?? null
-    const resolvedModel = requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel)
+    // A retired id (Perplexity's `sonar`) records the id that actually answers.
+    const resolvedModel = resolveProviderModel(providerName, requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel))
     adapter.modelValidationPattern.lastIndex = 0
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError('Invalid resolved model "' + resolvedModel + '" for provider "' + providerName + '".', { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
     if (deduplicateResearchQueries(input.queries).length !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
@@ -198,7 +199,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const providers = (opts.providerAdapters ?? [])
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
       .map(adapter => {
-        const defaultModel = project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel
+        const defaultModel = resolveProviderModel(adapter.name, project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel)
         const cached = opts.getCachedProviderModels?.(adapter.name) ?? []
         const models = cached.length ? cached : adapter.knownModels
         return {
