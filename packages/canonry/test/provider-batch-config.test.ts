@@ -110,6 +110,11 @@ describe('config.yaml providers.<name>.batch and .pricing', () => {
     expect(loaded.providers?.openai?.pricing).toBeUndefined()
   })
 
+  it('tolerates a provider key left empty in YAML', () => {
+    writeConfig({ claude: null, openai: { apiKey: 'sk-openai', batch: { enabled: true } } })
+    expect(loadConfig().providers?.openai?.batch).toEqual({ enabled: true })
+  })
+
   it('refuses a malformed batch block, naming the key', () => {
     writeConfig({ claude: { apiKey: 'sk-ant', batch: { enabled: 'yes' } } })
     const error = loadError()

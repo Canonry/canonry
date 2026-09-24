@@ -26,7 +26,8 @@ function issuesText(issues: ReadonlyArray<{ path: PropertyKey[]; message: string
  * running sync or pricing with a typo.
  */
 export function normalizeProviderBatchSettings(
-  providers: Record<string, ProviderConfigEntry> | undefined,
+  // A provider key left empty in YAML parses as null.
+  providers: Record<string, ProviderConfigEntry | null | undefined> | undefined,
   configPath: string,
 ): void {
   for (const [name, entry] of Object.entries(providers ?? {})) {
@@ -77,7 +78,9 @@ export function providerConfigFromEntry(name: string, entry: ProviderConfigEntry
  * plus the build/parse split that makes a batch line identical to a sync call.
  */
 export function adapterSupportsBatch(adapter: ProviderAdapter): boolean {
-  return Boolean(adapter.batch && adapter.buildTrackedQueryRequest && adapter.parseTrackedQueryResponse)
+  return adapter.batch !== undefined
+    && adapter.buildTrackedQueryRequest !== undefined
+    && adapter.parseTrackedQueryResponse !== undefined
 }
 
 /**
@@ -98,7 +101,8 @@ export function batchEligibleProviderNames(registry: ProviderRegistry): string[]
  * so it is left to the other config checks.
  */
 export function providersWithUnsupportedBatch(
-  providers: Record<string, ProviderConfigEntry> | undefined,
+  // A provider key left empty in YAML parses as null.
+  providers: Record<string, ProviderConfigEntry | null | undefined> | undefined,
   adapterFor: (name: string) => ProviderAdapter | undefined,
 ): string[] {
   return Object.entries(providers ?? {})
