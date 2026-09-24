@@ -9,7 +9,7 @@ Claude/Anthropic adapter — implements `ProviderAdapter` for Anthropic's Messag
 | File | Role |
 |------|------|
 | `src/adapter.ts` | Exports `claudeAdapter` — the `ProviderAdapter` object |
-| `src/normalize.ts` | Core logic: `validateConfig`, `healthcheck`, `executeTrackedQuery`, `normalizeResult`, `generateText` |
+| `src/normalize.ts` | Core logic: `validateConfig`, `healthcheck`, `buildTrackedQueryRequest`, `executeTrackedQuery`, `parseTrackedQueryResponse`, `normalizeResult`, `generateText` |
 | `src/types.ts` | Claude-specific config and response types |
 | `src/index.ts` | Re-exports public API |
 
@@ -20,6 +20,7 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
 - **`executeTrackedQuery(input)`** — send a tracked query and capture raw response with web search results
+  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
 

@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
+import type { ProviderQuotaPolicy, ProviderUsage, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -32,6 +32,10 @@ export interface LocalRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** Tokens from the response's `usage` object; undefined when the runtime reported none. */
+  usage?: ProviderUsage
+  /** `choices[0].finish_reason` verbatim; undefined when the response had none. */
+  stopReason?: string
 }
 
 export interface LocalNormalizedResult {

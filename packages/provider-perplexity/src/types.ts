@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
+import type { ProviderQuotaPolicy, ProviderUsage, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -31,6 +31,10 @@ export interface PerplexityRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** Billable tokens from the response's `usage` object; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `choices[0].finish_reason` verbatim; undefined when the response had none. */
+  stopReason?: string
 }
 
 export interface PerplexityNormalizedResult {

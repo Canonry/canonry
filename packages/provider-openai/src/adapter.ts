@@ -4,17 +4,20 @@ import type {
   ProviderConfig,
   ProviderHealthcheckResult,
   TrackedQueryInput,
+  TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
   validateConfig as openaiValidateConfig,
   healthcheck as openaiHealthcheck,
+  buildTrackedQueryRequest as openaiBuildTrackedQueryRequest,
   executeTrackedQuery as openaiExecuteTrackedQuery,
+  parseTrackedQueryResponse as openaiParseTrackedQueryResponse,
   normalizeResult as openaiNormalizeResult,
   generateText as openaiGenerateText,
 } from './normalize.js'
-import type { OpenAIConfig } from './types.js'
+import type { OpenAIConfig, OpenAIRawResult, OpenAITrackedQueryInput } from './types.js'
 
 export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
   return {
@@ -22,6 +25,36 @@ export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
     model: config.model,
     baseUrl: config.baseUrl,
     quotaPolicy: config.quotaPolicy,
+  }
+}
+
+function toOpenAIInput(input: TrackedQueryInput, config: ProviderConfig): OpenAITrackedQueryInput {
+  return {
+    query: input.query,
+    canonicalDomains: input.canonicalDomains,
+    competitorDomains: input.competitorDomains,
+    config: toOpenAIConfig(config),
+    location: input.location,
+  }
+}
+
+function toRawQueryResult(raw: OpenAIRawResult): RawQueryResult {
+  return {
+    provider: 'openai',
+    rawResponse: raw.rawResponse,
+    model: raw.model,
+    servedModel: raw.servedModel,
+    groundingSources: raw.groundingSources,
+    searchQueries: raw.searchQueries,
+    // Retrieval detection is not implemented for this provider. Its candidate
+    // marker is present on 100% of stored rows, so it has never been shown to
+    // discriminate a non-retrieving answer and wiring it up would hardcode
+    // `used`. `unknown` states what we actually know. The contract is a
+    // declaration about how we build the request, so it is always knowable.
+    retrievalStatus: 'unknown' as const,
+    retrievalContract: 'native-auto-v1' as const,
+    usage: raw.usage,
+    stopReason: raw.stopReason,
   }
 }
 
@@ -69,29 +102,16 @@ export const openaiAdapter: ProviderAdapter = {
     }
   },
 
+  buildTrackedQueryRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
+    return openaiBuildTrackedQueryRequest(toOpenAIInput(input, config))
+  },
+
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await openaiExecuteTrackedQuery({
-      query: input.query,
-      canonicalDomains: input.canonicalDomains,
-      competitorDomains: input.competitorDomains,
-      config: toOpenAIConfig(config),
-      location: input.location,
-    })
-    return {
-      provider: 'openai',
-      rawResponse: raw.rawResponse,
-      model: raw.model,
-      servedModel: raw.servedModel,
-      groundingSources: raw.groundingSources,
-      searchQueries: raw.searchQueries,
-      // Retrieval detection is not implemented for this provider. Its candidate
-      // marker is present on 100% of stored rows, so it has never been shown to
-      // discriminate a non-retrieving answer and wiring it up would hardcode
-      // `used`. `unknown` states what we actually know. The contract is a
-      // declaration about how we build the request, so it is always knowable.
-      retrievalStatus: 'unknown' as const,
-      retrievalContract: 'native-auto-v1' as const,
-    }
+    return toRawQueryResult(await openaiExecuteTrackedQuery(toOpenAIInput(input, config)))
+  },
+
+  parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
+    return toRawQueryResult(openaiParseTrackedQueryResponse(body, model))
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {

@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
-import { hostOf, normalizeServedModel, registrableDomain, describeError } from '@ainyc/canonry-contracts'
+import { hostOf, normalizeServedModel, registrableDomain, describeError, usageCount } from '@ainyc/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GroundingSource,
@@ -58,43 +59,64 @@ export async function healthcheck(config: LocalConfig): Promise<LocalHealthcheck
   }
 }
 
+/** The chat completions path a tracked query is sent to, relative to the configured base URL. */
+export const LOCAL_CHAT_COMPLETIONS_ENDPOINT = '/chat/completions'
+
+/** The first half of `executeTrackedQuery`: the exact chat completion request it sends. */
+export function buildTrackedQueryRequest(input: LocalTrackedQueryInput): TrackedQueryRequest {
+  const body = {
+    model: input.config.model ?? DEFAULT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant. Provide comprehensive, factual answers. When mentioning websites or services, include their domain names.',
+      },
+      {
+        role: 'user',
+        content: buildPrompt(input.query, input.location),
+      },
+    ],
+  } satisfies OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming
+
+  return { endpoint: LOCAL_CHAT_COMPLETIONS_ENDPOINT, body }
+}
+
 export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promise<LocalRawResult> {
   const model = input.config.model ?? DEFAULT_MODEL
+  const params = buildTrackedQueryRequest(input).body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming
   const client = new OpenAI({
     baseURL: input.config.baseUrl,
     apiKey: input.config.apiKey || 'not-needed',
   })
 
+  let response: OpenAI.Chat.Completions.ChatCompletion
   try {
-    const response = await withRetry(() =>
-      client.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a helpful assistant. Provide comprehensive, factual answers. When mentioning websites or services, include their domain names.',
-          },
-          {
-            role: 'user',
-            content: buildPrompt(input.query, input.location),
-          },
-        ],
-      }),
-    )
-
-    const rawResponse = responseToRecord(response)
-
-    return {
-      provider: 'local',
-      rawResponse,
-      model,
-      servedModel: extractServedModel(rawResponse),
-      groundingSources: [],
-      searchQueries: [],
-    }
+    response = await withRetry(() => client.chat.completions.create(params))
   } catch (err: unknown) {
     const msg = describeError(err)
     throw new Error(`[provider-local] ${msg}`)
+  }
+  return parseTrackedQueryResponse(response, model)
+}
+
+/**
+ * The second half of `executeTrackedQuery`: read one chat completion (the
+ * SDK's object, or the same completion as JSON) into a result. `model` is the
+ * model the request asked for. A local model has no web access, so there are
+ * no grounding sources or search queries to read.
+ */
+export function parseTrackedQueryResponse(body: object, model: string): LocalRawResult {
+  const rawResponse = responseToRecord(body)
+
+  return {
+    provider: 'local',
+    rawResponse,
+    model,
+    servedModel: extractServedModel(rawResponse),
+    groundingSources: [],
+    searchQueries: [],
+    usage: extractUsageFromRaw(rawResponse),
+    stopReason: extractStopReasonFromRaw(rawResponse),
   }
 }
 
@@ -159,7 +181,39 @@ export function extractServedModel(rawResponse: Record<string, unknown>): string
   return normalizeServedModel(rawResponse.model)
 }
 
-function responseToRecord(response: OpenAI.Chat.Completions.ChatCompletion): Record<string, unknown> {
+/**
+ * Tokens off the OpenAI-compatible `usage` object, when the runtime reports
+ * one. There is no web search, so `searchCount` is 0. A runtime that reports
+ * no usage yields undefined, never a zero-cost answer.
+ */
+function extractUsageFromRaw(rawResponse: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = rawResponse.usage as {
+    prompt_tokens?: unknown
+    prompt_tokens_details?: { cached_tokens?: unknown } | null
+    completion_tokens?: unknown
+  } | null | undefined
+  if (usage === null || typeof usage !== 'object') return undefined
+
+  const promptTokens = usageCount(usage.prompt_tokens)
+  const cachedInputTokens = usageCount(usage.prompt_tokens_details?.cached_tokens)
+  return {
+    inputTokens: Math.max(0, promptTokens - cachedInputTokens),
+    cachedInputTokens,
+    cacheWriteTokens: 0,
+    outputTokens: usageCount(usage.completion_tokens),
+    searchCount: 0,
+  }
+}
+
+/** `choices[0].finish_reason` verbatim (`stop`, `length`, …). */
+function extractStopReasonFromRaw(rawResponse: Record<string, unknown>): string | undefined {
+  const choices = rawResponse.choices as Array<{ finish_reason?: unknown } | null> | undefined
+  const finishReason = Array.isArray(choices) ? choices[0]?.finish_reason : undefined
+  return typeof finishReason === 'string' && finishReason.length > 0 ? finishReason : undefined
+}
+
+/** Detach a response into plain JSON, the shape stored as `apiResponse`. */
+function responseToRecord(response: object): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(response)) as Record<string, unknown>
   } catch {

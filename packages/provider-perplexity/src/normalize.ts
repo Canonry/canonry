@@ -6,7 +6,9 @@ import {
   normalizeServedModel,
   registrableDomain,
   describeError,
+  usageCount,
 } from '@ainyc/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   PerplexityConfig,
@@ -61,34 +63,52 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
   }
 }
 
+/** The chat completions path a tracked query is sent to, relative to `BASE_URL`. */
+export const PERPLEXITY_CHAT_COMPLETIONS_ENDPOINT = '/chat/completions'
+
+/** The first half of `executeTrackedQuery`: the exact chat completion request it sends. */
+export function buildTrackedQueryRequest(input: PerplexityTrackedQueryInput): TrackedQueryRequest {
+  const body = {
+    model: input.config.model ?? DEFAULT_MODEL,
+    messages: [{ role: 'user', content: buildPrompt(input.query, input.location) }],
+  } satisfies OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming
+
+  return { endpoint: PERPLEXITY_CHAT_COMPLETIONS_ENDPOINT, body }
+}
+
 export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): Promise<PerplexityRawResult> {
   const model = input.config.model ?? DEFAULT_MODEL
+  const params = buildTrackedQueryRequest(input).body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming
   const client = new OpenAI({ apiKey: input.config.apiKey, baseURL: BASE_URL })
 
-  const prompt = buildPrompt(input.query, input.location)
-
+  let response: OpenAI.Chat.Completions.ChatCompletion
   try {
-    const response = await withRetry(() =>
-      client.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    )
-
-    const rawResponse = responseToRecord(response)
-    const parsed = reparseStoredResult(rawResponse)
-
-    return {
-      provider: 'perplexity',
-      rawResponse,
-      model,
-      servedModel: extractServedModel(rawResponse),
-      groundingSources: parsed.groundingSources,
-      searchQueries: parsed.searchQueries,
-    }
+    response = await withRetry(() => client.chat.completions.create(params))
   } catch (err: unknown) {
     const msg = describeError(err)
     throw new Error(`[provider-perplexity] ${msg}`)
+  }
+  return parseTrackedQueryResponse(response, model)
+}
+
+/**
+ * The second half of `executeTrackedQuery`: read one chat completion (the
+ * SDK's object, or the same completion as JSON) into a result. `model` is the
+ * model the request asked for.
+ */
+export function parseTrackedQueryResponse(body: object, model: string): PerplexityRawResult {
+  const rawResponse = responseToRecord(body)
+  const parsed = reparseStoredResult(rawResponse)
+
+  return {
+    provider: 'perplexity',
+    rawResponse,
+    model,
+    servedModel: extractServedModel(rawResponse),
+    groundingSources: parsed.groundingSources,
+    searchQueries: parsed.searchQueries,
+    usage: extractUsageFromRaw(rawResponse),
+    stopReason: extractStopReasonFromRaw(rawResponse),
   }
 }
 
@@ -261,6 +281,39 @@ function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<
   return null
 }
 
+/**
+ * Billable tokens off the OpenAI-style `usage` object. `searchCount` stays 0:
+ * Perplexity bills search inside its own pricing, as a per-request fee set by
+ * the search context size, so `num_search_queries` is not counted here.
+ * A response with no usage object yields undefined, never a zero-cost answer.
+ * Docs: https://docs.perplexity.ai/getting-started/pricing
+ */
+function extractUsageFromRaw(rawResponse: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = rawResponse.usage as {
+    prompt_tokens?: unknown
+    prompt_tokens_details?: { cached_tokens?: unknown } | null
+    completion_tokens?: unknown
+  } | null | undefined
+  if (usage === null || typeof usage !== 'object') return undefined
+
+  const promptTokens = usageCount(usage.prompt_tokens)
+  const cachedInputTokens = usageCount(usage.prompt_tokens_details?.cached_tokens)
+  return {
+    inputTokens: Math.max(0, promptTokens - cachedInputTokens),
+    cachedInputTokens,
+    cacheWriteTokens: 0,
+    outputTokens: usageCount(usage.completion_tokens),
+    searchCount: 0,
+  }
+}
+
+/** `choices[0].finish_reason` verbatim (`stop`, `length`, …). */
+function extractStopReasonFromRaw(rawResponse: Record<string, unknown>): string | undefined {
+  const choices = rawResponse.choices as Array<{ finish_reason?: unknown } | null> | undefined
+  const finishReason = Array.isArray(choices) ? choices[0]?.finish_reason : undefined
+  return typeof finishReason === 'string' && finishReason.length > 0 ? finishReason : undefined
+}
+
 export function extractCitedDomains(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
   for (const source of groundingSources) {
@@ -292,7 +345,8 @@ export async function generateText(prompt: string, config: PerplexityConfig): Pr
   return response.choices[0]?.message?.content ?? ''
 }
 
-function responseToRecord(response: OpenAI.Chat.Completions.ChatCompletion): Record<string, unknown> {
+/** Detach a response into plain JSON, the shape stored as `apiResponse`. */
+function responseToRecord(response: object): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(response)) as Record<string, unknown>
   } catch {

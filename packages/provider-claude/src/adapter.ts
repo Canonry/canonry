@@ -4,24 +4,52 @@ import type {
   ProviderConfig,
   ProviderHealthcheckResult,
   TrackedQueryInput,
+  TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
   validateConfig as claudeValidateConfig,
   healthcheck as claudeHealthcheck,
+  buildTrackedQueryRequest as claudeBuildTrackedQueryRequest,
   executeTrackedQuery as claudeExecuteTrackedQuery,
+  parseTrackedQueryResponse as claudeParseTrackedQueryResponse,
   normalizeResult as claudeNormalizeResult,
   generateText as claudeGenerateText,
   CLAUDE_RETRIEVAL_CONTRACT,
 } from './normalize.js'
-import type { ClaudeConfig } from './types.js'
+import type { ClaudeConfig, ClaudeRawResult, ClaudeTrackedQueryInput } from './types.js'
 
 function toClaudeConfig(config: ProviderConfig): ClaudeConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+  }
+}
+
+function toClaudeInput(input: TrackedQueryInput, config: ProviderConfig): ClaudeTrackedQueryInput {
+  return {
+    query: input.query,
+    canonicalDomains: input.canonicalDomains,
+    competitorDomains: input.competitorDomains,
+    config: toClaudeConfig(config),
+    location: input.location,
+  }
+}
+
+function toRawQueryResult(raw: ClaudeRawResult): RawQueryResult {
+  return {
+    provider: 'claude',
+    rawResponse: raw.rawResponse,
+    model: raw.model,
+    servedModel: raw.servedModel,
+    groundingSources: raw.groundingSources,
+    searchQueries: raw.searchQueries,
+    retrievalStatus: raw.retrievalStatus,
+    retrievalContract: raw.retrievalContract,
+    usage: raw.usage,
+    stopReason: raw.stopReason,
   }
 }
 
@@ -66,24 +94,16 @@ export const claudeAdapter: ProviderAdapter = {
     }
   },
 
+  buildTrackedQueryRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
+    return claudeBuildTrackedQueryRequest(toClaudeInput(input, config))
+  },
+
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await claudeExecuteTrackedQuery({
-      query: input.query,
-      canonicalDomains: input.canonicalDomains,
-      competitorDomains: input.competitorDomains,
-      config: toClaudeConfig(config),
-      location: input.location,
-    })
-    return {
-      provider: 'claude',
-      rawResponse: raw.rawResponse,
-      model: raw.model,
-      servedModel: raw.servedModel,
-      groundingSources: raw.groundingSources,
-      searchQueries: raw.searchQueries,
-      retrievalStatus: raw.retrievalStatus,
-      retrievalContract: raw.retrievalContract,
-    }
+    return toRawQueryResult(await claudeExecuteTrackedQuery(toClaudeInput(input, config)))
+  },
+
+  parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
+    return toRawQueryResult(claudeParseTrackedQueryResponse(body, model))
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {
