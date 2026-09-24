@@ -237,7 +237,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     // Perplexity
     const perplexityApiKey = await promptProviderApiKey('Perplexity', 'PERPLEXITY_API_KEY')
     if (perplexityApiKey) {
-      const perplexityModel = await prompt('  Perplexity model [sonar]: ') || 'sonar'
+      const perplexityModel = await prompt('  Perplexity preset or model [fast]: ') || 'fast'
       providers.perplexity = { apiKey: perplexityApiKey, model: perplexityModel, quota: DEFAULT_QUOTA }
     }
 

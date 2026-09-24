@@ -192,7 +192,7 @@ These tests do **not** make real API calls. They test `normalizeResult` against 
 - **Gemini**: `candidates[].content.parts[].text` + `groundingMetadata.groundingChunks`
 - **OpenAI**: `output[].content[].text` + `output[].content[].annotations[]` (URL citations)
 - **Claude**: `content[].text` + `web_search_tool_result` blocks with `search_results`
-- **Perplexity**: `search_results` array (preferred) or `citations` array fallback
+- **Perplexity**: Agent API `output[]` (`message` text + `search_results` item); stored Sonar rows keep the `search_results` / `citations` parser
 - **Local**: heuristic URL/domain scan over the raw answer text (no native web search)
 
 To test live API calls, use the CLI with real API keys:

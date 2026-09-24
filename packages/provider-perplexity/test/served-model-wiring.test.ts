@@ -8,15 +8,17 @@ import { perplexityAdapter } from '../src/adapter.js'
 // `executeTrackedQuery` and the adapter's `servedModel: raw.servedModel`
 // pass-through, neither of which had a test.
 //
-// The stub body is a hand-written minimal chat-completion payload (constructed, not
-// a capture); only `model` is load-bearing here.
+// The stub body is a hand-written minimal Agent API response (constructed, not
+// a capture); only `model` is load-bearing here. For a preset, `model` is the
+// model the preset resolved to, which is exactly why it is recorded apart from
+// the configured preset.
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
 
-const CONFIGURED_MODEL = 'sonar'
-const SERVED_MODEL = 'sonar-pro'
+const CONFIGURED_MODEL = 'fast'
+const SERVED_MODEL = 'perplexity/sonar'
 
-function stubChatCompletions(body: Record<string, unknown>): void {
+function stubAgent(body: Record<string, unknown>): void {
   vi.stubGlobal('fetch', async () =>
     new Response(JSON.stringify(body), {
       status: 200,
@@ -25,20 +27,27 @@ function stubChatCompletions(body: Record<string, unknown>): void {
   )
 }
 
-function completion(model?: string): Record<string, unknown> {
+function agentResponse(model?: string): Record<string, unknown> {
   return {
-    id: 'cmpl_stub',
-    object: 'chat.completion',
-    created: 0,
+    id: 'resp_stub',
+    object: 'response',
+    created_at: 0,
+    status: 'completed',
     ...(model === undefined ? {} : { model }),
-    choices: [
-      { index: 0, message: { role: 'assistant', content: 'stub answer' }, finish_reason: 'stop' },
+    output: [
+      {
+        id: 'msg_stub',
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: 'stub answer', annotations: [] }],
+      },
     ],
   }
 }
 
 test('the perplexity adapter carries the served model from the API response to RawQueryResult', async () => {
-  stubChatCompletions(completion(SERVED_MODEL))
+  stubAgent(agentResponse(SERVED_MODEL))
   try {
     const result = await perplexityAdapter.executeTrackedQuery(
       { query: 'best crm', canonicalDomains: ['example.com'], competitorDomains: [] },
@@ -53,7 +62,7 @@ test('the perplexity adapter carries the served model from the API response to R
 })
 
 test('the perplexity adapter leaves servedModel undefined when the response discloses no model', async () => {
-  stubChatCompletions(completion())
+  stubAgent(agentResponse())
   try {
     const result = await perplexityAdapter.executeTrackedQuery(
       { query: 'best crm', canonicalDomains: ['example.com'], competitorDomains: [] },

@@ -279,6 +279,31 @@ test('cloud accepts every registered provider name', async () => {
   })
   expect(upsert.statusCode).toBe(201)
   expect(upsert.json().providers).toEqual([...PROVIDER_NAMES])
+
+  // The mirrored Perplexity pattern still accepts a retired Sonar id, and the
+  // override is stored as the Agent API preset that answers for it.
+  const projectBody = {
+    displayName: 'Acme',
+    canonicalDomain: 'acme.example',
+    country: 'US',
+    language: 'en',
+    providers: [...PROVIDER_NAMES],
+  }
+  const legacy = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/projects/acme',
+    headers: { authorization: `Bearer ${rawKey}` },
+    payload: { ...projectBody, providerModels: { perplexity: 'sonar-pro' } },
+  })
+  expect(legacy.statusCode).toBe(200)
+  expect(legacy.json().providerModels).toEqual({ perplexity: 'low' })
+  const invalid = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/projects/acme',
+    headers: { authorization: `Bearer ${rawKey}` },
+    payload: { ...projectBody, providerModels: { perplexity: 'gpt-4o' } },
+  })
+  expect(invalid.statusCode).toBe(400)
 })
 
 test('loadApiEnv delegates to shared platform config', () => {
