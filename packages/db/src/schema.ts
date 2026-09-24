@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import type { ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -15,6 +16,13 @@ export const projects = sqliteTable('projects', {
   labels: text('labels', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
   providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
   providerModels: text('provider_models', { mode: 'json' }).$type<ProviderModels>().notNull().default({}),
+  /**
+   * Provider -> how its slots are dispatched on SCHEDULED sweeps (`sync`, the
+   * default, or `batch`). Only a preference: a provider the instance cannot
+   * batch, or a run that is not a full plan sweep, still runs sync. Manual runs
+   * ignore it unless the request asks for batch.
+   */
+  providerDispatchModes: text('provider_dispatch_modes', { mode: 'json' }).$type<ProviderDispatchModesMap>().notNull().default({}),
   measurement: text('measurement_config', { mode: 'json' }).$type<MeasurementConfig>().notNull().default({
     marketingHosts: [],
     brandTerms: [],
@@ -277,6 +285,19 @@ export const runs = sqliteTable('runs', {
     models: Record<string, string>
     checksum: string
   }>(),
+  /**
+   * The providers this run sends to a provider batch API, frozen at queue
+   * time so a queued run never changes mode. Null when every provider runs
+   * sync. Deliberately outside the execution identity: dispatch changes how
+   * an answer was obtained, not what was asked.
+   */
+  providerDispatchModes: text('provider_dispatch_modes', { mode: 'json' }).$type<Record<string, 'batch'>>(),
+  /**
+   * Errors of this run's SYNC providers while its finalization waits on a
+   * provider batch. Persisted before the executor returns so a restart cannot
+   * lose them; folded into `error` and cleared when the run finalizes.
+   */
+  pendingProviderErrors: text('pending_provider_errors', { mode: 'json' }).$type<Record<string, string>>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),
@@ -393,6 +414,17 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   }>(),
   screenshotPath: text('screenshot_path'),
   rawResponse: text('raw_response'),
+  // How this answer was obtained. Null on rows that predate batch dispatch,
+  // which were all sync; never backfilled, so null reads as "not recorded".
+  dispatchMode: text('dispatch_mode').$type<ProviderDispatchMode>(),
+  // The `provider_batches` row that produced it (canonry's id, not the
+  // provider's). Null for sync answers.
+  providerBatchId: text('provider_batch_id').references(() => providerBatches.id, { onDelete: 'set null' }),
+  // Why the provider stopped generating, verbatim (e.g. Claude `pause_turn`).
+  // Stored on both paths so cut-short answers can be found; never used to drop one.
+  stopReason: text('stop_reason'),
+  // Billable usage and the price estimated when the answer was recorded.
+  usage: text('usage', { mode: 'json' }).$type<SnapshotUsage>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_snapshots_run').on(table.runId),
@@ -431,6 +463,72 @@ export const runFills = sqliteTable('run_fills', {
     columns: [table.projectId, table.runId],
     foreignColumns: [runs.projectId, runs.id],
   }).onDelete('cascade'),
+])
+
+/**
+ * One batch submitted to a provider's asynchronous batch API for a run (#1201).
+ * Written as `submitting` BEFORE the submit call, so a crash between the two
+ * leaves a row whose outcome is unknown rather than a batch nobody knows about;
+ * such a row is never resubmitted. The quota reservation is stored here because
+ * a batch can outlive the process that reserved it.
+ */
+export const providerBatches = sqliteTable('provider_batches', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull(),
+  /** Reserved for a fill that dispatches through a batch; null for a sweep's own batches. */
+  fillId: text('fill_id'),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  /** The provider's own batch id, once the submit call returned one. */
+  providerBatchId: text('provider_batch_id'),
+  status: text('status').$type<ProviderBatchStatus>().notNull(),
+  requestCount: integer('request_count').notNull(),
+  ingestedCount: integer('ingested_count').notNull().default(0),
+  recordedCount: integer('recorded_count').notNull().default(0),
+  error: text('error'),
+  quotaScope: text('quota_scope').notNull(),
+  quotaPeriod: text('quota_period').notNull(),
+  quotaReserved: integer('quota_reserved').notNull(),
+  /** Reservation already handed back, so a re-ingest never releases twice. */
+  quotaReleased: integer('quota_released').notNull().default(0),
+  deadlineAt: text('deadline_at').notNull(),
+  cancelRequestedAt: text('cancel_requested_at'),
+  submittedAt: text('submitted_at'),
+  endedAt: text('ended_at'),
+  ingestedAt: text('ingested_at'),
+  resultsExpireAt: text('results_expire_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_provider_batches_status').on(table.status),
+  index('idx_provider_batches_run').on(table.runId),
+  foreignKey({
+    name: 'provider_batches_project_run_fk',
+    columns: [table.projectId, table.runId],
+    foreignColumns: [runs.projectId, runs.id],
+  }).onDelete('cascade'),
+])
+
+/**
+ * The slot behind each line of a provider batch. `id` is the `custom_id` sent
+ * to the provider: a short generated id, because an execution id has no length
+ * bound and providers cap `custom_id` (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`).
+ */
+export const providerBatchRequests = sqliteTable('provider_batch_requests', {
+  id: text('id').primaryKey(),
+  batchId: text('batch_id').notNull().references(() => providerBatches.id, { onDelete: 'cascade' }),
+  executionId: text('execution_id').notNull(),
+  // SET NULL like `query_snapshots.query_id`: a query deleted while the batch
+  // is outstanding must not leave ingest writing an id that no longer exists.
+  queryId: text('query_id').references(() => queries.id, { onDelete: 'set null' }),
+  queryText: text('query_text').notNull(),
+  requestedModel: text('requested_model').notNull(),
+  requestedContext: text('requested_context', { mode: 'json' }).$type<LocationContext>(),
+  outcome: text('outcome').$type<ProviderBatchRequestOutcome>(),
+  error: text('error'),
+}, (table) => [
+  uniqueIndex('idx_provider_batch_requests_slot').on(table.batchId, table.executionId),
 ])
 
 export const auditLog = sqliteTable('audit_log', {
