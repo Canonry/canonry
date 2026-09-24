@@ -296,6 +296,8 @@ The command lives in `src/commands/backfill.ts` (historical recomputation for an
 
 Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
 
+`src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `providerName`: the redactor omits a `provider` key. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
+
 ### Health endpoint
 
 `GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:

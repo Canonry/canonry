@@ -1,5 +1,16 @@
 import { type ApiClient, createApiClient } from '../client.js'
-import { CitationStates, resolveProviderInput, type RunCompletenessDto, type RunDetailDto, describeError } from '@ainyc/canonry-contracts'
+import {
+  CitationStates,
+  ProviderBatchStatuses,
+  describeError,
+  formatMicros,
+  resolveProviderInput,
+  type ProviderBatchSummaryDto,
+  type ProviderDispatchMode,
+  type RunCompletenessDto,
+  type RunDetailDto,
+  type RunUsageSummaryRow,
+} from '@ainyc/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
@@ -9,7 +20,7 @@ function getClient() {
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
 
-export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; groups?: string[]; targets?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean; probe?: boolean }): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; groups?: string[]; targets?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean; probe?: boolean; dispatchMode?: ProviderDispatchMode }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
@@ -40,6 +51,9 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   }
   if (opts?.probe) {
     body.trigger = 'probe'
+  }
+  if (opts?.dispatchMode) {
+    body.dispatchMode = opts.dispatchMode
   }
   const response = await client.triggerRun(project, body)
 
@@ -130,7 +144,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   }
 }
 
-export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
+export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean; dispatchMode?: ProviderDispatchMode }): Promise<void> {
   const client = getClient()
   // Use full ProjectDto (not Array<{name}>) so we can check each
   // project's `locations` per-iteration. `listProjects()` already returns
@@ -157,6 +171,9 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
   }
   if (opts?.noLocation) {
     baseBody.noLocation = true
+  }
+  if (opts?.dispatchMode) {
+    baseBody.dispatchMode = opts.dispatchMode
   }
 
   // `location: string | null` distinguishes the multi-location fan-out
@@ -391,6 +408,13 @@ export function printRunDetail(run: RunDetailDto): void {
       }
     }
   }
+  const batched = Object.keys(run.dispatchModes ?? {}).sort()
+  if (batched.length > 0) console.log(`  Dispatch: ${batched.map(provider => `${provider}=batch`).join(', ')} (other providers sync)`)
+  if (run.providerBatches && run.providerBatches.length > 0) {
+    console.log('\n  Provider batches:')
+    for (const batch of run.providerBatches) console.log(`    ${providerBatchLine(batch)}`)
+  }
+  if (run.usage && run.usage.length > 0) printUsageTable(run.usage)
   if (run.snapshots && run.snapshots.length > 0) {
     console.log(`\n  Snapshots: ${run.snapshots.length}  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
     for (const s of run.snapshots) {
@@ -402,6 +426,52 @@ export function printRunDetail(run: RunDetailDto): void {
       console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}`)
     }
   }
+}
+
+/** One line per provider batch, saying plainly whether the run is waiting on it. */
+function providerBatchLine(batch: ProviderBatchSummaryDto): string {
+  const recorded = `${batch.recordedCount} of ${batch.requestCount} answers recorded`
+  const withError = (text: string) => (batch.error ? `${text} (${batch.error})` : text)
+  switch (batch.status) {
+    case ProviderBatchStatuses.submitting:
+      return `submitting provider batch: ${batch.provider} — ${batch.requestCount} requests`
+    // The two outstanding statuses: the run stays `running` until they clear.
+    case ProviderBatchStatuses.submitted:
+    case ProviderBatchStatuses.ended:
+      return `waiting on provider batch: ${batch.provider} — ${batch.requestCount} requests, submitted ${batch.submittedAt ?? 'unknown'}, deadline ${batch.deadlineAt}`
+    case ProviderBatchStatuses.ingested:
+      return withError(`provider batch ${batch.provider}: ingested — ${recorded}`)
+    case ProviderBatchStatuses.cancelled:
+      return withError(`provider batch ${batch.provider}: cancelled — ${recorded}; the rest are missing and can be filled`)
+    case ProviderBatchStatuses.failed:
+      return withError(`provider batch ${batch.provider}: rejected by the provider — its ${batch.requestCount} answers ran sync instead`)
+    case ProviderBatchStatuses.unknown:
+      return withError(`provider batch ${batch.provider}: submit outcome unknown — never resubmitted; its ${batch.requestCount} answers stay missing`)
+  }
+}
+
+/** Tokens, searches and estimated cost per provider and tier, exactly as the API summed them. */
+function printUsageTable(rows: readonly RunUsageSummaryRow[]): void {
+  const cost = (row: RunUsageSummaryRow) => row.estimatedCostMicros === null
+    ? 'unpriced'
+    : `${formatMicros(row.estimatedCostMicros, 'USD', { fractionDigits: 4 })}${row.unpricedAnswers > 0 ? ` (+${row.unpricedAnswers} unpriced)` : ''}`
+  const table = rows.map(row => [
+    row.provider,
+    row.pricingTier,
+    row.answers.toLocaleString('en-US'),
+    row.inputTokens.toLocaleString('en-US'),
+    row.cachedInputTokens.toLocaleString('en-US'),
+    row.cacheWriteTokens.toLocaleString('en-US'),
+    row.outputTokens.toLocaleString('en-US'),
+    row.searchCount.toLocaleString('en-US'),
+    cost(row),
+  ])
+  const header = ['PROVIDER', 'TIER', 'ANSWERS', 'INPUT', 'CACHED', 'CACHE WRITE', 'OUTPUT', 'SEARCHES', 'EST. COST']
+  const widths = header.map((title, index) => Math.max(title.length, ...table.map(cells => cells[index]!.length)))
+  const line = (cells: readonly string[]) => `    ${cells.map((cell, index) => cell.padEnd(widths[index]!)).join('  ').trimEnd()}`
+  console.log('\n  Usage (answers with recorded usage; cost is an estimate):')
+  console.log(line(header))
+  for (const cells of table) console.log(line(cells))
 }
 
 const FILL_POLL_INTERVAL_MS = 3000

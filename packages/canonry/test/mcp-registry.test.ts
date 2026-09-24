@@ -730,6 +730,15 @@ describe('MCP tool registry', () => {
     })
     expect(runTriggerRequest.required ?? []).not.toContain('kind')
     expect(runTriggerRequest.required ?? []).not.toContain('trigger')
+    // Batch dispatch (#1201): the same optional field POST /projects/:name/runs takes.
+    expect(schemaProperty(runTriggerRequest, 'dispatchMode')).toMatchObject({ type: 'string', enum: ['sync', 'batch'] })
+    expect(runTriggerRequest.required ?? []).not.toContain('dispatchMode')
+    const projectUpsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
+    expect(projectUpsertRequest.required ?? []).not.toContain('providerDispatchModes')
+    expect(schemaProperty(projectUpsertRequest, 'providerDispatchModes')).toMatchObject({ type: 'object' })
+    const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
+    expect(applySpec.required ?? []).not.toContain('providerDispatchModes')
+    expect(schemaProperty(applySpec, 'providerDispatchModes')).toMatchObject({ type: 'object' })
 
     expect(schemaProperty(inputSchemaFor('canonry_runs_list'), 'limit')).toMatchObject({
       type: 'integer',
