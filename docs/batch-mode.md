@@ -56,11 +56,26 @@ canonry project show acme            # "Dispatch modes:   claude=batch (schedule
 ```
 
 The same map is `providerDispatchModes` on `PUT /api/v1/projects/{name}`,
-`POST /api/v1/projects`, and in a `canonry apply` spec. In both write paths an
-omitted value **leaves the stored preference unchanged** (the dashboard's settings
-save and older config files never clear it), and `{}` clears it. Provider names
-must be registered adapters. A preference for an engine the project no longer
-runs is dropped, the same way model overrides are.
+`POST /api/v1/projects`, and in a `canonry apply` spec. On `PUT` and apply an
+omitted value **keeps the stored preference** (the dashboard's settings save and
+older config files never clear it), subject to the pruning below, and `{}`
+clears it. Provider names must be registered adapters.
+
+Every write prunes the map to the engines the project's runs measure, and the
+stored map is pruned too when the value is omitted:
+
+- **Simple portfolio** (no published plan, or a v1 plan): a preference is kept
+  only for a provider in the project's `providers` list, the same rule as
+  model overrides. A new project (`POST`, or a `PUT` / apply that creates it)
+  is always pruned this way.
+- **Custom (Advanced) portfolio** (an active v2 plan revision): a preference is
+  kept for a provider in the project's `providers` list **or** among the
+  providers the active revision froze on its execution nodes
+  (`activeRevisionProviders`). Its runs measure those engines whatever
+  `providers` lists, so a preference its scheduled sweeps still honour is never
+  dropped.
+- An empty `providers` list means every configured engine, so nothing is
+  pruned in either portfolio.
 
 ## Which runs batch
 
@@ -110,19 +125,37 @@ does not break a chart series. Each answer records `dispatchMode`
   ```
 
 - `canonry run <project> --wait` (and `run --all --wait`, `--all-locations
-  --wait`) never waits for a batch to end. It stops polling as soon as the run
-  is batch-pending (a batch is `submitted` or `ended`) and exits 0. The text
-  output is the run detail plus one line:
+  --wait`) never waits for a batch to end. It stops polling a run as soon as it
+  is batch-pending (a batch is `submitted` or `ended`) and exits 0. For each
+  batch-pending run the text output adds one line:
 
   ```
   Waiting on provider batch(es): claude — 120 requests, submitted 2026-09-24T06:00:05.000Z, deadline 2026-09-25T06:00:05.000Z; check with canonry run show <run-id>
   ```
 
-  `--format json` prints the run detail exactly as `GET /api/v1/runs/{id}`
-  returns it: `status` is still `running`, and `providerBatches` lists the
-  outstanding batch. Sync providers in the run may still be answering at that
-  point, so read the outcome later with `canonry run show <id>`. A run with no
-  outstanding batch is waited on as before (up to 10 minutes).
+  What else is printed depends on the form:
+
+  - `canonry run <project> --wait`: the text output is the run detail, then
+    that line. `--format json` prints the run detail exactly as
+    `GET /api/v1/runs/{id}` returns it: `status` is still `running`, and
+    `providerBatches` lists the outstanding batch.
+  - `canonry run <project> --all-locations --wait`: the text output is the
+    location table, each location's final status, then that line for each
+    batch-pending run, prefixed with its location. `--format json` prints one
+    element per location run: the trigger response merged with that run's
+    detail (`status: running`, `providerBatches`). A `conflict` element is
+    printed as the trigger returned it.
+  - `canonry run --all --wait`: the text output is the run table (project,
+    run id, status), then that line for each batch-pending run, prefixed with
+    its project (and location). `--format json` prints the same rows as
+    without `--wait`, `{ project, runId, status, location }` (plus `error` for
+    a project whose trigger failed), with `status` set to the last polled
+    status: a batch-pending run reads `running`, and the rows carry no
+    `providerBatches`. Read those with `canonry run show <runId> --format json`.
+
+  Sync providers in the run may still be answering at that point, so read the
+  outcome later with `canonry run show <id>`. A run with no outstanding batch
+  is waited on as before (up to 10 minutes).
 - Sync providers in the same run answer as usual. Their rows appear immediately,
   and their errors are held until the run finalizes.
 - `canonry serve` checks a batch as soon as it sees it (within 15 seconds of the

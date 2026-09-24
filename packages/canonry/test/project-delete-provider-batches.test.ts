@@ -8,7 +8,8 @@ import { createClient, migrate, projects, providerBatches, runs, type DatabaseCl
 import { ProviderBatchStatuses, RunStatuses } from '@ainyc/canonry-contracts'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import type { CanonryConfig } from '../src/config.js'
-import { saveConfig } from '../src/config.js'
+import { loadConfigRaw, saveConfig, saveConfigPatch } from '../src/config.js'
+import { getGoogleAdsConnection, upsertGoogleAdsConnection } from '../src/google-ads-config.js'
 import { createServer } from '../src/server.js'
 
 // Deleting a project cascades away its provider batch rows, the only record of
@@ -62,7 +63,7 @@ async function serverWithBatchPendingProject() {
     status: ProviderBatchStatuses.submitted, requestCount: 20_000, quotaScope: `${projectId}:claude`, quotaPeriod: '2026-09-24',
     quotaReserved: 20_000, deadlineAt: '2026-09-25T00:00:00.000Z', submittedAt: NOW, createdAt: NOW, updatedAt: NOW,
   }).run()
-  return { app, projectId }
+  return { app, projectId, config }
 }
 
 describe('project delete with an outstanding provider batch', () => {
@@ -77,6 +78,43 @@ describe('project delete with an outstanding provider batch', () => {
       expect(cancel).toHaveBeenCalledWith('msgbatch_live', expect.objectContaining({ provider: 'claude', apiKey: 'sk-ant-test' }))
       expect(db.select().from(projects).where(eq(projects.id, projectId)).get()).toBeUndefined()
       expect(db.select().from(providerBatches).all()).toEqual([])
+    } finally {
+      await app.close()
+    }
+  })
+
+  // The cancel awaits the provider, and JobRunner.cancelRunBatches marks the
+  // batch cancelled before it does, so a second DELETE of the project finds
+  // nothing to wait on and commits first. The first must then answer 404 and
+  // leave config.yaml alone: before the fix it failed its own transaction and
+  // ran the credential compensator, writing the deleted project's Google Ads
+  // OAuth connection back into config.yaml.
+  it('keeps a deleted project\'s Google Ads connection out of config.yaml when two deletes race', async () => {
+    let answerProvider!: () => void
+    const providerAnswered = new Promise<void>((resolve) => { answerProvider = resolve })
+    const cancel = vi.spyOn(claudeAdapter.batch!, 'cancel').mockImplementation(() => providerAnswered)
+    const { app, projectId, config } = await serverWithBatchPendingProject()
+    try {
+      upsertGoogleAdsConnection(config, {
+        projectId, projectName: 'acme', refreshToken: 'ads-refresh-private-fixture', createdAt: NOW, updatedAt: NOW,
+      })
+      saveConfigPatch({ googleAds: config.googleAds })
+
+      let settled = 0
+      const inFlight = [1, 2].map(() => app.inject({
+        method: 'DELETE', url: '/api/v1/projects/acme', headers: { authorization: `Bearer ${apiKey}` },
+      }).finally(() => { settled += 1 }))
+      await vi.waitFor(() => {
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(settled).toBe(1)
+      })
+      answerProvider()
+      const statuses = (await Promise.all(inFlight)).map(response => response.statusCode).sort()
+
+      expect(loadConfigRaw()?.googleAds?.connections ?? []).toEqual([])
+      expect(getGoogleAdsConnection(config, projectId)).toBeUndefined()
+      expect(statuses).toEqual([204, 404])
+      expect(db.select().from(projects).where(eq(projects.id, projectId)).get()).toBeUndefined()
     } finally {
       await app.close()
     }

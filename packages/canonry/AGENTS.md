@@ -208,10 +208,15 @@ Four other writes end a sweep or change how it ended, each with its own guard:
   abort, then `onRunCompleted`), so a stray dispatch of a run that already
   ended reports again.
 - Cancelled: `POST /runs/:id/cancel` writes `cancelled` (compare-and-set on
-  `queued|running`) and reports nothing itself. The sweep reports it through
-  `handleCancelledRun` (while executing, or when dispatched after the cancel);
-  once the sweep has handed off, `cancelRunBatches` reports it, claimed by
-  clearing `pending_provider_errors`.
+  `queued|running`) and reports nothing itself. `handleCancelledRun` reports
+  it (`run.completed` with status `cancelled`, then `onRunCompleted`).
+  `executeRun` calls it when the sweep sees the cancel while executing, and
+  when a run is dispatched already cancelled. Once the sweep has handed off,
+  `cancelRunBatches` calls it only after winning the claim (clearing
+  `pending_provider_errors`), so that path reports at most once.
+  `handleCancelledRun` itself has no guard (only its `finishedAt` write is
+  conditional): as with Thrown, a stray dispatch of an already-cancelled run
+  reports it again, even one `cancelRunBatches` already reported.
 - Restarted: `recoverStaleRuns` writes `failed` (compare-and-set on the status
   it read) and reports no `run.completed` or `onRunCompleted`. A running sweep
   with batch rows is handed to the poller instead (see below).
@@ -229,10 +234,15 @@ Provider batch lifecycle (`docs/batch-mode.md`):
   under SQLite's variable limit) commit in one transaction BEFORE `submit`; if
   that transaction fails, nothing was sent and the slots run sync. The lines
   count as sent before `submit`, so a sweep that aborts mid-submit keeps their
-  reservation. A definite refusal marks the row `failed` and gives them back
-  (those slots run sync in the same sweep, or, if the sweep already aborted,
-  the quota is released); any other failure marks it `unknown`, never
-  resubmitted.
+  reservation. A definite refusal (nothing was created) sets the row's
+  `quota_released` to its line count and moves it from `submitting` to
+  `failed` (compare-and-set, so a row already cancelled with its run stays
+  `cancelled`). If the sweep is still live, holding the provider's
+  reservation, the lines are uncounted and those slots run sync in the same
+  sweep. If it returns after the sweep aborted (whose catch settled the
+  reservation and cancelled the row), the row stays `cancelled`, the lines go
+  back to the day's quota and no slot is answered. Any other failure moves a
+  still-`submitting` row to `unknown`, never resubmitted.
 - A sweep that wrote a batch row never finalizes from its own count. It writes
   its sync errors to `runs.pending_provider_errors` (`{}` when none: the marker
   that the sweep is done), settles only its own reservation (what a batch
@@ -253,7 +263,9 @@ Provider batch lifecycle (`docs/batch-mode.md`):
   reservation. A batch cancelled mid-ingest keeps its counts too.
 - `onRunCancelled` calls `cancelRunBatches`: batches are cancelled at the
   provider and never ingested. A handed-off run's cancellation is reported
-  there, once (clearing the marker is the claim); a live sweep reports its own.
+  there at most once (clearing the marker is the claim; a later stray
+  dispatch still reports it again, see "Cancelled" above); a live sweep
+  reports its own.
   A sweep that throws after submitting cancels its batches before failing the
   run, so no failed run keeps a batch working for it.
 - Boot recovery exception: `submitting` rows become `unknown`, and a running run

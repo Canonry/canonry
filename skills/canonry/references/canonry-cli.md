@@ -136,10 +136,16 @@ next scheduled sweep is skipped. `--wait` (also with `--all` and
 `--all-locations`) never waits for a batch to end: once the run is
 batch-pending (a batch `submitted` or `ended`) it stops polling and exits 0.
 Text output adds `Waiting on provider batch(es): <provider> — N requests,
-submitted <t>, deadline <t>; check with canonry run show <id>`; `--format json`
-is the run detail unchanged (`status: running`, outstanding `providerBatches`).
-Treat that as success, not a timeout, and read the outcome later with
-`cnry run show <id>`; re-triggering gets `RUN_IN_PROGRESS`. Missing answers
+submitted <t>, deadline <t>; check with canonry run show <id>` per
+batch-pending run. With `--format json`, `cnry run <project> --wait` prints the
+run detail unchanged (`status: running`, outstanding `providerBatches`), and
+`--all-locations --wait` prints each location's trigger row merged with its
+run detail. `cnry run --all --wait --format json` prints only
+`{ project, runId, status, location }` rows (plus `error`): a batch-pending
+run reads `status: running` with no `providerBatches`, so read those with
+`cnry run show <runId> --format json`. Treat that as success, not a timeout,
+and read the outcome later with `cnry run show <id>`; re-triggering gets
+`RUN_IN_PROGRESS`. Missing answers
 after the deadline make the run `partial`; fill them with `cnry run fill` (sync
 price, 24 hours after the run finalized). `cnry run show` also prints tokens,
 searches and estimated cost per provider and tier (a priced cost under $0.00005

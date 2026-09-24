@@ -8,6 +8,7 @@ import {
   describeError,
   forbidden,
   hostOf,
+  notFound,
   validationError,
   locationContextSchema,
   normalizeProjectAliases,
@@ -31,19 +32,24 @@ import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.
 
 export interface ProjectRoutesOptions {
   /**
-   * Runs before the project-delete transaction. It may throw to abort the
-   * deletion. A returned compensator is called if the database transaction
-   * cannot commit after this pre-delete work has persisted.
+   * Runs synchronously right before the project-delete transaction, after
+   * `cancelRunProviderBatches` and a re-read of the project. It may throw to
+   * abort the deletion. A returned compensator is called if the database
+   * transaction cannot commit after this pre-delete work has persisted. Not
+   * called when a concurrent DELETE removed the project first.
    */
   onProjectDeleting?: (projectId: string) => void | (() => void)
   onProjectDeleted?: (projectId: string) => void
   /**
    * Stops one run's outstanding provider batches at the provider. Awaited
-   * before the project-delete transaction for each of the project's runs still
-   * waiting on a batch: the delete cascades away the only rows holding the
-   * provider's batch id, so afterwards nothing could cancel a batch that keeps
-   * processing and billing. Best effort: a rejection is logged and the delete
-   * goes ahead.
+   * first, before `onProjectDeleting` and the project-delete transaction, for
+   * each of the project's runs still waiting on a batch: the delete cascades
+   * away the only rows holding the provider's batch id, so afterwards nothing
+   * could cancel a batch that keeps processing and billing. Best effort: a
+   * rejection is logged and the delete goes ahead. The project is re-read
+   * after these awaits, so a concurrent DELETE that committed meanwhile makes
+   * this one the missing-project 404. A delete that `onProjectDeleting` then
+   * aborts keeps the project, but its batches stay stopped.
    */
   cancelRunProviderBatches?: (runId: string, projectId: string) => Promise<void>
   onProjectUpserted?: (projectId: string, projectName: string) => void
@@ -433,24 +439,36 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // DELETE /projects/:name
   app.delete<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
+    const addressed = resolveProject(app.db, request.params.name)
 
+    // Stop the project's outstanding provider batches first: the delete
+    // cascades away the only rows holding the provider's batch ids. These
+    // awaits are the handler's only suspension point, so they come before
+    // every other side effect.
+    if (opts.cancelRunProviderBatches) {
+      for (const runId of readProjectRunsWithOutstandingProviderBatch(app.db, addressed.id)) {
+        try {
+          await opts.cancelRunProviderBatches(runId, addressed.id)
+        } catch (error) {
+          app.log.warn({ runId, projectId: addressed.id, error: describeError(error) }, 'Provider batch cancellation failed before project delete')
+        }
+      }
+    }
+
+    // A concurrent DELETE of this project may have committed during those
+    // awaits. Re-read it by id: once it is gone (even if its name now belongs
+    // to a recreated project, whose batches were never stopped here), answer
+    // exactly as a DELETE of a missing project does, before the credential
+    // hook, the audit row or any rollback can run.
+    const project = app.db.select().from(projects).where(eq(projects.id, addressed.id)).get()
+    if (!project) throw notFound('Project', request.params.name)
+
+    // No await from here to the commit, so no other request can interleave.
     // Private credential stores are outside SQLite. Let their host persist a
     // durable removal first; if that fails, the project remains fully usable
     // and the caller can retry rather than leaving an orphaned secret behind.
     const rollback = opts.onProjectDeleting?.(project.id)
     try {
-      // After the credential removal, so a delete it aborts leaves the
-      // project's runs and their batches as they were.
-      if (opts.cancelRunProviderBatches) {
-        for (const runId of readProjectRunsWithOutstandingProviderBatch(app.db, project.id)) {
-          try {
-            await opts.cancelRunProviderBatches(runId, project.id)
-          } catch (error) {
-            app.log.warn({ runId, projectId: project.id, error: describeError(error) }, 'Provider batch cancellation failed before project delete')
-          }
-        }
-      }
       app.db.transaction((tx) => {
         writeAuditLog(tx, {
           projectId: project.id,
