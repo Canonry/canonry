@@ -1,0 +1,130 @@
+{
+  "name": "advanced",
+  "questions": [
+    {
+      "id": "adv-worst-properties",
+      "kinds": ["advanced"],
+      "prompt": "Which of our properties are doing worst in AI answers right now? For the weakest ones, who is getting named instead of us, and where are the engines getting their answers from?",
+      "truth": "portfolio-weakest",
+      "rubric": [
+        "States the query class it used (non-brand) and never pools branded with non-brand.",
+        "Reports mention and citation as separate numerator/denominator figures, and calls the denominators answers (queries x engines), not queries.",
+        "When many properties tie at the weakest rates, says how many tie instead of ranking tied properties against each other or presenting the first few alphabetically as 'the worst'.",
+        "Every property it places in a metro or market sits in that metro in the facts; it never invents a combined region or groups by the property name.",
+        "Every property it calls weakest or at zero is at those rates in the facts; no property is listed at zero that has mentions or citations.",
+        "Describes the names given instead as names written in the answer text, not as cited sources, and reports their counts as answers, not as multiples (never '9x your mentions').",
+        "Sources for the weakest properties come from their own cited domains (per-property citedDomains or weakestAnswerSources), not a portfolio-wide list pooled across classes or sweeps."
+      ]
+    },
+    {
+      "id": "adv-best-properties",
+      "kinds": ["advanced"],
+      "prompt": "Which properties are doing best in AI answers? Give me the top ones with the actual numbers.",
+      "truth": "portfolio-strongest",
+      "rubric": [
+        "The top properties and their mention figures match the strongest ranking in the facts.",
+        "Reports mention first and citation separately, each as numerator/denominator of answers.",
+        "If several properties share the top rate, says they are tied rather than inventing an order.",
+        "States the query class (non-brand) and does not mix in branded results."
+      ]
+    },
+    {
+      "id": "adv-sweep-changes",
+      "kinds": ["advanced"],
+      "prompt": "What changed since the last sweep? Is any of it real, or is it just noise?",
+      "truth": "sweep-changes",
+      "rubric": [
+        "Names the two sweeps being compared (ids or dates), or, when the facts say no comparison is available, says so and gives the reason instead of describing a change.",
+        "Leads with mention changes, then citation changes, each with before and after numerator/denominator.",
+        "Reports branded and non-brand separately and never pools them.",
+        "Treats per-property moves of one or two answers on small denominators as within noise, and does not call them trends.",
+        "Any property it names as a gainer or loser moved in that direction by that amount in the facts."
+      ]
+    },
+    {
+      "id": "adv-market-gaps",
+      "kinds": ["advanced"],
+      "prompt": "Where are our biggest gaps by market? Break it down by metro.",
+      "truth": "market-gaps",
+      "rubric": [
+        "Uses the metros (top-level markets) from the facts, with each market's mention and citation as numerator/denominator of answers.",
+        "Never merges two metros into one bucket and never assigns a property to a metro the facts do not give it.",
+        "Does not add market figures together into a portfolio total; markets can share properties.",
+        "Where it cites how many properties in a metro are at zero, the count matches the facts."
+      ]
+    },
+    {
+      "id": "adv-nonbrand-sources",
+      "kinds": ["advanced"],
+      "prompt": "When people ask non-branded questions, which sites are the AI engines pulling their answers from? Is our own site in there?",
+      "truth": "sources-nonbrand",
+      "rubric": [
+        "Uses the non-brand class for one sweep (the latest), not every sweep pooled together and not branded plus non-brand pooled.",
+        "Counts are answers citing each domain; the domain ranking and counts match the non-brand facts, not the pooled contrast figures.",
+        "Our own site's rank and count match the non-brand facts; a citation of our site is not described as the brand being named in the answer.",
+        "If it discusses individual engines, the per-engine figures match the facts, and an engine listed without sources is described as citing nothing resolvable, not as missing data."
+      ]
+    },
+    {
+      "id": "adv-property-drilldown",
+      "kinds": ["advanced"],
+      "prompt": "Dig into {property}. Why is it weak, which questions is it missing, who shows up instead, and what gets cited?",
+      "truth": "property-drilldown",
+      "rubric": [
+        "The mention and citation figures for {property} match the facts as numerator/denominator of answers.",
+        "The questions it says {property} is missing are questions the facts show it was not named in.",
+        "Names shown instead are described as written in the answer text, with answer counts that match the facts.",
+        "The cited domains come from {property}'s own answers in the facts.",
+        "Recommendations point at specific evidence in the facts (domains, names, questions), not a generic SEO checklist."
+      ]
+    },
+    {
+      "id": "adv-competitors-named",
+      "kinds": ["advanced"],
+      "prompt": "Which competitors get named most often in AI answers for our non-brand questions?",
+      "truth": "competitors-named",
+      "rubric": [
+        "Ranks competitors by answers that name them in the answer text, not by citations, and keeps the two counts separate.",
+        "Keeps tracked (pinned) competitors distinct from names merely observed in answers.",
+        "States the non-brand scope and the sweep; counts match the facts.",
+        "Does not present listing sites or other cited sources as competitors named in the answer text unless the facts show them named."
+      ]
+    },
+    {
+      "id": "adv-data-quality",
+      "kinds": ["advanced"],
+      "prompt": "Before I send numbers to the client: is the latest sweep complete, and is there anything missing or unreliable in the data I should know about?",
+      "truth": "data-quality",
+      "rubric": [
+        "Names the sweep (id or date) and gives expected, executed and missing counts that match the facts.",
+        "Does not call the sweep complete when the facts show missing answers, failed capture or a partial status.",
+        "Mentions unattributed or excluded answers, or pending assignments, when the facts show any.",
+        "Does not invent problems the facts do not show."
+      ]
+    },
+    {
+      "id": "adv-unavailable",
+      "kinds": ["advanced"],
+      "prompt": "How many real people asked ChatGPT or Gemini about our category last month, and how many of those conversations recommended us? I need actual user volume, not the sampled sweep.",
+      "truth": "data-unavailable",
+      "rubric": [
+        "Says plainly that this data is not available: Canonry stores sampled answers from its own sweeps, not real user prompt volume or conversations.",
+        "Gives no user-volume, impression or conversation number, estimated or otherwise.",
+        "If it offers what is measured instead, labels it as sampled sweep answers with its denominator.",
+        "If it mentions referral visits or crawler data, frames them as visits or fetches, not as questions asked, and quotes no number it did not read from a tool."
+      ]
+    },
+    {
+      "id": "adv-what-first",
+      "kinds": ["advanced"],
+      "prompt": "If we can only work on a few things this month, what should we do first to get more of our properties named in AI answers?",
+      "truth": "portfolio-weakest",
+      "rubric": [
+        "Each priority traces to specific facts: named properties or metros, the names written instead of them, or the domains cited for them.",
+        "Does not rank properties that tie at the same rates against each other without saying why.",
+        "Avoids a generic SEO or schema checklist that no fact supports.",
+        "Does not claim causes or expected gains that the facts do not show."
+      ]
+    }
+  ]
+}

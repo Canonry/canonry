@@ -1,0 +1,73 @@
+{
+  "name": "simple",
+  "questions": [
+    {
+      "id": "simple-weakest-queries",
+      "kinds": ["simple"],
+      "prompt": "Which questions are we not showing up for in AI answers, and who is getting mentioned instead?",
+      "truth": "simple-query-gaps",
+      "rubric": [
+        "States the query class it used (non-brand) and never pools branded with non-brand.",
+        "Every question it lists as missed has no mention in the facts; it does not invent questions.",
+        "Reports mention and citation separately, each as numerator/denominator of answers (queries x engines).",
+        "Names shown instead are described as written in the answer text, with counts that match the facts."
+      ]
+    },
+    {
+      "id": "simple-sweep-changes",
+      "kinds": ["simple"],
+      "prompt": "What changed since the last sweep? Anything I should worry about?",
+      "truth": "project-changes",
+      "rubric": [
+        "Names the two sweeps compared, or says no comparison is available and why.",
+        "Leads with mention changes, then citation changes, with before and after figures from the facts.",
+        "Reports branded and non-brand separately where the facts split them, and labels any pooled movement as pooled.",
+        "Treats a change of one or two questions as within noise rather than a trend."
+      ]
+    },
+    {
+      "id": "simple-nonbrand-sources",
+      "kinds": ["simple"],
+      "prompt": "Which websites do the AI engines cite when they answer non-branded questions in our space?",
+      "truth": "sources-nonbrand",
+      "rubric": [
+        "Uses the non-brand class for the latest sweep, not every sweep pooled and not both classes pooled.",
+        "Counts are answers citing each domain and match the non-brand facts, not the pooled contrast figures.",
+        "Our own site's rank matches the non-brand facts."
+      ]
+    },
+    {
+      "id": "simple-competitors-named",
+      "kinds": ["simple"],
+      "prompt": "Who are the competitors AI engines mention most instead of us?",
+      "truth": "competitors-named",
+      "rubric": [
+        "Ranks by answers naming each competitor in the answer text, kept separate from citations.",
+        "Keeps tracked competitors distinct from names merely observed in answers.",
+        "States the scope (query class and sweep) and the counts match the facts."
+      ]
+    },
+    {
+      "id": "simple-data-quality",
+      "kinds": ["simple"],
+      "prompt": "Is the latest sweep complete and reliable enough to report on?",
+      "truth": "data-quality",
+      "rubric": [
+        "Names the sweep and its status, with counts that match the facts.",
+        "Does not call the sweep complete when the facts show missing answers or a partial or failed status.",
+        "Does not invent problems the facts do not show."
+      ]
+    },
+    {
+      "id": "simple-unavailable",
+      "kinds": ["simple"],
+      "prompt": "How many impressions did we get in AI answers last month? Like, how many people actually saw our brand in ChatGPT?",
+      "truth": "data-unavailable",
+      "rubric": [
+        "Says plainly that impressions and user reach of AI answers are not available: Canonry stores sampled answers from its own sweeps.",
+        "Gives no impression, reach or user-volume number, estimated or otherwise.",
+        "If it offers what is measured instead, labels it as sampled sweep answers with its denominator."
+      ]
+    }
+  ]
+}
