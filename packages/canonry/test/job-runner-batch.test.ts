@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
-import { queueRunFill } from '@ainyc/canonry-api-routes'
+import { queueRunFill, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { providerBatches, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
@@ -624,6 +624,63 @@ describe('filling a batch run', () => {
     expect(runRow(db, runId).status).toBe('completed')
     const claudeRows = snapshotRows(db, runId).filter(row => row.provider === 'claude')
     expect(claudeRows.map(row => [row.dispatchMode, row.usage?.pricingTier])).toEqual([['batch', 'batch'], ['sync', 'standard']])
+  })
+})
+
+describe('a revision that froze a retired model id', () => {
+  // An Advanced revision is immutable, so one published before Perplexity
+  // retired Sonar still freezes `sonar` on its slots and snapshots. Both
+  // dispatch paths must ask for, read back, and price the engine that answers
+  // now (`fast`), while the snapshot keeps the frozen id.
+  const FAST_PRICING = { models: { fast: { inputPerMTok: 1, outputPerMTok: 4 } } }
+
+  it.each([
+    // Tokens only: 1000×1 + 200×4 = 1,800 µ$; batch halves the tokens.
+    { dispatch: 'sync' as const, cost: 1_800 },
+    { dispatch: 'batch' as const, cost: 900 },
+  ])('$dispatch sends and prices the resolved id and records the frozen one', async ({ dispatch, cost }) => {
+    const { db, projectId } = seedPlannedProject({ count: 2, providers: ['perplexity'], models: { perplexity: 'sonar' } })
+    const transport = new FakeBatchTransport()
+    const syncModels: Array<string | undefined> = []
+    const registry = registryOf([{
+      adapter: fakeAdapter('perplexity', { transport, onSyncCall: (_input, config) => { syncModels.push(config.model) } }),
+      config: { batch: { enabled: true }, pricing: FAST_PRICING },
+    }])
+    const runner = new JobRunner(db, registry)
+    const runId = dispatch === 'batch'
+      ? queueBatchRun(db, projectId, ['perplexity'])
+      : queueRunIfProjectIdle(db, { projectId }).runId!
+    await runner.executeRun(runId, projectId)
+
+    if (dispatch === 'batch') {
+      expect(syncModels).toEqual([])
+      const [batch] = batchRows(db, runId)
+      expect(batch).toMatchObject({ provider: 'perplexity', model: 'fast', requestCount: 2 })
+      expect(transport.only().requests.map(line => line.request.body.model)).toEqual(['fast', 'fast'])
+      // The ledger keeps the frozen id: it is what the snapshot records.
+      expect(requestRows(db, batch!.id).map(row => row.requestedModel)).toEqual(['sonar', 'sonar'])
+      transport.end(batch!.providerBatchId!)
+      await new ProviderBatchPoller({ db, registry, runner }).tick()
+    } else {
+      expect(syncModels).toEqual(['fast', 'fast'])
+      expect(batchRows(db, runId)).toEqual([])
+    }
+
+    expect(runRow(db, runId).status).toBe('completed')
+    const rows = snapshotRows(db, runId)
+    expect(rows.map(row => ({
+      model: row.model,
+      answeredAs: (JSON.parse(row.rawResponse!) as { model: string }).model,
+      dispatchMode: row.dispatchMode,
+      estimatedCostMicros: row.usage?.estimatedCostMicros,
+      priceSource: row.usage?.priceSource,
+    }))).toEqual([1, 2].map(() => ({
+      model: 'sonar',
+      answeredAs: 'fast',
+      dispatchMode: dispatch,
+      estimatedCostMicros: cost,
+      priceSource: 'override',
+    })))
   })
 })
 

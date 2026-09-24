@@ -183,6 +183,8 @@ function unansweredOutcome(type: Exclude<ProviderBatchResultLine['type'], 'succe
 /** One slot on its way into a batch: the exact request the sync call would send. */
 interface BatchLine {
   unit: PlanExecutionUnit
+  /** The id the slot froze, which its snapshot records; the batch asks for the id it resolves to. */
+  requestedModel: string
   /** The `custom_id` on the wire, and the `provider_batch_requests` row id. */
   customId: string
   request: TrackedQueryRequest
@@ -1580,8 +1582,9 @@ export class JobRunner {
    * must be answered sync instead: those a batch cannot carry, and those of a
    * batch the provider definitely refused.
    *
-   * Slots are grouped by the model frozen onto them (a batch line carries its
-   * own model, but a batch row records one), and each group is split to the
+   * Slots are grouped by the model they are sent as, the frozen id resolved
+   * through the provider's retired-id aliases (a batch line carries its own
+   * model, but a batch row records one), and each group is split to the
    * provider's hard limits and the operator's `maxRequestsPerBatch`.
    */
   private async submitPlanBatches(
@@ -1598,11 +1601,14 @@ export class JobRunner {
     for (const unit of units) {
       // Eligibility froze a model onto every slot; a slot without one could
       // never be filled with the same model, so it is answered now instead.
-      const model = unit.requestedModel
-      if (!model) {
+      const requestedModel = unit.requestedModel
+      if (!requestedModel) {
         syncUnits.push(unit)
         continue
       }
+      // Asked for as the sync call asks: a retired id frozen on an immutable
+      // revision is sent as the id that answers now.
+      const model = resolveProviderModel(providerName, requestedModel)
       let request: TrackedQueryRequest
       try {
         request = adapter.buildTrackedQueryRequest({
@@ -1620,7 +1626,7 @@ export class JobRunner {
       }
       const customId = crypto.randomUUID().replace(/-/g, '')
       const lines = linesByModel.get(model) ?? []
-      lines.push({ unit, customId, request, bytes: Buffer.byteLength(JSON.stringify({ custom_id: customId, params: request.body })) })
+      lines.push({ unit, requestedModel, customId, request, bytes: Buffer.byteLength(JSON.stringify({ custom_id: customId, params: request.body })) })
       linesByModel.set(model, lines)
     }
 
@@ -1685,7 +1691,7 @@ export class JobRunner {
         executionId: line.unit.executionId,
         queryId: line.unit.queryId,
         queryText: line.unit.queryText,
-        requestedModel: model,
+        requestedModel: line.requestedModel,
         requestedContext: line.unit.context,
       }))).run()
     })
@@ -1906,7 +1912,7 @@ export class JobRunner {
     if (!adapter.parseTrackedQueryResponse) throw new Error(`Provider ${adapter.name} cannot read a batch answer`)
     let raw: RawQueryResult
     try {
-      raw = adapter.parseTrackedQueryResponse(line.body, request.requestedModel)
+      raw = adapter.parseTrackedQueryResponse(line.body, resolveProviderModel(adapter.name, request.requestedModel))
     } catch (err: unknown) {
       // Where the sync call would have thrown on the same body (Claude: a
       // failed web search). The answer was billed but cannot be read.
@@ -2269,8 +2275,11 @@ export class JobRunner {
     }
     // The manifest froze which model answers this slot. Honouring today's
     // project setting instead would change what a stored row means without
-    // anything recording that it moved.
-    const config = unit.requestedModel ? { ...providerConfig, model: unit.requestedModel } : providerConfig
+    // anything recording that it moved. A retired id frozen on an immutable
+    // revision is sent as the id that answers now, as a batch line is.
+    const config = unit.requestedModel
+      ? { ...providerConfig, model: resolveProviderModel(providerName, unit.requestedModel) }
+      : providerConfig
 
     // A fill checks before joining the provider's queue: a slot it skips must
     // not take a rate-limit token that this fill, or another run sharing the
@@ -2442,10 +2451,11 @@ export class JobRunner {
       dispatchMode: dispatch.mode,
       providerBatchId: dispatch.providerBatchId,
       stopReason: raw.stopReason ?? null,
-      // Priced by the model the slot asked for, the same id `model` stores.
+      // Priced by the engine that answered: the id `model` stores, resolved
+      // when a revision froze one the provider has since retired.
       usage: buildSnapshotUsage(raw.usage, {
         provider: providerName,
-        model: unit.requestedModel ?? raw.model,
+        model: resolveProviderModel(providerName, unit.requestedModel ?? raw.model),
         tier: dispatch.pricingTier,
         overrides: registeredProvider.config.pricing,
       }),

@@ -128,11 +128,16 @@ export function seedPlannedProject(options: {
   schema?: 1 | 2
   /** v2 only: the claude model each question's node freezes, by index. */
   claudeModels?: readonly string[]
+  /** The model an engine runs on, in place of its default here (e.g. a retired id). */
+  models?: Readonly<Record<string, string>>
 }): SeededProject {
   const db = options.db ?? tempDb()
   const providers = options.providers ?? ['claude', 'gemini']
   const models: Record<string, string> = {}
-  for (const provider of providers) models[provider] = provider === 'claude' ? CLAUDE_MODEL : provider === 'gemini' ? GEMINI_MODEL : `${provider}-model`
+  for (const provider of providers) {
+    models[provider] = options.models?.[provider]
+      ?? (provider === 'claude' ? CLAUDE_MODEL : provider === 'gemini' ? GEMINI_MODEL : `${provider}-model`)
+  }
   const projectId = crypto.randomUUID()
   db.insert(projects).values({
     id: projectId, name: `planned-${projectId.slice(0, 8)}`, displayName: 'Planned Co', canonicalDomain: 'example.com', aliases: ['Planned Co'],
