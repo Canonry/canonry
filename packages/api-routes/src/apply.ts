@@ -4,10 +4,11 @@ import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
+import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
@@ -164,7 +165,11 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       if (existing) {
         projectId = existing.id
-        const providerDispatchModes = pruneProviderModelsForProviders(specDispatchModes ?? existing.providerDispatchModes, specProviders)
+        const providerDispatchModes = pruneProviderDispatchModes(
+          specDispatchModes ?? existing.providerDispatchModes,
+          specProviders,
+          activeRevisionProviders(tx, existing.id),
+        )
         tx.update(projects).set({
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
