@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, providerBatches, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { auditLog, createClient, migrate, projects, providerBatches, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { ProviderBatchStatuses, RunStatuses, type ProviderBatchStatus } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ProjectRoutesOptions } from '../src/projects.js'
@@ -21,9 +21,11 @@ let tmpDir: string
 let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
 
-async function build(cancelRunProviderBatches?: ProjectRoutesOptions['cancelRunProviderBatches']) {
+type DeleteHooks = Pick<ProjectRoutesOptions, 'cancelRunProviderBatches' | 'onProjectDeleting' | 'onProjectDeleted'>
+
+async function build(hooks: DeleteHooks = {}) {
   app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true, cancelRunProviderBatches })
+  app.register(apiRoutes, { db, skipAuth: true, ...hooks })
   await app.ready()
 }
 
@@ -79,12 +81,12 @@ describe('DELETE /projects/:name with provider batches', () => {
     seedBatch(otherProjectId, otherRun, ProviderBatchStatuses.submitted, 'msgbatch_other')
 
     const calls: Array<{ runId: string; projectId: string; providerBatchIds: Array<string | null> }> = []
-    await build(async (runId, calledProjectId) => {
+    await build({ cancelRunProviderBatches: async (runId, calledProjectId) => {
       // Called while the rows (and so the provider's batch id) still exist.
       const providerBatchIds = db.select({ id: providerBatches.providerBatchId }).from(providerBatches)
         .where(eq(providerBatches.runId, runId)).all().map(row => row.id)
       calls.push({ runId, projectId: calledProjectId, providerBatchIds })
-    })
+    } })
 
     const response = await app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' })
 
@@ -103,10 +105,10 @@ describe('DELETE /projects/:name with provider batches', () => {
     const runId = seedRun(projectId)
     seedBatch(projectId, runId, ProviderBatchStatuses.submitted, 'msgbatch_1')
     const called: string[] = []
-    await build(async (calledRunId) => {
+    await build({ cancelRunProviderBatches: async (calledRunId) => {
       called.push(calledRunId)
       throw new Error('[provider-claude] batch cancel failed: 503 overloaded')
-    })
+    } })
 
     const response = await app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' })
 
@@ -121,11 +123,109 @@ describe('DELETE /projects/:name with provider batches', () => {
     const runId = seedRun(projectId, RunStatuses.partial)
     seedBatch(projectId, runId, ProviderBatchStatuses.failed, null)
     const called: string[] = []
-    await build(async (calledRunId) => { called.push(calledRunId) })
+    await build({ cancelRunProviderBatches: async (calledRunId) => { called.push(calledRunId) } })
 
     const response = await app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' })
 
     expect(response.statusCode).toBe(204)
     expect(called).toEqual([])
+  })
+
+  // The cancel is awaited, so a second DELETE of the same project can run
+  // while the first waits on the provider. Whichever finishes second must see
+  // a project that is already gone: before the fix it wrote its audit row
+  // against the deleted project (FK failure, 500) and ran the pre-delete
+  // compensator, which in `canonry serve` writes the deleted project's Google
+  // Ads / GTM OAuth connections back into config.yaml.
+  it.each([
+    { host: 'leaves the batch rows until the provider answers', marksBeforeAwait: false, cancelCalls: 2 },
+    // JobRunner.cancelRunBatches marks the rows cancelled before it awaits the
+    // provider, so the second DELETE finds nothing outstanding and runs through.
+    { host: 'marks the batch cancelled before awaiting the provider', marksBeforeAwait: true, cancelCalls: 1 },
+  ])('concurrent deletes with a host that $host: one 204, one not-found, no rollback', async ({ marksBeforeAwait, cancelCalls }) => {
+    const projectId = seedProject('acme')
+    const runId = seedRun(projectId)
+    const batchId = seedBatch(projectId, runId, ProviderBatchStatuses.submitted, 'msgbatch_1')
+
+    let answerProvider!: () => void
+    const providerAnswered = new Promise<void>((resolve) => { answerProvider = resolve })
+    const cancelled: string[] = []
+    const deleting: string[] = []
+    const rolledBack: string[] = []
+    const deleted: string[] = []
+    await build({
+      cancelRunProviderBatches: async (calledRunId) => {
+        cancelled.push(calledRunId)
+        if (marksBeforeAwait) {
+          db.update(providerBatches).set({ status: ProviderBatchStatuses.cancelled })
+            .where(eq(providerBatches.id, batchId)).run()
+        }
+        await providerAnswered
+      },
+      onProjectDeleting: (id) => {
+        deleting.push(id)
+        return () => { rolledBack.push(id) }
+      },
+      onProjectDeleted: (id) => { deleted.push(id) },
+    })
+
+    let settled = 0
+    const inFlight = [
+      app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' }),
+      app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' }),
+    ].map(pending => pending.finally(() => { settled += 1 }))
+    // Hold the provider until each DELETE is either waiting on it or done.
+    await vi.waitFor(() => expect(cancelled.length + settled).toBe(2))
+    expect(cancelled).toEqual(Array.from({ length: cancelCalls }, () => runId))
+    answerProvider()
+    const responses = await Promise.all(inFlight)
+
+    const missing = await app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' })
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json()).toEqual({ error: { code: 'NOT_FOUND', message: "Project 'acme' not found" } })
+
+    const byStatus = [...responses].sort((a, b) => a.statusCode - b.statusCode)
+    expect(byStatus.map(response => response.statusCode)).toEqual([204, 404])
+    expect(byStatus[1]!.json()).toEqual(missing.json())
+    expect(deleting).toEqual([projectId])
+    expect(rolledBack).toEqual([])
+    expect(deleted).toEqual([projectId])
+    expect(db.select().from(projects).all()).toEqual([])
+    expect(db.select({ action: auditLog.action, projectId: auditLog.projectId }).from(auditLog)
+      .where(eq(auditLog.action, 'project.deleted')).all())
+      .toEqual([{ action: 'project.deleted', projectId: null }])
+  })
+
+  it('never deletes a project recreated under the name while it waited on the provider', async () => {
+    const projectId = seedProject('acme')
+    const runId = seedRun(projectId)
+    seedBatch(projectId, runId, ProviderBatchStatuses.submitted, 'msgbatch_1')
+    let recreatedId: string | undefined
+    const deleting: string[] = []
+    const rolledBack: string[] = []
+    const deleted: string[] = []
+    await build({
+      cancelRunProviderBatches: async () => {
+        // Another caller deletes the project and creates a new one named the
+        // same before the provider answers.
+        await Promise.resolve()
+        db.delete(projects).where(eq(projects.id, projectId)).run()
+        recreatedId = seedProject('acme')
+      },
+      onProjectDeleting: (id) => {
+        deleting.push(id)
+        return () => { rolledBack.push(id) }
+      },
+      onProjectDeleted: (id) => { deleted.push(id) },
+    })
+
+    const response = await app.inject({ method: 'DELETE', url: '/api/v1/projects/acme' })
+
+    expect(response.statusCode).toBe(404)
+    expect(response.json()).toEqual({ error: { code: 'NOT_FOUND', message: "Project 'acme' not found" } })
+    expect(db.select({ id: projects.id }).from(projects).all()).toEqual([{ id: recreatedId }])
+    expect(deleting).toEqual([])
+    expect(rolledBack).toEqual([])
+    expect(deleted).toEqual([])
   })
 })
