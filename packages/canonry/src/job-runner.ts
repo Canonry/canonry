@@ -5,7 +5,7 @@ import os from 'node:os'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
-import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
+import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
@@ -69,8 +69,12 @@ interface PlanExecutionUnit {
   requestedModel: string | undefined
 }
 
-/** What `executePlanSlot` needs from the run it is recording into. */
-interface PlanSlotContext {
+/**
+ * The identity a run's answers are scored against. Every path that records
+ * into a run builds it through `runRecordingContext`, so an answer a fill or a
+ * later ingest adds is matched exactly like one the sweep recorded itself.
+ */
+interface RunRecordingContext {
   runId: string
   allDomains: string[]
   /**
@@ -79,14 +83,65 @@ interface PlanSlotContext {
    */
   competitorsFor: (executionId: string) => RunCompetitors
   allBrandNames: string[]
-  executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
-  providerDispatchCounts: Map<ProviderName, number>
-  providerErrors: Map<ProviderName, string>
+}
+
+/** What `recordSlot` needs: the run's identity and where a recorded answer is reported. */
+interface SlotRecordingContext extends RunRecordingContext {
   onInserted: () => void
   /** Present only when completing a partial run in place. */
   fill?: {
+    onOutcome: (provider: ProviderName, ok: boolean) => void
+  }
+}
+
+/** What `executePlanSlot` needs from the run it is recording into. */
+interface PlanSlotContext extends SlotRecordingContext {
+  executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
+  providerDispatchCounts: Map<ProviderName, number>
+  providerErrors: Map<ProviderName, string>
+  fill?: {
     shouldSkip: (provider: ProviderName, executionId: string) => boolean
     onOutcome: (provider: ProviderName, ok: boolean) => void
+  }
+}
+
+/**
+ * How the answer being recorded was obtained. It carries only what the insert
+ * needs today and grows with the columns that describe a dispatch.
+ */
+interface SlotDispatch {
+  /**
+   * Insert with ON CONFLICT DO NOTHING. A path that can meet an answer whose
+   * slot is already written (a replayed ingest) records nothing rather than
+   * failing. A sweep leaves it off, so a slot written behind its back
+   * surfaces as that provider's error instead of being skipped silently.
+   */
+  idempotent: boolean
+}
+
+const SYNC_SLOT_DISPATCH: SlotDispatch = { idempotent: false }
+
+/**
+ * Build the identity one run's answers are scored against from rows already
+ * read. The sweep calls it with its own reads; a path that joins the run later
+ * goes through `JobRunner.buildRunRecordingContext`, which reads them the same
+ * way.
+ */
+function runRecordingContext(
+  db: DatabaseClient,
+  input: {
+    runId: string
+    measurementPlanVersionId: string | null
+    project: Pick<typeof projects.$inferSelect, 'canonicalDomain' | 'ownedDomains' | 'displayName' | 'aliases'>
+    competitorDomains: readonly string[]
+  },
+): RunRecordingContext {
+  const resolveCompetitors = createRunCompetitorResolver(db, input.competitorDomains)
+  return {
+    runId: input.runId,
+    allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
+    competitorsFor: executionId => resolveCompetitors(input.measurementPlanVersionId, executionId),
+    allBrandNames: effectiveBrandNames({ displayName: input.project.displayName, aliases: input.project.aliases }),
   }
 }
 
@@ -454,17 +509,13 @@ export class JobRunner {
       // on the groups that use its question, so a project whose competitor
       // list was never filled in still measures them, market by market. The
       // planless path below keeps using exactly the project list.
-      const resolveCompetitors = createRunCompetitorResolver(this.db, competitorDomains)
-      const competitorsFor = (executionId: string): RunCompetitors =>
-        resolveCompetitors(existingRun.measurementPlanVersionId, executionId)
-      const allDomains = effectiveDomains({
-        canonicalDomain: project.canonicalDomain,
-        ownedDomains: project.ownedDomains,
+      const recording = runRecordingContext(this.db, {
+        runId,
+        measurementPlanVersionId: existingRun.measurementPlanVersionId,
+        project,
+        competitorDomains,
       })
-      const allBrandNames = effectiveBrandNames({
-        displayName: project.displayName,
-        aliases: project.aliases,
-      })
+      const { allDomains, allBrandNames } = recording
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -690,10 +741,7 @@ export class JobRunner {
       }
 
       const slotContext: PlanSlotContext = {
-        runId,
-        allDomains,
-        competitorsFor,
-        allBrandNames,
+        ...recording,
         executionGates,
         providerDispatchCounts,
         providerErrors,
@@ -1023,8 +1071,8 @@ export class JobRunner {
       if (!run) throw new Error(`Run ${runId} not found`)
       if (run.status !== 'partial') throw new Error(`Run ${runId} is ${run.status}; only a partial run can be filled`)
       const runCreatedAt = this.db.select({ createdAt: runs.createdAt }).from(runs).where(eq(runs.id, runId)).get()!.createdAt
-      const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
-      if (!project) throw new Error(`Project ${projectId} not found`)
+      // The same identity the sweep matched against, read the same way.
+      const recording = this.buildRunRecordingContext(runId, projectId)
       const projectQueries = this.db.select().from(queries).where(eq(queries.projectId, projectId)).all()
       const plan = resolvePlanExecution(run, projectQueries)
       if (!plan) throw new Error(`Run ${runId} did not measure a published plan`)
@@ -1049,14 +1097,6 @@ export class JobRunner {
         if (registered) activeProviders.push(registered)
         else providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
       }
-
-      // The same identity the sweep matched against, read the same way.
-      const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
-      const resolveCompetitors = createRunCompetitorResolver(this.db, projectCompetitors.map(c => c.domain))
-      const competitorsFor = (executionId: string): RunCompetitors =>
-        resolveCompetitors(run.measurementPlanVersionId, executionId)
-      const allDomains = effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains })
-      const allBrandNames = effectiveBrandNames({ displayName: project.displayName, aliases: project.aliases })
 
       // Reserve what this fill will dispatch, never the run's whole manifest.
       const todayPeriod = getCurrentUsageDay()
@@ -1115,10 +1155,7 @@ export class JobRunner {
         .get() !== undefined
 
       const ctx: PlanSlotContext = {
-        runId,
-        allDomains,
-        competitorsFor,
-        allBrandNames,
+        ...recording,
         executionGates,
         providerDispatchCounts,
         providerErrors,
@@ -1249,9 +1286,10 @@ export class JobRunner {
    * planless project already depends on; leaving its body alone is what
    * makes "planless is byte-identical" a fact rather than a hope.
    *
-   * A method rather than a closure inside `executeRun` so a sweep and a fill
-   * record a slot through the same code: a filled answer is indistinguishable
-   * from one the sweep recorded itself, which is what lets it count.
+   * Gate, call, then `recordSlot`. A method rather than a closure inside
+   * `executeRun` so a sweep and a fill record a slot through the same code: a
+   * filled answer is indistinguishable from one the sweep recorded itself,
+   * which is what lets it count.
    */
   private async executePlanSlot(
     ctx: PlanSlotContext,
@@ -1260,7 +1298,7 @@ export class JobRunner {
   ): Promise<void> {
     const { adapter, config: providerConfig } = registeredProvider
     const providerName = adapter.name
-    const { domains: competitorDomains, aliases: competitorAliases } = ctx.competitorsFor(unit.executionId)
+    const { domains: competitorDomains } = ctx.competitorsFor(unit.executionId)
     const gate = ctx.executionGates.get(providerName)
     if (!gate) {
       throw new Error(`Missing execution gate for provider ${providerName}`)
@@ -1269,13 +1307,6 @@ export class JobRunner {
     // project setting instead would change what a stored row means without
     // anything recording that it moved.
     const config = unit.requestedModel ? { ...providerConfig, model: unit.requestedModel } : providerConfig
-    const requestedContext = unit.context
-    // Only a provider that actually forwards the location may say the
-    // answer was measured from there. Everything else stores null, which
-    // reads as "no claim" rather than as the place we asked for.
-    const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
-      ? { status: 'applied' as const, resolved: requestedContext }
-      : null
 
     // A fill checks before joining the provider's queue: a slot it skips must
     // not take a rate-limit token that this fill, or another run sharing the
@@ -1295,124 +1326,14 @@ export class JobRunner {
             query: unit.queryText,
             canonicalDomains: ctx.allDomains,
             competitorDomains,
-            location: requestedContext ?? undefined,
+            location: unit.context ?? undefined,
           },
           config,
         )
 
-        this.throwIfRunCancelled(ctx.runId)
-
-        const providerResult = adapter.normalizeResult(raw)
-        const rawGroundingSources = providerResult.groundingSources
-        const normalized = {
-          ...providerResult,
-          groundingSources: Array.isArray(rawGroundingSources) ? rawGroundingSources : [],
-        }
-        let citedUrlCapture: CitedUrlCapture
-        try {
-          citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
-        } catch (err: unknown) {
-          citedUrlCapture = {
-            citedUrls: [],
-            captureStatus: 'failed',
-            sourceCount: normalized.groundingSources.length,
-            resolvedCount: 0,
-            captureVersion: CITED_URL_CAPTURE_VERSION,
-          }
-          log.warn('query.cited-url-capture-failed', {
-            runId: ctx.runId,
-            provider: providerName,
-            query: unit.queryText,
-            error: describeError(err),
-          })
-        }
-        this.throwIfRunCancelled(ctx.runId)
-
-        const citationState = determineCitationState(normalized, ctx.allDomains)
-        const answerMentioned = determineAnswerMentioned(
-          normalized.answerText,
-          ctx.allBrandNames,
-          ctx.allDomains,
-        )
-        const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
-        const extractedCompetitors = extractRecommendedCompetitors(
-          normalized.answerText,
-          ctx.allDomains,
-          normalized.citedDomains,
-          competitorDomains,
-          ctx.allBrandNames,
-          competitorAliases,
-        )
-
-        const snapshotId = crypto.randomUUID()
-        let screenshotRelPath: string | null = null
-        if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
-          const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', ctx.runId)
-          if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
-          const destPath = path.join(screenshotDir, `${snapshotId}.png`)
-          fs.renameSync(raw.screenshotPath, destPath)
-          screenshotRelPath = `${ctx.runId}/${snapshotId}.png`
-        }
-
-        const insert = this.db.insert(querySnapshots).values({
-          id: snapshotId,
-          runId: ctx.runId,
-          queryId: unit.queryId,
-          queryText: unit.queryText,
-          provider: providerName,
-          // `model` is what was REQUESTED and `served_model` is what
-          // answered. The manifest froze the request, so it is the
-          // authority here: an adapter that reports its own default rather
-          // than what it was handed would otherwise overwrite the identity
-          // the revision recorded, and nothing would show that it moved.
-          model: unit.requestedModel ?? raw.model,
-          servedModel: raw.servedModel ?? null,
-          citationState,
-          answerMentioned,
-          answerText: normalized.answerText,
-          citedDomains: normalized.citedDomains,
-          citedUrls: citedUrlCapture.citedUrls,
-          captureStatus: citedUrlCapture.captureStatus,
-          sourceCount: citedUrlCapture.sourceCount,
-          resolvedCount: citedUrlCapture.resolvedCount,
-          captureVersion: citedUrlCapture.captureVersion,
-          retrievalStatus: normalized.retrievalStatus,
-          retrievalContract: raw.retrievalContract,
-          competitorOverlap: overlap,
-          recommendedCompetitors: extractedCompetitors,
-          // Only claim the geography the provider actually honoured. A
-          // requested-but-unsupported context stores `location: null` —
-          // "no claim" — rather than the label we asked for, mirroring
-          // `supportedContext` itself: this field is never non-null when
-          // that one is null.
-          location: supportedContext ? requestedContext?.label ?? null : null,
-          measurementExecutionId: unit.executionId,
-          requestedContext,
-          supportedContext,
-          screenshotPath: screenshotRelPath,
-          rawResponse: JSON.stringify({
-            model: raw.model,
-            servedModel: raw.servedModel ?? null,
-            groundingSources: normalized.groundingSources,
-            searchQueries: normalized.searchQueries,
-            apiResponse: raw.rawResponse,
-          }),
-          createdAt: new Date().toISOString(),
-        })
-        // A fill never overwrites or duplicates a recorded slot: the slot index
-        // decides, and a lost race records nothing rather than failing.
-        const written = ctx.fill ? insert.onConflictDoNothing().run() : insert.run()
-        if (written.changes > 0) ctx.onInserted()
-        ctx.fill?.onOutcome(providerName, true)
-        log.info('query.citation', {
-          runId: ctx.runId,
-          provider: providerName,
-          query: unit.queryText,
-          executionId: unit.executionId,
-          location: requestedContext?.label ?? null,
-          citationState,
-          answerMentioned,
-        })
+        // Recorded inside the gate: resolving cited URLs is part of the slot's
+        // turn, so the provider's concurrency bounds it too.
+        await this.recordSlot(ctx, registeredProvider, unit, raw, SYNC_SLOT_DISPATCH)
       })
     } catch (err: unknown) {
       if (err instanceof RunCancelledError) {
@@ -1427,7 +1348,174 @@ export class JobRunner {
       }
       ctx.fill?.onOutcome(providerName, false)
     }
-  
+  }
+
+  /**
+   * Record one provider answer into its plan slot: everything after the call.
+   *
+   * The single writer of plan answers, whatever produced the answer, so a row
+   * means the same thing on every path. Throws `RunCancelledError` when the
+   * run was cancelled before the row is written, and lets any other failure
+   * propagate for the caller to charge to the provider. Resolves to whether
+   * this call wrote the row: an idempotent insert that finds the slot taken
+   * writes nothing and resolves false.
+   */
+  private async recordSlot(
+    ctx: SlotRecordingContext,
+    registeredProvider: RegisteredProvider,
+    unit: PlanExecutionUnit,
+    raw: RawQueryResult,
+    dispatch: SlotDispatch,
+  ): Promise<boolean> {
+    const { adapter } = registeredProvider
+    const providerName = adapter.name
+    const { domains: competitorDomains, aliases: competitorAliases } = ctx.competitorsFor(unit.executionId)
+    const requestedContext = unit.context
+    // Only a provider that actually forwards the location may say the
+    // answer was measured from there. Everything else stores null, which
+    // reads as "no claim" rather than as the place we asked for.
+    const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
+      ? { status: 'applied' as const, resolved: requestedContext }
+      : null
+
+    this.throwIfRunCancelled(ctx.runId)
+
+    const providerResult = adapter.normalizeResult(raw)
+    const rawGroundingSources = providerResult.groundingSources
+    const normalized = {
+      ...providerResult,
+      groundingSources: Array.isArray(rawGroundingSources) ? rawGroundingSources : [],
+    }
+    let citedUrlCapture: CitedUrlCapture
+    try {
+      citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+    } catch (err: unknown) {
+      citedUrlCapture = {
+        citedUrls: [],
+        captureStatus: 'failed',
+        sourceCount: normalized.groundingSources.length,
+        resolvedCount: 0,
+        captureVersion: CITED_URL_CAPTURE_VERSION,
+      }
+      log.warn('query.cited-url-capture-failed', {
+        runId: ctx.runId,
+        provider: providerName,
+        query: unit.queryText,
+        error: describeError(err),
+      })
+    }
+    this.throwIfRunCancelled(ctx.runId)
+
+    const citationState = determineCitationState(normalized, ctx.allDomains)
+    const answerMentioned = determineAnswerMentioned(
+      normalized.answerText,
+      ctx.allBrandNames,
+      ctx.allDomains,
+    )
+    const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
+    const extractedCompetitors = extractRecommendedCompetitors(
+      normalized.answerText,
+      ctx.allDomains,
+      normalized.citedDomains,
+      competitorDomains,
+      ctx.allBrandNames,
+      competitorAliases,
+    )
+
+    const snapshotId = crypto.randomUUID()
+    let screenshotRelPath: string | null = null
+    if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
+      const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', ctx.runId)
+      if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
+      const destPath = path.join(screenshotDir, `${snapshotId}.png`)
+      fs.renameSync(raw.screenshotPath, destPath)
+      screenshotRelPath = `${ctx.runId}/${snapshotId}.png`
+    }
+
+    const insert = this.db.insert(querySnapshots).values({
+      id: snapshotId,
+      runId: ctx.runId,
+      queryId: unit.queryId,
+      queryText: unit.queryText,
+      provider: providerName,
+      // `model` is what was REQUESTED and `served_model` is what
+      // answered. The manifest froze the request, so it is the
+      // authority here: an adapter that reports its own default rather
+      // than what it was handed would otherwise overwrite the identity
+      // the revision recorded, and nothing would show that it moved.
+      model: unit.requestedModel ?? raw.model,
+      servedModel: raw.servedModel ?? null,
+      citationState,
+      answerMentioned,
+      answerText: normalized.answerText,
+      citedDomains: normalized.citedDomains,
+      citedUrls: citedUrlCapture.citedUrls,
+      captureStatus: citedUrlCapture.captureStatus,
+      sourceCount: citedUrlCapture.sourceCount,
+      resolvedCount: citedUrlCapture.resolvedCount,
+      captureVersion: citedUrlCapture.captureVersion,
+      retrievalStatus: normalized.retrievalStatus,
+      retrievalContract: raw.retrievalContract,
+      competitorOverlap: overlap,
+      recommendedCompetitors: extractedCompetitors,
+      // Only claim the geography the provider actually honoured. A
+      // requested-but-unsupported context stores `location: null` —
+      // "no claim" — rather than the label we asked for, mirroring
+      // `supportedContext` itself: this field is never non-null when
+      // that one is null.
+      location: supportedContext ? requestedContext?.label ?? null : null,
+      measurementExecutionId: unit.executionId,
+      requestedContext,
+      supportedContext,
+      screenshotPath: screenshotRelPath,
+      rawResponse: JSON.stringify({
+        model: raw.model,
+        servedModel: raw.servedModel ?? null,
+        groundingSources: normalized.groundingSources,
+        searchQueries: normalized.searchQueries,
+        apiResponse: raw.rawResponse,
+      }),
+      createdAt: new Date().toISOString(),
+    })
+    // A fill never overwrites or duplicates a recorded slot: the slot index
+    // decides, and a lost race records nothing rather than failing.
+    const written = ctx.fill || dispatch.idempotent ? insert.onConflictDoNothing().run() : insert.run()
+    if (written.changes > 0) ctx.onInserted()
+    ctx.fill?.onOutcome(providerName, true)
+    log.info('query.citation', {
+      runId: ctx.runId,
+      provider: providerName,
+      query: unit.queryText,
+      executionId: unit.executionId,
+      location: requestedContext?.label ?? null,
+      citationState,
+      answerMentioned,
+    })
+    return written.changes > 0
+  }
+
+  /**
+   * Rebuild a run's recording identity from the database, for a path that
+   * records into a run after the sweep that started it. It reads the rows the
+   * sweep read, the same way, so it matches what the sweep matched unless the
+   * project's identity or competitor list changed in between.
+   */
+  private buildRunRecordingContext(runId: string, projectId: string): RunRecordingContext {
+    const run = this.db
+      .select({ measurementPlanVersionId: runs.measurementPlanVersionId })
+      .from(runs)
+      .where(and(eq(runs.id, runId), eq(runs.projectId, projectId)))
+      .get()
+    if (!run) throw new Error(`Run ${runId} not found`)
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) throw new Error(`Project ${projectId} not found`)
+    const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
+    return runRecordingContext(this.db, {
+      runId,
+      measurementPlanVersionId: run.measurementPlanVersionId,
+      project,
+      competitorDomains: projectCompetitors.map(c => c.domain),
+    })
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {
