@@ -70,6 +70,7 @@ describe('drizzle-zod derived row schemas', () => {
       labels: { team: 'growth', tier: 'enterprise' },
       providers: ['gemini', 'openai'],
       providerModels: {},
+      providerDispatchModes: { claude: 'batch' as const, openai: 'sync' as const },
       measurement: {
         marketingHosts: ['offers.acme.com'],
         brandTerms: ['Acme Pro'],
@@ -102,6 +103,7 @@ describe('drizzle-zod derived row schemas', () => {
       labels: {},
       providers: [],
       providerModels: {},
+      providerDispatchModes: {},
       measurement: {
         marketingHosts: [],
         brandTerms: [],
@@ -137,6 +139,8 @@ describe('drizzle-zod derived row schemas', () => {
       measurementManifest: null,
       measurementScope: null,
       measurementExecutionIdentity: null,
+      providerDispatchModes: null,
+      pendingProviderErrors: null,
       createdAt: '2026-05-17T00:00:00Z',
     }
     const parsed = runRowSchema.parse(row)
@@ -169,6 +173,8 @@ describe('drizzle-zod derived row schemas', () => {
         models: { openai: 'model-a' },
         checksum: 'b'.repeat(64),
       },
+      providerDispatchModes: { claude: 'batch' as const },
+      pendingProviderErrors: { openai: '[provider-openai] 429 rate limited' },
       createdAt: '2026-05-17T00:00:00Z',
     }
     const parsed = runRowSchema.parse(row)

@@ -50,6 +50,7 @@ import {
   type ActiveMeasurementPlan,
 } from './measurement-overview.js'
 import { buildMeasurementEvidence, normalizeMeasurementLocation } from './measurement-report.js'
+import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
 import {
   buildMeasurementPlanV2ReportInput,
   latestMeasurementRun,
@@ -88,14 +89,6 @@ function filterFingerprint(query: MeasurementPropertyEvidenceQuery): string {
     location: query.location === undefined ? null : normalizedText(query.location),
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
-}
-
-function evidenceFingerprintOf(snapshots: readonly typeof querySnapshots.$inferSelect[]): string {
-  const canonical = [...snapshots]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(snapshot => JSON.stringify(snapshot))
-    .join('\n')
-  return createHash('sha256').update(canonical).digest('base64url')
 }
 
 /**
@@ -240,7 +233,7 @@ function propertyEvidenceRows(
   return {
     sources: built.evidence.filter(owned),
     answers: built.answers.filter(owned),
-    evidenceFingerprint: evidenceFingerprintOf(snapshots),
+    evidenceFingerprint: snapshotEvidenceFingerprint(snapshots),
   }
 }
 

@@ -16,10 +16,17 @@ export function microsToDollars(micros: number): number {
   return micros / MICROS_PER_UNIT
 }
 
-/** Format integer micros as a currency string, e.g. 39_280_000 → "$39.28". */
-export function formatMicros(micros: number, currencyCode = 'USD'): string {
+/**
+ * Format integer micros as a currency string, e.g. 39_280_000 → "$39.28".
+ * `fractionDigits` fixes the decimals for sub-cent amounts (a single answer's
+ * estimated cost is often a fraction of a cent: 14_200 → "$0.0142" at 4).
+ */
+export function formatMicros(micros: number, currencyCode = 'USD', options: { fractionDigits?: number } = {}): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currencyCode,
+    ...(options.fractionDigits === undefined
+      ? {}
+      : { minimumFractionDigits: options.fractionDigits, maximumFractionDigits: options.fractionDigits }),
   }).format(micros / MICROS_PER_UNIT)
 }

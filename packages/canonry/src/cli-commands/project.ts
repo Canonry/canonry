@@ -21,11 +21,12 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+import { providerDispatchModeSchema, type ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
 
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
     help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
     options: {
       domain: { type: 'string', short: 'd' },
@@ -36,12 +37,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'display-name': stringOption(),
       provider: multiStringOption(),
       'provider-model': multiStringOption(),
+      'dispatch-mode': multiStringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
@@ -52,13 +54,14 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         displayName: getString(input.values, 'display-name') ?? name,
         providers: getStringArray(input.values, 'provider') ?? [],
         providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
+        providerDispatchModes: parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode')),
         format: input.format,
       })
     },
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -74,12 +77,14 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'all-providers': { type: 'boolean' },
       'provider-model': multiStringOption(),
       'clear-provider-model': multiStringOption(),
+      'dispatch-mode': multiStringOption(),
+      'clear-dispatch-mode': multiStringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
@@ -88,6 +93,11 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const clearProviderModels = getStringArray(input.values, 'clear-provider-model') ?? []
       for (const provider of clearProviderModels) {
         if (provider in providerModels) throw usageError(`Error: --provider-model and --clear-provider-model conflict for ${provider}`)
+      }
+      const dispatchModes = parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode'))
+      const clearDispatchModes = getStringArray(input.values, 'clear-dispatch-mode') ?? []
+      for (const provider of clearDispatchModes) {
+        if (provider in dispatchModes) throw usageError(`Error: --dispatch-mode and --clear-dispatch-mode conflict for ${provider}`)
       }
       await updateProjectSettings(name, {
         displayName: getString(input.values, 'display-name'),
@@ -103,6 +113,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         providers: allProviders ? [] : providers,
         providerModels,
         clearProviderModels,
+        dispatchModes,
+        clearDispatchModes,
         format: input.format,
       })
     },
@@ -218,6 +230,24 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
 ]
+
+/**
+ * Parse repeatable provider=sync|batch flags before any API call. The server
+ * validates the provider names; the mode is checked here so a typo never
+ * reaches it.
+ */
+export function parseDispatchModeAssignments(assignments: readonly string[] | undefined): ProviderDispatchModesMap {
+  const result: ProviderDispatchModesMap = {}
+  for (const assignment of assignments ?? []) {
+    const separator = assignment.indexOf('=')
+    const provider = separator === -1 ? '' : assignment.slice(0, separator).trim()
+    const mode = providerDispatchModeSchema.safeParse(separator === -1 ? '' : assignment.slice(separator + 1).trim().toLowerCase())
+    if (!provider || !mode.success) throw usageError(`Error: --dispatch-mode must use provider=sync or provider=batch (received ${assignment})`)
+    if (provider in result) throw usageError(`Error: duplicate --dispatch-mode assignment for ${provider}`)
+    result[provider] = mode.data
+  }
+  return result
+}
 
 /** Parse repeatable provider=model flags before any API call. */
 export function parseProviderModelAssignments(assignments: readonly string[] | undefined): Record<string, string> {

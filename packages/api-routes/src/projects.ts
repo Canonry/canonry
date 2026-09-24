@@ -19,12 +19,12 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderModels } from '@ainyc/canonry-contracts'
+import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
+import { pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 
 export interface ProjectRoutesOptions {
   /**
@@ -102,6 +102,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       nextProviders,
     )
     assertProviderModelScope(request, {}, providerModels, nextProviders)
+    // Pruned like model overrides: a preference for an engine the project
+    // does not run would silently take effect the day it is added back.
+    const providerDispatchModes = pruneProviderModelsForProviders(
+      validateProviderDispatchModes(body.providerDispatchModes ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
 
     const nextLocations = body.locations ?? []
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -142,6 +148,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: nextProviders,
         providerModels,
+        providerDispatchModes,
         measurement: body.measurement ?? DEFAULT_MEASUREMENT_CONFIG,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -188,6 +195,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       configSource?: string
       providerModels?: Record<string, string>
+      providerDispatchModes?: ProviderDispatchModesMap
       measurement?: MeasurementConfig
     }
   }>('/projects/:name', async (request, reply) => {
@@ -223,6 +231,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
     assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
+    // Omitted keeps the stored preference (the dashboard's settings save and
+    // other full-replace callers predate the field and never send it).
+    const providerDispatchModes = pruneProviderModelsForProviders(
+      body.providerDispatchModes !== undefined
+        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
+        : existing?.providerDispatchModes ?? {},
+      nextProviders,
+    )
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -265,6 +281,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           labels: body.labels ?? {},
           providers: body.providers ?? [],
           providerModels,
+          providerDispatchModes,
           measurement: nextMeasurement,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
@@ -305,6 +322,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: body.providers ?? [],
         providerModels,
+        providerDispatchModes,
         measurement: nextMeasurement,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -571,6 +589,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         competitors: comps.map(c => c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
+        ...(Object.keys(project.providerDispatchModes).length > 0 ? { providerDispatchModes: project.providerDispatchModes } : {}),
         measurement: project.measurement,
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
@@ -659,6 +678,7 @@ export function formatProject(row: InferSelectModel<typeof projects>) {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    providerDispatchModes: row.providerDispatchModes,
     measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,

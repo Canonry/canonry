@@ -3,6 +3,7 @@ import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { parseJsonColumn, querySnapshots, runFills, runs, usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   RUN_FILL_MAX_AGE_MS,
+  runFillAgeAnchor,
   RunFillRefusalCodes,
   RunKinds,
   RunTriggers,
@@ -16,6 +17,7 @@ import { writeAuditLog } from './helpers.js'
 import { activePlanVersionRow } from './measurement-draft-repo.js'
 import { runVersionServesActiveVersion } from './measurement-report-adapter.js'
 import { measurementRunSlotState, type MeasurementRunSlot, type MeasurementRunSlotState } from './measurement-run-completeness.js'
+import { runHadProviderBatch } from './provider-batches.js'
 
 /**
  * Admission for completing a partial plan run in place.
@@ -126,10 +128,13 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   }
 
   const now = (input.now ?? new Date()).getTime()
-  const startedAt = Date.parse(run.startedAt ?? run.createdAt)
-  if (Number.isFinite(startedAt) && now - startedAt > RUN_FILL_MAX_AGE_MS) {
+  // A run that dispatched a provider batch counts from when it finalized: its
+  // batch may take most of the window to end, and the run is fillable only then.
+  const age = runFillAgeAnchor(run, { hadProviderBatch: runHadProviderBatch(db, run.id) })
+  const anchoredAt = Date.parse(age.anchor)
+  if (Number.isFinite(anchoredAt) && now - anchoredAt > RUN_FILL_MAX_AGE_MS) {
     return refuse(RunFillRefusalCodes.too_old,
-      `Run ${run.id} started more than 24 hours ago. Answers captured now would not describe the same moment; run a new sweep instead.`)
+      `Run ${run.id} ${age.basis} more than 24 hours ago. Answers captured now would not describe the same moment; run a new sweep instead.`)
   }
 
   const newer = newerFullSweep(db, run)

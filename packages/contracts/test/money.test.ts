@@ -48,4 +48,11 @@ describe('formatMicros', () => {
   test('keeps cents for sub-dollar values', () => {
     expect(formatMicros(570_000)).toBe('$0.57')
   })
+
+  test('shows sub-cent amounts at a fixed precision when asked', () => {
+    expect(formatMicros(14_200, 'USD', { fractionDigits: 4 })).toBe('$0.0142')
+    expect(formatMicros(53_125, 'USD', { fractionDigits: 4 })).toBe('$0.0531')
+    expect(formatMicros(0, 'USD', { fractionDigits: 4 })).toBe('$0.0000')
+    expect(formatMicros(12_345_678, 'USD', { fractionDigits: 4 })).toBe('$12.3457')
+  })
 })
