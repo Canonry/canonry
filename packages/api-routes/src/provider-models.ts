@@ -102,7 +102,8 @@ export function validateProviderDispatchModes(
  * `providers ?? []` and read it that way), so nothing is orphaned there and
  * every override is kept.
  *
- * `providerDispatchModes` is pruned by the same rule, for the same reason.
+ * `providerDispatchModes` is pruned by the same rule, for the same reason,
+ * through `pruneProviderDispatchModes`.
  */
 export function pruneProviderModelsForProviders<T extends string>(
   models: Readonly<Record<string, T>>,
@@ -114,4 +115,22 @@ export function pruneProviderModelsForProviders<T extends string>(
     if (providers.includes(provider)) kept[provider] = model
   }
   return kept
+}
+
+/**
+ * A dispatch preference is kept for every engine the project's runs measure,
+ * which for a simple portfolio is its provider list and for an Advanced one
+ * also includes the engines its active revision froze (`revisionProviders`, see
+ * `activeRevisionProviders`). A v2 run measures those whatever the project row
+ * lists, so pruning against the row alone would silently drop, or refuse to
+ * store, a preference its scheduled sweeps still honour. An empty provider
+ * list keeps everything, as for model overrides.
+ */
+export function pruneProviderDispatchModes(
+  modes: Readonly<ProviderDispatchModesMap>,
+  providers: readonly string[],
+  revisionProviders: readonly string[],
+): ProviderDispatchModesMap {
+  if (providers.length === 0) return { ...modes }
+  return pruneProviderModelsForProviders(modes, [...providers, ...revisionProviders])
 }

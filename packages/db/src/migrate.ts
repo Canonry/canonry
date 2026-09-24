@@ -4293,11 +4293,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         error             TEXT
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_batch_requests_slot ON provider_batch_requests(batch_id, execution_id)`,
+      // Both SET NULL foreign keys index their child column; without it every
+      // parent delete scans the whole (ever-growing) child table.
+      `CREATE INDEX IF NOT EXISTS idx_provider_batch_requests_query ON provider_batch_requests(query_id)`,
       `ALTER TABLE projects ADD COLUMN provider_dispatch_modes TEXT NOT NULL DEFAULT '{}'`,
       `ALTER TABLE runs ADD COLUMN provider_dispatch_modes TEXT`,
       `ALTER TABLE runs ADD COLUMN pending_provider_errors TEXT`,
       `ALTER TABLE query_snapshots ADD COLUMN dispatch_mode TEXT`,
       `ALTER TABLE query_snapshots ADD COLUMN provider_batch_id TEXT REFERENCES provider_batches(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_batch ON query_snapshots(provider_batch_id)`,
       `ALTER TABLE query_snapshots ADD COLUMN stop_reason TEXT`,
       `ALTER TABLE query_snapshots ADD COLUMN usage TEXT`,
     ],

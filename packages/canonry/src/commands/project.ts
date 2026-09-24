@@ -27,12 +27,28 @@ export async function createProject(
       : {}),
   })
 
+  warnDroppedDispatchModes(opts.providerDispatchModes ?? {}, result)
+
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
   console.log(`Project created: ${result.name} (${result.id})`)
+}
+
+/**
+ * The server keeps a dispatch preference only for an engine the project's runs
+ * measure, and prunes the rest. Name what it dropped on stderr in BOTH formats:
+ * whoever asked for batch must not read a plain success, and stdout's JSON
+ * stays the API response byte for byte.
+ */
+function warnDroppedDispatchModes(sent: ProviderDispatchModesMap, result: ProjectDto): void {
+  const kept = result.providerDispatchModes ?? {}
+  const dropped = Object.keys(sent).filter(provider => !(provider in kept))
+  if (dropped.length > 0) {
+    console.error(`Warning: Dropped dispatch mode for engine(s) the project does not measure: ${dropped.join(', ')}`)
+  }
 }
 
 export async function listProjects(format?: string): Promise<void> {
@@ -205,6 +221,9 @@ export async function updateProjectSettings(
     defaultLocation: project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
   })
+
+  // What the server was left holding: the map sent, else the stored one.
+  warnDroppedDispatchModes(touchesDispatch ? providerDispatchModes : (project.providerDispatchModes ?? {}), result)
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))

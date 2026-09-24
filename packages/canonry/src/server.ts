@@ -3238,6 +3238,11 @@ export async function createServer(opts: {
       }
     },
     onProjectDeleting: prepareGoogleMarketingCredentialDelete,
+    // The delete cascades away the batch rows, so stop each outstanding batch
+    // at the provider first, as a run cancel does. Best effort: a provider
+    // refusal is logged inside and never blocks the delete.
+    cancelRunProviderBatches: (runId: string, projectId: string) =>
+      jobRunner.cancelRunBatches(runId, projectId),
     onProjectDeleted: (projectId: string) => {
       scheduler.removeAllForProject(projectId);
       const removedGoogleAds = removeGoogleAdsConnection(opts.config, projectId);

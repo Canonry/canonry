@@ -231,4 +231,23 @@ describe('provider batch storage (v162)', () => {
       .map(row => row.name)
     expect(indexes).toEqual(expect.arrayContaining(['idx_provider_batches_status', 'idx_provider_batches_run']))
   })
+
+  // Both SET NULL foreign keys need an index on the child column: without one,
+  // SQLite applies each parent delete (a query, or a batch cascading from its
+  // run) by scanning the whole child table, and both tables only grow.
+  it('indexes the child side of both SET NULL foreign keys', () => {
+    const db = tempDb()
+    const indexColumns = (name: string): string[] =>
+      (db.all(sql.raw(`PRAGMA index_info('${name}')`)) as Array<{ name: string }>).map(row => row.name)
+
+    expect(indexColumns('idx_provider_batch_requests_query')).toEqual(['query_id'])
+    expect(indexColumns('idx_snapshots_provider_batch')).toEqual(['provider_batch_id'])
+
+    const plan = (statement: string): string =>
+      (db.all(sql.raw(`EXPLAIN QUERY PLAN ${statement}`)) as Array<{ detail: string }>).map(row => row.detail).join('\n')
+    expect(plan("SELECT id FROM provider_batch_requests WHERE query_id = 'q-1'"))
+      .toContain('USING INDEX idx_provider_batch_requests_query')
+    expect(plan("SELECT id FROM query_snapshots WHERE provider_batch_id = 'b-1'"))
+      .toContain('USING INDEX idx_snapshots_provider_batch')
+  })
 })

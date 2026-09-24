@@ -435,6 +435,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   uniqueIndex('idx_snapshots_measurement_slot')
     .on(table.runId, table.measurementExecutionId, table.provider),
   index('idx_snapshots_created_at').on(table.createdAt),
+  index('idx_snapshots_provider_batch').on(table.providerBatchId),
 ])
 
 /**
@@ -529,6 +530,7 @@ export const providerBatchRequests = sqliteTable('provider_batch_requests', {
   error: text('error'),
 }, (table) => [
   uniqueIndex('idx_provider_batch_requests_slot').on(table.batchId, table.executionId),
+  index('idx_provider_batch_requests_query').on(table.queryId),
 ])
 
 export const auditLog = sqliteTable('audit_log', {

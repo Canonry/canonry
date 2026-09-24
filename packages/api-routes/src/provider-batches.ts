@@ -53,3 +53,16 @@ export function hasOutstandingProviderBatch(db: DatabaseClient, runId: string): 
     .where(and(eq(providerBatches.runId, runId), inArray(providerBatches.status, [...OUTSTANDING_PROVIDER_BATCH_STATUSES])))
     .limit(1).get() !== undefined
 }
+
+/**
+ * The project's runs that are waiting on a provider (see
+ * `hasOutstandingProviderBatch`): each holds a batch the provider may still be
+ * processing and billing.
+ */
+export function readProjectRunsWithOutstandingProviderBatch(db: DatabaseClient, projectId: string): string[] {
+  return db.selectDistinct({ runId: providerBatches.runId }).from(providerBatches)
+    .where(and(eq(providerBatches.projectId, projectId), inArray(providerBatches.status, [...OUTSTANDING_PROVIDER_BATCH_STATUSES])))
+    .orderBy(asc(providerBatches.runId))
+    .all()
+    .map(row => row.runId)
+}
