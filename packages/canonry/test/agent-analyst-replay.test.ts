@@ -27,7 +27,7 @@ it.each(['simple', 'advanced'] as const)('replays %s scope, stale evidence, miss
     fauxAssistantMessage(fauxToolCall('aero_inspect_view', {}), { stopReason: 'toolUse' }),
     modelContext => {
       const toolResult = modelContext.messages.find(message => message.role === 'toolResult')
-      expect(toolResult?.content).toEqual([{ type: 'text', text: JSON.stringify(evidence, null, 2) }])
+      expect(toolResult?.content).toEqual([{ type: 'text', text: JSON.stringify(evidence) }])
       return fauxAssistantMessage(`Non-brand mentions 0/10; citations 2/10. Branded mentions 10/10. Unknown class unavailable. Measured 2026-08-01. Comparison unavailable: model-changed. Review the saved answers before proposing causes. [Evidence](${evidence.source.href})`)
     },
   ])

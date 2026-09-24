@@ -9,6 +9,7 @@ import {
   measurementPropertyCompetitorsResponseSchema,
   measurementPropertyEvidenceResponseSchema,
   measurementPropertyQuestionsResponseSchema,
+  runCompletenessDtoSchema,
   runDtoSchema,
   sourceBreakdownDtoSchema,
   visibilityReportResponseSchema,
@@ -335,7 +336,16 @@ describe('buildGroundTruth: advanced builders', () => {
       namedInsteadInAnswerText: ['Elm Place (4)', 'Fir Commons (2)'],
       citedDomains: ['listings.example (7)', 'rentals.example (3)'],
     })
-    expect(facts.largestNamedInsteadCounts[0]).toBe('Grove Tower: 6 answers for Birch Hall')
+    // A per-Property sample, labeled as one, so it is not read as a portfolio-wide ranking.
+    expect(facts.largestNamedInsteadCounts.top[0]).toBe('Grove Tower: 6 answers for Birch Hall')
+    expect(facts.largestNamedInsteadCounts.note).toContain('a sample, not a portfolio-wide ranking')
+    // Metros in the API's worst-first order, so the first N rows are a valid worst N.
+    expect(facts.worstMarkets.order).toMatch(/^ordered worst mention first/)
+    expect(facts.worstMarkets.total).toBe(2)
+    expect(facts.worstMarkets.rows).toEqual([
+      'South Metro: mention 0/24 (0.0%), citation 0/24 (0.0%), 1 Property',
+      'North Metro: mention 6/36 (16.7%), citation 2/36 (5.6%), 3 Properties',
+    ])
     expect(facts.weakestAnswerSources.top).toEqual(['listings.example: 30 answers', 'rentals.example: 11 answers'])
     // Probe runs never count; the newest failed run is not the latest complete sweep.
     expect(facts.run.measuredRunId).toBe('run-cur')
@@ -367,9 +377,10 @@ describe('buildGroundTruth: advanced builders', () => {
     expect(facts.metros.rows.map((row: { market: string }) => row.market)).toEqual(['South Metro', 'North Metro'])
     expect(facts.metros.rows[1]).toMatchObject({ properties: 3, propertiesMentioned: '1/3', mention: '6/36 (16.7%)' })
     expect(facts.nestedMarkets.worst[0]).toMatchObject({ market: 'Harbor District', parent: 'North Metro' })
+    // Names per metro, so the grader can check a Property's metro instead of guessing it.
     expect(facts.propertiesAtZeroByMetro).toEqual([
-      { metro: 'North Metro', properties: 3, zeroMention: 2, zeroMentionAndCitation: 2 },
-      { metro: 'South Metro', properties: 1, zeroMention: 1, zeroMentionAndCitation: 1 },
+      { metro: 'North Metro', properties: 3, zeroMention: 2, zeroMentionAndCitation: 2, zeroMentionProperties: ['Alder Court', 'Cedar Row'] },
+      { metro: 'South Metro', properties: 1, zeroMention: 1, zeroMentionAndCitation: 1, zeroMentionProperties: ['Birch Hall'] },
     ])
   })
 
@@ -525,8 +536,23 @@ describe('buildGroundTruth: advanced builders', () => {
     expect(facts.tie).toContain('One of 3 Properties tied')
     expect(facts.nonBrandQueries.queriesNotNamedByAnyEngine).toBe(2)
     expect(facts.nonBrandQueries.lines).toContain('quiet places near the river | gemini M-C?, openai no answer')
-    expect(facts.namedInstead.top).toEqual(['Grove Tower: 6 answers, 1 queries, engines gemini/openai'])
-    expect(facts.citedDomains).toMatchObject({ answers: 3, answersWithNoSources: 1, domainTotal: 2, top: ['listings.example: 2 answers', 'grovetower.example: 1 answers'] })
+    // The tool's own field names, defined, so an answer that quotes them is not marked down.
+    expect(facts.namedInstead.top).toEqual(['Grove Tower: occurrences 6, questionTotal 1, engines gemini/openai'])
+    expect(facts.namedInstead.fields).toContain('occurrences: answers that wrote the name')
+    expect(facts.namedInstead.basis).toBe('answeredResults 3, targetMissResults 3, recommendationOccurrences 7')
+    // The API's cited-domain count, verbatim from the summary row; the evidence recount sits apart.
+    expect(facts.citedDomains).toMatchObject({
+      source: 'measurement-portfolio-summary row citedDomains',
+      citedDomainsTotal: 1,
+      top: ['listings.example: 12 answers'],
+    })
+    expect(facts.citedDomains.evidenceRecount).toMatchObject({
+      answers: 3,
+      answersWithNoSources: 1,
+      answersWithLinksCapped: 0,
+      distinctHosts: 2,
+      top: ['listings.example: 2 answers', 'grovetower.example: 1 answers'],
+    })
     const evidenceRead = requests.find(request => request.url.pathname.endsWith('/measurement-property-evidence'))
     expect(Object.fromEntries(evidenceRead!.url.searchParams)).toMatchObject({ targetKey: 'birch-hall', queryClass: 'non-brand', shape: 'answers' })
     expect(applyPlaceholders('Dig into {property}.', truth.placeholders)).toBe('Dig into Birch Hall.')
@@ -541,50 +567,132 @@ describe('buildGroundTruth: advanced builders', () => {
   })
 })
 
-describe('buildGroundTruth: simple and legacy builders', () => {
-  function report(queryClass: 'all' | 'branded' | 'non-brand', rows: unknown[], nextCursor: string | null, total: number) {
-    const rate = (numerator: number, denominator: number) => ({ numerator, denominator, rate: numerator / denominator })
-    const population = (cls: 'branded' | 'non-brand' | 'unknown') => ({
-      queryClass: cls,
-      summary: {
-        queryCount: cls === 'branded' ? 2 : 3,
-        answerCount: cls === 'branded' ? 4 : 6,
-        mentionCoverage: cls === 'branded' ? rate(4, 4) : rate(2, 6),
-        citationCoverage: cls === 'branded' ? rate(3, 4) : rate(1, 6),
-        propertyReach: { numerator: null, denominator: null, rate: null, reason: 'not-applicable' },
-        outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 0 },
-      },
-      trend: [],
-      comparison: { state: 'unavailable', reason: 'no-previous-run', previousRun: null },
-      queries: { items: cls === 'non-brand' ? rows : [], nextCursor: cls === 'non-brand' ? nextCursor : null, total: cls === 'non-brand' ? total : 0 },
-      evidence: { items: [], nextCursor: null, total: 0 },
-      competitorAvailability: { state: 'available' },
-      competitors: [{ domain: 'rival.example', answerCount: 6, mentionCoverage: rate(3, 6), citationCoverage: rate(1, 6) }],
-      observedCompetitors: [{ name: 'Harbor Rival', answerCount: 2 }, { name: 'Rival Co', answerCount: 3 }],
-      breakdown: { properties: [], groups: [] },
-    })
-    const classes = queryClass === 'all' ? ['branded', 'non-brand', 'unknown'] as const : [queryClass]
-    return valid(visibilityReportResponseSchema, {
-      selection: {
-        mode: 'simple',
-        queryClass,
-        scope: { id: 'project', label: 'Project', kind: 'project', targetCount: 0 },
-        provider: null,
-        model: null,
-        location: { kind: 'all' },
-        time: { from: null, to: null },
-        revision: null,
-        run: { id: 'run-cur', explicit: false },
-        provenance: { kind: 'frozen-simple', definitionRevision: null },
-        measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: COMPLETED },
-        availability: { state: 'available' },
-      },
-      scopeOptions: [],
-      filterOptions: { providers: ['gemini', 'openai'], models: [], locations: [] },
-      populations: classes.map(population),
-    })
-  }
+/** A visibility report for one class (or every class), checked against the real schema. */
+function report(queryClass: 'all' | 'branded' | 'non-brand', rows: unknown[], nextCursor: string | null, total: number) {
+  const rate = (numerator: number, denominator: number) => ({ numerator, denominator, rate: numerator / denominator })
+  const population = (cls: 'branded' | 'non-brand' | 'unknown') => ({
+    queryClass: cls,
+    summary: {
+      queryCount: cls === 'branded' ? 2 : 3,
+      answerCount: cls === 'branded' ? 4 : 6,
+      mentionCoverage: cls === 'branded' ? rate(4, 4) : rate(2, 6),
+      citationCoverage: cls === 'branded' ? rate(3, 4) : rate(1, 6),
+      propertyReach: { numerator: null, denominator: null, rate: null, reason: 'not-applicable' },
+      outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 0 },
+    },
+    trend: [],
+    comparison: { state: 'unavailable', reason: 'no-previous-run', previousRun: null },
+    queries: { items: cls === 'non-brand' ? rows : [], nextCursor: cls === 'non-brand' ? nextCursor : null, total: cls === 'non-brand' ? total : 0 },
+    evidence: { items: [], nextCursor: null, total: 0 },
+    competitorAvailability: { state: 'available' },
+    competitors: [{ domain: 'rival.example', answerCount: 6, mentionCoverage: rate(3, 6), citationCoverage: rate(1, 6) }],
+    observedCompetitors: [{ name: 'Harbor Rival', answerCount: 2 }, { name: 'Rival Co', answerCount: 3 }],
+    breakdown: { properties: [], groups: [] },
+  })
+  const classes = queryClass === 'all' ? ['branded', 'non-brand', 'unknown'] as const : [queryClass]
+  return valid(visibilityReportResponseSchema, {
+    selection: {
+      mode: 'simple',
+      queryClass,
+      scope: { id: 'project', label: 'Project', kind: 'project', targetCount: 0 },
+      provider: null,
+      model: null,
+      location: { kind: 'all' },
+      time: { from: null, to: null },
+      revision: null,
+      run: { id: 'run-cur', explicit: false },
+      provenance: { kind: 'frozen-simple', definitionRevision: null },
+      measurement: { state: 'measured', activeRevision: null, measuredRevision: null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: COMPLETED },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [],
+    filterOptions: { providers: ['gemini', 'openai'], models: [], locations: [] },
+    populations: classes.map(population),
+  })
+}
 
+describe('buildGroundTruth: data quality and cited domains', () => {
+  it('data-quality reads both classes, so unattributed branded answers and a fill show up as caveats', async () => {
+    const brandedSummary = valid(measurementPortfolioSummaryResponseSchema, {
+      ...portfolioSummary,
+      queryClass: 'branded',
+      metrics: { ...portfolioSummary.metrics, mentionCoverage: { ...metric(40, 48), unattributed: 3 } },
+    })
+    const completeness = valid(runCompletenessDtoSchema, {
+      runId: 'run-new',
+      status: 'completed',
+      planned: true,
+      readable: true,
+      expected: 60,
+      executed: 60,
+      missing: 0,
+      missingByProvider: {},
+      fillable: false,
+      refusal: null,
+      latestFill: {
+        id: 'fill-1', runId: 'run-new', projectId: 'project-1', status: 'completed', providers: ['gemini'],
+        expected: 12, filled: 12, error: null, createdAt: COMPLETED, startedAt: COMPLETED, finishedAt: COMPLETED,
+      },
+    })
+    const { ctx, requests } = stubServer('advanced', {
+      ...advancedRoutes,
+      [`${P}/measurement-portfolio-summary`]: url => (url.searchParams.get('queryClass') === 'branded' ? brandedSummary : portfolioSummary),
+      [`${P}/visibility-report`]: url => report(url.searchParams.get('queryClass') as 'branded' | 'non-brand', [], null, 0),
+      '/runs/run-new/completeness': () => completeness,
+    })
+    const facts = json((await buildGroundTruth('data-quality', ctx)).facts)
+
+    const summaryClasses = requests
+      .filter(request => request.url.pathname.endsWith('/measurement-portfolio-summary'))
+      .map(request => request.url.searchParams.get('queryClass'))
+    expect(summaryClasses.sort()).toEqual(['branded', 'non-brand'])
+    expect(facts.unattributedAnswersByClass).toMatchObject({ 'non-brand': 0, branded: 3 })
+    expect(facts.latestSweepCompleteness).toMatchObject({ expected: 60, executed: 60, missing: 0, latestFill: 'completed: filled 12 of 12' })
+    expect(facts.caveats).toEqual([
+      'The latest sweep (run-new) had missing answers filled by a later fill (completed: filled 12 of 12), so some of its answers were recorded after the sweep itself.',
+      '3 branded answers are unattributed and left out of the branded mention rate.',
+    ])
+    expect(facts.answersByClass.branded).toMatchObject({ answers: 4, mention: '4/4 (100.0%)' })
+    expect(facts.answersByClass['non-brand']).toMatchObject({ answers: 6, mention: '2/6 (33.3%)' })
+    // The data-quality route itself had no stub: recorded, not fatal.
+    expect(facts.measurementDataQuality).toMatch(/^read failed: GET .*measurement-data-quality/)
+  })
+
+  it('property-drilldown takes citedDomainsTotal verbatim from a competitors read that carries one', async () => {
+    const property = { targetKey: 'dogwood-lane', label: 'Dogwood Lane' }
+    const measurement = { state: 'complete', displayedRunId: 'run-cur', planRevision: 3, completedAt: COMPLETED }
+    const competitors = {
+      ...valid(measurementPropertyCompetitorsResponseSchema, {
+        property,
+        measurement,
+        queryClass: 'non-brand',
+        basis: { state: 'available', answeredResults: 12, targetMissResults: 6, recommendationOccurrences: 9 },
+        competitors: [],
+        total: 0,
+        truncated: false,
+      }),
+      // Newer servers add these; the builder reads them when present.
+      citedDomains: [{ domain: 'listings.example', answers: 9 }],
+      citedDomainsTotal: 14,
+      citedDomainsAnswers: 12,
+    }
+    const { ctx } = stubServer('advanced', {
+      ...advancedRoutes,
+      [`${P}/measurement-property-competitors`]: () => competitors,
+    })
+    const facts = json((await buildGroundTruth('property-drilldown:Dogwood Lane', ctx)).facts)
+    expect(facts.citedDomains).toMatchObject({
+      source: 'measurement-property-competitors citedDomains',
+      citedDomainsTotal: 14,
+      answers: 12,
+      top: ['listings.example: 9 answers'],
+    })
+    // No evidence stub: the recount is recorded as a failed read, beside the API figure.
+    expect(facts.citedDomains.evidenceRecount).toMatch(/^read failed/)
+  })
+})
+
+describe('buildGroundTruth: simple and legacy builders', () => {
   function queryRow(key: string, query: string, provider: string, mentioned: number, cited: number) {
     return {
       queryKey: key,

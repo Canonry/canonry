@@ -28,6 +28,11 @@ export interface RunnerTarget {
   /** Headers for one turn on the lane. Throws when the lane is unavailable. */
   headers(lane: EvalLane): Record<string, string>
   costReader?: CostReader
+  /**
+   * The project context Aero's system prompt carries this turn, recorded on
+   * the capture as evidence. Returns undefined when it cannot be computed.
+   */
+  systemContext?(): string | undefined
 }
 
 export interface AskInput {
@@ -60,6 +65,7 @@ interface TruncationSummary {
   droppedKeys?: string[]
   keptItems?: Record<string, string>
   moreDroppedKeys?: number
+  cursors?: Record<string, string>
 }
 
 function describeSummary(summary: TruncationSummary): string {
@@ -70,6 +76,8 @@ function describeSummary(summary: TruncationSummary): string {
   }
   const kept = Object.entries(summary.keptItems ?? {}).filter(([key]) => !summary.droppedKeys?.includes(key))
   if (kept.length > 0) parts.push(`kept ${kept.slice(0, 8).map(([key, value]) => `${key} ${value}`).join(', ')}${kept.length > 8 ? ', ...' : ''}`)
+  const cursors = Object.keys(summary.cursors ?? {})
+  if (cursors.length > 0) parts.push(`cursor ${cursors.join(', ')} skips the cut rows`)
   return parts.join('; ').slice(0, 400)
 }
 
@@ -104,7 +112,8 @@ export function detectTruncation(text: string): { truncated: boolean; note?: str
         const omitted = typeof parsed.__omittedRows === 'number' ? `${parsed.__omittedRows} rows omitted` : 'rows omitted'
         return { truncated: true, note: omitted }
       }
-      if (trimmed.includes('"__truncated": true')) return { truncated: true, note: 'nested collections trimmed' }
+      // Tool text is compact JSON; accept the indented form too.
+      if (/"__truncated":\s*true/.test(trimmed)) return { truncated: true, note: 'nested collections trimmed' }
       return { truncated: false }
     } catch {
       // Not JSON after all.
@@ -112,6 +121,32 @@ export function detectTruncation(text: string): { truncated: boolean; note?: str
   }
   if (text.includes('__truncation')) return { truncated: true, note: 'truncation marker present' }
   return { truncated: false }
+}
+
+/**
+ * The lists the tool itself cut, from the `__partialLists` field the product
+ * puts first on a result. Undefined when the result has none.
+ */
+export function detectPartialLists(text: string): string | undefined {
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith('{"__partialLists":') && !trimmed.startsWith('{\n  "__partialLists":')) return undefined
+  let partial: unknown
+  try {
+    partial = (JSON.parse(trimmed) as Record<string, unknown>).__partialLists
+  } catch {
+    // A plain slice: read the field's own object.
+    const match = /^\{\s*"__partialLists":\s*(\{[^{}]*\})/.exec(trimmed)
+    if (!match) return undefined
+    try {
+      partial = JSON.parse(match[1]!)
+    } catch {
+      return undefined
+    }
+  }
+  if (!partial || typeof partial !== 'object') return undefined
+  const entries = Object.entries(partial as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  if (entries.length === 0) return undefined
+  return entries.map(([path, note]) => `${path} ${note}`).join('; ').slice(0, 400)
 }
 
 function textOf(content: unknown): string {
@@ -178,6 +213,9 @@ export class TurnCollector {
     entry.truncated = truncation.truncated
     if (truncation.note) entry.truncationNote = truncation.note
     else delete entry.truncationNote
+    const partial = detectPartialLists(text)
+    if (partial) entry.partialNote = partial
+    else delete entry.partialNote
   }
 
   push(frame: unknown): void {
@@ -206,6 +244,7 @@ export class TurnCollector {
           entry.isError = message.isError === true
           this.setResult(entry, textOf(message.content))
           if (typeof message.aeroDurationMs === 'number') entry.durationMs = message.aeroDurationMs
+          if (typeof message.aeroRequestedToolName === 'string') entry.requestedName = message.aeroRequestedToolName
         } else if (message.role === 'assistant') {
           this.assistantMessages++
           this.finalAssistantText = textOf(message.content)
@@ -315,11 +354,18 @@ export function createRunner(target: RunnerTarget, opts: RunnerOptions): Runner 
   async function ask(input: AskInput): Promise<TurnCapture> {
     const started = Date.now()
     const collector = new TurnCollector()
+    let systemContext: string | undefined
+    try {
+      systemContext = target.systemContext?.()?.trim() || undefined
+    } catch {
+      systemContext = undefined
+    }
     const base = {
       questionId: input.questionId,
       lane: input.lane,
       attempt: input.attempt,
       prompt: input.prompt,
+      ...(systemContext ? { systemContext } : {}),
     }
     let cost: CostSnapshot | null = null
     const finish = (): TurnCapture => {

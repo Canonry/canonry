@@ -12,7 +12,7 @@
         "When many properties tie at the weakest rates, says how many tie instead of ranking tied properties against each other or presenting the first few alphabetically as 'the worst'.",
         "Every property it places in a metro or market sits in that metro in the facts; it never invents a combined region or groups by the property name.",
         "Every property it calls weakest or at zero is at those rates in the facts; no property is listed at zero that has mentions or citations.",
-        "Describes the names given instead as names written in the answer text, not as cited sources, and reports their counts as answers, not as multiples (never '9x your mentions').",
+        "Describes the names given instead as names written in the answer text, not as cited sources, and reports their counts as answers, not as multiples (never '9x your mentions'). A per-name count written as (N), (Nx) or N times is a count of answers and passes; only a ratio against the property's own mentions is a multiple.",
         "Sources for the weakest properties come from their own cited domains (per-property citedDomains or weakestAnswerSources), not a portfolio-wide list pooled across classes or sweeps."
       ]
     },
@@ -98,7 +98,7 @@
       "rubric": [
         "Names the sweep (id or date) and gives expected, executed and missing counts that match the facts.",
         "Does not call the sweep complete when the facts show missing answers, failed capture or a partial status.",
-        "Mentions unattributed or excluded answers, or pending assignments, when the facts show any.",
+        "Mentions unattributed answers (in either query class), excluded properties, pending assignments, or a fill that completed the sweep after it ran, when the facts show any.",
         "Does not invent problems the facts do not show."
       ]
     },

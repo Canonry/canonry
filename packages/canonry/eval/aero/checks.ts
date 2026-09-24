@@ -3,8 +3,9 @@
  * the captured trace and answer alone (plus the ground truth), and targets a
  * failure mode seen in real Aero answers: errored tool calls, turns that hit a
  * limit, complete-looking lists built from truncated results, numbers nothing
- * supports, and label mix-ups (answers vs questions, named vs cited, pooled
- * query classes). Label checks are heuristics and only ever warn.
+ * supports, label mix-ups (answers vs questions, named vs cited, pooled
+ * query classes), and a net figure that contradicts its own parts. Label and
+ * arithmetic checks are heuristics and only ever warn.
  */
 import type { CheckResult, GroundTruth, ToolCallTrace, TurnCapture } from './types.js'
 
@@ -16,17 +17,19 @@ export const CHECK_IDS = {
   denominatorLabel: 'label-denominator',
   namedVsCited: 'label-named-vs-cited',
   pooledClasses: 'label-pooled-classes',
+  netArithmetic: 'arithmetic-net',
 } as const
 
 export function runChecks(capture: TurnCapture, truth: GroundTruth): CheckResult[] {
   return [
     checkToolErrors(capture),
     checkTurnStatus(capture),
-    checkTruncatedLists(capture),
+    checkTruncatedLists(capture, truth),
     checkNumericGrounding(capture, truth),
     checkDenominatorLabel(capture),
     checkNamedVsCited(capture, truth),
     checkPooledClasses(capture, truth),
+    checkNetArithmetic(capture),
   ]
 }
 
@@ -64,6 +67,7 @@ const TOOL_ERROR_PATTERNS: readonly RegExp[] = [
   /^Tool \S+ not found\b/i,
   /\bis not loaded yet\b/i,
   /\bis not available in this conversation\b/i,
+  /^\S+ is not a tool\b/i,
   /\bnot found\b/i,
   /\bnot loaded\b/i,
   /\bnot available\b/i,
@@ -100,17 +104,88 @@ export function isHarnessBlocked(text: string): boolean {
   return HARNESS_BLOCKED.test(text)
 }
 
+/**
+ * The runtime's answer to a tool name it does not know: pi's bare "Tool X not
+ * found", or the rewrites `src/agent/runtime.ts` makes of it ("X is not
+ * available in this conversation", or "X is not a tool. Did you mean Y?" when
+ * the name is close to one the turn may use).
+ */
+const UNKNOWN_TOOL = /^(?:Tool (\S+) not found\b|(\S+) is not available in this conversation\b|(\S+) is not a tool\b)/i
+
+/** The tool name an unknown-tool error names, or null for any other text. */
+export function unknownToolName(text: string): string | null {
+  const match = UNKNOWN_TOOL.exec(text.trim())
+  return match ? (match[1] ?? match[2] ?? match[3] ?? null) : null
+}
+
+/** "Did you mean X?" or "Did you mean one of: X, Y?" in the runtime's unknown-tool reply. */
+const DID_YOU_MEAN = /\bDid you mean (?:one of: )?([^?]+)\?/
+
+/**
+ * The tool names an unknown-tool reply suggests, or [] when it suggests none.
+ * The runtime also matches on the part after the prefix (`canonry_`, `aero_`),
+ * so a suggestion can be further from the typo than TYPO_DISTANCE.
+ */
+export function suggestedToolNames(text: string): string[] {
+  if (unknownToolName(text) === null) return []
+  const match = DID_YOU_MEAN.exec(text)
+  if (!match) return []
+  return match[1]!.split(',').map((name) => name.trim()).filter((name) => /^\S+$/.test(name))
+}
+
+/** Edit distance counting an adjacent transposition as one edit (canrony -> canonry). */
+export function editDistance(a: string, b: string): number {
+  const rows = a.length + 1
+  const cols = b.length + 1
+  const d: number[][] = Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)))
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1)
+    }
+  }
+  return d[a.length]![b.length]!
+}
+
+/**
+ * A misspelled tool name counts as recovered when a later call returned data
+ * from a tool within this many edits of it, or from a tool the runtime's reply
+ * suggested.
+ */
+const TYPO_DISTANCE = 2
+
 export function checkToolErrors(capture: TurnCapture): CheckResult {
+  const isErrored = (tool: ToolCallTrace) => tool.isError || looksLikeToolError(toolText(tool))
   const errored = capture.tools
     .map((tool, index) => ({ tool, index }))
-    .filter(({ tool }) => tool.isError || looksLikeToolError(toolText(tool)))
+    .filter(({ tool }) => isErrored(tool))
   const blocked = errored.filter(({ tool }) => isHarnessBlocked(toolText(tool)))
-  const failed = errored.filter(({ tool }) => !isHarnessBlocked(toolText(tool)))
-  const blockedNote = blocked.length > 0
-    ? `the eval harness refused ${blocked.length} call(s) (${[...new Set(blocked.map(({ tool }) => tool.name))].join(', ')})`
-    : ''
+  // A misspelled tool name the model corrected later in the same turn cost a
+  // call, not the answer: the grader judges what the answer did with the data.
+  const recovered: Array<{ index: number; from: string; to: string }> = []
+  const failed = errored.filter(({ tool, index }) => {
+    if (isHarnessBlocked(toolText(tool))) return false
+    const name = unknownToolName(toolText(tool))
+    if (name === null) return true
+    const suggested = suggestedToolNames(toolText(tool))
+    const fix = capture.tools
+      .slice(index + 1)
+      .find((later) => !isErrored(later) && (suggested.includes(later.name) || editDistance(later.name, name) <= TYPO_DISTANCE))
+    if (!fix) return true
+    recovered.push({ index, from: name, to: fix.name })
+    return false
+  })
+  const notes: string[] = []
+  if (blocked.length > 0) {
+    notes.push(`the eval harness refused ${blocked.length} call(s) (${[...new Set(blocked.map(({ tool }) => tool.name))].join(', ')})`)
+  }
+  if (recovered.length > 0) {
+    const pairs = [...new Set(recovered.map(({ from, to }) => `${from} -> ${to}`))].slice(0, 5).join(', ')
+    notes.push(`${recovered.length} misspelled tool name(s) recovered later in the turn (${pairs})`)
+  }
   if (failed.length === 0) {
-    if (blocked.length > 0) return { id: CHECK_IDS.toolErrors, outcome: 'warn', detail: `${blockedNote}; no other tool call errored` }
+    if (notes.length > 0) return { id: CHECK_IDS.toolErrors, outcome: 'warn', detail: `${notes.join('; ')}; no other tool call errored` }
     return { id: CHECK_IDS.toolErrors, outcome: 'pass', detail: `${capture.tools.length} tool call(s), none errored` }
   }
   const listed = failed
@@ -121,7 +196,7 @@ export function checkToolErrors(capture: TurnCapture): CheckResult {
   return {
     id: CHECK_IDS.toolErrors,
     outcome: 'fail',
-    detail: `${failed.length} of ${capture.tools.length} tool call(s) errored: ${listed}${more}${blockedNote ? `; also ${blockedNote}` : ''}`,
+    detail: `${failed.length} of ${capture.tools.length} tool call(s) errored: ${listed}${more}${notes.length > 0 ? `; also ${notes.join('; ')}` : ''}`,
   }
 }
 
@@ -215,14 +290,89 @@ export function keptRowCeiling(tool: ToolCallTrace): number | undefined {
 const ACKNOWLEDGES_PARTIAL =
   /\b(?:truncat\w*|partial\w*|cut off|incomplete|only (?:saw|see|had|got|returned|the first)|first \d+ of|not (?:the )?(?:full|complete|entire)|did not (?:see|get|return) (?:all|every|the rest))\b/i
 const CLAIMS_COMPLETE =
-  /\b(?:the )?(?:full|complete|entire) (?:list|set|ranking|breakdown)\b|\ball \d[\d,]*\b|\bevery (?:one|property|location|item|market)\b/i
+  /\b(?:the )?(?:full|complete|entire) (?:list|set|ranking|breakdown|picture)\b|\ball \d[\d,]*\b|\bevery (?:one|property|location|item|market)\b/i
 
-export function checkTruncatedLists(capture: TurnCapture): CheckResult {
+/**
+ * The array a count field describes: `totalProperties` -> an array whose key
+ * contains "properties", `citedDomainsTotal` -> "citeddomains", and a bare
+ * `total` or `totalEstimate` -> '' (the object's only array, or `items`).
+ */
+function totalStem(key: string): string | undefined {
+  if (/^total(?:Estimate|Count)?$/.test(key)) return ''
+  const leading = /^total([A-Z]\w*)$/.exec(key)
+  if (leading) return leading[1]!.toLowerCase()
+  const trailing = /^(\w+)Total$/.exec(key)
+  return trailing ? trailing[1]!.toLowerCase() : undefined
+}
+
+/**
+ * Truncation the API reported inside its own payload, which the product's
+ * result cap never marks: a `truncated` or `*Truncated` flag set to true, or a
+ * total larger than the array returned beside it. Only the result object and
+ * its direct children are read, so per-row caps (each row's top domains) do
+ * not count. Null when the result is not JSON or reports none.
+ */
+export function apiTruncation(tool: ToolCallTrace): string | null {
+  const text = toolText(tool).trim()
+  if (!text.startsWith('{')) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+  const found: string[] = []
+  const visit = (value: unknown, path: string, depth: number) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return
+    const entries = Object.entries(value as Record<string, unknown>).filter(([key]) => !key.startsWith('__'))
+    const arrays = entries.filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+    for (const [key, child] of entries) {
+      const at = path ? `${path}.${key}` : key
+      if (child === true && /^truncated$|Truncated$/.test(key)) {
+        found.push(`${at}: true`)
+      } else if (typeof child === 'number' && Number.isInteger(child)) {
+        const stem = totalStem(key)
+        if (stem === undefined) continue
+        const sibling = stem === ''
+          ? (arrays.length === 1 ? arrays[0] : arrays.find(([name]) => name === 'items'))
+          : arrays.find(([name]) => name.toLowerCase().includes(stem))
+        if (sibling && sibling[1].length < child) found.push(`${at} ${child} > ${sibling[1].length} ${sibling[0]} returned`)
+      }
+      if (depth === 0) visit(child, at, 1)
+    }
+  }
+  visit(parsed, '', 0)
+  return found.length > 0 ? found.slice(0, 3).join(', ') : null
+}
+
+/** JSON count fields: `total`, `totalProperties`, `domainTotal`, `count`, `eligiblePropertyCount`. */
+const TOTAL_FIELD = /"(?:total\w*|\w+Total|count|\w+Count)"\s*:\s*(\d+)/g
+
+/**
+ * Population sizes the evidence states: count fields in the tool results and
+ * the facts, and every number in the system context. "All 40" where 40 is
+ * such a total names the population, not a list the answer claims is whole.
+ */
+function statedTotals(capture: TurnCapture, truth: GroundTruth): Set<number> {
+  const totals = new Set<number>()
+  for (const text of [...capture.tools.map(toolText), safeJson(truth.facts)]) {
+    for (const match of text.matchAll(TOTAL_FIELD)) totals.add(Number(match[1]))
+  }
+  for (const value of extractEvidenceNumbers(capture.systemContext ?? '')) totals.add(value)
+  return totals
+}
+
+export function checkTruncatedLists(capture: TurnCapture, truth?: GroundTruth): CheckResult {
   const truncated = capture.tools.filter((tool) => tool.truncated)
-  if (truncated.length === 0) {
+  const apiCut = capture.tools.flatMap((tool) => {
+    const why = apiTruncation(tool)
+    return why ? [{ tool, why }] : []
+  })
+  if (truncated.length === 0 && apiCut.length === 0) {
     return { id: CHECK_IDS.truncatedList, outcome: 'pass', detail: 'no truncated tool results' }
   }
-  const names = [...new Set(truncated.map((tool) => tool.name))].join(', ')
+  const names = [...new Set([...truncated, ...apiCut.map(({ tool }) => tool)].map((tool) => tool.name))].join(', ')
+  const apiNote = apiCut.length > 0 ? `; the API returned fewer rows than it has (${apiCut[0]!.why})` : ''
   const acknowledged = ACKNOWLEDGES_PARTIAL.test(capture.answer)
   const ackNote = acknowledged ? 'the answer says the data was partial' : 'the answer does not say the data was partial'
   const enumerated = countEnumeratedItems(capture.answer)
@@ -237,18 +387,22 @@ export function checkTruncatedLists(capture: TurnCapture): CheckResult {
       }
     }
   }
-  const completeClaim = CLAIMS_COMPLETE.exec(capture.answer)
+  const totals = statedTotals(capture, truth ?? { builder: 'none', facts: {}, basis: '' })
+  const completeClaim = [...capture.answer.matchAll(new RegExp(CLAIMS_COMPLETE.source, 'gi'))].find((match) => {
+    const all = /^all (\d[\d,]*)$/i.exec(match[0])
+    return !all || !totals.has(Number(all[1]!.replace(/,/g, '')))
+  })
   if (completeClaim && !acknowledged) {
     return {
       id: CHECK_IDS.truncatedList,
       outcome: 'warn',
-      detail: `the answer claims completeness ("${completeClaim[0]}") after truncated result(s) from ${names}; ${ackNote}`,
+      detail: `the answer claims completeness ("${completeClaim[0]}") after truncated result(s) from ${names}${apiNote}; ${ackNote}`,
     }
   }
   return {
     id: CHECK_IDS.truncatedList,
     outcome: 'pass',
-    detail: `truncated result(s) from ${names}; the answer enumerates ${enumerated} item(s) and ${ackNote}`,
+    detail: `truncated result(s) from ${names}${apiNote}; the answer enumerates ${enumerated} item(s) and ${ackNote}`,
   }
 }
 
@@ -324,8 +478,12 @@ const ANSWER_NUMBER = /[$€£]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g
 const HEDGE_BEFORE = /(?:~|≈|\babout|\baround|\broughly|\bapproximately|\bapprox\.?|\bnearly|\balmost|\bclose to|\bsome)\s*$/i
 const BOUND_BEFORE = /(?:\bover|\bmore than|\bunder|\bless than|\bat least|\bat most|\bup to|\bfewer than|\bbelow|\babove|[<>≤≥])\s*$/i
 
-/** Numbers in the answer worth grounding, with years, ordinals and small prose integers left out. */
-export function extractAnswerNumbers(answer: string): AnswerNumber[] {
+/**
+ * Numbers in the answer worth grounding, with years, ordinals and small prose
+ * integers left out. `includeSmallIntegers` keeps 0 to 3, for arithmetic
+ * operands ("across 3 engines") that are never grounded themselves.
+ */
+export function extractAnswerNumbers(answer: string, opts: { includeSmallIntegers?: boolean } = {}): AnswerNumber[] {
   const text = stripNonClaims(answer)
   const found: AnswerNumber[] = []
   for (const match of text.matchAll(ANSWER_NUMBER)) {
@@ -354,7 +512,7 @@ export function extractAnswerNumbers(answer: string): AnswerNumber[] {
     const isInteger = decimals === 0
     const hasGrouping = raw.includes(',')
     if (!percent && isInteger && !hasGrouping && digits.length === 4 && value >= 1900 && value <= 2100) continue // a year
-    if (!percent && isInteger && value <= 3) continue // small integers in prose
+    if (!percent && isInteger && value <= 3 && !opts.includeSmallIntegers) continue // small integers in prose
     const lead = text.slice(Math.max(0, start - 24), start)
     if (BOUND_BEFORE.test(lead)) continue // "over 1,000" is a bound, not a figure
     found.push({ raw: percent ? `${raw}%` : raw, value, decimals, percent, approx: HEDGE_BEFORE.test(lead) })
@@ -439,6 +597,31 @@ function valueGrounded(num: AnswerNumber, sources: readonly number[][]): boolean
   return sources.some((source) => anyInRange(source, num.value - spread, num.value + spread - 1e-12))
 }
 
+/** Largest divisor a count ratio may use, e.g. answers / engines or answers / locations. */
+const MAX_RATIO_DIVISOR = 12
+
+/**
+ * An integer derived in one step from two integers the answer itself states
+ * and grounds: a + b, a - b, or a / b exactly with b a small count (1,200
+ * answers over 3 engines is 400 queries). Operands are the answer's own
+ * figures, not any number in the evidence: a large tool result holds enough
+ * small integers to sum to almost anything, which would ground invented
+ * counts. For the same reason 0 to 3 ("2 engines") only ever divide.
+ */
+function integerDerived(value: number, operands: ReadonlyMap<number, number>): boolean {
+  const has = (operand: number, other: number) => (operands.get(operand) ?? 0) > (operand === other ? 1 : 0)
+  for (const a of operands.keys()) {
+    if (a <= 3 || a === value) continue
+    const addend = value - a
+    if (addend > 3 && has(addend, a)) return true // a + b
+    const subtrahend = a - value
+    if (subtrahend > 3 && has(subtrahend, a)) return true // a - b
+    const divisor = a / value
+    if (Number.isInteger(divisor) && divisor >= 2 && divisor <= MAX_RATIO_DIVISOR && has(divisor, a)) return true // a / b
+  }
+  return false
+}
+
 export interface GroundingResult {
   ungrounded: AnswerNumber[]
   checked: number
@@ -451,11 +634,24 @@ export function groundAnswerNumbers(capture: TurnCapture, truth: GroundTruth): G
     ...capture.tools.map((tool) => `${toolText(tool)}\n${tool.truncationNote ?? ''}\n${safeJson(tool.args)}`),
     `${safeJson(truth.facts)}\n${safeJson(truth.placeholders)}\n${truth.basis}`,
     capture.prompt,
+    // The project context Aero's system prompt stated (Property and query counts).
+    capture.systemContext ?? '',
   ]
   const sources = texts.map(extractEvidenceNumbers)
   // Percentages the answer derives from its own (separately grounded) figures.
   const own = [...new Set(numbers.filter((num) => !num.percent).map((num) => num.value))].sort((a, b) => a - b)
-  const ungrounded = numbers.filter((num) => !valueGrounded(num, num.percent ? [...sources, own] : sources))
+  const direct = numbers.filter((num) => valueGrounded(num, num.percent ? [...sources, own] : sources))
+  // Integers derived from the answer's own grounded integers, one operation deep.
+  const operands = new Map<number, number>()
+  for (const num of extractAnswerNumbers(capture.answer, { includeSmallIntegers: true })) {
+    if (num.percent || num.approx || num.decimals > 0) continue
+    if (num.value > 3 && !direct.some((grounded) => grounded.raw === num.raw)) continue
+    operands.set(num.value, (operands.get(num.value) ?? 0) + 1)
+  }
+  const ungrounded = numbers.filter((num) => {
+    if (direct.includes(num)) return false
+    return num.percent || num.approx || num.decimals > 0 || !integerDerived(num.value, operands)
+  })
   return { ungrounded, checked: numbers.length, partialEvidence: evidenceIsPartial(capture.tools) }
 }
 
@@ -529,10 +725,76 @@ const CITED_INSTEAD: readonly RegExp[] = [
   /\binstead of (?:you|your \w+)\b[^.\n|]{1,40}\bcit(?:ed|es|ing|ations?)\b/i,
 ]
 
+/** A host name such as listings.example or www.example.com. */
+const DOMAIN = /\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b/i
+
+function tableCells(line: string): string[] {
+  return splitRow(line.trim()).slice(1, -1)
+}
+
+/**
+ * Whether a "cited instead" phrase is about domains: it names one itself
+ * ("cited listings.example instead of you"), or it heads a list of them (the
+ * rest of its line, the table column it heads, or the bullets or table rows
+ * right under it). Cited domains are citations, so that framing is correct.
+ */
+function citedInsteadOverDomains(answer: string, match: RegExpMatchArray): boolean {
+  if (DOMAIN.test(match[0])) return true
+  const at = match.index ?? 0
+  const lines = answer.split('\n')
+  let offset = 0
+  let row = 0
+  while (row < lines.length - 1 && offset + lines[row]!.length < at) offset += lines[row++]!.length + 1
+  const line = lines[row]!
+  const items: string[] = []
+  if (line.trim().startsWith('|')) {
+    // A table header: the cells under it in the same column.
+    const column = tableCells(line).findIndex((cell) => CITED_INSTEAD.some((pattern) => pattern.test(cell)))
+    if (column < 0) return false
+    for (const next of lines.slice(row + 1)) {
+      if (!next.trim().startsWith('|')) break
+      if (!isTableSeparator(next)) items.push(tableCells(next)[column] ?? '')
+    }
+  } else {
+    const rest = line.slice(at - offset + match[0].length).replace(/^[\s:—–*_)-]+/, '').trim()
+    if (rest) {
+      items.push(...rest.split(/,\s*|;\s*/))
+    } else {
+      // A heading: the bullets or table data rows below it, after at most one
+      // lead-in line ending in a colon ("The engines cited these sites:").
+      let leadIn = false
+      for (let next = row + 1; next < lines.length && items.length < 12; next++) {
+        const text = lines[next]!
+        if (!text.trim()) {
+          if (items.length > 0) break
+          continue
+        }
+        if (text.trim().startsWith('|')) {
+          const following = lines[next + 1]
+          if (!isTableSeparator(text) && !(following !== undefined && isTableSeparator(following))) items.push(tableCells(text).join(' '))
+        } else if (BULLET.test(text)) {
+          items.push(text)
+        } else if (items.length === 0 && !leadIn && /:\W*$/.test(text.trim())) {
+          leadIn = true
+        } else {
+          break
+        }
+      }
+    }
+  }
+  const listed = items.map((item) => item.trim()).filter((item) => item.length > 0)
+  return listed.length > 0 && listed.every((item) => DOMAIN.test(item))
+}
+
 export function checkNamedVsCited(capture: TurnCapture, truth: GroundTruth): CheckResult {
-  const phrase = CITED_INSTEAD.map((pattern) => pattern.exec(capture.answer)).find((match) => match !== null)
+  const matches = CITED_INSTEAD.flatMap((pattern) => [...capture.answer.matchAll(new RegExp(pattern.source, 'gi'))])
+  const phrase = matches.find((match) => !citedInsteadOverDomains(capture.answer, match))
   if (!phrase) {
-    return { id: CHECK_IDS.namedVsCited, outcome: 'pass', detail: 'no "cited instead" framing' }
+    return {
+      id: CHECK_IDS.namedVsCited,
+      outcome: 'pass',
+      detail: matches.length > 0 ? '"cited instead" heads only lists of cited domains' : 'no "cited instead" framing',
+    }
   }
   const evidence = [...capture.tools.map((tool) => `${tool.name}\n${toolText(tool)}`), safeJson(truth.facts)].join('\n')
   if (!NAMED_INSTEAD_DATA.test(evidence)) {
@@ -573,12 +835,126 @@ export function checkPooledClasses(capture: TurnCapture, truth: GroundTruth): Ch
     }
   }
   // A question that names its class ("non-brand visibility") scopes the answer too.
-  if (RATE_CLAIM.test(capture.answer) && !MENTIONS_CLASS.test(capture.answer) && !MENTIONS_CLASS.test(capture.prompt)) {
+  if (MENTIONS_CLASS.test(capture.prompt)) {
+    return { id: CHECK_IDS.pooledClasses, outcome: 'pass', detail: 'the question names its query class' }
+  }
+  if (RATE_CLAIM.test(capture.answer) && !MENTIONS_CLASS.test(capture.answer)) {
     return {
       id: CHECK_IDS.pooledClasses,
       outcome: 'warn',
       detail: 'reports visibility rates without saying whether they are branded or non-brand',
     }
   }
+  // The lead figure sets what the reader takes away: a class named further
+  // down does not scope a headline rate that never said its class.
+  const lead = leadRateBlock(capture.answer)
+  if (lead && !MENTIONS_CLASS.test(lead.upTo)) {
+    return {
+      id: CHECK_IDS.pooledClasses,
+      outcome: 'warn',
+      detail: `the lead figure ("${clip(lead.rate, 80)}") does not say whether it is branded or non-brand; a class named later does not scope it`,
+    }
+  }
   return { id: CHECK_IDS.pooledClasses, outcome: 'pass', detail: 'query classes kept apart' }
+}
+
+const PERCENT_FIGURE = /\d+(?:\.\d+)?\s?%/
+const VISIBILITY_WORD = /\b(?:mention\w*|cit(?:ed|es|ing|ation\w*)|visib\w*|coverage)\b/i
+
+/**
+ * The answer's first paragraph that states a visibility rate (a percentage
+ * and a visibility word anywhere in it, since "**Mention coverage**: flat.
+ * 40.0%" splits them across sentences), with everything before it: earlier
+ * paragraphs and headings may set the class for it.
+ */
+function leadRateBlock(answer: string): { rate: string; upTo: string } | null {
+  let seen = ''
+  for (const block of answer.split(/\n\s*\n/)) {
+    seen += `${block}\n\n`
+    const figure = PERCENT_FIGURE.exec(block)
+    if (!figure || !VISIBILITY_WORD.test(block)) continue
+    const flat = block.replace(/\s+/g, ' ')
+    const at = flat.search(PERCENT_FIGURE)
+    // Start the quote at a word boundary, up to 50 characters before the figure.
+    const from = at <= 50 ? 0 : flat.indexOf(' ', at - 50) + 1
+    return { rate: flat.slice(from, at + figure[0].length + 10).trim(), upTo: seen }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// 8. A net figure that contradicts its own parts
+
+const NOT_A_RATE = String.raw`(?!\s?(?:%|pp\b|pts?\b|points?\b|percent))`
+/** A whole count ("40", "1,200") before a word: not the tail of a decimal, not a rate or points. */
+const LEAD_COUNT = String.raw`(?<![\d.,])(\d+(?:,\d{3})*)${NOT_A_RATE}`
+/** A whole count ending the match: not the head of a decimal, not a rate or points. */
+const TAIL_COUNT = String.raw`(\d+(?:,\d{3})*)(?![.,]?\d)${NOT_A_RATE}`
+/** "40 gained", "+40 gained citations", "gained 40". */
+const GAINED = new RegExp(String.raw`${LEAD_COUNT}\s+(?:\w+\s+)?(?:gained|gains|added)\b|\b(?:gained|gains|added)(?::\s*|\s+)${TAIL_COUNT}`, 'gi')
+/** "34 lost", "-34 lost", "lost 34". */
+const LOST = new RegExp(String.raw`${LEAD_COUNT}\s+(?:\w+\s+)?(?:lost|losses|dropped|removed)\b|\b(?:lost|losses|dropped|removed)(?::\s*|\s+)${TAIL_COUNT}`, 'gi')
+/** "net -6", "net +6 on mention", "net change of 6", "a net loss of 6". */
+const NET = new RegExp(String.raw`\bnet\b(?:\s+(change|move|movement|result|effect|shift|gain|increase|loss|decrease|drop))?(?:\s+(?:of|is|was)|\s*[=:])?\s*(?:\(\s*)?([+\-−–]\s?)?${TAIL_COUNT}`, 'gi')
+
+interface CountHit {
+  start: number
+  end: number
+  value: number
+}
+
+function countHits(pattern: RegExp, text: string, skip: readonly CountHit[]): CountHit[] {
+  return [...text.matchAll(pattern)]
+    .map((match) => ({ start: match.index, end: match.index + match[0].length, value: Number((match[1] ?? match[2] ?? '').replace(/,/g, '')) }))
+    .filter((hit) => Number.isFinite(hit.value) && !skip.some((net) => hit.start < net.end && net.start < hit.end))
+}
+
+/**
+ * Warns when a signed net count contradicts the gained and lost counts written
+ * beside it ("40 gained, 34 lost, net -6"). Conservative: a net figure is only
+ * checked when exactly one gained and one lost count sit in its own clause
+ * (after the previous net figure on the line, or else after it), and only
+ * counts are read, never rates or points.
+ */
+export function checkNetArithmetic(capture: TurnCapture): CheckResult {
+  let checked = 0
+  for (const line of capture.answer.split('\n')) {
+    const nets = [...line.matchAll(NET)].map((match) => {
+      const word = (match[1] ?? '').toLowerCase()
+      const symbol = (match[2] ?? '').trim()
+      const sign = /^[-−–]$/.test(symbol) || /^(?:loss|decrease|drop)$/.test(word) ? -1 : symbol === '+' || /^(?:gain|increase)$/.test(word) ? 1 : 0
+      return { start: match.index, end: match.index + match[0].length, value: Number(match[3]!.replace(/,/g, '')), sign, raw: match[0].trim() }
+    })
+    if (nets.length === 0) continue
+    const gained = countHits(GAINED, line, nets)
+    const lost = countHits(LOST, line, nets)
+    for (const [index, net] of nets.entries()) {
+      const from = index === 0 ? 0 : nets[index - 1]!.end
+      const to = nets[index + 1]?.start ?? line.length
+      const within = (low: number, high: number) => (hit: CountHit) => hit.start >= low && hit.end <= high
+      let gains = gained.filter(within(from, net.start))
+      let losses = lost.filter(within(from, net.start))
+      if (gains.length !== 1 || losses.length !== 1) {
+        gains = gained.filter(within(net.end, to))
+        losses = lost.filter(within(net.end, to))
+      }
+      if (gains.length !== 1 || losses.length !== 1) continue
+      checked++
+      const expected = gains[0]!.value - losses[0]!.value
+      const stated = net.sign === 0 ? Math.abs(expected) === net.value : net.sign * net.value === expected
+      if (!stated) {
+        const shown = expected > 0 ? `+${expected}` : String(expected)
+        return {
+          id: CHECK_IDS.netArithmetic,
+          outcome: 'warn',
+          detail: `"${clip(net.raw, 40)}" contradicts its parts: ${gains[0]!.value} gained less ${losses[0]!.value} lost is ${shown}`,
+        }
+      }
+    }
+  }
+  return {
+    id: CHECK_IDS.netArithmetic,
+    outcome: 'pass',
+    detail: checked > 0 ? `${checked} net figure(s) match their gained and lost parts` : 'no net figure with gained and lost parts beside it',
+  }
 }

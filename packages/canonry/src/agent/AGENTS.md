@@ -161,15 +161,44 @@ prompt is mounted, not crammed into a single `-e` arg.
 
 ## Evidence-safe tool-result truncation (OSS-C)
 
-`truncateToolResult` (`mcp-to-agent-tool.ts`) renders a tool result under the
-20 KB cap WITHOUT cutting a row mid-structure. The previous guard blind-sliced
-the serialized JSON, which could split an array element halfway (invalid JSON)
-and silently drop a cited evidence row mid-object. Now: an object whose largest
-field is an array drops WHOLE trailing rows and stamps `__truncated` +
-`__omittedRows`; a top-level array is wrapped as `{ items, __truncated,
-__omittedRows }`; only a giant scalar with nothing structured to drop falls back
-to a marked string slice. Every retained row stays byte-intact; the programmatic
-`details` envelope is never trimmed, only the model-facing text.
+`truncateToolResult` (`mcp-to-agent-tool.ts`) renders a tool result as
+COMPACT JSON (no indent: indenting cost about 40% more characters for the same
+rows) under the 20 KB cap WITHOUT cutting a row mid-structure. The previous
+guard blind-sliced the serialized JSON, which could split an array element
+halfway (invalid JSON) and silently drop a cited evidence row mid-object. Now:
+an object whose largest field is an array drops WHOLE trailing rows and stamps
+`__truncated` + `__omittedRows`; a top-level array is wrapped as `{ items,
+__truncated, __omittedRows }`; only a giant scalar with nothing structured to
+drop falls back to a marked string slice. Every retained row stays byte-intact;
+the programmatic `details` envelope is never trimmed, only the model-facing
+text.
+
+When other lists sit beside or inside the largest one, a staged fair-share trim
+competes with the largest-array cut, and whichever keeps more outer rows wins.
+It shrinks lists evenly (longest first) in stages: lists over 25 rows down to
+25, then per-row detail lists down to 1 entry per row, then every top-level
+list (rollups such as markets and rankings included) down to 1 row, then detail
+to 0, then top-level lists to 0, scalar lists last. A refill pass then hands
+rows back to earlier stages, so a short rollup is never emptied or cut below a
+longer list. Omission markers (`__truncated`, `__omittedRowsByField`) sit on
+each owning object.
+
+Every cut is named under `__truncation` (`keptItems` "<kept> of <total>" for
+paths that lost rows, `droppedKeys` for paths emptied). When rows are cut from
+a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
+`nextPageToken`, `next_cursor`), the cursor is left as the tool sent it and
+`__truncation.cursors` says it skips the cut rows and what `limit` to re-request
+with. Lists the TOOL itself returned partially (its own total above the rows,
+or `truncated: true`) are named under `__partialLists`, always the FIRST key,
+whether or not the cap cut anything; a result with nothing partial serializes
+byte-identical to plain compact JSON.
+
+A misspelled tool name is corrected before pi prepares the call: the
+`agent.streamFn` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
+tool within a small edit distance (never toward a hidden or disallowed tool),
+and the tool-result message records the name the model wrote as
+`aeroRequestedToolName`. Without a unique visible match, the refusal names the
+likely tool ("Did you mean ...?"), including which toolkit to load first.
 
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames

@@ -67,6 +67,10 @@ const MARKETS_NOTE = 'Markets can share Properties, so market Property counts an
 const SOURCES_COUNTING = 'Each count is the number of answers whose stored sources cite the domain, at most once per answer; the share is of every answer in scope, including answers that cited nothing.'
 const QUESTION_LEGEND = 'M+ the answer text names the Property, M- it does not, M? not checked; C+ a source links the Property\'s own page, C- it does not, C? source capture incomplete; "no answer" means the slot was never answered.'
 const MAX_METRO_READS = 40
+/** Metros listed worst-first in the portfolio facts. */
+const MAX_WORST_MARKETS = 25
+/** Zero-mention Property names listed per metro in the market facts. */
+const MAX_ZERO_NAMES = 10
 /** Pages of 100 query-engine rows read from the visibility report. */
 const MAX_REPORT_PAGES = 25
 
@@ -173,9 +177,9 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
 const projectPath = (ctx: GroundTruthContext) => `/projects/${encodeURIComponent(ctx.project)}`
 
 /** Truth reads the whole ranking: limit 50 and every market level, where Aero keeps the default. */
-function readPortfolio(ctx: GroundTruthContext): Promise<MeasurementPortfolioSummaryResponse> {
+function readPortfolio(ctx: GroundTruthContext, queryClass: 'branded' | 'non-brand' = 'non-brand'): Promise<MeasurementPortfolioSummaryResponse> {
   return getJson(ctx, `${projectPath(ctx)}/measurement-portfolio-summary`, {
-    queryClass: 'non-brand',
+    queryClass,
     limit: 50,
     includeNestedMarkets: true,
   })
@@ -541,6 +545,8 @@ async function portfolioWeakest(ctx: GroundTruthContext): Promise<BuiltTruth> {
     .map(item => `${item.name}: ${item.answers} answers for ${item.property}`)
   const sources = summary.weakestAnswerSources
   const shown = Math.min(10, rows.length)
+  // The API sorts markets worst-first; the top-level ones are the metros.
+  const metrosWorstFirst = summary.markets.filter(market => market.parentGroupKey === null)
   return {
     facts: {
       project: ctx.project,
@@ -562,8 +568,17 @@ async function portfolioWeakest(ctx: GroundTruthContext): Promise<BuiltTruth> {
         shown: `${shown} of the ${rows.length} weakest rows (${summary.totalProperties} Properties in total)`,
         rows: rows.slice(0, shown).map(weakRow),
       },
+      worstMarkets: {
+        order: 'ordered worst mention first, as the portfolio summary returns them (citation breaks a mention tie; unavailable rates last), so its first N rows are the worst N metros',
+        total: metrosWorstFirst.length,
+        ...(metrosWorstFirst.length > MAX_WORST_MARKETS ? { shown: `the ${MAX_WORST_MARKETS} worst of ${metrosWorstFirst.length}` } : {}),
+        rows: metrosWorstFirst.slice(0, MAX_WORST_MARKETS).map(market => `${market.label}: mention ${fmtMetric(market.mentionCoverage)}, citation ${fmtMetric(market.citationCoverage)}, ${market.propertyCount} ${market.propertyCount === 1 ? 'Property' : 'Properties'}`),
+      },
       namedInsteadNote: NAMED_INSTEAD,
-      largestNamedInsteadCounts: largestNamed,
+      largestNamedInsteadCounts: {
+        note: `The largest per-Property counts among the ${rows.length} weakest rows the summary returned (${summary.totalProperties} Properties in total): a sample, not a portfolio-wide ranking of names.`,
+        top: largestNamed,
+      },
       weakestAnswerSources: sources
         ? {
             properties: sources.properties,
@@ -642,20 +657,29 @@ async function marketGaps(ctx: GroundTruthContext): Promise<BuiltTruth> {
   const shownTop = top.length > 25 ? [...top.slice(0, 18), ...top.slice(-5)] : top
   let zeroByMetro: unknown = 'unknown'
   if (overview.ok && metros.ok) {
-    const tally = new Map<string, { properties: number; zeroMention: number; zeroMentionAndCitation: number }>()
+    const tally = new Map<string, { properties: number; zeroMention: number; zeroMentionAndCitation: number; names: string[] }>()
     for (const row of overview.value.rows) {
       for (const metro of metros.value.get(row.targetKey) ?? ['(metro not resolved)']) {
-        const entry = tally.get(metro) ?? { properties: 0, zeroMention: 0, zeroMentionAndCitation: 0 }
+        const entry = tally.get(metro) ?? { properties: 0, zeroMention: 0, zeroMentionAndCitation: 0, names: [] }
         entry.properties++
         if (metricValue(row.mentionCoverage) === 0) {
           entry.zeroMention++
+          entry.names.push(row.label)
           if (metricValue(row.citationCoverage) === 0) entry.zeroMentionAndCitation++
         }
         tally.set(metro, entry)
       }
     }
+    // Names, so a Property the answer places in a metro can be checked
+    // against the data rather than filled in from outside knowledge.
     zeroByMetro = [...tally]
-      .map(([metro, counts]) => ({ metro, ...counts }))
+      .map(([metro, { names, ...counts }]) => ({
+        metro,
+        ...counts,
+        zeroMentionProperties: names.length > MAX_ZERO_NAMES
+          ? [...names.sort((a, b) => a.localeCompare(b)).slice(0, MAX_ZERO_NAMES), `and ${names.length - MAX_ZERO_NAMES} more`]
+          : names.sort((a, b) => a.localeCompare(b)),
+      }))
       .sort((left, right) => right.zeroMentionAndCitation - left.zeroMentionAndCitation || left.metro.localeCompare(right.metro))
   }
   return {
@@ -1092,29 +1116,67 @@ function questionFacts(rows: MeasurementPropertyQuestionRow[], total: number): R
   }
 }
 
+const EVIDENCE_RECOUNT_NOTE = 'A recount of the source-link hosts the evidence read returned. Each answer\'s links can be capped (answersWithLinksCapped) and the count differs in method from citedDomainsTotal, so it may be lower; citedDomainsTotal is the API\'s own figure.'
+
 function answerSourceFacts(answers: MeasurementAnswerEvidence[]): Record<string, unknown> {
   const domains = new Map<string, number>()
   let citingOwnPage = 0
   let withoutSources = 0
   let mentionNotChecked = 0
+  let capped = 0
   for (const answer of answers) {
     const hosts = new Set(answer.sources.map(source => hostOf(source.sourceUrl)).filter((host): host is string => host !== null))
     for (const host of hosts) domains.set(host, (domains.get(host) ?? 0) + 1)
     if (answer.sources.some(source => source.classification === 'assigned')) citingOwnPage++
     if (answer.sourceCount === 0) withoutSources++
     if (answer.mentioned === null) mentionNotChecked++
+    if (answer.sourcesTruncated) capped++
   }
   return {
+    note: EVIDENCE_RECOUNT_NOTE,
     answers: answers.length,
     answersCitingItsOwnPage: citingOwnPage,
     answersWithNoSources: withoutSources,
     answersWithMentionNotChecked: mentionNotChecked,
-    domainTotal: domains.size,
+    answersWithLinksCapped: capped,
+    distinctHosts: domains.size,
     top: [...domains]
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .slice(0, 10)
       .map(([domain, count]) => `${domain}: ${count} answers`),
   }
+}
+
+interface ApiCitedDomains {
+  source: string
+  citedDomainsTotal: number
+  top: string[]
+  answers?: number
+}
+
+/**
+ * The API's own cited-domain count for a Property, verbatim: from the
+ * competitors read when it carries `citedDomains`, else from the portfolio
+ * summary row. Null when neither returned one.
+ */
+function apiCitedDomains(competitors: unknown, row: PortfolioRow | undefined): ApiCitedDomains | null {
+  const read = (competitors ?? {}) as { citedDomains?: Array<{ domain: string; answers: number }>; citedDomainsTotal?: number; citedDomainsAnswers?: number }
+  if (Array.isArray(read.citedDomains) && typeof read.citedDomainsTotal === 'number') {
+    return {
+      source: 'measurement-property-competitors citedDomains',
+      citedDomainsTotal: read.citedDomainsTotal,
+      top: read.citedDomains.map(item => `${item.domain}: ${item.answers} answers`),
+      ...(typeof read.citedDomainsAnswers === 'number' ? { answers: read.citedDomainsAnswers } : {}),
+    }
+  }
+  if (row && 'citedDomains' in row && typeof row.citedDomainsTotal === 'number') {
+    return {
+      source: 'measurement-portfolio-summary row citedDomains',
+      citedDomainsTotal: row.citedDomainsTotal,
+      top: row.citedDomains.map(item => `${item.domain}: ${item.answers} answers`),
+    }
+  }
+  return null
 }
 
 async function propertyDrilldown(ctx: GroundTruthContext, arg: string | undefined): Promise<BuiltTruth> {
@@ -1146,16 +1208,18 @@ async function propertyDrilldown(ctx: GroundTruthContext, arg: string | undefine
     const basis = competitors.value.basis
     namedInstead = {
       note: NAMED_INSTEAD,
+      fields: 'Field names are the tool\'s own. occurrences: answers that wrote the name, one per answer, so a count of answers. recommendationOccurrences: occurrences summed over every name. targetMissResults: answers that neither named nor cited the Property.',
       basis: basis.state === 'available'
-        ? `${basis.answeredResults} answered, ${basis.targetMissResults} neither named nor cited it, ${basis.recommendationOccurrences} name occurrences`
+        ? `answeredResults ${basis.answeredResults}, targetMissResults ${basis.targetMissResults}, recommendationOccurrences ${basis.recommendationOccurrences}`
         : `unavailable (${basis.reason})`,
       total: competitors.value.total,
-      top: competitors.value.competitors.map(item => `${item.name}: ${item.occurrences} answers, ${item.questionTotal} queries, engines ${item.providers.join('/')}`),
+      top: competitors.value.competitors.map(item => `${item.name}: occurrences ${item.occurrences}, questionTotal ${item.questionTotal}, engines ${item.providers.join('/')}`),
     }
   } else {
     namedInstead = failed(competitors)
   }
   const metro = row?.metro?.label ?? (metros?.ok ? metros.value.get(target.targetKey)?.join(', ') : undefined) ?? null
+  const apiDomains = apiCitedDomains(competitors.ok ? competitors.value : undefined, row)
   return {
     facts: {
       project: ctx.project,
@@ -1182,9 +1246,10 @@ async function propertyDrilldown(ctx: GroundTruthContext, arg: string | undefine
       tie: inTie && tie ? `One of ${tie.count} Properties tied at ${percent(tie.mentionRate)} mention and ${percent(tie.citationRate)} citation (ordered by name, not ranked).` : null,
       nonBrandQueries: questions.ok ? questionFacts(questions.value.rows, questions.value.total) : failed(questions),
       namedInstead,
-      citedDomains: answers.ok
-        ? answerSourceFacts(answers.value)
-        : { fromSummaryRow: row && 'citedDomains' in row ? row.citedDomains.map(item => `${item.domain}: ${item.answers} answers`) : [], evidence: failed(answers) },
+      citedDomains: {
+        ...(apiDomains ?? { citedDomainsTotal: 'not returned by any read for this Property; only the evidence recount below' }),
+        evidenceRecount: answers.ok ? answerSourceFacts(answers.value) : failed(answers),
+      },
     },
     placeholders: { property: target.label },
     basis: `Property ${target.targetKey}: GET measurement-overview (scope property, non-brand and branded), measurement-property-questions, measurement-property-competitors and measurement-property-evidence (shape answers), all non-brand; picked ${arg ? `by name "${arg}"` : 'as the weakest-rate row whose answers name another place most often'}.`,
@@ -1246,22 +1311,54 @@ async function competitorsNamed(ctx: GroundTruthContext): Promise<BuiltTruth> {
   }
 }
 
+const UNATTRIBUTED_NOTE = 'Answers left out of a mention rate because they could not be tied to one Property. They leave the numerator and the denominator, so they are neither mentioned nor not mentioned.'
+
+/** Unattributed answers in one class: from the portfolio summary on an advanced project, else the report population. */
+function unattributedFacts(
+  summary: Soft<MeasurementPortfolioSummaryResponse> | undefined,
+  report: Soft<VisibilityReportResponse>,
+): unknown {
+  if (summary?.ok) {
+    const mention = summary.value.metrics.mentionCoverage
+    return mention.state === 'available' ? mention.unattributed ?? 0 : `mention unavailable (${mention.reason})`
+  }
+  if (report.ok) {
+    const rate = report.value.populations[0]?.summary.mentionCoverage
+    if (!rate) return 'not returned'
+    return rate.rate === null ? `mention unavailable (${rate.reason ?? 'unknown'})` : rate.unattributed ?? 0
+  }
+  return summary && !summary.ok ? failed(summary) : failed(report)
+}
+
+function classAnswers(report: Soft<VisibilityReportResponse>): unknown {
+  if (!report.ok) return failed(report)
+  const population = report.value.populations[0]
+  return population
+    ? { answers: population.summary.answerCount, queries: population.summary.queryCount, mention: fmtRate(population.summary.mentionCoverage), citation: fmtRate(population.summary.citationCoverage) }
+    : 'not returned'
+}
+
 async function dataQuality(ctx: GroundTruthContext): Promise<BuiltTruth> {
   const advanced = ctx.kind === 'advanced'
-  const [runs, quality, summary, report] = await Promise.all([
+  // Both classes: a caveat in one class (unattributed answers, excluded
+  // Properties) is still a caveat on the numbers the operator sends.
+  const [runs, quality, summary, brandedSummary, report, brandedReport] = await Promise.all([
     soft(readRuns(ctx)),
     advanced ? soft(getJson<MeasurementDataQualityResponse>(ctx, `${projectPath(ctx)}/measurement-data-quality`)) : Promise.resolve(undefined),
     advanced ? soft(readPortfolio(ctx)) : Promise.resolve(undefined),
+    advanced ? soft(readPortfolio(ctx, 'branded')) : Promise.resolve(undefined),
     soft(readReport(ctx, { queryClass: 'non-brand', limit: 1 })),
+    soft(readReport(ctx, { queryClass: 'branded', limit: 1 })),
   ])
   if (!runs.ok && !quality?.ok) throw new Error(`data-quality: no run read succeeded (${runs.error})`)
   const latest = runs.ok ? runs.value.latest : null
   const completeness = latest ? await soft(getJson<RunCompletenessDto>(ctx, `/runs/${encodeURIComponent(latest.id)}/completeness`)) : undefined
   const measurement = report.ok ? report.value.selection.measurement : undefined
-  const population = report.ok ? report.value.populations[0] : undefined
+  const caveats: string[] = []
   let completenessFacts: unknown = 'no sweep to check'
   if (completeness?.ok) {
     const value = completeness.value
+    const fill = value.latestFill
     completenessFacts = {
       runId: value.runId,
       status: value.status,
@@ -1272,11 +1369,27 @@ async function dataQuality(ctx: GroundTruthContext): Promise<BuiltTruth> {
       missing: value.missing,
       missingByEngine: value.missingByProvider,
       refusal: value.refusal?.code ?? null,
-      latestFill: value.latestFill ? `${value.latestFill.status}: filled ${value.latestFill.filled} of ${value.latestFill.expected}` : null,
+      latestFill: fill ? `${fill.status}: filled ${fill.filled} of ${fill.expected}` : null,
     }
+    if (fill) caveats.push(`The latest sweep (${value.runId}) had missing answers filled by a later fill (${fill.status}: filled ${fill.filled} of ${fill.expected}), so some of its answers were recorded after the sweep itself.`)
+    if (value.missing > 0) caveats.push(`The latest sweep is missing ${value.missing} of ${value.expected} expected answers.`)
   } else if (completeness) {
     completenessFacts = failed(completeness)
   }
+  const unattributed = {
+    note: UNATTRIBUTED_NOTE,
+    'non-brand': unattributedFacts(summary, report),
+    branded: unattributedFacts(brandedSummary, brandedReport),
+  }
+  for (const queryClass of ['non-brand', 'branded'] as const) {
+    const count = unattributed[queryClass]
+    if (typeof count === 'number' && count > 0) caveats.push(`${count} ${queryClass} answers are unattributed and left out of the ${queryClass} mention rate.`)
+  }
+  const excluded = (read: Soft<MeasurementPortfolioSummaryResponse> | undefined): unknown => (
+    !read ? 'not read' : read.ok ? countBy(read.value.mentionRanking.excluded, row => row.reason) : failed(read)
+  )
+  const excludedByClass = advanced ? { 'non-brand': excluded(summary), branded: excluded(brandedSummary) } : undefined
+  if (measurement && measurement.pendingAssignmentCount > 0) caveats.push(`${measurement.pendingAssignmentCount} query assignments are pending a sweep.`)
   return {
     facts: {
       project: ctx.project,
@@ -1288,17 +1401,12 @@ async function dataQuality(ctx: GroundTruthContext): Promise<BuiltTruth> {
           }
         : failed(runs),
       latestSweepCompleteness: completenessFacts,
+      caveats: caveats.length > 0 ? caveats : 'none found in these reads',
       ...(quality
         ? { measurementDataQuality: quality.ok ? quality.value : failed(quality) }
         : {}),
-      ...(summary?.ok
-        ? {
-            mentionAnswersUnattributed: summary.value.metrics.mentionCoverage.state === 'available'
-              ? summary.value.metrics.mentionCoverage.unattributed ?? 0
-              : `mention unavailable (${summary.value.metrics.mentionCoverage.reason})`,
-            propertiesExcludedFromRanking: countBy(summary.value.mentionRanking.excluded, row => row.reason),
-          }
-        : {}),
+      unattributedAnswersByClass: unattributed,
+      ...(excludedByClass ? { propertiesExcludedFromRankingByClass: excludedByClass } : {}),
       reportMeasurement: measurement
         ? {
             state: measurement.state,
@@ -1310,11 +1418,13 @@ async function dataQuality(ctx: GroundTruthContext): Promise<BuiltTruth> {
             availability: report.ok ? report.value.selection.availability.state : null,
           }
         : (report.ok ? 'not returned' : failed(report)),
-      nonBrandAnswers: population
-        ? { answers: population.summary.answerCount, queries: population.summary.queryCount, mention: fmtRate(population.summary.mentionCoverage), citation: fmtRate(population.summary.citationCoverage) }
-        : 'not returned',
+      answersByClass: {
+        note: 'Each class is its own population; never add or average them.',
+        'non-brand': classAnswers(report),
+        branded: classAnswers(brandedReport),
+      },
     },
-    basis: `GET runs (answer-visibility); runs/{id}/completeness for the latest sweep${advanced ? '; measurement-data-quality; measurement-portfolio-summary' : ''}; visibility-report (non-brand) selection.`,
+    basis: `GET runs (answer-visibility); runs/{id}/completeness for the latest sweep${advanced ? '; measurement-data-quality; measurement-portfolio-summary (non-brand and branded)' : ''}; visibility-report (non-brand and branded) selection and summary.`,
   }
 }
 

@@ -38,6 +38,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
+import { aeroProjectShape } from '../../src/agent/project-shape.js'
 import type { CanonryConfig } from '../../src/config.js'
 import type { CostReader, CostSnapshot, RunnerTarget } from './runner.js'
 import type { EvalLane, ProjectKind } from './types.js'
@@ -668,6 +669,10 @@ export async function startTarget(opts: TargetOptions): Promise<EvalTarget> {
         return viewerHeaders
       },
       costReader: projectId ? createDbCostReader(db, projectId) : undefined,
+      // The same project-shape text Aero's system prompt gets on both lanes,
+      // read per turn from the copy, so the checks and the grader can ground
+      // the counts it states.
+      systemContext: () => (projectId ? aeroProjectShape(db!, projectId).prompt.trim() || undefined : undefined),
       db,
       dbPath,
       workDir: tempDir,

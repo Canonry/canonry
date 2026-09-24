@@ -383,6 +383,59 @@ describe('visibility report route', () => {
       .toEqual({ id: spotCheck, explicit: true })
   })
 
+  it('still reads pre-plan planless sweeps in mode simple on a v2 project', async () => {
+    seedSimpleRun('simple-before-plan', FIRST, true)
+    const frozenPlan = plan()
+    const version = seedVersion(1, frozenPlan)
+    const advancedRun = seedAdvancedRun({ versionId: version, frozenPlan, createdAt: SECOND })
+    activate(version)
+
+    // The latest planless sweep, a date window over the pre-plan history, and a
+    // pinned pre-plan run all answer 200 in simple mode, as before the plan.
+    for (const query of [
+      'mode=simple&queryClass=non-brand',
+      `mode=simple&queryClass=non-brand&from=${FIRST}&to=${FIRST}`,
+      'mode=simple&runId=simple-before-plan&queryClass=non-brand',
+    ]) {
+      const result = await report(query)
+      expect(result.status, query).toBe(200)
+      const body = result.body as VisibilityReportResponse
+      expect(body.selection.mode, query).toBe('simple')
+      expect(body.selection.run.id, query).toBe('simple-before-plan')
+      expect(body.selection.measurement.state, query).toBe('measured')
+    }
+
+    // The default and the advanced read are unchanged.
+    for (const query of ['queryClass=non-brand', 'mode=advanced&queryClass=non-brand']) {
+      const result = await report(query)
+      expect(result.status).toBe(200)
+      expect((result.body as VisibilityReportResponse).selection.run.id).toBe(advancedRun)
+    }
+  })
+
+  it('refuses mode simple on a v2 project with no planless sweep instead of answering not measured', async () => {
+    const frozenPlan = plan()
+    const version = seedVersion(1, frozenPlan)
+    const advancedRun = seedAdvancedRun({ versionId: version, frozenPlan, createdAt: SECOND })
+    activate(version)
+
+    const refused = await report('mode=simple&queryClass=non-brand')
+    expect(refused.status).toBe(400)
+    expect(refused.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+    expect((refused.body as { error: { message: string } }).error.message).toContain('mode "advanced"')
+
+    // An explicit date window is a read of pre-plan history, so an empty one
+    // stays an honest "not measured" rather than an error.
+    const windowed = await report(`mode=simple&queryClass=non-brand&from=${FIRST}&to=${THIRD}`)
+    expect(windowed.status).toBe(200)
+    expect((windowed.body as VisibilityReportResponse).selection.measurement.state).toBe('not-measured')
+
+    // The default read is unchanged.
+    const auto = await report('queryClass=non-brand')
+    expect(auto.status).toBe(200)
+    expect((auto.body as VisibilityReportResponse).selection.run.id).toBe(advancedRun)
+  })
+
   it('does not turn a project-level legacy mention boolean into Property-level advanced evidence', async () => {
     const frozenPlan = plan()
     const version = seedVersion(1, frozenPlan)

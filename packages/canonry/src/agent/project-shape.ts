@@ -1,5 +1,5 @@
 import { and, count, eq } from 'drizzle-orm'
-import { MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@ainyc/canonry-contracts'
+import { MEASUREMENT_CHANGES_NOISE_ANSWERS, MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@ainyc/canonry-contracts'
 import { measurementPlans, measurementPlanVersions, queries, type DatabaseClient } from '@ainyc/canonry-db'
 
 interface StoredPlanShape {
@@ -26,12 +26,35 @@ const ADVANCED_TOOLS = [
   'canonry_measurement_property_evidence',
   'canonry_measurement_property_competitors',
   'canonry_measurement_changes',
+  'canonry_measurement_data_quality',
+  'canonry_run_completeness',
+  'canonry_competitor_landscape',
   'canonry_visibility_report',
   'canonry_analytics_sources',
 ]
 /** Schema-v1 plans: the overview reads them; the portfolio and Property reads need v2. */
-const LEGACY_TOOLS = ['canonry_measurement_overview', 'canonry_measurement_plan_get']
+const LEGACY_TOOLS = ['canonry_measurement_overview', 'canonry_measurement_plan_get', 'canonry_run_completeness']
+/**
+ * A Simple sweep has no plan manifest, so canonry_run_completeness has no
+ * expected answers to count for it and is not pinned here.
+ */
 const SIMPLE_TOOLS = ['canonry_visibility_report']
+
+/**
+ * Which read answers each Advanced question. The reads already return what
+ * these questions need; the common failure is answering from the wrong one
+ * (a run status for completeness, a few weak rows for a portfolio-wide
+ * ranking), so the prompt names the read rather than restating its rules.
+ */
+const ADVANCED_ROUTES = [
+  'Weakest or strongest Properties: canonry_measurement_portfolio_summary (rows with metro, names written instead and cited domains; mentionRanking for both ends). For more rows pass groupKey, or page canonry_measurement_overview.',
+  'Which metros have the biggest gaps: the summary\'s markets (every metro) and tiedAtWeakest.byMetro.',
+  'One Property: canonry_measurement_property_evidence and canonry_measurement_property_competitors (names written instead of it, and citedDomains, its own cited sources). Portfolio lists such as weakestAnswerSources pool many Properties.',
+  'Which names answers give instead across the portfolio: canonry_competitor_landscape with queryClass and runId "latest". Per-Property named-instead lists are samples of weak Properties.',
+  'Where answers get their sources: canonry_analytics_sources with queryClass and runId "latest"; without them it pools both classes and every sweep.',
+  'What changed since the last sweep: canonry_measurement_changes once per class. Quote its distribution for how many Properties moved.',
+  'Is the sweep complete, or is anything unreliable: canonry_measurement_data_quality (quote completeness expected, executed and missing, unattributedByClass and latestFill), then canonry_run_completeness with its run.displayedRunId for missing answers per engine. A Healthy run status and canonry_doctor are not completeness checks.',
+]
 
 /**
  * What kind of project Aero is in, told before it reads anything: an Advanced
@@ -60,7 +83,7 @@ export function aeroProjectShape(db: DatabaseClient, projectId: string): AeroPro
       const size = `${plan.targets?.length ?? 0} Properties in ${groups.length} groups (${topLevel} top-level, ${groups.length - topLevel} nested)`
       if ((plan.schemaVersion ?? version.schemaVersion) !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
         return {
-          prompt: `\n\nProject shape: an Advanced Measurement plan on the legacy schema v1 (plan revision ${version.revision}) with ${size}. Its queries are not classified as branded or non-brand, so do not report class splits for it. Read it with canonry_measurement_overview and canonry_measurement_plan_get; the portfolio ranking, Property evidence and the advanced visibility report need a schema-v2 plan and will refuse this one.`,
+          prompt: `\n\nProject shape: an Advanced Measurement plan on the legacy schema v1 (plan revision ${version.revision}) with ${size}. Its queries are not classified as branded or non-brand, so do not report class splits for it. Read it with canonry_measurement_overview and canonry_measurement_plan_get. For whether a sweep is complete, pass the overview's measurement.displayedRunId to canonry_run_completeness and quote expected, executed and missing. The portfolio ranking, Property evidence and the advanced visibility report need a schema-v2 plan and will refuse this one.`,
           pinned: LEGACY_TOOLS,
         }
       }
@@ -68,7 +91,13 @@ export function aeroProjectShape(db: DatabaseClient, projectId: string): AeroPro
         .filter(assignment => assignment.queryClass === queryClass)
         .map(assignment => assignment.queryId)).size
       return {
-        prompt: `\n\nProject shape: an Advanced Measurement portfolio (plan revision ${version.revision}) with ${size}, ${queriesIn('branded')} branded and ${queriesIn('non-brand')} non-brand queries. Measure per Property, group or market, never pool branded and non-brand, and a query shared by several Properties is one answer scored for each. Start portfolio questions with canonry_measurement_portfolio_summary (weakest-first ranking with each Property's metro, the names answers wrote instead, and the domains they cited) or canonry_measurement_overview; drill into one Property with canonry_measurement_property_evidence and canonry_measurement_property_competitors; compare sweeps with canonry_measurement_changes. Project-wide tools such as canonry_visibility_report describe the whole project, not one Property. Group Properties only by the metro and submarkets the tools return, never by name. Names given instead were written in the answer text, not cited. Denominators count answers (queries x engines), not queries. Properties tied at the weakest rate are not ranked against each other. For sources, use each Property's citedDomains in the portfolio summary, or canonry_analytics_sources with queryClass and runId set; without them it pools both classes and every sweep. canonry_measurement_plan_get is plan structure with no metrics; do not read it for analysis.`,
+        prompt: `\n\nProject shape: an Advanced Measurement portfolio (plan revision ${version.revision}) with ${size}, ${queriesIn('branded')} branded and ${queriesIn('non-brand')} non-brand queries. This line settles the project type.`
+          + '\nRules: measure per Property, group or market, never pool branded and non-brand, and a query shared by several Properties is one answer scored for each. Denominators count answers (queries x engines), not queries; label them answers. Group Properties only by the metro and submarkets the tools return, never by name. Names given instead were written in the answer text, not cited; cited domains are sources and never go under a named-instead heading. Name only engines a tool returned.'
+          + ` Between two sweeps, a Property that moved ${MEASUREMENT_CHANGES_NOISE_ANSWERS} answers or fewer is within noise (withinNoise): never call it a gain, loss, trend or regression.`
+          + ' Properties tied at the weakest rate are not ranked: they are listed by name, so say how many tie (tiedAtWeakest.count), give tiedAtWeakest.byMetro, and call the listed rows examples of the tie, not a ranked bottom list.'
+          + ' A result with truncated true, a total above its rows, __partialLists or __truncation is partial: say how many of how many you saw, and never call those rows the biggest, all, or the full picture.'
+          + `\nRoute each question to its read:\n${ADVANCED_ROUTES.map(route => `- ${route}`).join('\n')}`
+          + '\ncanonry_visibility_report describes the whole project, not one Property. canonry_measurement_plan_get is plan structure with no metrics; do not read it for analysis.',
         pinned: ADVANCED_TOOLS,
       }
     }

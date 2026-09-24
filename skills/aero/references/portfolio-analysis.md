@@ -39,14 +39,16 @@ invented combined share-of-voice ratio.
 | Question | Stored evidence |
 |---|---|
 | How is a Simple portfolio doing? | `canonry_project_overview`, `canonry_visibility_stats`; preserve sample sizes and returned class |
-| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use `mentionRanking.strongest`, `.weakest`, and `.excluded`, plus `tiedAtWeakest`. Keep the default `limit`; narrow with `groupKey` for more rows |
+| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use `mentionRanking.strongest`, `.weakest`, and `.excluded`, plus `tiedAtWeakest`. It returns at most 4 rows, with or without `groupKey`; pass `groupKey` for one metro's weakest, or page `canonry_measurement_overview` for more |
+| Which metros have the biggest gaps? | The portfolio summary's `markets` (every metro, worst-first, whatever the limit) and `tiedAtWeakest.byMetro`; `groupKey` lists one metro's submarkets |
 | What is measured for one Property or market? | `canonry_measurement_overview` with `scope: property` / `targetKey` or `scope: group` / `groupKey` |
 | Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
-| Who appeared instead? | `namedInsteadInAnswerText` on each weakest row, or `canonry_measurement_property_competitors` for one Property; these names were written in the answer text, not cited |
-| Where do engines get these answers? | `citedDomains` on each weakest row and `weakestAnswerSources` in the portfolio summary; project-wide, `canonry_analytics_sources` with `queryClass` and `runId` set, since without them it pools both classes and every sweep |
-| Did performance change? | `populations[].comparison` from `canonry_visibility_report` for the displayed selection (Simple and Advanced); `canonry_measurement_changes` for changed Properties (Advanced); `canonry_visibility_compare` for Simple month comparisons |
-| Can these results support a conclusion? | `canonry_measurement_data_quality` for Advanced completeness, capture, retrieval, and comparability |
+| Who appeared instead of one Property? | `canonry_measurement_property_competitors`, or `namedInsteadInAnswerText` on a weakest row; these names were written in the answer text, not cited |
+| Who do answers name instead across the portfolio? | `canonry_competitor_landscape` with `queryClass` and `runId: latest`; `tiedAtWeakest.namedInstead` for the weakest tie. Per-Property lists are samples of weak Properties, never a portfolio ranking |
+| Where do engines get these answers? | For one Property, `citedDomains` from `canonry_measurement_property_competitors`. Project-wide, `canonry_analytics_sources` with `queryClass` and `runId: latest`, since without them it pools both classes and every sweep. `weakestAnswerSources` pools the weakest rows and the tie; never present it as one Property's sources |
+| Did performance change? | `canonry_measurement_changes` once per class for changed Properties (Advanced): rows come largest move first, `distribution` counts every Property, `withinNoise` marks noise. `populations[].comparison` from `canonry_visibility_report` for the displayed selection's headline; `canonry_visibility_compare` for Simple month comparisons |
+| Is the sweep complete, or is anything unreliable? | `canonry_measurement_data_quality`: quote completeness `expected`, `executed` and `missing`, plus `unattributedByClass` (per class, never pooled) and `latestFill`. Then `canonry_run_completeness` with `run.displayedRunId` for missing answers per engine. A Healthy run status and `canonry_doctor` are not completeness checks |
 
 For schema-v1 plans use `canonry_measurement_report` pinned to the requested
 revision. Do not assume v2 Property/question-class reads are supported or
@@ -90,19 +92,31 @@ incompatible comparison with its reason instead of subtracting rates by hand.
 For Simple month comparisons, honor the returned interval, continuity,
 `within-noise`, and low-sample qualifications from the reporting playbook.
 
+Between two sweeps, a Property that moved 2 answers or fewer
+(`withinNoise: true`) is within noise: one answer on a 12-answer denominator
+is 8.3 points. Never call it real, a trend, structural, or a regression.
+Report the `distribution` (how many Properties improved, declined, moved
+within noise, or did not change), and flag only moves beyond noise, or the
+same move repeated over several sweeps, as worth checking.
+
 Carry the displayed run and the supported filters into follow-up reads.
 Reuse cursors unchanged with the same scope, class, sort, shape, and filters.
 A revision or evidence change can invalidate a cursor; restart that read
 without merging pages from incompatible snapshots. Overview search narrows
 displayed rows without changing metric denominators.
 
-Tool output can be trimmed. Inspect `__truncated`, `__truncation` (the keys
-dropped and `k of n` items kept per list), `__omittedRows`, and
-`__omittedRowsByField` as well as API pagination metadata. A text result that
-ends with a `__truncation:` line and the truncation note is a partial slice.
-Never list, rank, count, or group items you did not see; say what was cut,
-then request a smaller page or narrower scope (a `groupKey` for the portfolio
-summary) before treating the returned rows as exhaustive.
+Tool output can be trimmed. Inspect `__partialLists` (the first field when
+present: each list the tool itself returned only part of, as shown of total),
+`__truncated`, `__truncation` (the keys dropped, `k of n` items kept per list,
+and under `cursors` any page cursor that now skips cut rows), `__omittedRows`,
+and `__omittedRowsByField` as well as API pagination metadata: `truncated: true`,
+a total (`totalProperties`, `total`, `questionTotal`) above the rows
+returned, or a `nextCursor`. A text result that ends with a `__truncation:`
+line and the truncation note is a partial slice. Never list, rank, count, or
+group items you did not see; say how many of how many you saw, never call
+the rows the biggest, strongest, all, or the full picture, then request a
+smaller page or narrower scope (a `groupKey` for the portfolio summary)
+before treating the returned rows as exhaustive.
 
 Lead the answer with the scoped result, give numerator/denominator and the
 evidence explaining it, state missing data or comparison limits, then suggest

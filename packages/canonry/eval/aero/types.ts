@@ -67,6 +67,14 @@ export interface ToolCallTrace {
   truncated: boolean
   /** Human-readable summary of what truncation dropped, when present. */
   truncationNote?: string
+  /**
+   * The lists the tool itself returned partially (its `__partialLists` field),
+   * e.g. `weakestProperties 10 of 40`. Not a harness cut: set independently of
+   * `truncated`.
+   */
+  partialNote?: string
+  /** The misspelled tool name the model wrote, when the runtime corrected it. */
+  requestedName?: string
   durationMs?: number
 }
 
@@ -87,6 +95,13 @@ export interface TurnCapture {
   error?: string
   /** LLM spend for this turn, from llm_usage_events, in USD. Null when unknown. */
   costUsd: number | null
+  /**
+   * Project context Aero's system prompt carried for this turn (the
+   * project-shape text: plan revision, Property and group counts, per-class
+   * query counts). Figures stated there are grounded for the checks and the
+   * grader. Absent when the target could not compute it.
+   */
+  systemContext?: string
 }
 
 export type CheckOutcome = 'pass' | 'fail' | 'warn'

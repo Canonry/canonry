@@ -1,10 +1,14 @@
 /**
  * The portfolio summary is read by an agent through a 20,000-character
- * tool-result cap, serialized as indented JSON. A result over the cap is cut
- * mid-row, and the agent then reports on rows, markets and sources it never
- * saw. This builds a portfolio at the scale where that happened (200
- * Properties, 150 nested markets, 3 engines, a 70-way tie at zero) and holds
- * the default response under the cap with every per-row list filled.
+ * tool-result cap. A result over the cap is cut mid-row, and the agent then
+ * reports on rows, markets and sources it never saw. This builds a portfolio
+ * at the scale where that happened (200 Properties, 20 metros, 150 nested
+ * markets, 3 engines, a 70-way tie at zero) and holds the default response
+ * under the cap with every per-row list filled and every metro listed.
+ *
+ * The cap is measured on compact JSON, the form the agent runtime sends a
+ * tool result in. Indented, this read is about 60% larger: every metro at
+ * this scale does not fit a 20,000-character indented result at all.
  */
 
 import crypto from 'node:crypto'
@@ -232,8 +236,8 @@ async function summary(query = ''): Promise<{ status: number; body: MeasurementP
     url: `/api/v1/projects/northstar/measurement-portfolio-summary${query === '' ? '' : `?${query}`}`,
   })
   const body = response.json() as MeasurementPortfolioSummaryResponse
-  // Exactly what the agent runtime serializes before applying its cap.
-  return { status: response.statusCode, body, text: JSON.stringify(body, null, 2) }
+  // What the agent runtime serializes before applying its cap.
+  return { status: response.statusCode, body, text: JSON.stringify(body) }
 }
 
 beforeAll(async () => {
@@ -279,13 +283,19 @@ describe('portfolio summary size at portfolio scale', () => {
     }
     expect(body.engines).toEqual(['claude', 'gemini', 'openai'])
     expect(body.tiedAtWeakest).toMatchObject({ count: TIED_AT_ZERO, mentionRate: 0, citationRate: 0 })
+    // The tie is placed and characterized whole, not only through its first rows.
+    const byMetro = body.tiedAtWeakest?.byMetro ?? []
+    expect(byMetro.reduce((total, row) => total + row.count, 0)).toBe(TIED_AT_ZERO)
+    expect(byMetro.every(row => row.metro?.endsWith(' Metro Area'))).toBe(true)
+    expect(body.tiedAtWeakest?.namedInstead).toHaveLength(10)
     expect(body.weakestAnswerSources).toMatchObject({ properties: TIED_AT_ZERO })
     expect(body.weakestAnswerSources?.domains).toHaveLength(10)
     expect(body.mentionRanking.strongest).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT)
     expect(body.mentionRanking.weakest).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT)
-    expect(body.markets).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT)
+    // Every metro, whatever the row limit.
+    expect(body.markets).toHaveLength(METRO_COUNT)
     expect(body.markets.every(market => market.parentGroupKey === null)).toBe(true)
-    expect(body).toMatchObject({ totalMarkets: METRO_COUNT, marketsTruncated: true, totalProperties: PROPERTY_COUNT, truncated: true })
+    expect(body).toMatchObject({ totalMarkets: METRO_COUNT, marketsTruncated: false, totalProperties: PROPERTY_COUNT, truncated: true })
   })
 
   it('drills into one metro under the cap, listing its submarkets', async () => {
@@ -293,7 +303,7 @@ describe('portfolio summary size at portfolio scale', () => {
     const { status, body, text } = await summary(`groupKey=${metro.stableKey}`)
     expect(status).toBe(200)
     expect(text.length).toBeLessThan(TOOL_RESULT_CAP)
-    expect(body.markets.length).toBeGreaterThan(0)
+    expect(body.markets).toHaveLength(fixture.plan.groups.filter(group => group.parentGroupKey === metro.stableKey).length)
     expect(body.markets.every(market => market.parentGroupKey === metro.stableKey)).toBe(true)
   })
 

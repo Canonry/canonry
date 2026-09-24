@@ -6,7 +6,7 @@ import {
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
-  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema,
+  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -17,7 +17,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitorsFromDomains, projectQueryClassifier } from './mention-share-inputs.js'
-import { planQueryClassesByRun } from './competitor-landscape.js'
+import { latestSweepRuns, planQueryClassesByRun, pooledRunIds } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
@@ -709,8 +709,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/sources — source origin breakdown.
   // `?limit=N` caps the ranked / per-provider lists to the top N domains
   // (with an explicit long-tail rollup); omitted = the full ranked list.
-  // `?runId=` reads one run, `?queryClass=` one query class, and
-  // `?includeByQuery=false` drops the large per-query breakdown.
+  // `?runId=` reads one run (`latest` = the latest sweep), `?queryClass=` one
+  // query class, and `?includeByQuery=false` drops the large per-query breakdown.
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; limit?: string; runId?: string; queryClass?: string; includeByQuery?: string }
@@ -735,7 +735,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
     if (!parsedFilters.success) {
       throw validationError('Invalid source breakdown query', { issues: parsedFilters.error.issues })
     }
-    const requestedRunId = parsedFilters.data.runId ?? null
+    // `latest` resolves to the sweep the measurement reads display, so a
+    // class-scoped read can name the current sweep without knowing its id.
+    const latestRequested = parsedFilters.data.runId === LATEST_RUN_ID
+    const latestRuns = latestRequested ? latestSweepRuns(app.db, project.id) : null
+    const requestedRunId = latestRequested ? null : parsedFilters.data.runId ?? null
     const queryClass = parsedFilters.data.queryClass ?? 'all'
     const includeByQuery = parsedFilters.data.includeByQuery !== 'false' && parsedFilters.data.includeByQuery !== '0'
 
@@ -751,7 +755,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       )
     }
     const filters = {
-      runId: requestedRunId,
+      runId: parsedFilters.data.runId ?? null,
       queryClass,
       queryClassBasis: !splitByClass ? null : planClassified ? 'measurement-plan' as const : 'query-text' as const,
       includeByQuery,
@@ -811,6 +815,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
         throw validationError(`Run "${requestedRunId}" is older than the ${window} window. Omit window, or widen it, to read this run.`)
       }
     }
+    const latestOutsideWindow = latestRuns?.find(run => cutoff && run.createdAt < cutoff)
+    if (latestOutsideWindow) {
+      throw validationError(
+        `The latest sweep (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
+      )
+    }
 
     // All sweep runs in window (or the one requested run)
     const windowRuns = app.db
@@ -820,7 +830,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
         eq(runs.kind, RunKinds['answer-visibility']),
         notProbeRun(),
-        requestedRunId ? eq(runs.id, requestedRunId) : undefined,
+        latestRuns ? inArray(runs.id, latestRuns.map(run => run.id)) : requestedRunId ? eq(runs.id, requestedRunId) : undefined,
       ))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
@@ -835,9 +845,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
         providersWithoutSources: [],
         answerTotal: 0,
         runCount: 0,
+        pooledAcrossRuns: false,
         unclassifiedAnswers: 0,
         filters,
-        runId: '', window, limit,
+        runId: '',
+        runIds: [],
+        countUnits: SOURCE_BREAKDOWN_COUNT_UNITS,
+        window, limit,
         overall: [],
         ...(includeByQuery ? { byQuery: {} } : {}),
       } satisfies SourceBreakdownDto)
@@ -969,9 +983,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
       providersWithoutSources,
       answerTotal: snapshots.length,
       runCount: windowRuns.length,
+      pooledAcrossRuns: windowRuns.length > 1,
       unclassifiedAnswers,
       filters,
+      // Compatibility field: the requested run, else the newest sweep's
+      // representative. A pooled read is scoped by `runIds`, never by this.
       runId: requestedRunId ?? latestRunId,
+      runIds: pooledRunIds(windowRuns),
+      countUnits: SOURCE_BREAKDOWN_COUNT_UNITS,
       window,
       limit,
       overall: buildCategoryCounts(overallCounts),

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildGraderInput,
+  fairShares,
   gradeTurn,
   graderCostUsd,
   GraderError,
@@ -160,6 +161,85 @@ describe('buildGraderInput', () => {
   it('keeps the cached system prompt free of per-turn content', () => {
     expect(RUBRIC_SYSTEM_PROMPT).not.toContain(capture.answer)
     expect(RUBRIC_SYSTEM_PROMPT).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+  })
+
+  it("shows Aero's system context for the turn, or says none was recorded", () => {
+    const systemContext = 'Project shape: an Advanced Measurement portfolio with 140 Properties and 24 non-brand queries.'
+    expect(buildGraderInput({ ...capture, systemContext }, truth, question)).toContain(`<system_context>\n${systemContext}\n</system_context>`)
+    expect(buildGraderInput(capture, truth, question)).toContain('<system_context>\nnone recorded\n</system_context>')
+  })
+
+  const call = (name: string, resultText: string, args: unknown = {}, extra: Partial<TurnCapture['tools'][number]> = {}) => ({
+    name,
+    args,
+    isError: false,
+    resultPreview: resultText.slice(0, 400),
+    resultText,
+    resultChars: resultText.length,
+    truncated: false,
+    ...extra,
+  })
+
+  it('splits the tool-text budget fairly, so a late result is not starved by early ones', () => {
+    const big = (tag: string) => `${tag}${'x'.repeat(29_990)}`
+    const tools = [
+      call('canonry_measurement_overview', big('first')),
+      call('canonry_measurement_changes', big('second')),
+      call('canonry_analytics_sources', 'small result'),
+      call('canonry_measurement_property_evidence', big('decisive')),
+    ]
+    const input = buildGraderInput({ ...capture, tools, toolCalls: 4 }, truth, question, 30_000)
+    // The small result is whole; the three large ones share what is left equally.
+    expect(input).toContain('small result')
+    const share = Math.floor((30_000 - 'small result'.length) / 3)
+    expect(input.match(new RegExp(`shown_chars="${share}"`, 'g'))).toHaveLength(3)
+    expect(input).toContain('decisive')
+  })
+
+  it('stubs catalog and errored calls outside the budget, points repeats back, and compacts JSON', () => {
+    const catalog = call('aero_list_toolkits', JSON.stringify({ toolkits: Array.from({ length: 200 }, (_, i) => `kit-${i}`) }))
+    const failed = call('canrony_measurement_changes', 'canrony_measurement_changes is not available in this conversation.', {}, { isError: true })
+    const data = call('canonry_measurement_overview', JSON.stringify({ rows: [{ label: 'Harbor', mention: 3 }] }, null, 2), { limit: 10 })
+    const again = call('canonry_measurement_overview', data.resultText, { limit: 10 })
+    const input = buildGraderInput({ ...capture, tools: [catalog, failed, data, again], toolCalls: 4 }, truth, question, 1_000)
+
+    expect(input).toMatch(/name="aero_list_toolkits"[^>]*stub="catalog" shortened_for_grader="true" shown_chars="300"/)
+    expect(input).toMatch(/name="canrony_measurement_changes" error="true"[^>]*stub="error">/)
+    expect(input).toContain('canrony_measurement_changes is not available in this conversation.')
+    // The data call got the whole budget, compacted; the repeat points back to it.
+    expect(input).toContain('{"rows":[{"label":"Harbor","mention":3}]}')
+    expect(input).toMatch(/<tool index="4" [^>]*same_result_as="3">/)
+    expect(input).toContain('(the same result as tool 3)')
+  })
+
+  it('marks a call captured only as a preview as shortened', () => {
+    const preview = { ...call('canonry_measurement_overview', '{"rows":['), resultText: undefined, resultChars: 18_000 }
+    expect(buildGraderInput({ ...capture, tools: [preview] }, truth, question)).toContain('shortened_for_grader="true" shown_chars="9"')
+  })
+
+  it('tells the grader to judge from what it was shown, and how to read shortened text and per-name counts', () => {
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('Never use outside knowledge')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('is unverified, not unsupported')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('Figures stated in the system context are grounded')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('is not the complete population')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('A per-name count written as (N), (Nx) or N times is a count of answers')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('The first N rows of a list the tool or the facts sort by the metric are a valid top or worst N')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('Fail a criterion only for its own concern')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('Headlining or recommending a class-pooled coverage figure fails')
+    expect(RUBRIC_SYSTEM_PROMPT).toContain('so does an invented product feature, setting, channel or integration')
+    expect(RUBRIC_SYSTEM_PROMPT).not.toMatch(/\u2014/)
+  })
+})
+
+describe('fairShares', () => {
+  it('gives short results their whole length and splits the rest evenly, whatever the order', () => {
+    expect(fairShares([100, 50_000, 50_000], 10_100)).toEqual([100, 5_000, 5_000])
+    expect(fairShares([50_000, 100, 50_000], 10_100)).toEqual([5_000, 100, 5_000])
+    expect(fairShares([10, 20], 1_000)).toEqual([10, 20])
+    expect(fairShares([], 1_000)).toEqual([])
+    const shares = fairShares([7_000, 9_000, 30_000, 2_000], 12_000)
+    expect(shares.reduce((sum, share) => sum + share, 0)).toBeLessThanOrEqual(12_000)
+    expect(shares[3]).toBe(2_000)
   })
 })
 

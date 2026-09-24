@@ -2531,6 +2531,13 @@ export type CompetitorLandscapeResponse = {
         runId: string | null;
     };
     truncated: boolean;
+    runCount?: number;
+    runIds?: Array<string>;
+    countUnits?: {
+        answers: Array<string>;
+        distinctNames: Array<string>;
+        runs: Array<string>;
+    };
 };
 
 export type ContentGapsResponseDto = {
@@ -6210,6 +6217,7 @@ export type MeasurementChangesResponse = {
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
+    queryClass?: 'all' | 'branded' | 'non-brand';
     comparison: {
         state: 'available';
         previous: {
@@ -6302,6 +6310,185 @@ export type MeasurementChangesResponse = {
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
         };
+        metricsByClass?: {
+            branded: {
+                propertiesMentioned: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                mentionCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                citationCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+            };
+            nonBrand: {
+                propertiesMentioned: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                mentionCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                citationCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+            };
+        };
+        sort?: 'magnitude' | 'label';
+        distribution?: {
+            improved: number;
+            declined: number;
+            mixed: number;
+            withinNoise: number;
+            unchanged: number;
+            notComparable: number;
+            total: number;
+            noiseAnswers: 2;
+        };
         changedProperties: Array<{
             targetKey: string;
             label: string;
@@ -6360,6 +6547,9 @@ export type MeasurementChangesResponse = {
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             flags: number;
+            mentionAnswersDelta?: number | null;
+            citationAnswersDelta?: number | null;
+            withinNoise?: boolean;
         }>;
         totalProperties: number;
         truncated: boolean;
@@ -6426,6 +6616,32 @@ export type MeasurementDataQualityResponse = {
         state: 'unavailable';
         reason: 'no_previous_run' | 'execution_identity_changed' | 'incomplete' | 'not_comparable';
     };
+    unattributedByClass?: {
+        branded: {
+            state: 'available';
+            answered: number;
+            unattributed: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'incomplete' | 'evidence_incomplete' | 'no_population' | 'not_applicable';
+        };
+        nonBrand: {
+            state: 'available';
+            answered: number;
+            unattributed: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'incomplete' | 'evidence_incomplete' | 'no_population' | 'not_applicable';
+        };
+    };
+    latestFill?: {
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        providers: Array<string>;
+        expected: number;
+        filled: number;
+        createdAt: string;
+        finishedAt: string | null;
+    } | null;
 };
 
 export type MeasurementDraftResponse = {
@@ -6705,6 +6921,14 @@ export type MeasurementOverviewResponse = {
         items: Array<{
             targetKey: string;
             label: string;
+            metro?: {
+                groupKey: string;
+                label: string;
+            } | null;
+            otherMetros?: Array<{
+                groupKey: string;
+                label: string;
+            }>;
             mentionCoverage: {
                 state: 'available';
                 value: number;
@@ -6896,6 +7120,15 @@ export type MeasurementPortfolioSummaryResponse = {
         mentionRate: number;
         citationRate: number;
         note: 'tied Properties are ordered by name, not ranked';
+        byMetro?: Array<{
+            metro: string | null;
+            count: number;
+        }>;
+        namedInstead?: Array<{
+            name: string;
+            answers: number;
+        }>;
+        namedInsteadTotal?: number;
     } | null;
     weakestAnswerSources: {
         properties: number;
@@ -8214,6 +8447,12 @@ export type MeasurementPropertyCompetitorsResponse = {
     }>;
     total: number;
     truncated: boolean;
+    citedDomains?: Array<{
+        domain: string;
+        answers: number;
+    }>;
+    citedDomainsTotal?: number;
+    citedDomainsAnswers?: number;
 };
 
 export type MeasurementPropertyEvidenceResponse = {
@@ -9309,6 +9548,11 @@ export type ProjectOverviewDto = {
         dismissed: boolean;
         createdAt: string;
     }>;
+    queryClassScope?: {
+        queryClass: 'all';
+        figures: Array<string>;
+        note: string;
+    };
     queryCounts: {
         totalQueries: number;
         citedQueries: number;
@@ -11628,6 +11872,7 @@ export type SourceBreakdownDto = {
     providersWithoutSources?: Array<string>;
     answerTotal?: number;
     runCount?: number;
+    pooledAcrossRuns?: boolean;
     unclassifiedAnswers?: number;
     filters?: {
         runId: string | null;
@@ -11636,6 +11881,13 @@ export type SourceBreakdownDto = {
         includeByQuery: boolean;
     };
     runId: string;
+    runIds?: Array<string>;
+    countUnits?: {
+        answers: Array<string>;
+        distinctDomains: Array<string>;
+        answerDomainPairs: Array<string>;
+        runs: Array<string>;
+    };
     window: '7d' | '30d' | '90d' | 'all';
     limit: number | null;
     overall: Array<{
@@ -14962,7 +15214,7 @@ export type GetApiV1ProjectsByNameVisibilityReportData = {
 
 export type GetApiV1ProjectsByNameVisibilityReportErrors = {
     /**
-     * Invalid selection.
+     * Invalid selection. mode=simple without runId on a project with an active v2 plan is 400; use mode advanced or omit mode.
      */
     400: ErrorEnvelope;
     /**
@@ -15087,11 +15339,11 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
          */
         runId?: string;
         /**
-         * Rows per list (weakest Properties, both mention rankings, markets). Defaults to 4, maximum 50.
+         * Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.
          */
         limit?: number;
         /**
-         * Return every market in scope at every level, uncapped. Defaults to false: one level (top-level markets, or the selected group's direct children), capped at limit.
+         * Return every market in scope at every level. Defaults to false: one level (every top-level market, or every direct child of the selected group).
          */
         includeNestedMarkets?: boolean;
     };
@@ -15338,6 +15590,10 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          * Use this completed or partial run as the current side.
          */
         runId?: string;
+        /**
+         * Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation changes in answers, then the other, then label. label: alphabetical.
+         */
+        sort?: 'magnitude' | 'label';
         /**
          * Maximum changed Property rows. Defaults to 10, maximum 50.
          */
@@ -16845,7 +17101,7 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
          */
         location?: string;
         /**
-         * Restrict evidence to one stored answer-visibility run.
+         * Restrict evidence to one stored answer-visibility run, or pass latest for the latest sweep (same rule as analytics/sources).
          */
         runId?: string;
     };
@@ -17469,7 +17725,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          */
         limit?: number;
         /**
-         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400.
+         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
          */
         runId?: string;
         /**

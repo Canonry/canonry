@@ -24,6 +24,7 @@ import { hashApiKey } from '@ainyc/canonry-api-routes'
 import {
   TurnCollector,
   createRunner,
+  detectPartialLists,
   detectTruncation,
   fillPrompt,
   type CostReader,
@@ -103,6 +104,43 @@ describe('detectTruncation', () => {
     expect(detectTruncation('{"rows": [1, 2, 3]}')).toEqual({ truncated: false })
     expect(detectTruncation('Loaded toolkit measurement.')).toEqual({ truncated: false })
   })
+
+  it('finds a nested trim in compact tool text, the form the product now sends', () => {
+    const compact = JSON.stringify({ comparison: { changedProperties: [{ label: 'Harbor' }], __truncated: true } })
+    expect(detectTruncation(compact)).toEqual({ truncated: true, note: 'nested collections trimmed' })
+  })
+
+  it('names a cursor the trim made skip rows', () => {
+    const text = JSON.stringify({
+      rows: [{ label: 'Harbor' }],
+      nextCursor: 'abc',
+      __truncated: true,
+      __truncation: { keptItems: { rows: '1 of 5' }, cursors: { nextCursor: 'skips the 4 rows cut from rows; to read them, call again with limit <= 1' } },
+    })
+    expect(detectTruncation(text).note).toContain('cursor nextCursor skips the cut rows')
+  })
+
+  it('is not fooled by a tool that only reports its own partial lists', () => {
+    const text = JSON.stringify({ __partialLists: { weakestProperties: '4 of 40' }, weakestProperties: [{ label: 'Harbor' }], totalProperties: 40 })
+    expect(detectTruncation(text)).toEqual({ truncated: false })
+  })
+})
+
+describe('detectPartialLists', () => {
+  it("reads the tool's own partial lists from compact and indented results", () => {
+    const value = { __partialLists: { weakestProperties: '4 of 40', mentionRanking: 'the tool cut the lists here' }, weakestProperties: [] }
+    const expected = 'weakestProperties 4 of 40; mentionRanking the tool cut the lists here'
+    expect(detectPartialLists(JSON.stringify(value))).toBe(expected)
+    expect(detectPartialLists(JSON.stringify(value, null, 2))).toBe(expected)
+  })
+
+  it('reads the field off a plain slice, and ignores results without it', () => {
+    const sliced = `{"__partialLists":{"rows":"10 of 12"},"rows":[{"label":"Har\n... (truncated, result too large)`
+    expect(detectPartialLists(sliced)).toBe('rows 10 of 12')
+    expect(detectPartialLists('{"rows":[1,2]}')).toBeUndefined()
+    expect(detectPartialLists('{"note":"__partialLists"}')).toBeUndefined()
+    expect(detectPartialLists('Loaded toolkit measurement.')).toBeUndefined()
+  })
 })
 
 describe('TurnCollector', () => {
@@ -133,6 +171,23 @@ describe('TurnCollector', () => {
     expect(summary!.truncationNote).toContain('dropped markets, mentionRanking')
     // No tool-result frame arrived: the execution result stands in.
     expect(overview).toMatchObject({ name: 'canonry_measurement_overview', isError: true, resultText: '{"error":"boom"}', truncated: false })
+    expect(summary!.requestedName).toBeUndefined()
+  })
+
+  it('records the name the model wrote when the runtime corrected a misspelled call, and the partial lists', () => {
+    const collector = new TurnCollector()
+    const text = JSON.stringify({ __partialLists: { rows: '2 of 9' }, rows: [1, 2] })
+    collector.push({ type: 'tool_execution_start', toolCallId: 'c1', toolName: 'canonry_measurement_overview', args: {} })
+    collector.push({
+      type: 'message_end',
+      message: {
+        role: 'toolResult', toolCallId: 'c1', toolName: 'canonry_measurement_overview', isError: false,
+        content: [{ type: 'text', text }], aeroRequestedToolName: 'canrony_measurement_overview',
+      },
+    })
+    collector.push({ type: 'stream_close' })
+    const [trace] = collector.result().tools
+    expect(trace).toMatchObject({ name: 'canonry_measurement_overview', requestedName: 'canrony_measurement_overview', partialNote: 'rows 2 of 9', truncated: false })
   })
 
   it('reports a stream error and a stream that never closed', () => {
@@ -247,6 +302,21 @@ describe('createRunner against a stub server', () => {
     expect(capture.tools[0]!.truncated).toBe(true)
     expect(target.marks).toBe(1)
     expect([...runner.modelsSeen]).toEqual(['deepinfra/test-model'])
+  })
+
+  it("records the target's system context on the capture, and asks without it when it cannot be read", async () => {
+    respond = (req, res) => {
+      if (req.method === 'DELETE') { res.writeHead(200); res.end('{}'); return }
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.end(sse(turnFrames()))
+    }
+    const withContext = { ...stubTarget(), systemContext: () => '\n\nProject shape: a Simple project with 12 tracked queries.' }
+    const capture = await createRunner(withContext, { project: 'acme' }).ask({ questionId: 'q1', prompt: 'x', lane: 'admin', attempt: 1 })
+    expect(capture.systemContext).toBe('Project shape: a Simple project with 12 tracked queries.')
+    const broken = { ...stubTarget(), systemContext: () => { throw new Error('no such table') } }
+    const without = await createRunner(broken, { project: 'acme' }).ask({ questionId: 'q1', prompt: 'x', lane: 'admin', attempt: 1 })
+    expect(without.status).toBe('completed')
+    expect(without).not.toHaveProperty('systemContext')
   })
 
   it('stops before prompting when the reset fails, so no attempt reads an earlier one', async () => {
@@ -526,6 +596,9 @@ describe('startTarget on a throwaway database', () => {
       const live = await fetch(`${target.baseUrl}/api/v1/projects/acme/ads/account`, { headers: target.adminHeaders })
       expect(live.status).toBe(403)
       expect(target.blocked.map(entry => `${entry.method} ${entry.path}`)).toEqual(['POST /api/v1/projects/acme/runs', 'GET /api/v1/projects/acme/ads/account'])
+
+      // The project-shape text Aero's system prompt carries, read from the copy.
+      expect(target.systemContext?.()).toMatch(/^Project shape: a Simple project with 0 tracked queries/)
 
       expect(target.laneAvailable('viewer')).toBe(true)
       const viewer = target.headers('viewer')

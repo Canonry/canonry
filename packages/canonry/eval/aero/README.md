@@ -2,7 +2,7 @@
 
 Asks Aero, the analyst agent inside Canonry, a set of questions about one project and grades every answer. Each answer is checked twice:
 
-- **Rule checks** (`checks.ts`) catch known failure modes: tool errors, turns that hit a limit, lists built from truncated results, numbers nothing supports, and mixed-up labels.
+- **Rule checks** (`checks.ts`) catch known failure modes: tool errors, turns that hit a limit, lists built from truncated results, numbers nothing supports, mixed-up labels, and a net figure that contradicts its own parts.
 - **A Claude grader** (`grader.ts`) compares the answer with ground truth computed from the project's own data (`ground-truth.ts`).
 
 The eval is a development tool. It is not in the npm package and runs from source with `tsx`.
@@ -73,7 +73,7 @@ pnpm exec tsx eval/aero/run.ts --db /tmp/aero-eval/copy.db \
 
 The grader key comes from `ANTHROPIC_API_KEY`. Without it, the grader uses the `providers.claude.apiKey` from the source config, then the Anthropic SDK's own credentials. The log names the source, never the key.
 
-A turn passes when no rule check fails and the grader passes it. Warnings never fail a turn. When grading was on but produced no verdict (a refusal, `max_tokens`, an unreadable reply or an API error), the turn gets a failing `grader-error` check: an ungraded turn never passes on the rule checks alone. A tool call the eval's guard refused counts as a `tool-errors` warning, not a failure, because the harness refused it, not Aero.
+A turn passes when no rule check fails and the grader passes it. Warnings never fail a turn. When grading was on but produced no verdict (a refusal, `max_tokens`, an unreadable reply or an API error), the turn gets a failing `grader-error` check: an ungraded turn never passes on the rule checks alone. A tool call the eval's guard refused counts as a `tool-errors` warning, not a failure, because the harness refused it, not Aero. So does a misspelled tool name that Aero corrected later in the same turn (a later call within two edits of the name returned data). A misspelled name it never corrected still fails.
 
 To ask some questions on one lane only, run twice with different `--lanes` and `--only`, or give those questions a `lanes` list in a private set.
 
@@ -130,6 +130,15 @@ Client question sets are **private** and never belong in this repository. Keep t
 - `{placeholders}` in the prompt and rubric are filled from the builder's output. A question whose placeholder has no value is skipped, and the log says why.
 - Ids must be unique across every set in a run.
 
+## How grading weighs the evidence
+
+- **Evidence.** Numbers and claims are grounded against the tool results Aero saw, the ground-truth facts, the prompt, and the project-shape text Aero's system prompt carried for the turn (`src/agent/project-shape.ts`: plan revision, Property and group counts, per-class query counts). The target computes that text from the copy on every turn.
+- **Arithmetic.** `numeric-grounding` also accepts an integer the answer derives in one step from two integers it states and grounds: a sum, a difference, or a count divided by a small count ("30 more" from 40 tied less 10 shown; 1,200 answers across 3 engines is 400 queries). The operands must be the answer's own figures, because a large tool result holds enough small integers to sum to almost any number.
+- **The grader's tool text.** The grader sees at most 60K chars of tool results, shared fairly: results shorter than an equal share are shown whole, and the rest split what is left. Toolkit and doc catalogs and errored calls are short stubs outside the budget, a call that repeats an earlier one (same tool, arguments and result) points back to it, and JSON is compacted. A result cut for the grader is marked `shortened_for_grader`, and the rubric treats a claim that could come from the part it did not see as unverified, not unsupported.
+- **Ground truth.** Facts use the tools' own fields and counts. The drill-down reports the API's `citedDomainsTotal` verbatim, with its own evidence recount beside it, and keeps the tool's `occurrences` label with its definition. Data quality reads both query classes, so unattributed answers and a fill show up whichever class they are in. The weakest-Properties facts list the metros worst mention first, as the API orders them, and a list that is a sample says so.
+- **The rubric.** The grader judges only from what it is shown, never from outside knowledge (it does not place a Property in a metro unless the data does), and treats a fact list marked as a sample or trimmed as incomplete. A per-name count such as "(5x)" is a count of answers, not a multiple. The first N rows of a list sorted by the metric are a valid top or worst N; a name-ordered slice is not. A criterion fails only for its own concern.
+- **Warnings.** `truncated-list` also reads truncation the API reports in its payload (`truncated: true`, or a total larger than the rows returned). `label-named-vs-cited` accepts a "cited instead" heading over a list of domains. `label-pooled-classes` warns when the lead rate never says its class, even if a class is named further down. `arithmetic-net` warns when a signed net figure contradicts the gained and lost counts beside it ("40 gained, 34 lost, net -6").
+
 ## What a turn records
 
 `runner.ts` sends the prompt the way the dashboard does and reads the SSE stream back. Each turn records:
@@ -137,6 +146,7 @@ Client question sets are **private** and never belong in this repository. Keep t
 - the final answer text;
 - every tool call: its arguments, the result text the model read, its size, and whether it was truncated, with a note on what the cut dropped;
 - the turn status (`completed`, `tool-limit`, `time-limit`, `error`, `stopped`);
+- the project context Aero's system prompt carried (`systemContext`);
 - tool and model call counts, and duration;
 - the Aero spend, read from the copy's `llm_usage_events` rows for the turn. The spend is `unknown` when the model has no price in pi-ai, so a cost cap cannot count those turns.
 

@@ -21,7 +21,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import { projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
+import { PROJECT_OVERVIEW_QUERY_CLASS_SCOPE, projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-composites-'))
@@ -311,6 +311,24 @@ describe('GET /api/v1/projects/:name/overview', () => {
       totalCandidates: 0,
       skippedAlreadyTracked: 0,
     })
+  })
+
+  it('labels the query-level scores and movement as pooling both query classes', async () => {
+    const { app } = seedProjectWithRuns()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(projectOverviewDtoSchema.parse(body).queryClassScope).toEqual(PROJECT_OVERVIEW_QUERY_CLASS_SCOPE)
+    expect(body.queryClassScope?.queryClass).toBe('all')
+    expect(body.queryClassScope?.figures).toEqual(expect.arrayContaining([
+      'queryCounts', 'scores.mention', 'scores.visibility', 'movementSummary', 'citationMovement', 'mentionMovement',
+    ]))
+    // mentionShare is the one class-split figure, so the pooled label never covers it.
+    expect(body.queryClassScope?.figures).not.toContain('scores.mentionShare')
+    // A label only: the figures it covers are the ones the gauge test pins.
+    expect(body.scores.mention.delta).toBe('2 of 2 queries mentioned')
   })
 
   it('elevates index-coverage tone to negative when GSC reports newly deindexed URLs', async () => {

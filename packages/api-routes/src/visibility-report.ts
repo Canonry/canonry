@@ -924,7 +924,20 @@ export function readVisibilityReport(
       if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
       return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeComparison))
     }
-    return buildVisibilityReport(simpleReaderInput(db, project, query, includeComparison))
+    const simple = simpleReaderInput(db, project, query, includeComparison)
+    // Simple mode reads planless sweeps only. On a v2 project with no planless
+    // sweep at all, the default read would answer "not measured", which reads
+    // as an empty project rather than as the wrong mode. Refuse only that
+    // case: pre-plan sweeps still read as before, and a date window or a
+    // pinned runId is an explicit read of pre-plan history.
+    if (query.mode === 'simple' && simple.runs.length === 0
+      && query.runId === undefined && query.from === undefined && query.to === undefined
+      && active?.plan.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+      throw validationError(
+        'This project measures through an Advanced Measurement plan and has no pre-plan sweeps, so mode "simple" has no results. Use mode "advanced", or omit mode.',
+      )
+    }
+    return buildVisibilityReport(simple)
   } catch (error) {
     // Retired-scope details ride the error envelope so a client recovers by reason, not by message text.
     if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)

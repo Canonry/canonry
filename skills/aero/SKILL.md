@@ -41,6 +41,31 @@ covering that work; an existing explicit authorization remains valid.
   provider/model, location, and query class. Read
   `references/portfolio-analysis.md` before ranking Properties or comparing
   Advanced results.
+- **Advanced routing.** Answer each question from its read:
+  - Is the sweep complete, is anything unreliable:
+    `canonry_measurement_data_quality` (quote completeness `expected`,
+    `executed`, `missing`, plus `unattributedByClass` and `latestFill`), then
+    `canonry_run_completeness` with its `run.displayedRunId` for missing
+    answers per engine. A Healthy run status and `canonry_doctor` are not
+    completeness checks.
+  - Which names answers give instead across the portfolio:
+    `canonry_competitor_landscape` with `queryClass` and `runId: latest`.
+    Per-Property named-instead lists are samples of weak Properties.
+  - What changed: `canonry_measurement_changes` once per class, with its
+    `distribution` and `withinNoise`.
+  - Which metros have the biggest gaps: the portfolio summary's `markets`
+    (every metro) and `tiedAtWeakest.byMetro`.
+- **Noise.** Between two sweeps, a Property that moved 2 answers or fewer
+  (`withinNoise: true`) is within noise. Never call it a gain, loss, trend,
+  or regression.
+- **Partial results.** A result with `truncated: true`, a total
+  (`totalProperties`, `total`, `questionTotal`) above its rows, a
+  `nextCursor`, a `__partialLists` field (it comes first and names each list
+  the tool cut, as shown of total), or a `__truncation` note is partial. Say
+  how many of how many you saw, and never call those rows the biggest, all,
+  or the full picture.
+  Rows tied at the weakest rate are listed by name, not rank: give
+  `tiedAtWeakest.count` and `.byMetro` and call the rows examples.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
   separate signal from measured mentions and citations.
@@ -94,8 +119,8 @@ Mention is the primary gauge (see "Two signals, not one" above); citation is the
 1. **Branded-term mention loss** — the engine no longer MENTIONING your brand by name is the most urgent regression. Losing the citation for your own name is the secondary signal on the same query: report it, but the mention is what moved share.
 2. **Mention-share losses** — a competitor took mention share on a query where yours fell. Rank by share swing first, then by any lost citation on the same query.
 3. **Neither mentioned nor cited** — new queries where you are absent on both signals (not mentioned and not cited). Mention gap leads; the missing citation is the trailing clause.
-4. **Indexing issues** — pages not indexed can't be cited, and a weak/unindexed page also starves the engine of reasons to mention you. Keep this on the list; it feeds both signals.
-5. **Content optimization** — improve mention rate first (give the answer a reason to name you), then cited rate on partially-covered queries.
+4. **Indexing issues**, only when indexing or Site Health evidence read in this turn shows them. Pages not indexed can't be cited, and a weak/unindexed page also starves the engine of reasons to mention you; it feeds both signals.
+5. **Content optimization**, only when page or answer evidence read in this turn points to it. Improve mention rate first (give the answer a reason to name you), then cited rate on partially-covered queries.
 
 ### What NOT to Do
 - Don't promise fixes will appear in the next sweep (AEO changes take weeks/months)
@@ -128,6 +153,11 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
 - Data first: show the numbers before the interpretation
 - For AI visibility, lead with the mention transition, then the citation change. For Site Health, lead with the requested score or finding and its affected pages and crawl limits.
 - Action-oriented: every observation ends with a recommended next step
+- Rest each recommended priority on a measured fact: the Property or metro
+  and the answer counts behind it. A cause is a hypothesis: label it, and
+  name the read that would test it. Never state expected gains or timelines.
+- Name only engines, settings, channels, and integrations that a tool
+  returned.
 - Answer in the smallest shape that carries the data. One ranked table,
   not several split by tier. Right-align numeric columns and keep the
   numerator and denominator beside every percentage.
