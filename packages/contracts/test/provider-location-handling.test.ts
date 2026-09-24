@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { getProviderLocationHandling } from '../src/provider.js'
 
 describe('getProviderLocationHandling', () => {
-  it('reports prompt-injection providers (Gemini, Perplexity, Local)', () => {
+  it('reports prompt-injection providers (Gemini, Local)', () => {
     expect(getProviderLocationHandling('gemini').treatment).toBe('prompt')
-    expect(getProviderLocationHandling('perplexity').treatment).toBe('prompt')
     expect(getProviderLocationHandling('local').treatment).toBe('prompt')
   })
 
-  it('reports request-param providers (OpenAI, Claude)', () => {
+  it('reports request-param providers (OpenAI, Claude, Perplexity)', () => {
     expect(getProviderLocationHandling('openai').treatment).toBe('request-param')
     expect(getProviderLocationHandling('claude').treatment).toBe('request-param')
+    expect(getProviderLocationHandling('perplexity').treatment).toBe('request-param')
   })
 
   it('reports CDP browser as browser-geo (configured location does not reach the model)', () => {

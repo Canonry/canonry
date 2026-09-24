@@ -6,7 +6,7 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
-import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
+import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -427,7 +427,10 @@ export class JobRunner {
       } else {
         const projectProviders = providerOverride ?? (project.providers as ProviderName[])
         activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
-          const model = project.providerModels[entry.adapter.name]
+          const override = project.providerModels[entry.adapter.name]
+          // An override stored before its model was retired resolves to the id
+          // that answers now, matching what the registry holds for config.yaml.
+          const model = override === undefined ? undefined : resolveProviderModel(entry.adapter.name, override)
           // Clone the registration instead of mutating the shared registry: two
           // projects can run different models through the same provider process.
           return model === undefined

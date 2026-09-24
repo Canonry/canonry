@@ -577,6 +577,29 @@ describe('query tracking workspace: simple projects', () => {
   })
 })
 
+describe('query tracking workspace: retired provider models', () => {
+  it('keeps simple evidence tracked when a stored override names the retired id of the model that ran', async () => {
+    await app.close()
+    app = Fastify()
+    app.register(apiRoutes, { db, getRunnableProviderNames: () => ['gemini', 'openai', 'perplexity'], providerSummary })
+    await app.ready()
+
+    // JobRunner resolves `sonar-pro` to `low` before dispatch and freezes `low`.
+    db.update(projects).set({ providers: ['openai', 'perplexity'], providerModels: { openai: 'gpt-test', perplexity: 'low' } })
+      .where(eq(projects.id, 'project-northwind')).run()
+    insertFrozenSimpleRun({ id: 'simple-retired-model' })
+    db.update(projects).set({ providerModels: { openai: 'gpt-test', perplexity: 'sonar-pro' } })
+      .where(eq(projects.id, 'project-northwind')).run()
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing')?.state).toBe('tracked')
+
+    // A real model change still moves it.
+    db.update(projects).set({ providerModels: { openai: 'gpt-test', perplexity: 'medium' } })
+      .where(eq(projects.id, 'project-northwind')).run()
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing'))
+      .toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
+  })
+})
+
 describe('query tracking workspace: advanced portfolios', () => {
   it('exposes frozen group ancestry without changing property membership', async () => {
     seedAdvancedPlan()
