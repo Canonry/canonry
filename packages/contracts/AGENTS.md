@@ -13,6 +13,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/operational-logs.ts` | Strict runtime-event, query, and page DTOs. Identity and time filters, sanitized messages, retention policy, and loss counters are the same across REST, CLI, and MCP. Runtime logs are not business audit history. |
 | `src/telemetry.ts` | Telemetry DTOs and `normalizeTelemetryStatus`: shared legacy-response normalization and anonymous-ID masking for API hosts, ApiClient/MCP, and CLI output. |
 | `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
+| `src/sweep-pricing.ts` | Per-answer cost estimates: `DEFAULT_MODEL_PRICES` (built-in Claude table, exact model ids), `resolveModelPrice` (config.yaml override beats the table; unknown id → null), `estimateAnswerCostMicros` (integer micro-USD, batch discount on tokens only, rounded once), `buildSnapshotUsage`, and `usageCount` for reading a provider's usage fields |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
@@ -74,6 +75,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | Error factories, and rendering a caught `unknown` | `packages/contracts/src/errors.ts` (`describeError` — the one way to turn a `catch` binding into text; never hand-write `err instanceof Error ? err.message : String(err)`, whose `String()` branch prints `[object Object]` for a thrown object) |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
+| Answer usage and cost estimates | `packages/contracts/src/sweep-pricing.ts` (`estimateAnswerCostMicros`, `buildSnapshotUsage`, `usageCount`) |
 | Statistics over a series | `packages/contracts/src/statistics.ts` (`wilsonInterval` for a proportion; `linearTrend` for the least-squares fit of any evenly-spaced series, returning slope-per-step plus the two endpoints a chart draws between). Fit trends server-side and put them in the DTO — a regression computed in a chart component is invisible to the CLI and breaks UI/CLI parity. |
 | Bounded async concurrency | `packages/contracts/src/concurrency.ts` (`mapWithConcurrency` — order-preserving worker pool, fail-fast with clean settle) |
 | Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
