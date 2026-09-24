@@ -38,7 +38,7 @@ import { resetSharedProviderExecutionGates } from '../src/provider-execution-gat
 
 // Pins every column a recorded answer carries, on each path that records one:
 // the plan sweep, a fill, and the planless sweep. The recording code is shared
-// between those paths (and will be shared with batch ingest), so a change that
+// between those paths (and with batch ingest), so a change that
 // quietly alters one stored field shows up here as a diff, not as a drifted
 // report weeks later.
 
@@ -53,6 +53,13 @@ const SOURCES = [
   { uri: 'https://example.com/property-001/widgets', title: 'Planned Co widgets' },
   { uri: 'https://rivalrywidgets.com/pricing', title: 'Rivalry pricing' },
 ]
+// What every fake answer reports it used. openai is priced by a config.yaml
+// override (gemini has no price anywhere), so its estimate is exact:
+// 1,200 input × $2 + 300 cache-read × $0.20 (0.1× input) + 400 output × $8
+// = 5,660 µ$ in tokens, plus 3 searches × $10 / 1,000 = 30,000 µ$.
+const USAGE = { inputTokens: 1200, cachedInputTokens: 300, cacheWriteTokens: 0, outputTokens: 400, searchCount: 3 }
+const OPENAI_PRICE = { inputPerMTok: 2, outputPerMTok: 8, searchPer1k: 10 }
+const OPENAI_STANDARD_COST = 35_660
 
 beforeEach(() => {
   resetSharedProviderExecutionGates()
@@ -154,6 +161,8 @@ function adapter(name: string, options: AdapterOptions = {}): ProviderAdapter {
         searchQueries: [input.query],
         retrievalStatus: 'used',
         retrievalContract: 'search-required-v1',
+        usage: USAGE,
+        stopReason: 'end_turn',
         ...(screenshotPath ? { screenshotPath } : {}),
       }
     },
@@ -174,7 +183,14 @@ function adapter(name: string, options: AdapterOptions = {}): ProviderAdapter {
 function registry(adapters: readonly ProviderAdapter[]): ProviderRegistry {
   const r = new ProviderRegistry()
   for (const a of adapters) {
-    r.register(a, { provider: a.name, apiKey: 'test-key', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 6000, maxRequestsPerDay: 1000 } })
+    r.register(a, {
+      provider: a.name,
+      apiKey: 'test-key',
+      quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 6000, maxRequestsPerDay: 1000 },
+      // Keyed by the model each path asks for: the plan's frozen model, or the
+      // adapter default a planless sweep falls back to.
+      ...(a.name === 'openai' ? { pricing: { models: { 'gpt-planned': OPENAI_PRICE, fake: OPENAI_PRICE } } } : {}),
+    })
   }
   return r
 }
@@ -217,10 +233,17 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
     requestedContext: NORTH,
     supportedContext: { status: 'applied', resolved: NORTH },
     screenshotPath: null,
-    dispatchMode: null,
+    // Every sync path records how the answer was obtained and what it cost,
+    // at the standard price: no batch produced it.
+    dispatchMode: 'sync',
     providerBatchId: null,
-    stopReason: null,
-    usage: null,
+    stopReason: 'end_turn',
+    usage: {
+      ...USAGE,
+      pricingTier: 'standard',
+      estimatedCostMicros: provider === 'openai' ? OPENAI_STANDARD_COST : null,
+      priceSource: provider === 'openai' ? 'override' : null,
+    },
     rawResponse: JSON.stringify({
       model,
       servedModel: `${model}-2026-07-01`,

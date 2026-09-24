@@ -5,8 +5,8 @@ import os from 'node:os'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
-import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
-import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
+import type { PricingTier, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
+import { PricingTiers, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -105,10 +105,7 @@ interface PlanSlotContext extends SlotRecordingContext {
   }
 }
 
-/**
- * How the answer being recorded was obtained. It carries only what the insert
- * needs today and grows with the columns that describe a dispatch.
- */
+/** How the answer being recorded was obtained, stored on its row. */
 interface SlotDispatch {
   /**
    * Insert with ON CONFLICT DO NOTHING. A path that can be handed an answer
@@ -117,9 +114,37 @@ interface SlotDispatch {
    * provider's error instead of being skipped silently.
    */
   idempotent: boolean
+  mode: ProviderDispatchMode
+  /** The `provider_batches` row that produced the answer; null for a sync call. */
+  providerBatchId: string | null
+  /** The price tier the answer was billed at, for its cost estimate. */
+  pricingTier: PricingTier
 }
 
-const SYNC_SLOT_DISPATCH: SlotDispatch = { idempotent: false }
+const SYNC_SLOT_DISPATCH: SlotDispatch = {
+  idempotent: false,
+  mode: ProviderDispatchModes.sync,
+  providerBatchId: null,
+  pricingTier: PricingTiers.standard,
+}
+
+/**
+ * The dispatch columns of a planless answer. Additive only: a planless run is
+ * always a sync call at the standard price, and nothing else in its insert
+ * changes.
+ */
+function planlessDispatchColumns(registeredProvider: RegisteredProvider, raw: RawQueryResult) {
+  return {
+    dispatchMode: ProviderDispatchModes.sync,
+    stopReason: raw.stopReason ?? null,
+    usage: buildSnapshotUsage(raw.usage, {
+      provider: registeredProvider.adapter.name,
+      model: raw.model,
+      tier: PricingTiers.standard,
+      overrides: registeredProvider.config.pricing,
+    }),
+  }
+}
 
 /**
  * Build the identity one run's answers are scored against from rows already
@@ -708,6 +733,7 @@ export class JobRunner {
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,
                 }),
+                ...planlessDispatchColumns(registeredProvider, raw),
                 createdAt: new Date().toISOString(),
               }).run()
             } else {
@@ -743,6 +769,7 @@ export class JobRunner {
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,
                 }),
+                ...planlessDispatchColumns(registeredProvider, raw),
                 createdAt: new Date().toISOString(),
               }).run()
             }
@@ -1533,6 +1560,16 @@ export class JobRunner {
         groundingSources: normalized.groundingSources,
         searchQueries: normalized.searchQueries,
         apiResponse: raw.rawResponse,
+      }),
+      dispatchMode: dispatch.mode,
+      providerBatchId: dispatch.providerBatchId,
+      stopReason: raw.stopReason ?? null,
+      // Priced by the model the slot asked for, the same id `model` stores.
+      usage: buildSnapshotUsage(raw.usage, {
+        provider: providerName,
+        model: unit.requestedModel ?? raw.model,
+        tier: dispatch.pricingTier,
+        overrides: registeredProvider.config.pricing,
       }),
       createdAt: new Date().toISOString(),
     })
