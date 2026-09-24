@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, type DatabaseClient } from '@ainyc/canonry-db'
-import { aeroProjectShapePrompt } from '../src/agent/project-shape.js'
+import { aeroProjectShape } from '../src/agent/project-shape.js'
 
 describe('aeroProjectShapePrompt', () => {
   let tmpDir: string
@@ -28,14 +28,14 @@ describe('aeroProjectShapePrompt', () => {
     for (const [id, query] of [['q1', 'best dentist'], ['q2', 'emergency dentist']]) {
       db.insert(queries).values({ id, projectId: 'proj_acme', query, createdAt: now }).run()
     }
-    const prompt = aeroProjectShapePrompt(db, 'proj_acme', { progressive: false })
+    const shape = aeroProjectShape(db, 'proj_acme')
 
-    expect(prompt).toContain('a Simple project with 2 tracked queries and no measurement plan')
-    expect(prompt).toContain('canonry_visibility_report')
-    expect(prompt).not.toContain('toolkit')
+    expect(shape.prompt).toContain('a Simple project with 2 tracked queries and no measurement plan')
+    expect(shape.prompt).toContain('canonry_visibility_report')
+    expect(shape.pinned).toEqual(['canonry_visibility_report'])
   })
 
-  it('describes an Advanced portfolio by its Properties, groups and classed queries, naming toolkits when they load progressively', () => {
+  it('describes an Advanced portfolio by its Properties, groups and classed queries, and pins the tools it names', () => {
     const now = new Date().toISOString()
     const plan = {
       schemaVersion: 2,
@@ -55,18 +55,33 @@ describe('aeroProjectShapePrompt', () => {
     }).run()
     db.insert(measurementPlans).values({ projectId: 'proj_acme', activeVersionId: 'v7', createdAt: now, updatedAt: now }).run()
 
-    const progressive = aeroProjectShapePrompt(db, 'proj_acme', { progressive: true })
-    expect(progressive).toContain('an Advanced Measurement portfolio (plan revision 7) with 3 Properties in 3 groups (1 top-level, 2 nested), 2 branded and 2 non-brand queries')
-    expect(progressive).toContain('never pool branded and non-brand')
-    expect(progressive).toContain('canonry_measurement_portfolio_summary (toolkit "monitoring")')
+    const shape = aeroProjectShape(db, 'proj_acme')
+    expect(shape.prompt).toContain('an Advanced Measurement portfolio (plan revision 7) with 3 Properties in 3 groups (1 top-level, 2 nested), 2 branded and 2 non-brand queries')
+    expect(shape.prompt).toContain('never pool branded and non-brand')
+    // Every tool the prompt tells Aero to start with is pinned visible.
+    for (const tool of shape.pinned) expect(shape.prompt).toContain(tool)
+    expect(shape.pinned).toContain('canonry_measurement_portfolio_summary')
+  })
 
-    const full = aeroProjectShapePrompt(db, 'proj_acme', { progressive: false })
-    expect(full).toContain('canonry_measurement_portfolio_summary (weakest-first')
-    expect(full).not.toContain('toolkit')
+  it('describes a legacy schema-v1 plan without inventing query classes, and names only tools that read it', () => {
+    const now = new Date().toISOString()
+    // v1 plans carry targets and groups but no classified assignments.
+    const plan = { schemaVersion: 1, targets: [{ stableKey: 'harbor' }, { stableKey: 'bayside' }], groups: [{ stableKey: 'metro' }], usageEdges: [{ kind: 'target' }] }
+    db.insert(measurementPlanVersions).values({
+      id: 'v3', projectId: 'proj_acme', revision: 3, canonicalJson: JSON.stringify(plan), checksum: 'c', schemaVersion: 1, createdAt: now,
+    }).run()
+    db.insert(measurementPlans).values({ projectId: 'proj_acme', activeVersionId: 'v3', createdAt: now, updatedAt: now }).run()
+
+    const shape = aeroProjectShape(db, 'proj_acme')
+    expect(shape.prompt).toContain('legacy schema v1 (plan revision 3) with 2 Properties in 1 groups')
+    expect(shape.prompt).toContain('not classified as branded or non-brand')
+    expect(shape.prompt).not.toMatch(/\d+ branded and \d+ non-brand queries/)
+    expect(shape.pinned).toEqual(['canonry_measurement_overview', 'canonry_measurement_plan_get'])
+    expect(shape.pinned).not.toContain('canonry_measurement_portfolio_summary')
   })
 
   it('never blocks a turn when the project cannot be read', () => {
     const broken = { select: () => { throw new Error('database is locked') } } as unknown as DatabaseClient
-    expect(aeroProjectShapePrompt(broken, 'proj_acme', { progressive: true })).toBe('')
+    expect(aeroProjectShape(broken, 'proj_acme')).toEqual({ prompt: '', pinned: [] })
   })
 })

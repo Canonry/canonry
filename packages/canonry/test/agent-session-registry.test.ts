@@ -45,6 +45,10 @@ const AERO_READ_TOOL_COUNT =
   SKILL_DOC_TOOL_COUNT
 const AERO_ALL_TOOL_COUNT =
   canonryMcpTools.filter((t) => t.tier === 'core' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
+// Once a turn is acquired, the project shape pins the tools it names. These
+// test projects have no plan, so the Simple shape pins the visibility report.
+const SIMPLE_SHAPE_PINNED_COUNT = 1
+const AERO_READ_TURN_TOOL_COUNT = AERO_READ_TOOL_COUNT + SIMPLE_SHAPE_PINNED_COUNT
 const AERO_ADS_OPERATOR_READ_TOOL_COUNT =
   canonryMcpTools.filter(
     (t) =>
@@ -286,7 +290,7 @@ describe('SessionRegistry', () => {
     expect(usageRows).toHaveLength(1)
     expect(usageRows[0].metadata).toMatchObject({
       projectName: 'demo',
-      toolCount: AERO_READ_TOOL_COUNT,
+      toolCount: AERO_READ_TURN_TOOL_COUNT,
     })
   })
 
@@ -606,7 +610,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('drainNow preserves an ads-operator profile and does not widen back to the default profile', async () => {
@@ -668,7 +672,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
@@ -838,7 +842,7 @@ describe('SessionRegistry', () => {
 
     await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly })
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('acquireForTurn aligns tool profile on cached agents when idle', async () => {

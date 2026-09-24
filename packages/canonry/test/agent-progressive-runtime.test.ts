@@ -2,8 +2,8 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '@mariozechner/pi-ai'
 import { Type } from '@sinclair/typebox'
-import { configureAeroRuntime, aeroTurnStatus } from '../src/agent/runtime.js'
-import { buildReadTools } from '../src/agent/tools.js'
+import { configureAeroRuntime, aeroTurnStatus, MAX_VISIBLE_TOOLS } from '../src/agent/runtime.js'
+import { buildAllTools, buildReadTools } from '../src/agent/tools.js'
 import type { ApiClient } from '../src/client.js'
 
 const faux = registerFauxProvider({ api: 'aero-progressive-test', provider: 'aero-progressive-test', models: [{ id: 'test' }] })
@@ -58,6 +58,47 @@ describe('Aero progressive tool execution', () => {
     ])
     await agent.prompt('Check active insights')
     expect(getInsights).not.toHaveBeenCalled()
+  })
+
+  it('keeps pinned tools visible without loading their toolkit', () => {
+    const allowed = buildReadTools({ client: {} as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed, undefined, true, ['canonry_measurement_portfolio_summary'])
+    const names = agent.state.tools.map(tool => tool.name)
+    expect(names).toContain('canonry_measurement_portfolio_summary')
+    expect(names).not.toContain('canonry_insights_list')
+  })
+
+  it('points an eager turn at its own list instead of a toolkit tool it does not have', async () => {
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [], undefined, false)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }),
+      context => {
+        const hint = context.messages.at(-1) as { content: Array<{ text: string }> }
+        expect(hint.content[0]!.text).toBe('canonry_insights_list is not available in this conversation. Use only the tools listed for you.')
+        expect(hint.content[0]!.text).not.toContain('aero_list_toolkits')
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('Check active insights')
+  })
+
+  it('never lets loaded toolkits carry a request past the function limit', async () => {
+    const allowed = buildAllTools({ client: {} as ApiClient, projectName: 'demo' })
+    expect(allowed.length).toBeGreaterThan(MAX_VISIBLE_TOOLS)
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed, { maxToolCalls: 100, timeoutMs: 10_000 })
+    const kits = ((await agent.state.tools.find(tool => tool.name === 'aero_list_toolkits')!.execute('list', {})).details as Array<{ name: string }>).map(kit => kit.name)
+    faux.setResponses([
+      fauxAssistantMessage(kits.map((toolkit, index) => fauxToolCall('aero_load_toolkit', { toolkit }, { id: `load-${index}` })), { stopReason: 'toolUse' }),
+      context => {
+        expect(context.tools!.length).toBeLessThanOrEqual(MAX_VISIBLE_TOOLS)
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('Load every toolkit')
+    expect(agent.state.tools.length).toBeLessThanOrEqual(MAX_VISIBLE_TOOLS)
   })
 
   it('stops before executing calls beyond the limit, including multiple calls in one model response', async () => {

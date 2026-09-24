@@ -14,7 +14,7 @@ import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { AeroToolScopes, buildAeroStateTools } from './tools.js'
 import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidence } from './view-context.js'
-import { aeroProjectShapePrompt } from './project-shape.js'
+import { aeroProjectShape } from './project-shape.js'
 
 /**
  * Read tools a viewer's Aero never gets. They are marked read, but each one
@@ -234,14 +234,14 @@ export class ViewerAeroSessions {
       preferences.signal?.throwIfAborted()
       // Without the operator's AERO_SYSTEM_PROMPT_APPEND / _FILE extras: those
       // are the operator's instructions, not the viewer's to read.
+      const shape = aeroProjectShape(this.opts.db, project.id)
       agent.state.systemPrompt = loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT
-        + aeroProjectShapePrompt(this.opts.db, project.id, { progressive: false })
+        + shape.prompt
         + aeroViewPrompt(preferences.context)
-      // The whole read catalog, not progressive toolkits: a model that knows a
-      // tool's name from the skill docs calls it directly, and a toolkit it has
-      // not loaded yet would answer "not found". The catalog is already the
-      // viewer's safe read set. Operator turn limits apply.
-      configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], undefined, false)
+      // Toolkits load on demand, so the request stays under the providers'
+      // function limits (128 on some), and the tools the project shape names
+      // are visible from the start so the first calls it suggests never miss.
+      configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], undefined, true, shape.pinned)
       this.sessions.set(key, { agent, lastUsedAt: this.now(), updatedAt: this.sessions.get(key)?.updatedAt ?? null })
       this.turnsToday.set(key, { date: today, count: count + 1 })
       handedOff = true
