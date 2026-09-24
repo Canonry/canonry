@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
+import { pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
@@ -67,6 +67,11 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters),
       specProviders,
     )
+    // Present = declarative, absent = untouched (like `queries`): a converge
+    // that does not manage dispatch never clears a preference set elsewhere.
+    const specDispatchModes = config.spec.providerDispatchModes === undefined
+      ? undefined
+      : validateProviderDispatchModes(config.spec.providerDispatchModes, opts?.providerAdapters)
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
@@ -159,6 +164,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       if (existing) {
         projectId = existing.id
+        const providerDispatchModes = pruneProviderModelsForProviders(specDispatchModes ?? existing.providerDispatchModes, specProviders)
         tx.update(projects).set({
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
@@ -169,6 +175,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
           providerModels,
+          providerDispatchModes,
           measurement: config.spec.measurement,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
@@ -201,6 +208,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
           providerModels,
+          providerDispatchModes: pruneProviderModelsForProviders(specDispatchModes ?? {}, specProviders),
           measurement: config.spec.measurement,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
@@ -384,6 +392,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       labels: project.labels,
       providers: project.providers,
       providerModels: project.providerModels,
+      providerDispatchModes: project.providerDispatchModes,
       measurement: project.measurement,
       locations: project.locations,
       defaultLocation: project.defaultLocation,

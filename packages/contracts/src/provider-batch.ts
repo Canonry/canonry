@@ -94,7 +94,8 @@ export type ProviderUsage = z.infer<typeof providerUsageSchema>
 export const snapshotUsageSchema = providerUsageSchema.extend({
   pricingTier: pricingTierSchema,
   estimatedCostMicros: z.number().int().nonnegative().nullable(),
-  priceSource: z.enum(['default', 'override']).nullable(),
+  // Spelled as a union so the OpenAPI generator keeps the null on the enum.
+  priceSource: z.union([z.enum(['default', 'override']), z.null()]),
 })
 export type SnapshotUsage = z.infer<typeof snapshotUsageSchema>
 

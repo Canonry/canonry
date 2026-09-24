@@ -35,6 +35,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/bing.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools, WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
 | `src/visibility-report.ts` | Stored-evidence `GET /projects/:name/visibility-report`. `previousEligibleVisibilityRun` uses `notProbeRun()` and ignores the date window and pinned run. An unreadable predecessor omits `comparison`. |
 | `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
+| `src/provider-batches.ts` | Reads over `provider_batches`: the run detail's `providerBatches`, `runHadProviderBatch` (fill age), `hasOutstandingProviderBatch` (scheduler `batch-pending`). Writes belong to the job runner and the poller. |
+| `src/snapshot-evidence-fingerprint.ts` | The one evidence fingerprint measurement cursors pin. It excludes the dispatch provenance columns so their addition never invalidates a cursor. |
 
 ## Patterns
 
@@ -45,6 +47,10 @@ and the all-locations transaction. Unrelated run kinds may overlap. A location
 fan-out remains one atomic admission; a second visibility sweep is refused until
 all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
+
+### Batch dispatch (queue time)
+
+`queueRunIfProjectIdle` freezes which providers batch into `runs.provider_dispatch_modes` inside the queue transaction, after the stamp. The rules are `resolveRunDispatchModes` in contracts; do not re-derive them. A scheduled run reads the project's `providerDispatchModes`. A manual or API run batches only on `dispatchMode: 'batch'`, and a batch request no provider can honour is a 400 whose `details.ineligible` names each reason. `POST /runs` runs the same check in its pre-pass, so one project's refusal is its own error row. `dispatchMode` is TUNING, not identity: it stays out of `measurementExecutionIdentity`, and the trigger routes never reuse an in-flight run. `providerDispatchModes` on project writes follows `providerModels` (key validation, pruning). An omitted value leaves the stored preference untouched on PUT and apply. Fill age counts from `finishedAt` for a run with any `provider_batches` row (`runFillAgeAnchor`). The run detail's `usage` comes from `summarizeRunUsage`. See `docs/batch-mode.md`.
 
 ### Simple measurement provenance
 
