@@ -1,0 +1,28 @@
+{
+  "id": "resp_2b9d04c7aa",
+  "object": "response",
+  "created_at": 1790000100,
+  "model": "perplexity/sonar",
+  "status": "completed",
+  "output": [
+    {
+      "type": "search_results",
+      "queries": ["canonry aeo platform zzzz"],
+      "results": []
+    },
+    {
+      "id": "msg_91c0aa",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I could not find sources for that exact phrase.",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": { "input_tokens": 402, "output_tokens": 12, "total_tokens": 414 }
+}

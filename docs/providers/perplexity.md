@@ -2,64 +2,106 @@
 
 ## Role
 
-`packages/provider-perplexity` is an answer-visibility provider adapter for Perplexity Sonar. It uses Perplexity's OpenAI-compatible Chat Completions surface to determine which domains are cited in AI-generated answers for tracked queries.
+`packages/provider-perplexity` is the answer-visibility adapter for Perplexity. It calls the **Agent API** (`POST https://api.perplexity.ai/v1/agent`) and reads which domains an answer cites for each tracked query.
 
-## Provider Contract
+Perplexity retired Sonar Chat Completions on 2026-09-27 ([migration guide](https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar)). Rows written before the switch are Sonar responses; the adapter still parses them (see [Stored history](#stored-history)).
 
-### `validateConfig(config: PerplexityConfig): PerplexityHealthcheckResult`
+## Model selection
 
-Validates that the config has a non-empty API key. Returns the model name that will be used.
+The configured model is either an Agent API **preset** or a **`vendor/model` slug**:
 
-### `executeTrackedQuery(input: PerplexityTrackedQueryInput): Promise<PerplexityRawResult>`
+| Configured | Request field | Notes |
+|------------|---------------|-------|
+| `fast` (default) | `preset: "fast"` | Perplexity's suggested replacement for `sonar` |
+| `low`, `medium`, `high`, `xhigh` | `preset` | Heavier, costlier search tiers |
+| `perplexity/sonar`, `openai/gpt-5.1`, … | `model` | One model plus Canonry's `web_search` tool |
 
-Sends the query to Perplexity's Sonar API. Returns:
+Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `packages/contracts/src/models.ts`: `sonar` → `fast`, `sonar-pro` / `sonar-reasoning` / `sonar-reasoning-pro` → `low`, `sonar-deep-research` → `medium`. The long preset names (`fast-search`, `pro-search`, `deep-research`, `advanced-deep-research`) fold into the short ones.
 
-- `rawResponse` — the full Perplexity API response
-- `groundingSources` — extracted `{ uri, title }` pairs from `search_results` when present, otherwise from `citations`
-- `searchQueries` — always empty because Perplexity does not document returned search-query telemetry
-- `model` — the model used (default: `sonar`)
-
-### `normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedResult`
-
-Extracts analyst-relevant fields from the raw response:
-
-- `answerText` — `choices[0].message.content`
-- `citedDomains` — unique domains extracted from grounding source URIs
-- `groundingSources` — pass-through of `{ uri, title }` pairs
-- `searchQueries` — pass-through of provider-returned search queries, which is currently `[]`
-
-## Search Results & Citation Detection
-
-Perplexity's OpenAI-compatibility docs describe two relevant response fields:
-
-1. `search_results` — the richer source objects with `title`, `url`, and `date`
-2. `citations` — the cited URL list used in the response
-
-Canonry prefers `search_results` for `groundingSources` because it preserves titles, and falls back to `citations` when `search_results` are absent. Canonry does not synthesize `searchQueries`, because Perplexity's documented response structure does not include returned search-query telemetry.
-
-### Upstream references
-
-- OpenAI compatibility docs: <https://docs.perplexity.ai/docs/sonar/openai-compatibility>
-
-## Data Stored per Snapshot
-
-The job runner stores the following in `query_snapshots.raw_response` as JSON:
+## Request
 
 ```json
 {
-  "model": "sonar",
-  "groundingSources": [
-    { "uri": "https://example.com/page", "title": "Page Title" }
-  ],
-  "searchQueries": [],
+  "preset": "fast",
+  "input": "best crm for startups",
+  "tools": [{ "type": "web_search", "user_location": { "city": "New York", "region": "New York", "country": "US" } }],
+  "tool_choice": { "type": "web_search" }
+}
+```
+
+- The query goes in unmodified. The location rides on the `web_search` tool as `user_location` (treatment `request-param`), not in the text as it did with Sonar.
+- `tool_choice` forces the search, so the retrieval contract is `search-required-v1`, the same as Claude. Canonry sends no `instructions`; a preset's built-in prompt is part of the engine being measured.
+- The Agent API rejects unknown fields with a 400, so `user_location` carries only `city`, `region`, and `country` (no `type` or `timezone`, unlike OpenAI's).
+- The key check sends the same preset or model with `input: 'Say "ok"'` and no forced search.
+
+## Response parsing
+
+| Field | Source |
+|-------|--------|
+| `answerText` | `output_text` parts of every `message` item, joined |
+| `groundingSources` | `search_results` item `results[]`, then `fetch_url_results` `contents[]`, then `url_citation` annotations on the message; deduplicated by URL in output order |
+| `citedDomains` | Unique hosts of `groundingSources` |
+| `searchQueries` | `search_results` item `queries[]` |
+| `retrievalStatus` | `used` with a `search_results` or `fetch_url_results` item; `not-used` with a message and neither; `unknown` otherwise |
+| `servedModel` | Top-level `model` (the model a preset resolved to) |
+| `model` | The resolved preset or slug that was requested |
+
+There is no top-level `citations` or `search_results` on an Agent response. A failed or cancelled run comes back as HTTP 200 with `status` and `error` set, so the adapter checks `status` and throws for anything but `completed` or `incomplete`. HTTP 429 and 5xx retry through `withRetry`; other 4xx do not.
+
+## Comparability
+
+Switching the engine behind `perplexity` is treated as a model change:
+
+- `normalizeExecutionIdentity` (contracts) resolves retired ids, so a plan run whose config still says `sonar` gets an execution identity naming `fast` and starts a new series.
+- The provider registry, `packages/config`, project overrides (on write, and on read in the job runner, run queue, query tracking, and research) resolve the same way, so the frozen slot, snapshot `model`, and identity agree.
+- A v2 plan revision published with a frozen `sonar` keeps that id in its slots and snapshots (the revision is immutable); its identity still resolves to `fast`, and `servedModel` shows the Agent model.
+
+## Stored history
+
+`reparseStoredResult` dispatches on shape. A response with an `output` array is Agent; anything else is Sonar Chat Completions and keeps its parser: `choices[0].message.content`, sources from `search_results` (preferred, keeps titles) or `citations`, no search queries, and `retrievalStatus: unknown`. Both work direct or wrapped under `apiResponse`, so `canonry backfill` and reparse read old sweeps as before.
+
+## Data stored per snapshot
+
+`query_snapshots.raw_response`:
+
+```json
+{
+  "model": "fast",
+  "groundingSources": [{ "uri": "https://example.com/page", "title": "Page Title" }],
+  "searchQueries": ["best crm for startups"],
   "apiResponse": {
-    "choices": [...],
-    "search_results": [...],
-    "citations": [...]
+    "object": "response",
+    "status": "completed",
+    "model": "perplexity/sonar",
+    "output": [
+      { "type": "search_results", "queries": ["..."], "results": [{ "id": 1, "url": "...", "title": "..." }] },
+      { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "...", "annotations": [] }] }
+    ]
   }
 }
 ```
 
-## Implementation Status
+## Capturing fixtures
 
-Live Perplexity API calls implemented through the OpenAI-compatible Chat Completions interface.
+The fixtures in `packages/provider-perplexity/test/fixtures/` follow the Agent API schema in Perplexity's official SDK but are **not live captures** (see that folder's README). To replace them, run each request shape with a key and save the body:
+
+```bash
+curl -sS https://api.perplexity.ai/v1/agent \
+  -H "Authorization: Bearer $PERPLEXITY_API_KEY" -H 'content-type: application/json' \
+  -d '{"preset":"fast","input":"best crm for startups","tools":[{"type":"web_search"}],"tool_choice":{"type":"web_search"}}' \
+  > packages/provider-perplexity/test/fixtures/agent-fast-cited.json
+
+curl -sS https://api.perplexity.ai/v1/agent \
+  -H "Authorization: Bearer $PERPLEXITY_API_KEY" -H 'content-type: application/json' \
+  -d '{"preset":"fast","input":"Say \"ok\""}' \
+  > packages/provider-perplexity/test/fixtures/agent-no-search.json
+```
+
+Then update the exact values `test/agent-api.test.ts` asserts.
+
+## Upstream references
+
+- Migration guide: <https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar>
+- Presets: <https://docs.perplexity.ai/docs/agent-api/presets>
+- Response schema: `@perplexity-ai/perplexity_ai` `src/generated/api.ts` (`ResponsesResponseOutput`)
+- Sonar (stored history): <https://docs.perplexity.ai/docs/sonar/openai-compatibility>

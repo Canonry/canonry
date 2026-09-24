@@ -14,6 +14,7 @@ import {
   nextScheduleUpdatedAt,
   resolveMeasurementRunQueryScope,
   resolveMeasurementRunScope,
+  resolveProviderModel,
   validationError,
   type LocationContext,
   type MeasurementExecutionIdentity,
@@ -168,7 +169,9 @@ function effectiveModels(
   const resolved: Record<string, string> = {}
   for (const provider of providers) {
     const model = overrides[provider] ?? instance[provider]
-    if (model) resolved[provider] = model
+    // An override stored before its id was retired names the engine that
+    // answers now, so the frozen slot, the snapshot, and the identity agree.
+    if (model) resolved[provider] = resolveProviderModel(provider, model)
   }
   return resolved
 }

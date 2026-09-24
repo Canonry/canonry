@@ -163,3 +163,14 @@ test('viewer research config validation accepts only nullable booleans and posit
     expect(researchViewerDailyRunLimitSchema.safeParse(value).success).toBe(false)
   }
 })
+
+test('perplexity defaults to the fast Agent API preset and resolves retired Sonar names', () => {
+  expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k' }).providers.perplexity?.model).toBe('fast')
+  expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'sonar' }).providers.perplexity?.model).toBe('fast')
+  expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'sonar-pro' }).providers.perplexity?.model).toBe('low')
+  expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'perplexity/sonar' }).providers.perplexity?.model).toBe('perplexity/sonar')
+
+  // Cloud leaves an unset model to the catalog default, and resolves a set one.
+  expect(getPlatformEnv({ PERPLEXITY_API_KEY: 'k' }).providers.perplexity?.model).toBeUndefined()
+  expect(getPlatformEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'sonar-reasoning' }).providers.perplexity?.model).toBe('low')
+})
