@@ -71,8 +71,8 @@ interface PlanExecutionUnit {
 
 /**
  * The identity a run's answers are scored against. Every path that records
- * into a run builds it through `runRecordingContext`, so an answer a fill or a
- * later ingest adds is matched exactly like one the sweep recorded itself.
+ * into a run builds it through `runRecordingContext`, so an answer recorded
+ * after the sweep (by a fill) is matched exactly like one the sweep recorded.
  */
 interface RunRecordingContext {
   runId: string
@@ -111,10 +111,10 @@ interface PlanSlotContext extends SlotRecordingContext {
  */
 interface SlotDispatch {
   /**
-   * Insert with ON CONFLICT DO NOTHING. A path that can meet an answer whose
-   * slot is already written (a replayed ingest) records nothing rather than
-   * failing. A sweep leaves it off, so a slot written behind its back
-   * surfaces as that provider's error instead of being skipped silently.
+   * Insert with ON CONFLICT DO NOTHING. A path that can be handed an answer
+   * for a slot that is already written records nothing rather than failing.
+   * A sweep leaves it off, so a slot written behind its back surfaces as that
+   * provider's error instead of being skipped silently.
    */
   idempotent: boolean
 }
