@@ -42,7 +42,7 @@ export const PROVIDER_BATCH_CANCEL_GRACE_MS = 60 * 60_000
 export const PROVIDER_BATCH_TICK_MS = 15_000
 
 /** The JobRunner methods the poller drives. */
-export type ProviderBatchRunner = Pick<JobRunner, 'ingestProviderBatch' | 'finalizeBatchRun' | 'abandonProviderBatches'>
+export type ProviderBatchRunner = Pick<JobRunner, 'ingestProviderBatch' | 'finalizeBatchRun' | 'abandonProviderBatches' | 'abandonUnreadableProviderBatch'>
 
 export interface ProviderBatchPollerDeps {
   db: DatabaseClient
@@ -204,16 +204,12 @@ export class ProviderBatchPoller {
       const now = this.now()
       const unreadable = row.resultsExpireAt !== null && now >= Date.parse(row.resultsExpireAt)
       if (unreadable || now >= Date.parse(row.deadlineAt) + PROVIDER_BATCH_CANCEL_GRACE_MS) {
-        const at = new Date(now).toISOString()
-        const gaveUp = this.deps.db.update(providerBatches)
-          .set({
-            status: ProviderBatchStatuses.cancelled,
-            error: `The provider batch ended but its results could not be read in time; its unread answer(s) were not recorded: ${error}`,
-            updatedAt: at,
-          })
-          .where(and(eq(providerBatches.id, row.id), eq(providerBatches.status, ProviderBatchStatuses.ended)))
-          .run()
-          .changes === 1
+        // It keeps what an interrupted pass recorded, and gives back what that
+        // pass saw go unbilled.
+        const gaveUp = this.deps.runner.abandonUnreadableProviderBatch(
+          row.id,
+          `The provider batch ended but its results could not be read in time; its unread answer(s) were not recorded: ${error}`,
+        )
         this.schedule.delete(row.id)
         return gaveUp
       }

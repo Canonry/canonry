@@ -190,22 +190,49 @@ When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunComplet
 
 #### Finalizing a sweep (Critical)
 
-Every answer-visibility sweep reaches its terminal status through one
-compare-and-set on `running`: `finalizeRun` (from the sweep's own counts) or
-`finalizeBatchRun` (a run that wrote provider batches, from the database). Only
-the winner emits `run.completed` / `activation.completed`, counts the run and
-calls `onRunCompleted`, so a late or repeated attempt reports nothing. A new
-completion path goes through one of them; never write a terminal status for a
-sweep directly.
+A sweep that measured ends through one compare-and-set on `running`:
+`finalizeRun` (from the sweep's own counts) or `finalizeBatchRun` (a run that
+wrote provider batches, from the database). Only the winner writes the
+status from those counts (`completed`, `partial` or `failed`), emits
+`run.completed` / `activation.completed`, counts the run and calls
+`onRunCompleted`, so a late or repeated attempt reports nothing. A new path
+that ends a sweep from what it recorded goes through one of them; never write
+that status directly.
+
+Four other writes end a sweep or change how it ended, each with its own guard:
+
+- Thrown: `executeRun`'s catch writes `failed` (compare-and-set on
+  `queued|running`, so a finished run is never overwritten) and cancels the
+  batches the sweep submitted. It reports from that execution whether or not
+  its write matched (`run.completed` failed, or `run.aborted` for a setup
+  abort, then `onRunCompleted`), so a stray dispatch of a run that already
+  ended reports again.
+- Cancelled: `POST /runs/:id/cancel` writes `cancelled` (compare-and-set on
+  `queued|running`) and reports nothing itself. The sweep reports it through
+  `handleCancelledRun` (while executing, or when dispatched after the cancel);
+  once the sweep has handed off, `cancelRunBatches` reports it, claimed by
+  clearing `pending_provider_errors`.
+- Restarted: `recoverStaleRuns` writes `failed` (compare-and-set on the status
+  it read) and reports no `run.completed` or `onRunCompleted`. A running sweep
+  with batch rows is handed to the poller instead (see below).
+- Filled: `finalizeRunFill` moves a `partial` run to `completed`
+  (compare-and-set on `partial`). Only that winner, unless a newer sweep
+  superseded it, calls `onRunCompleted` (`fill` origin); no second
+  `run.completed` is emitted.
 
 Provider batch lifecycle (`docs/batch-mode.md`):
 
 - `executeRun` submits each batch provider's slots (frozen
   `runs.provider_dispatch_modes` AND `adapterSupportsBatch`), grouped by frozen
   model and chunked to the request and byte limits. The `provider_batches` row
-  (`submitting`) and its `provider_batch_requests` ledger commit BEFORE
-  `submit`. A definite refusal marks it `failed` and those slots run sync in the
-  same sweep; any other failure marks it `unknown`, never resubmitted.
+  (`submitting`) and its `provider_batch_requests` ledger (inserted in slices,
+  under SQLite's variable limit) commit in one transaction BEFORE `submit`; if
+  that transaction fails, nothing was sent and the slots run sync. The lines
+  count as sent before `submit`, so a sweep that aborts mid-submit keeps their
+  reservation. A definite refusal marks the row `failed` and gives them back
+  (those slots run sync in the same sweep, or, if the sweep already aborted,
+  the quota is released); any other failure marks it `unknown`, never
+  resubmitted.
 - A sweep that wrote a batch row never finalizes from its own count. It writes
   its sync errors to `runs.pending_provider_errors` (`{}` when none: the marker
   that the sweep is done), settles only its own reservation (what a batch
@@ -220,7 +247,10 @@ Provider batch lifecycle (`docs/batch-mode.md`):
   → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
   Unbilled lines (`errored|expired|canceled`) release their reservation under
   `quota_released`. Ingest scores answers against the project's identity at
-  ingest time, as a fill does.
+  ingest time, as a fill does. An ended batch whose results stay unreadable is
+  given up by `abandonUnreadableProviderBatch`: `cancelled`, with the counts of
+  what was read and the unbilled part of that released; unread lines keep their
+  reservation. A batch cancelled mid-ingest keeps its counts too.
 - `onRunCancelled` calls `cancelRunBatches`: batches are cancelled at the
   provider and never ingested. A handed-off run's cancellation is reported
   there, once (clearing the marker is the claim); a live sweep reports its own.

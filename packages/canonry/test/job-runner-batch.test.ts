@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
+import { eq, sql } from 'drizzle-orm'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { ProviderBatchSubmitError, parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
 import { queueRunFill } from '@ainyc/canonry-api-routes'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { providerBatches, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
+import { addLogListener } from '../src/logger.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 import {
@@ -498,6 +499,59 @@ describe('splitting a provider\'s slots into batches', () => {
     expect(runRow(db, tinyRun).status).toBe('completed')
   })
 
+  it('writes the whole ledger of a chunk too large for one SQLite statement, and submits it once', async () => {
+    // Seven values per ledger row: one INSERT of 4,681 rows would bind 32,767,
+    // one past SQLite's limit. The default request cap (100,000) allows it.
+    const count = 4_700
+    const { db, projectId } = seedPlannedProject({ count, providers: ['claude'] })
+    const runId = queueBatchRun(db, projectId)
+    const transport = new FakeBatchTransport()
+    const syncCalls: string[] = []
+    const registry = registryOf([{
+      adapter: fakeAdapter('claude', { transport, onSyncCall: input => syncCalls.push(input.query) }),
+      config: { batch: { enabled: true }, quotaPolicy: { maxConcurrency: 4, maxRequestsPerMinute: 6000, maxRequestsPerDay: 10_000 } },
+    }])
+    const runner = new JobRunner(db, registry)
+
+    await runner.executeRun(runId, projectId)
+
+    expect(transport.submitCalls.map(lines => lines.length)).toEqual([count])
+    const [batch] = batchRows(db, runId)
+    expect(batchRows(db, runId)).toHaveLength(1)
+    expect(batch).toMatchObject({ status: 'submitted', providerBatchId: 'fakebatch_1', requestCount: count, quotaReserved: count })
+    const ledger = requestRows(db, batch!.id)
+    expect(ledger).toHaveLength(count)
+    expect(new Set(ledger.map(row => row.id))).toEqual(new Set(transport.submitCalls[0]!.map(line => line.customId)))
+    expect(syncCalls).toEqual([])
+    expect(runRow(db, runId)).toMatchObject({ status: 'running', pendingProviderErrors: {} })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(count)
+  }, 60_000)
+
+  it('answers a chunk sync when its ledger cannot be written, and the run is not failed', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, completed, syncCalls } = harness(db)
+    db.run(sql.raw("CREATE TRIGGER refuse_batch_ledger BEFORE INSERT ON provider_batch_requests BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END"))
+
+    await runner.executeRun(runId, projectId)
+
+    // Nothing reached the provider, and the batch row rolled back with its ledger.
+    expect(transport.submitCalls).toEqual([])
+    expect(batchRows(db, runId)).toEqual([])
+    expect(syncCalls.filter(call => call.provider === 'claude').map(call => [call.query, call.model]).sort()).toEqual([
+      ['widget question 1', CLAUDE_MODEL],
+      ['widget question 2', CLAUDE_MODEL],
+    ])
+    expect(snapshotRows(db, runId).map(row => [row.provider, row.dispatchMode])).toEqual([
+      ['claude', 'sync'], ['claude', 'sync'], ['gemini', 'sync'], ['gemini', 'sync'],
+    ])
+    expect(runRow(db, runId)).toMatchObject({ status: 'completed', error: null, pendingProviderErrors: null })
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['completed'])
+    expect(completed).toHaveBeenCalledTimes(1)
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+    expect(quotaUsed(db, projectId, 'gemini')).toBe(2)
+  })
+
   it('uses the configured deadline instead of the provider default', async () => {
     const { db, projectId } = seedPlannedProject({ count: 1 })
     const runId = queueBatchRun(db, projectId)
@@ -555,6 +609,94 @@ describe('cancelling a run with a batch', () => {
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
   })
+
+  it('stops a batch the provider creates after the run was cancelled mid-submit, and never ingests it', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, poller, completed } = harness(db)
+    const submitGate = deferred()
+    transport.submitOutcomes = [async () => { await submitGate.promise }]
+    const execution = runner.executeRun(runId, projectId)
+    await vi.waitFor(() => {
+      expect(batchRows(db, runId)[0]?.status).toBe('submitting')
+      expect(snapshotRows(db, runId).map(row => row.provider)).toEqual(['gemini', 'gemini'])
+    })
+
+    cancelLikeTheRoute(db, runId)
+    await runner.cancelRunBatches(runId, projectId)
+    // Still in flight: there is no provider id to cancel yet.
+    expect(transport.cancelCalls).toEqual([])
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', providerBatchId: null })
+
+    submitGate.resolve()
+    await execution
+
+    const created = transport.only()
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', providerBatchId: created.id, submittedAt: null, quotaReleased: 0 })
+    expect(transport.cancelCalls).toEqual([created.id])
+    expect(runRow(db, runId).status).toBe('cancelled')
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+    // The provider created it: whatever it processed before the cancel may be billed.
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+
+    transport.end(created.id)
+    await poller.tick()
+    expect(transport.resultsCalls).toEqual([])
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toEqual([])
+    expect(events('run.completed')).toHaveLength(1)
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { outcome: 'ok' as const, settled: 'batch.cancelled', providerBatchId: 'fakebatch_1', cancelCalls: ['fakebatch_1'], quotaReleased: 0, quota: 3 },
+    { outcome: 'ambiguous' as const, settled: 'batch.submit-unknown', providerBatchId: null, cancelCalls: [], quotaReleased: 0, quota: 3 },
+    // Refused: nothing was created, so the lines the aborted sweep kept reserved come back.
+    { outcome: 'definite' as const, settled: 'batch.submit-refused', providerBatchId: null, cancelCalls: [], quotaReleased: 3, quota: 0 },
+  ])('settles the quota of a submit still in flight when a cancel aborts the sweep ($outcome submit)', async (expected) => {
+    const { db, projectId } = seedPlannedProject({ count: 3 })
+    const runId = queueBatchRun(db, projectId)
+    const geminiGate = deferred()
+    const { runner, transport, completed, syncCalls } = harness(db, { geminiGate: geminiGate.promise })
+    const submitGate = deferred()
+    transport.submitOutcomes = [async () => {
+      await submitGate.promise
+      if (expected.outcome !== 'ok') {
+        throw new ProviderBatchSubmitError('[fake] batch submit failed', { definite: expected.outcome === 'definite' })
+      }
+    }]
+    const logged: string[] = []
+    onTestFinished(addLogListener(entry => { if (entry.module === 'JobRunner') logged.push(entry.action) }))
+    const execution = runner.executeRun(runId, projectId)
+    await vi.waitFor(() => {
+      expect(batchRows(db, runId)[0]?.status).toBe('submitting')
+      expect(syncCalls.filter(call => call.provider === 'gemini')).toHaveLength(3)
+    })
+
+    cancelLikeTheRoute(db, runId)
+    await runner.cancelRunBatches(runId, projectId)
+    // The held sync answers see the cancel and abort the sweep, while the
+    // claude submit is still waiting on the provider.
+    geminiGate.resolve()
+    await execution
+    expect(runRow(db, runId).status).toBe('cancelled')
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
+    expect(completed).toHaveBeenCalledTimes(1)
+
+    submitGate.resolve()
+    await vi.waitFor(() => expect(logged).toContain(expected.settled))
+
+    expect(batchRows(db, runId)[0]).toMatchObject({
+      status: 'cancelled', providerBatchId: expected.providerBatchId, quotaReserved: 3, quotaReleased: expected.quotaReleased,
+    })
+    expect(transport.cancelCalls).toEqual(expected.cancelCalls)
+    expect(quotaUsed(db, projectId, 'claude')).toBe(expected.quota)
+    expect(quotaUsed(db, projectId, 'gemini')).toBe(3)
+    // A run that is over answers nothing more, sync or batch.
+    expect(syncCalls.filter(call => call.provider === 'claude')).toEqual([])
+    expect(snapshotRows(db, runId)).toEqual([])
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('a run that already reached a provider batch', () => {
@@ -590,7 +732,9 @@ describe('a run that already reached a provider batch', () => {
     expect(await runner.ingestProviderBatch(batch!.id)).toEqual({ kind: 'cancelled' })
 
     expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
-    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 0, quotaReleased: 0 })
+    // It reports the line it recorded before the cancel; its reservation stays.
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 1, recordedCount: 1, quotaReleased: 0 })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(3)
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
