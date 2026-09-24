@@ -23,6 +23,7 @@ import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { AERO_MANAGED_SWEEP_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
 import { upsertMemoryEntry } from '../src/agent/memory-store.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
+import { aeroTurnStatus } from '../src/agent/runtime.js'
 import { AeroToolScopes, buildAeroStateTools } from '../src/agent/tools.js'
 import {
   AERO_VIEWER_EXCLUDED_MCP_TOOLS,
@@ -170,6 +171,19 @@ describe('ViewerAeroSessions', () => {
     for (const name of AERO_VIEWER_EXCLUDED_MCP_TOOLS) expect(names).not.toContain(name)
     for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(names).not.toContain(name)
     expect(names).toContain('canonry_project_overview')
+  })
+
+  it('shows a viewer the whole read catalog at once, so no tool has to be loaded first', async () => {
+    const turn = await sessions().acquireForTurn(project, 'viewer-a')
+    turn.release()
+    const names = turn.agent.state.tools.map(tool => tool.name)
+
+    expect(names).not.toContain('aero_load_toolkit')
+    expect(names).not.toContain('aero_list_toolkits')
+    expect(names).toContain('canonry_measurement_portfolio_summary')
+    expect(names).toContain('canonry_measurement_plan_get')
+    expect(names).toContain('canonry_analytics_sources')
+    expect(aeroTurnStatus(turn.agent)).toMatchObject({ limits: { maxToolCalls: 30, timeoutMs: 180_000 } })
   })
 
   it('never puts the operator memory in the prompt', async () => {

@@ -55,6 +55,25 @@ function visibleTools(runtime: Runtime): AgentTool[] {
   }]
 }
 
+/**
+ * pi answers a call to a tool outside the visible list with a bare
+ * "Tool X not found". A model that learned a tool's name from a skill doc
+ * then retries or gives up. Say what to do instead: which toolkit to load when
+ * the tool is allowed but not loaded yet, or that it is not available at all.
+ */
+function explainMissingTool(runtime: Runtime, message: { isError?: boolean; content?: unknown }): void {
+  if (!message.isError || !Array.isArray(message.content)) return
+  const first = message.content[0] as { type?: string; text?: string } | undefined
+  const name = first?.type === 'text' ? /^Tool (\S+) not found$/.exec(first.text ?? '')?.[1] : undefined
+  if (!name) return
+  const allowed = runtime.allowed.some(tool => tool.name === name)
+  const toolkit = metadata.get(name)?.tier
+  const text = allowed && toolkit && toolkit !== 'core'
+    ? `${name} is not loaded yet. Call ${LOAD} with toolkit "${toolkit}", then call ${name} again.`
+    : `${name} is not available in this conversation. Use ${DISCOVER} to see the tools you can load.`
+  message.content = [{ type: 'text', text }]
+}
+
 /** Rebuild from the already-authorized catalog every turn, including scope downgrades. */
 export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true): void {
   let runtime = runtimes.get(agent)
@@ -98,6 +117,7 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
         const message = event.message
+        explainMissingTool(state, message)
         const startedAt = toolStarts.get(message.toolCallId)
         Object.assign(message, {
           aeroToolLabel: state.allowed.find(tool => tool.name === message.toolName)?.label,

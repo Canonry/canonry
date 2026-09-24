@@ -37,6 +37,29 @@ describe('Aero progressive tool execution', () => {
     expect(agent.state.tools.map(tool => tool.name)).not.toContain('canonry_insights_list')
   })
 
+  it('tells the model which toolkit to load when it calls an allowed tool that is not loaded yet', async () => {
+    const getInsights = vi.fn(async () => [])
+    const allowed = buildReadTools({ client: { getInsights } as unknown as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }),
+      context => {
+        const hint = context.messages.at(-1) as { role: string; content: Array<{ text: string }> }
+        expect(hint.role).toBe('toolResult')
+        expect(hint.content[0]!.text).toBe('canonry_insights_list is not loaded yet. Call aero_load_toolkit with toolkit "monitoring", then call canonry_insights_list again.')
+        return fauxAssistantMessage(fauxToolCall('canonry_run_trigger', {}), { stopReason: 'toolUse' })
+      },
+      context => {
+        const refusal = context.messages.at(-1) as { content: Array<{ text: string }> }
+        expect(refusal.content[0]!.text).toBe('canonry_run_trigger is not available in this conversation. Use aero_list_toolkits to see the tools you can load.')
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('Check active insights')
+    expect(getInsights).not.toHaveBeenCalled()
+  })
+
   it('stops before executing calls beyond the limit, including multiple calls in one model response', async () => {
     const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'done' }], details: {} }))
     const agent = new Agent({ initialState: { model: faux.getModel() } })

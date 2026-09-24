@@ -14,6 +14,7 @@ import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { AeroToolScopes, buildAeroStateTools } from './tools.js'
 import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidence } from './view-context.js'
+import { aeroProjectShapePrompt } from './project-shape.js'
 
 /**
  * Read tools a viewer's Aero never gets. They are marked read, but each one
@@ -55,9 +56,6 @@ export const AERO_VIEWER_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = n
 const OPERATOR_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(
   canonryMcpTools.filter(tool => tool.tier === 'agent' || tool.requiresOperator).map(tool => tool.name),
 )
-
-/** Tighter than the operator defaults: a viewer turn is a question, not a batch job. */
-export const VIEWER_AERO_TURN_LIMITS = { maxToolCalls: 12, timeoutMs: 120_000 } as const
 
 /** Longest question a viewer may send. Every character rides every later turn. */
 export const VIEWER_AERO_MAX_PROMPT_CHARS = 4_000
@@ -236,8 +234,14 @@ export class ViewerAeroSessions {
       preferences.signal?.throwIfAborted()
       // Without the operator's AERO_SYSTEM_PROMPT_APPEND / _FILE extras: those
       // are the operator's instructions, not the viewer's to read.
-      agent.state.systemPrompt = loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT + aeroViewPrompt(preferences.context)
-      configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], VIEWER_AERO_TURN_LIMITS, true)
+      agent.state.systemPrompt = loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT
+        + aeroProjectShapePrompt(this.opts.db, project.id, { progressive: false })
+        + aeroViewPrompt(preferences.context)
+      // The whole read catalog, not progressive toolkits: a model that knows a
+      // tool's name from the skill docs calls it directly, and a toolkit it has
+      // not loaded yet would answer "not found". The catalog is already the
+      // viewer's safe read set. Operator turn limits apply.
+      configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], undefined, false)
       this.sessions.set(key, { agent, lastUsedAt: this.now(), updatedAt: this.sessions.get(key)?.updatedAt ?? null })
       this.turnsToday.set(key, { date: today, count: count + 1 })
       handedOff = true
