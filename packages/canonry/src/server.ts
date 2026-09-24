@@ -234,6 +234,7 @@ import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsup
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
+import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -1700,6 +1701,7 @@ export async function createServer(opts: {
   };
 
   let stopSiteLiveness: (() => void) | null = null;
+  let stopProviderBatchPoller: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -3074,11 +3076,17 @@ export async function createServer(opts: {
         app.log.error({ fillId, runId, err: describeError(err) }, "Run fill failed");
       });
     },
-    onRunCancelled: (runId: string) => {
+    onRunCancelled: (runId: string, projectId: string) => {
       const controller = siteAuditAbortControllers.get(runId);
       if (controller && !controller.signal.aborted) {
         controller.abort(new Error("Cancelled by user"));
       }
+      // Stop the run's provider batches (best effort) so nothing is ingested
+      // into it; a run already waiting on one has its cancellation reported
+      // here, since no sweep is left to report it.
+      jobRunner.cancelRunBatches(runId, projectId).catch((err: unknown) => {
+        app.log.error({ runId, err: describeError(err) }, "Provider batch cancellation failed");
+      });
     },
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
@@ -3699,6 +3707,9 @@ export async function createServer(opts: {
         },
         notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
       });
+      // Resumes every batch a previous process left outstanding, and finalizes
+      // the runs boot recovery handed to it.
+      stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -3725,6 +3736,8 @@ export async function createServer(opts: {
     stopLogCapture();
     stopSiteLiveness?.();
     stopSiteLiveness = null;
+    stopProviderBatchPoller?.();
+    stopProviderBatchPoller = null;
     scheduler.stop();
   });
 
