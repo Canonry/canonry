@@ -55,4 +55,26 @@ describe('formatMicros', () => {
     expect(formatMicros(0, 'USD', { fractionDigits: 4 })).toBe('$0.0000')
     expect(formatMicros(12_345_678, 'USD', { fractionDigits: 4 })).toBe('$12.3457')
   })
+
+  test('without the option, a positive amount below the shown precision rounds to zero', () => {
+    expect(formatMicros(49, 'USD', { fractionDigits: 4 })).toBe('$0.0000')
+    expect(formatMicros(4_999)).toBe('$0.00')
+  })
+
+  test('marks a positive amount below the shown precision instead of printing zero', () => {
+    const tiny = { fractionDigits: 4, showTinyAsLessThan: true }
+    expect(formatMicros(0, 'USD', tiny)).toBe('$0.0000')
+    expect(formatMicros(1, 'USD', tiny)).toBe('<$0.0001')
+    expect(formatMicros(49, 'USD', tiny)).toBe('<$0.0001')
+    // 0.00005 rounds half up to the smallest shown step, so it is shown as is.
+    expect(formatMicros(50, 'USD', tiny)).toBe('$0.0001')
+    expect(formatMicros(149, 'USD', tiny)).toBe('$0.0001')
+    expect(formatMicros(1_635_400, 'USD', tiny)).toBe('$1.6354')
+  })
+
+  test('takes the smallest step from the precision in use', () => {
+    expect(formatMicros(4_999, 'USD', { showTinyAsLessThan: true })).toBe('<$0.01')
+    expect(formatMicros(5_000, 'USD', { showTinyAsLessThan: true })).toBe('$0.01')
+    expect(formatMicros(400_000, 'JPY', { showTinyAsLessThan: true })).toBe('<¥1')
+  })
 })

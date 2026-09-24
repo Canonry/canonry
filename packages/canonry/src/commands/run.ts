@@ -494,7 +494,7 @@ function providerBatchLine(batch: ProviderBatchSummaryDto): string {
 function printUsageTable(rows: readonly RunUsageSummaryRow[]): void {
   const cost = (row: RunUsageSummaryRow) => row.estimatedCostMicros === null
     ? 'unpriced'
-    : `${formatMicros(row.estimatedCostMicros, 'USD', { fractionDigits: 4 })}${row.unpricedAnswers > 0 ? ` (+${row.unpricedAnswers} unpriced)` : ''}`
+    : `${formatMicros(row.estimatedCostMicros, 'USD', { fractionDigits: 4, showTinyAsLessThan: true })}${row.unpricedAnswers > 0 ? ` (+${row.unpricedAnswers} unpriced)` : ''}`
   const table = rows.map(row => [
     row.provider,
     row.pricingTier,
