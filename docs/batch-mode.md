@@ -111,11 +111,18 @@ does not break a chart series. Each answer records `dispatchMode`
 
 - Sync providers in the same run answer as usual. Their rows appear immediately,
   and their errors are held until the run finalizes.
+- `canonry serve` checks a batch as soon as it sees it (within 15 seconds of the
+  submit, or of a restart), then 30 seconds later, and after that waits twice as
+  long each time nothing has changed, up to every 10 minutes.
 - The next scheduled sweep of the project is skipped, because sweeps never
   overlap. It is logged as `run.skipped-active` with `reason: "batch-pending"`.
   The deadline keeps this bounded: a batch that has not ended by its deadline is
-  cancelled, whatever finished is ingested, and the run finalizes.
-- `POST /runs/{id}/cancel` also cancels the run's batches at the provider.
+  cancelled at the provider, whatever it finished is ingested once it ends, and
+  the run finalizes. A batch that still has not ended an hour after that
+  cancellation is given up on (its answers stay missing), and so is an ended
+  batch whose results still cannot be read an hour past its deadline.
+- `POST /runs/{id}/cancel` also cancels the run's batches at the provider, and
+  nothing they return afterwards is recorded.
 
 ## When a batch ends
 
@@ -126,9 +133,20 @@ same pipeline as a sync answer.
 |---|---|
 | Line succeeded | Recorded, `dispatchMode: batch`, priced at the batch tier |
 | Line errored, expired or was cancelled | Slot stays missing, the provider gets a run error entry, and its reserved daily quota is released (not billed) |
-| The answer's web search errored | Slot stays missing, exactly as the sync path refuses the same body |
+| The answer's web search errored | Slot stays missing, exactly as the sync path refuses the same body. The answer was billed, so its quota stays counted |
 | The provider definitely rejected the submit | That provider falls back to sync in the same run |
 | The submit outcome is unknown (timeout, dropped connection) | The batch is recorded `unknown` and **never resubmitted**, and its slots stay missing |
+
+A batch answer is scored (mention, citation, competitors) against the
+project's domains, brand names and competitors as they are when the batch is
+read, the same way a fill is. A change made while a batch is out applies to its
+answers.
+
+Daily query quota works as it does for sync: the sweep reserves every answer
+up front. What went into a batch stays reserved on it until its results are
+read, and then the lines the provider did not answer are released. A batch
+whose submit outcome is unknown, or that was cancelled before it ended, keeps
+its reservation, because the provider may have billed some of it.
 
 A run with missing slots finalizes as `partial`. Nothing fills it automatically.
 Fill it synchronously, at the sync price:
@@ -141,6 +159,16 @@ canonry run fill <run-id> --provider claude --wait
 A run that dispatched a batch can be filled for 24 hours **after it finalized**.
 Other runs keep the old rule of 24 hours after they started. Without this, a
 batch that ran to its deadline would leave a run already too old to fill.
+
+## If canonry restarts
+
+Nothing the provider accepted is lost. On boot, a run waiting on a batch stays
+`running` instead of being failed, and the poller resumes its batches on its
+first pass. A batch that was being submitted when the process stopped is
+recorded `unknown` and never resubmitted. A sync provider the restart
+interrupted gets "Server restarted while run was in progress" for the answers it
+did not record, and the run finalizes as `partial` once its batches settle.
+Runs without a batch are failed at boot, as before.
 
 ## Costs
 
