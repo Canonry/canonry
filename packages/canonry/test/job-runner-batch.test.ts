@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
 import { queueRunFill } from '@ainyc/canonry-api-routes'
@@ -496,6 +496,59 @@ describe('splitting a provider\'s slots into batches', () => {
     expect(tinyTransport.submitCalls).toEqual([])
     expect(snapshotRows(db, tinyRun).map(row => [row.provider, row.dispatchMode])).toEqual([['claude', 'sync'], ['gemini', 'sync']])
     expect(runRow(db, tinyRun).status).toBe('completed')
+  })
+
+  it('writes the whole ledger of a chunk too large for one SQLite statement, and submits it once', async () => {
+    // Seven values per ledger row: one INSERT of 4,681 rows would bind 32,767,
+    // one past SQLite's limit. The default request cap (100,000) allows it.
+    const count = 4_700
+    const { db, projectId } = seedPlannedProject({ count, providers: ['claude'] })
+    const runId = queueBatchRun(db, projectId)
+    const transport = new FakeBatchTransport()
+    const syncCalls: string[] = []
+    const registry = registryOf([{
+      adapter: fakeAdapter('claude', { transport, onSyncCall: input => syncCalls.push(input.query) }),
+      config: { batch: { enabled: true }, quotaPolicy: { maxConcurrency: 4, maxRequestsPerMinute: 6000, maxRequestsPerDay: 10_000 } },
+    }])
+    const runner = new JobRunner(db, registry)
+
+    await runner.executeRun(runId, projectId)
+
+    expect(transport.submitCalls.map(lines => lines.length)).toEqual([count])
+    const [batch] = batchRows(db, runId)
+    expect(batchRows(db, runId)).toHaveLength(1)
+    expect(batch).toMatchObject({ status: 'submitted', providerBatchId: 'fakebatch_1', requestCount: count, quotaReserved: count })
+    const ledger = requestRows(db, batch!.id)
+    expect(ledger).toHaveLength(count)
+    expect(new Set(ledger.map(row => row.id))).toEqual(new Set(transport.submitCalls[0]!.map(line => line.customId)))
+    expect(syncCalls).toEqual([])
+    expect(runRow(db, runId)).toMatchObject({ status: 'running', pendingProviderErrors: {} })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(count)
+  }, 60_000)
+
+  it('answers a chunk sync when its ledger cannot be written, and the run is not failed', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, completed, syncCalls } = harness(db)
+    db.run(sql.raw("CREATE TRIGGER refuse_batch_ledger BEFORE INSERT ON provider_batch_requests BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END"))
+
+    await runner.executeRun(runId, projectId)
+
+    // Nothing reached the provider, and the batch row rolled back with its ledger.
+    expect(transport.submitCalls).toEqual([])
+    expect(batchRows(db, runId)).toEqual([])
+    expect(syncCalls.filter(call => call.provider === 'claude').map(call => [call.query, call.model]).sort()).toEqual([
+      ['widget question 1', CLAUDE_MODEL],
+      ['widget question 2', CLAUDE_MODEL],
+    ])
+    expect(snapshotRows(db, runId).map(row => [row.provider, row.dispatchMode])).toEqual([
+      ['claude', 'sync'], ['claude', 'sync'], ['gemini', 'sync'], ['gemini', 'sync'],
+    ])
+    expect(runRow(db, runId)).toMatchObject({ status: 'completed', error: null, pendingProviderErrors: null })
+    expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['completed'])
+    expect(completed).toHaveBeenCalledTimes(1)
+    expect(quotaUsed(db, projectId, 'claude')).toBe(2)
+    expect(quotaUsed(db, projectId, 'gemini')).toBe(2)
   })
 
   it('uses the configured deadline instead of the provider default', async () => {

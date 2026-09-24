@@ -190,6 +190,12 @@ interface BatchLine {
   bytes: number
 }
 
+/**
+ * Ledger rows per INSERT. Each binds seven values, and SQLite refuses a
+ * statement past 32,766 (4,680 rows), well inside a provider's request cap.
+ */
+const LEDGER_INSERT_ROWS = 1_000
+
 /** `{"requests":[` and `]}`: what one submission adds around its lines. */
 const BATCH_ENVELOPE_BYTES = 15
 
@@ -1659,33 +1665,45 @@ export class JobRunner {
     const deadlineMs = (config.batch?.deadlineHours ?? capability.defaultDeadlineHours) * HOUR_MS
     const created = new Date()
     const rowId = crypto.randomUUID()
-    this.db.transaction((tx) => {
-      tx.insert(providerBatches).values({
-        id: rowId,
-        projectId: ctx.projectId,
-        runId: ctx.runId,
-        provider: providerName,
-        model,
-        status: ProviderBatchStatuses.submitting,
-        requestCount: lines.length,
-        quotaScope: reservation.scope,
-        quotaPeriod: reservation.period,
-        quotaReserved: lines.length,
-        // Provisional: the deadline runs from acceptance and is rewritten then.
-        deadlineAt: new Date(created.getTime() + deadlineMs).toISOString(),
-        createdAt: created.toISOString(),
-        updatedAt: created.toISOString(),
-      }).run()
-      tx.insert(providerBatchRequests).values(lines.map(line => ({
-        id: line.customId,
-        batchId: rowId,
-        executionId: line.unit.executionId,
-        queryId: line.unit.queryId,
-        queryText: line.unit.queryText,
-        requestedModel: model,
-        requestedContext: line.unit.context,
-      }))).run()
-    })
+    const ledger = lines.map(line => ({
+      id: line.customId,
+      batchId: rowId,
+      executionId: line.unit.executionId,
+      queryId: line.unit.queryId,
+      queryText: line.unit.queryText,
+      requestedModel: model,
+      requestedContext: line.unit.context,
+    }))
+    try {
+      this.db.transaction((tx) => {
+        tx.insert(providerBatches).values({
+          id: rowId,
+          projectId: ctx.projectId,
+          runId: ctx.runId,
+          provider: providerName,
+          model,
+          status: ProviderBatchStatuses.submitting,
+          requestCount: lines.length,
+          quotaScope: reservation.scope,
+          quotaPeriod: reservation.period,
+          quotaReserved: lines.length,
+          // Provisional: the deadline runs from acceptance and is rewritten then.
+          deadlineAt: new Date(created.getTime() + deadlineMs).toISOString(),
+          createdAt: created.toISOString(),
+          updatedAt: created.toISOString(),
+        }).run()
+        // Sliced so no one statement binds past SQLite's variable limit; the
+        // transaction still commits the row and its whole ledger together.
+        for (let start = 0; start < ledger.length; start += LEDGER_INSERT_ROWS) {
+          tx.insert(providerBatchRequests).values(ledger.slice(start, start + LEDGER_INSERT_ROWS)).run()
+        }
+      })
+    } catch (err: unknown) {
+      // The row and its ledger rolled back and nothing reached the provider,
+      // so these slots are answered sync like a refused batch's.
+      log.warn('batch.ledger-failed', { runId: ctx.runId, providerName, requests: lines.length, error: describeError(err) })
+      return lines.map(line => line.unit)
+    }
     ctx.batchRowIds.push(rowId)
 
     let result: ProviderBatchSubmitResult
