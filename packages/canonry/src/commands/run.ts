@@ -1,6 +1,7 @@
 import { type ApiClient, createApiClient } from '../client.js'
 import {
   CitationStates,
+  OUTSTANDING_PROVIDER_BATCH_STATUSES,
   ProviderBatchStatuses,
   describeError,
   formatMicros,
@@ -89,10 +90,13 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
       const pending = locationRuns.filter(r => r.id && r.status !== 'conflict' && !TERMINAL_STATUSES.has(r.status))
       if (pending.length > 0) {
         process.stderr.write(`Waiting for ${pending.length} run(s)`)
+        const batchWaits = new Map<string, string>()
         await Promise.all(
           pending.map(async (r) => {
             const final = await pollRun(client, r.id)
             r.status = final.status
+            const waiting = batchWaitLine(final)
+            if (waiting) batchWaits.set(r.id, waiting)
           }),
         )
         process.stderr.write('\n')
@@ -100,6 +104,11 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
         for (const r of locationRuns) {
           const loc = (r.location ?? '(unknown)').padEnd(15)
           console.log(`  ${loc}  ${r.status}`)
+        }
+        if (batchWaits.size > 0) console.log('')
+        for (const r of locationRuns) {
+          const waiting = batchWaits.get(r.id)
+          if (waiting) console.log(`  ${r.location ?? '(unknown)'}: ${waiting}`)
         }
       }
     }
@@ -116,6 +125,8 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     } else {
       process.stderr.write('\n')
       printRunDetail(result)
+      const waiting = batchWaitLine(result)
+      if (waiting) console.log(`\n${waiting}`)
     }
     return
   }
@@ -223,6 +234,7 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     }
   }
 
+  const batchWaits = new Map<string, string>()
   if (opts?.wait) {
     const pending = results.filter(r => r.runId && !TERMINAL_STATUSES.has(r.status))
     if (pending.length > 0) {
@@ -230,6 +242,8 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
       await Promise.all(pending.map(async (r) => {
         const final = await pollRun(client, r.runId)
         r.status = final.status
+        const waiting = batchWaitLine(final)
+        if (waiting) batchWaits.set(r.runId, waiting)
       }))
       process.stderr.write('\n')
     }
@@ -263,6 +277,11 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
       const id = (r.runId || '(failed)').padEnd(36)
       console.log(`  ${proj}  ${id}  ${r.status}`)
     }
+  }
+  if (batchWaits.size > 0) console.log('')
+  for (const r of results) {
+    const waiting = batchWaits.get(r.runId)
+    if (waiting) console.log(`  ${r.location ? `${r.project} (${r.location})` : r.project}: ${waiting}`)
   }
 }
 
@@ -377,6 +396,12 @@ export async function listRuns(
 
 const POLL_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
+/**
+ * Poll until the run is terminal or batch-pending. A batch-pending run stays
+ * `running` until its provider batches settle, which can take until their
+ * deadline (24 hours by default), so the wait ends there and the caller
+ * reports the run as it stands instead of timing out on a healthy run.
+ */
 async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
@@ -386,10 +411,25 @@ async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> 
     }
     const run = await client.getRun(runId)
     process.stderr.write('.')
-    if (TERMINAL_STATUSES.has(run.status)) {
+    if (TERMINAL_STATUSES.has(run.status) || outstandingBatches(run).length > 0) {
       return run
     }
   }
+}
+
+/** The provider batches a non-terminal run is waiting on (`submitted` or `ended`). */
+function outstandingBatches(run: RunDetailDto): ProviderBatchSummaryDto[] {
+  if (TERMINAL_STATUSES.has(run.status)) return []
+  return (run.providerBatches ?? []).filter(batch => OUTSTANDING_PROVIDER_BATCH_STATUSES.includes(batch.status))
+}
+
+/** What `--wait` prints when it stops at a batch-pending run; null for any other run. */
+function batchWaitLine(run: RunDetailDto): string | null {
+  const outstanding = outstandingBatches(run)
+  if (outstanding.length === 0) return null
+  const batches = outstanding.map(batch =>
+    `${batch.provider} — ${batch.requestCount} requests, submitted ${batch.submittedAt ?? 'unknown'}, deadline ${batch.deadlineAt}`)
+  return `Waiting on provider batch(es): ${batches.join('; ')}; check with canonry run show ${run.id}`
 }
 
 export function printRunDetail(run: RunDetailDto): void {
@@ -454,7 +494,7 @@ function providerBatchLine(batch: ProviderBatchSummaryDto): string {
 function printUsageTable(rows: readonly RunUsageSummaryRow[]): void {
   const cost = (row: RunUsageSummaryRow) => row.estimatedCostMicros === null
     ? 'unpriced'
-    : `${formatMicros(row.estimatedCostMicros, 'USD', { fractionDigits: 4 })}${row.unpricedAnswers > 0 ? ` (+${row.unpricedAnswers} unpriced)` : ''}`
+    : `${formatMicros(row.estimatedCostMicros, 'USD', { fractionDigits: 4, showTinyAsLessThan: true })}${row.unpricedAnswers > 0 ? ` (+${row.unpricedAnswers} unpriced)` : ''}`
   const table = rows.map(row => [
     row.provider,
     row.pricingTier,

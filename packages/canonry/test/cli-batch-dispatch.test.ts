@@ -136,6 +136,34 @@ describe('canonry run show', () => {
     expect(text).toMatch(/openai\s+standard\s+12\s+9,000\s+0\s+0\s+1,500\s+12\s+unpriced/)
   })
 
+  it('never prints a priced cost too small to show as a real zero', async () => {
+    const row = detail.usage![0]!
+    mockGetRun.mockResolvedValue({
+      ...detail,
+      usage: [
+        { ...row, provider: 'zero', estimatedCostMicros: 0 },
+        { ...row, provider: 'tiny', estimatedCostMicros: 49 },
+        { ...row, provider: 'smallest', estimatedCostMicros: 50 },
+        { ...row, provider: 'unknown', estimatedCostMicros: null, unpricedAnswers: 38 },
+        { ...row, provider: 'mixed', estimatedCostMicros: 1, unpricedAnswers: 2 },
+      ],
+    })
+    await dispatchRegisteredCommand(['run', 'show', 'run_1'], 'text', RUN_CLI_COMMANDS)
+    // Columns are separated by two or more spaces; EST. COST is the last one.
+    const costs = Object.fromEntries(output
+      .filter(line => /^\s{4}(?:zero|tiny|smallest|unknown|mixed)\s/.test(line))
+      .map(line => line.trim().split(/\s{2,}/))
+      .map(cells => [cells[0], cells.at(-1)]))
+
+    expect(costs).toEqual({
+      zero: '$0.0000',
+      tiny: '<$0.0001',
+      smallest: '$0.0001',
+      unknown: 'unpriced',
+      mixed: '<$0.0001 (+2 unpriced)',
+    })
+  })
+
   it('says nothing about batches or usage for a run that has neither', async () => {
     mockGetRun.mockResolvedValue({ ...detail, dispatchModes: {}, providerBatches: [], usage: [] })
     await dispatchRegisteredCommand(['run', 'show', 'run_1'], 'text', RUN_CLI_COMMANDS)
