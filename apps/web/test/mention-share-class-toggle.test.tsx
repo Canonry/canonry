@@ -12,7 +12,9 @@ function breakdown(over: Partial<MentionShareBreakdownVm> = {}): MentionShareBre
   return {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    combinedMentionSnapshots: 0,
     perCompetitor: [],
+    ranking: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: 0,
     score: null,
@@ -46,7 +48,12 @@ function lopsided(): Summary {
     breakdown: breakdown({
       projectMentionSnapshots: 1,
       competitorMentionSnapshots: 9,
+      combinedMentionSnapshots: 10,
       perCompetitor: [{ domain: 'rival-one.example', mentionSnapshots: 9, shareOfCompetitiveTotal: 100 }],
+      ranking: [
+        { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 9, share: 0.9 },
+        { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.1 },
+      ],
       snapshotsWithAnswerText: 32,
       snapshotsTotal: 32,
       score: 10,
@@ -54,7 +61,12 @@ function lopsided(): Summary {
     branded: breakdown({
       projectMentionSnapshots: 20,
       competitorMentionSnapshots: 0,
+      combinedMentionSnapshots: 20,
       perCompetitor: [],
+      ranking: [
+        { kind: 'project', domain: null, mentionSnapshots: 20, share: 1 },
+        { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 0, share: 0 },
+      ],
       snapshotsWithAnswerText: 20,
       snapshotsTotal: 20,
       score: 100,
@@ -237,6 +249,33 @@ describe('MentionShare empty-class copy', () => {
 })
 
 describe('MentionShare ranking semantics', () => {
+  it('lays out the server ranking as sent: its order, its counts and its shares', () => {
+    // Deliberately NOT mentions / combined, and not in mention order: the rows
+    // must print the server's own values, so a component that re-derived a
+    // share from the counts, or re-sorted the rows, would fail here.
+    renderShare({
+      breakdown: breakdown({
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 9,
+        combinedMentionSnapshots: 10,
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.0004 },
+          { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 9, share: 0.9996 },
+        ],
+        snapshotsWithAnswerText: 32,
+        snapshotsTotal: 32,
+        score: 10,
+      }),
+    })
+    const rows = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+    expect(rows.map(row => row.querySelector('th')?.textContent)).toEqual(['Acme Tanks (you)', 'rival-one.example'])
+    expect(rows.map(row => row.querySelector('.mention-share-count')?.textContent)).toEqual(['1', '9'])
+    // formatPercent of the server fraction: a sliver and a near-whole keep their edges.
+    expect(rows.map(row => row.querySelector('.mention-share-share')?.textContent)).toEqual(['<0.1%', '>99.9%'])
+    // The caption's denominator is the server's combined count, not a client sum.
+    expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
+  })
+
   it('exposes the columns to assistive tech, not just to the eye', () => {
     renderShare()
     const table = screen.getByRole('table')

@@ -43,9 +43,15 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
         breakdown: {
           projectMentionSnapshots: 6,
           competitorMentionSnapshots: 4,
+          combinedMentionSnapshots: 10,
           perCompetitor: [
             { domain: 'rival-a.com', mentionSnapshots: 3, shareOfCompetitiveTotal: 75 },
             { domain: 'rival-b.com', mentionSnapshots: 1, shareOfCompetitiveTotal: 25 },
+          ],
+          ranking: [
+            { kind: 'project', domain: null, mentionSnapshots: 6, share: 0.6 },
+            { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 3, share: 0.3 },
+            { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 0.1 },
           ],
           snapshotsWithAnswerText: 8,
           snapshotsTotal: 10,
@@ -131,7 +137,41 @@ describe('canonry overview — human output', () => {
     expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(10\.0% of combined\)/)
   })
 
-  it('omits Mention Share breakdown when no competitors are mentioned', () => {
+  it('prints each share exactly as the server ranked it, never re-derived from the counts', () => {
+    const overview = makeOverview()
+    // Deliberately not mentions / combined: the CLI must print the server's own
+    // fraction through formatPercent, so a sliver keeps its <0.1% edge.
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 3, share: 0.9996 },
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 0.0004 },
+      { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 0 },
+    ]
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toMatch(/you[^\n]*6 mentions \(<0\.1% of combined\)/)
+    expect(output).toMatch(/rival-a\.com[^\n]*3 mentions \(>99\.9% of combined\)/)
+    expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(0% of combined\)/)
+  })
+
+  it('lists a tracked competitor nobody named at 0%, as the dashboard table does', () => {
+    const overview = makeOverview()
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 1 },
+      { kind: 'competitor', domain: 'quiet.example', mentionSnapshots: 0, share: 0 },
+    ]
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toMatch(/you[^\n]*6 mentions \(100% of combined\)/)
+    expect(output).toMatch(/quiet\.example[^\n]*0 mentions \(0% of combined\)/)
+  })
+
+  it('prints no breakdown for a server that predates the ranking', () => {
+    const overview = makeOverview()
+    delete (overview.scores.mentionShare.breakdown as { ranking?: unknown }).ranking
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toContain('Mention share')
+    expect(output).not.toContain('of combined')
+  })
+
+  it('omits Mention Share breakdown when the server ranked no head-to-head', () => {
     const overview = makeOverview()
     overview.scores.mentionShare = {
       ...overview.scores.mentionShare,
@@ -140,7 +180,9 @@ describe('canonry overview — human output', () => {
       breakdown: {
         projectMentionSnapshots: 0,
         competitorMentionSnapshots: 0,
+        combinedMentionSnapshots: 0,
         perCompetitor: [],
+        ranking: [],
         snapshotsWithAnswerText: 0,
         snapshotsTotal: 0,
       },
@@ -153,15 +195,20 @@ describe('canonry overview — human output', () => {
 
   it('caps Mention Share breakdown at top-3 competitors with a "+N more" line', () => {
     const overview = makeOverview()
-    overview.scores.mentionShare.breakdown.perCompetitor = [
-      { domain: 'a.com', mentionSnapshots: 10, shareOfCompetitiveTotal: 33 },
-      { domain: 'b.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 30 },
-      { domain: 'c.com', mentionSnapshots: 8, shareOfCompetitiveTotal: 27 },
-      { domain: 'd.com', mentionSnapshots: 3, shareOfCompetitiveTotal: 10 },
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'competitor', domain: 'a.com', mentionSnapshots: 10, share: 10 / 36 },
+      { kind: 'competitor', domain: 'b.com', mentionSnapshots: 9, share: 9 / 36 },
+      { kind: 'competitor', domain: 'c.com', mentionSnapshots: 8, share: 8 / 36 },
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 6 / 36 },
+      { kind: 'competitor', domain: 'd.com', mentionSnapshots: 3, share: 3 / 36 },
     ]
+    overview.scores.mentionShare.breakdown.combinedMentionSnapshots = 36
     overview.scores.mentionShare.breakdown.competitorMentionSnapshots = 30
     overview.scores.mentionShare.breakdown.projectMentionSnapshots = 6
     output = captureOutput(() => renderHuman(overview))
+    // The project's row always prints, whatever its rank.
+    expect(output).toMatch(/you[^\n]*6 mentions \(16\.7% of combined\)/)
+    expect(output).toMatch(/a\.com[^\n]*10 mentions \(27\.8% of combined\)/)
     expect(output).toContain('a.com')
     expect(output).toContain('b.com')
     expect(output).toContain('c.com')

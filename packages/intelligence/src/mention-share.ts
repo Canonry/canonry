@@ -72,10 +72,38 @@ export interface MentionShareCompetitorRow {
   shareOfCompetitiveTotal: number
 }
 
+/**
+ * One brand in the head-to-head: the project's own row, or one tracked
+ * competitor. `share` is this brand's cut of every brand naming in the class,
+ * so across a ranking the shares sum to 1.
+ */
+export interface MentionShareRankingRow {
+  kind: 'project' | 'competitor'
+  /** The tracked competitor's domain. Null on the project's row. */
+  domain: string | null
+  mentionSnapshots: number
+  /** `mentionSnapshots / combinedMentionSnapshots`, 0..1. */
+  share: number
+}
+
 export interface MentionShareBreakdown {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  /**
+   * `projectMentionSnapshots + competitorMentionSnapshots`: every brand naming
+   * in this class, the denominator of `score` and of each `ranking` share. A
+   * snapshot naming two competitors counts once for each.
+   */
+  combinedMentionSnapshots: number
   perCompetitor: MentionShareCompetitorRow[]
+  /**
+   * The project and EVERY tracked competitor, zero-mention competitors
+   * included, most mentioned first (ties: the project, then competitors by
+   * domain), each with its share of `combinedMentionSnapshots`. Empty when
+   * there is no head-to-head to rank: no tracked competitors (a project-only
+   * denominator would read as a 100% share) or no brand named in this class.
+   */
+  ranking: MentionShareRankingRow[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
   /**
@@ -142,11 +170,47 @@ function toBreakdown(tally: ClassTally, competitors: readonly MentionShareCompet
   return {
     projectMentionSnapshots: tally.projectMentionSnapshots,
     competitorMentionSnapshots,
+    combinedMentionSnapshots: denom,
     perCompetitor,
+    ranking: rankMentionShare(tally, competitors, denom),
     snapshotsWithAnswerText: tally.snapshotsWithAnswerText,
     snapshotsTotal: tally.snapshotsTotal,
     score: denom > 0 ? Math.round((tally.projectMentionSnapshots / denom) * 100) : null,
   }
+}
+
+/**
+ * The head-to-head table: the project plus every tracked competitor, each
+ * with its share of all brand namings. A competitor nobody named keeps its row
+ * at zero, so "no competitor was named here" is a stated result rather than an
+ * absent row. Shares are left unrounded so a sliver reads `<0.1%` and only an
+ * exact whole reads `100%`.
+ */
+function rankMentionShare(
+  tally: ClassTally,
+  competitors: readonly MentionShareCompetitor[],
+  denom: number,
+): MentionShareRankingRow[] {
+  if (competitors.length === 0 || denom === 0) return []
+  const project: MentionShareRankingRow = {
+    kind: 'project',
+    domain: null,
+    mentionSnapshots: tally.projectMentionSnapshots,
+    share: tally.projectMentionSnapshots / denom,
+  }
+  const rivals = competitors
+    .map(c => ({ domain: c.domain, mentionSnapshots: tally.competitorCounts.get(c.domain) ?? 0 }))
+    .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
+    .map((c): MentionShareRankingRow => ({
+      kind: 'competitor',
+      domain: c.domain,
+      mentionSnapshots: c.mentionSnapshots,
+      share: c.mentionSnapshots / denom,
+    }))
+  // The project sorts ahead of every competitor it ties with.
+  const firstNotAbove = rivals.findIndex(row => row.mentionSnapshots <= project.mentionSnapshots)
+  const at = firstNotAbove === -1 ? rivals.length : firstNotAbove
+  return [...rivals.slice(0, at), project, ...rivals.slice(at)]
 }
 
 /**

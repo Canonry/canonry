@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { formatPercent } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareSnapshot, type MentionShareCompetitor } from '../src/mention-share.js'
 
 function snap(projectMentioned: boolean, answerText: string): MentionShareSnapshot {
@@ -407,5 +408,117 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
       { competitors: cee },
     )
     expect(noMatch.breakdown.competitorMentionSnapshots).toBe(0)
+  })
+})
+
+describe('buildMentionShare — ranking is the head-to-head table, with its shares', () => {
+  const rivalC: MentionShareCompetitor = { domain: 'rival-c.com', brandTokens: ['thirdco'] }
+
+  it('divides each brand by every brand naming, exactly, and the shares sum to 1', () => {
+    // Project named in 4 answers, rival-a in 4, rival-b in 2, rival-c in none.
+    const snaps: MentionShareSnapshot[] = []
+    for (let i = 0; i < 4; i++) snaps.push(snap(true, `Plain answer naming you #${i}`))
+    for (let i = 0; i < 4; i++) snaps.push(snap(false, `Talking about Rival here #${i}`))
+    for (let i = 0; i < 2; i++) snaps.push(snap(false, `Praising OtherBrand and similar #${i}`))
+    const { breakdown } = buildMentionShare(snaps, { competitors: [rivalA, rivalB, rivalC] })
+
+    // The denominator is project + competitor namings: 4 + (4 + 2 + 0).
+    expect(breakdown.combinedMentionSnapshots).toBe(10)
+    expect(breakdown.combinedMentionSnapshots).toBe(breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots)
+    // A tie lists the project first; the unnamed competitor keeps its row at 0.
+    expect(breakdown.ranking).toEqual([
+      { kind: 'project', domain: null, mentionSnapshots: 4, share: 0.4 },
+      { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 4, share: 0.4 },
+      { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 2, share: 0.2 },
+      { kind: 'competitor', domain: 'rival-c.com', mentionSnapshots: 0, share: 0 },
+    ])
+    expect(breakdown.ranking.reduce((sum, row) => sum + row.mentionSnapshots, 0)).toBe(breakdown.combinedMentionSnapshots)
+    expect(breakdown.ranking.reduce((sum, row) => sum + row.share, 0)).toBe(1)
+    // The zero row is in the ranking only: perCompetitor still lists named competitors.
+    expect(breakdown.perCompetitor.map(row => row.domain)).toEqual(['rival-a.com', 'rival-b.com'])
+    // The project row agrees with the rounded integer score.
+    expect(breakdown.score).toBe(40)
+    expect(breakdown.ranking.map(row => formatPercent(row.share))).toEqual(['40.0%', '40.0%', '20.0%', '0%'])
+  })
+
+  it('counts one answer naming two competitors once for each, and the shares still sum to 1', () => {
+    const { breakdown } = buildMentionShare(
+      [snap(false, 'Rival and OtherBrand both fit.'), snap(true, 'Only you here.')],
+      { competitors: [rivalA, rivalB] },
+    )
+    expect(breakdown.combinedMentionSnapshots).toBe(3)
+    expect(breakdown.ranking).toEqual([
+      { kind: 'project', domain: null, mentionSnapshots: 1, share: 1 / 3 },
+      { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 1, share: 1 / 3 },
+      { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 1 / 3 },
+    ])
+    expect(breakdown.ranking.reduce((sum, row) => sum + row.share, 0)).toBeCloseTo(1, 12)
+    expect(breakdown.ranking.map(row => formatPercent(row.share))).toEqual(['33.3%', '33.3%', '33.3%'])
+  })
+
+  it('keeps each share unrounded, so a sliver reads <0.1% and only an exact whole reads 100%', () => {
+    const snaps: MentionShareSnapshot[] = [snap(true, 'You, once.')]
+    for (let i = 0; i < 2000; i++) snaps.push(snap(false, `Rival answer ${i}`))
+    const { breakdown } = buildMentionShare(snaps, { competitors: [rivalA] })
+    expect(breakdown.combinedMentionSnapshots).toBe(2001)
+    const [top, you] = breakdown.ranking
+    expect(top).toEqual({ kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 2000, share: 2000 / 2001 })
+    expect(you).toEqual({ kind: 'project', domain: null, mentionSnapshots: 1, share: 1 / 2001 })
+    expect(formatPercent(top!.share)).toBe('>99.9%')
+    expect(formatPercent(you!.share)).toBe('<0.1%')
+    // The integer score rounds the same sliver to 0, which is why rows read the share.
+    expect(breakdown.score).toBe(0)
+  })
+
+  it('ranks each class against its own denominator: the subject last on non-brand, first on branded', () => {
+    const rivals: MentionShareCompetitor[] = [
+      { domain: 'rival-one.example', brandTokens: ['rivalone'] },
+      { domain: 'rival-two.example', brandTokens: ['rivaltwo'] },
+      { domain: 'unnamed.example', brandTokens: ['unnamedco'] },
+    ]
+    const snaps: MentionShareSnapshot[] = [
+      { projectMentioned: true, answerText: 'Acme is one option.', queryClass: 'non-brand' },
+      { projectMentioned: false, answerText: 'RivalOne is the pick.', queryClass: 'non-brand' },
+      { projectMentioned: false, answerText: 'RivalOne again.', queryClass: 'non-brand' },
+      { projectMentioned: false, answerText: 'RivalOne leads.', queryClass: 'non-brand' },
+      { projectMentioned: false, answerText: 'RivalTwo also fits.', queryClass: 'non-brand' },
+      { projectMentioned: false, answerText: 'RivalTwo is cheaper.', queryClass: 'non-brand' },
+      { projectMentioned: true, answerText: 'Acme makes tanks.', queryClass: 'branded' },
+      { projectMentioned: true, answerText: 'Acme runs small.', queryClass: 'branded' },
+    ]
+    const result = buildMentionShare(snaps, { competitors: rivals })
+
+    expect(result.breakdown.combinedMentionSnapshots).toBe(6)
+    expect(result.breakdown.ranking).toEqual([
+      { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 3, share: 0.5 },
+      { kind: 'competitor', domain: 'rival-two.example', mentionSnapshots: 2, share: 2 / 6 },
+      { kind: 'project', domain: null, mentionSnapshots: 1, share: 1 / 6 },
+      { kind: 'competitor', domain: 'unnamed.example', mentionSnapshots: 0, share: 0 },
+    ])
+    // Branded never borrows the non-brand denominator: 2 of 2 namings are you.
+    expect(result.branded.combinedMentionSnapshots).toBe(2)
+    expect(result.branded.ranking).toEqual([
+      { kind: 'project', domain: null, mentionSnapshots: 2, share: 1 },
+      { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 0, share: 0 },
+      { kind: 'competitor', domain: 'rival-two.example', mentionSnapshots: 0, share: 0 },
+      { kind: 'competitor', domain: 'unnamed.example', mentionSnapshots: 0, share: 0 },
+    ])
+  })
+
+  it('is empty when there is no head-to-head: no competitors, nobody named, or no answers', () => {
+    // No tracked competitors: a project-only denominator would read as 100%.
+    const noCompetitors = buildMentionShare([snap(true, 'You are great.')], { competitors: [] })
+    expect(noCompetitors.breakdown.combinedMentionSnapshots).toBe(1)
+    expect(noCompetitors.breakdown.ranking).toEqual([])
+
+    // Competitors tracked, but no brand named: zero over zero is not a share.
+    const nobodyNamed = buildMentionShare([snap(false, 'Consider fit and fabric.')], baseOpts)
+    expect(nobodyNamed.breakdown.combinedMentionSnapshots).toBe(0)
+    expect(nobodyNamed.breakdown.ranking).toEqual([])
+
+    const noData = buildMentionShare([], baseOpts)
+    expect(noData.breakdown.combinedMentionSnapshots).toBe(0)
+    expect(noData.breakdown.ranking).toEqual([])
+    expect(noData.branded.ranking).toEqual([])
   })
 })

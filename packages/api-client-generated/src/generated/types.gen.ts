@@ -9602,10 +9602,17 @@ export type ProjectOverviewDto = {
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;
@@ -9615,10 +9622,17 @@ export type ProjectOverviewDto = {
             branded: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;

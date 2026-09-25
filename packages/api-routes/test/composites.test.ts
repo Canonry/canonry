@@ -243,6 +243,9 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.scores.mentionShare.breakdown.snapshotsWithAnswerText).toBe(2)
     expect(body.scores.mentionShare.breakdown.snapshotsTotal).toBe(3)
     expect(body.scores.mentionShare.breakdown.score).toBeNull()
+    // A project-only denominator is never ranked as a 100% share.
+    expect(body.scores.mentionShare.breakdown.combinedMentionSnapshots).toBe(2)
+    expect(body.scores.mentionShare.breakdown.ranking).toEqual([])
 
     expect(body.movementSummary).toEqual({
       gained: 1,
@@ -519,6 +522,41 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.transitions).toEqual({ since: null, gained: 0, lost: 0, emerging: 0 })
     expect(body.scores.mentionShare.scope).toBe('non-brand')
     expect(body.scores.mentionShare.breakdown.score).toBeNull()
+
+    await app.close()
+  })
+
+  it('serves the mention share head-to-head with each row\'s share of combined mentions', async () => {
+    const { app, db, projectId } = seedProjectWithRuns()
+    // rival.com is named once in the latest answers ("Rival.com is the
+    // runner-up."); absent.example is tracked but never named.
+    db.insert(competitors).values([
+      { id: crypto.randomUUID(), projectId, domain: 'rival.com', createdAt: '2026-04-18T14:19:00.000Z' },
+      { id: crypto.randomUUID(), projectId, domain: 'absent.example', createdAt: '2026-04-18T14:19:00.000Z' },
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
+
+    const { breakdown, branded } = body.scores.mentionShare
+    // The project is named in both latest answers with text; rival.com in one.
+    expect(breakdown.projectMentionSnapshots).toBe(2)
+    expect(breakdown.competitorMentionSnapshots).toBe(1)
+    expect(breakdown.combinedMentionSnapshots).toBe(3)
+    expect(breakdown.score).toBe(67)
+    // Every tracked competitor has a row, the unnamed one at zero.
+    expect(breakdown.ranking).toEqual([
+      { kind: 'project', domain: null, mentionSnapshots: 2, share: 2 / 3 },
+      { kind: 'competitor', domain: 'rival.com', mentionSnapshots: 1, share: 1 / 3 },
+      { kind: 'competitor', domain: 'absent.example', mentionSnapshots: 0, share: 0 },
+    ])
+    expect(breakdown.ranking.reduce((sum, row) => sum + row.share, 0)).toBeCloseTo(1, 12)
+    // No branded query in this basket, so nothing to rank on that side.
+    expect(branded.combinedMentionSnapshots).toBe(0)
+    expect(branded.ranking).toEqual([])
 
     await app.close()
   })
