@@ -10,7 +10,11 @@ const MAX_STRING_LENGTH = 4_096
 
 const secretKey = /api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential/i
 const escapedSecretAssignment = /\\+["'][\w -]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential)[\w -]*\\+["']\s*:/i
-const unsafeGraphKey = /^(?:req|res|request|reply|raw|socket|headers?|body|responsebody|apiresponse|rawresponse|provider(?:body|response)?)$/i
+const unsafeGraphKey = /^(?:req|res|request|reply|raw|socket|headers?|body|responsebody|apiresponse|rawresponse|providerbody|providerresponse)$/i
+// `provider` names the answer engine ('claude'), the one field that says which
+// engine a sweep failure came from. Only an object logged under it is a raw
+// provider payload, and that stays omitted like the keys above.
+const providerNameKey = /^provider$/i
 
 /** Shared URL credential policy for runtime logs and CLI/API diagnostics. */
 export function isSensitiveDiagnosticQueryKey(key: string): boolean {
@@ -62,6 +66,7 @@ function redactValue(value: unknown, depth: number, seen: WeakSet<object>, key?:
   if (key && diagnosticIdentity(key, value) !== undefined) return value
   if (key && secretKey.test(key)) return REDACTED
   if (key && unsafeGraphKey.test(key)) return OMITTED
+  if (key && providerNameKey.test(key) && typeof value === 'object' && value !== null) return OMITTED
   if (value === null || typeof value === 'boolean') return value
   if (typeof value === 'number') return Number.isFinite(value) ? value : String(value)
   if (typeof value === 'string') return redactLogString(value)
