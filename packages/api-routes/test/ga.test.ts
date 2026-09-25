@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema } from '@ainyc/canonry-contracts'
 import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
@@ -2284,12 +2284,15 @@ describe('GA4 routes', () => {
       expect(body.ai.sessionsPrev7d).toBe(3)
       // (5 - 3) / 3 = 67% (rounded)
       expect(body.ai.trend7dPct).toBe(67)
-      // aiBiggestMover should also report sessionSource-only counts.
+      // aiBiggestMover should also report sessionSource-only counts. A prior
+      // base of 3 is below MIN_PCT_BASE, so the session change is what to state.
       expect(body.aiBiggestMover).toEqual({
         source: 'chatgpt.com',
         sessions7d: 5,
         sessionsPrev7d: 3,
+        changeSessions: 2,
         changePct: 67,
+        changeBasis: 'small-base',
       })
     } finally {
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [
@@ -2356,6 +2359,107 @@ describe('GA4 routes', () => {
       expect(body.direct.trend7dPct).toBe(100)
     } finally {
       db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, [idCurrent, idPrev])).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/social-referral-trend and /ga/attribution-trend call a source with no prior sessions new, never +100%', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // tiktok.com appears this week with 4 sessions and none the week before;
+    // facebook.com moves 1 -> 2, a smaller change.
+    const rows = [
+      { source: 'tiktok.com', date: daysAgo(3), sessions: 4 },
+      { source: 'facebook.com', date: daysAgo(3), sessions: 2 },
+      { source: 'facebook.com', date: daysAgo(10), sessions: 1 },
+    ].map(row => ({ id: crypto.randomUUID(), projectId, medium: 'social', channelGroup: 'Organic Social', users: row.sessions, syncedAt: now, ...row }))
+    db.insert(gaSocialReferrals).values(rows).run()
+
+    const expectedMover = {
+      source: 'tiktok.com',
+      sessions7d: 4,
+      sessionsPrev7d: 0,
+      changeSessions: 4,
+      changePct: null,
+      changeBasis: 'new',
+    }
+    try {
+      const socialRes = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/social-referral-trend' })
+      expect(socialRes.statusCode).toBe(200)
+      // The raw body, not a parsed copy: parsing would strip a stray field.
+      const social = JSON.parse(socialRes.payload)
+      expect(gaSocialReferralTrendResponseSchema.safeParse(social).success).toBe(true)
+      expect(social.biggestMover).toEqual(expectedMover)
+      expect(social.socialSessions7d).toBe(6)
+      expect(social.socialSessionsPrev7d).toBe(1)
+
+      const attributionRes = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/attribution-trend' })
+      expect(attributionRes.statusCode).toBe(200)
+      const attribution = JSON.parse(attributionRes.payload)
+      expect(gaAttributionTrendResponseSchema.safeParse(attribution).success).toBe(true)
+      expect(attribution.socialBiggestMover).toEqual(expectedMover)
+      expect(attribution.aiBiggestMover).toBeNull()
+    } finally {
+      db.delete(gaSocialReferrals).where(inArray(gaSocialReferrals.id, rows.map(row => row.id))).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/attribution-trend reads an AI source that stopped sending sessions as -100%', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // perplexity.ai sent 40 sessions last week and none this week, so it has
+    // no row in the current period at all; chatgpt.com moves 3 -> 5.
+    const rows = [
+      { source: 'perplexity.ai', date: daysAgo(10), sessions: 40 },
+      { source: 'chatgpt.com', date: daysAgo(3), sessions: 5 },
+      { source: 'chatgpt.com', date: daysAgo(10), sessions: 3 },
+    ].map(row => ({ id: crypto.randomUUID(), projectId, medium: 'referral', sourceDimension: 'session', users: row.sessions, syncedAt: now, ...row }))
+    db.insert(gaAiReferrals).values(rows).run()
+
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/attribution-trend' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(gaAttributionTrendResponseSchema.safeParse(body).success).toBe(true)
+      expect(body.aiBiggestMover).toEqual({
+        source: 'perplexity.ai',
+        sessions7d: 0,
+        sessionsPrev7d: 40,
+        changeSessions: -40,
+        changePct: -100,
+        changeBasis: 'percent',
+      })
+      // (5 - 43) / 43 = -88.4%, rounded to -88.
+      expect(body.ai).toMatchObject({ sessions7d: 5, sessionsPrev7d: 43, trend7dPct: -88 })
+    } finally {
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, rows.map(row => row.id))).run()
       credentials.delete('test-project')
     }
   })

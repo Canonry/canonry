@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GaAttributionTrendResponse, GaChannelTrend, GaSocialReferralTrendResponse, GaTrafficResponse } from '@ainyc/canonry-contracts'
+import type { GaAttributionTrendResponse, GaChannelTrend, GaSocialReferralTrendResponse, GaSourceMover, GaTrafficResponse } from '@ainyc/canonry-contracts'
+import { gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema } from '@ainyc/canonry-contracts'
 
 const gaTraffic = vi.fn()
 const gaAttributionTrend = vi.fn()
@@ -89,6 +90,29 @@ function channelTrend(trend7dPct: number | null, trend30dPct: number | null): Ga
   return { sessions7d: 10, sessionsPrev7d: 10, trend7dPct, sessions30d: 40, sessionsPrev30d: 40, trend30dPct }
 }
 
+/** Movers exactly as the server states them (see `buildSourceMover`). */
+const NEW_SOURCE: GaSourceMover = { source: 'perplexity.ai', sessions7d: 9, sessionsPrev7d: 0, changeSessions: 9, changePct: null, changeBasis: 'new' }
+const STOPPED_SOURCE: GaSourceMover = { source: 'reddit.com', sessions7d: 0, sessionsPrev7d: 40, changeSessions: -40, changePct: -100, changeBasis: 'percent' }
+const SMALL_BASE_SOURCE: GaSourceMover = { source: 'reddit.com', sessions7d: 2, sessionsPrev7d: 8, changeSessions: -6, changePct: -75, changeBasis: 'small-base' }
+const PERCENT_SOURCE: GaSourceMover = { source: 'chatgpt.com', sessions7d: 75, sessionsPrev7d: 30, changeSessions: 45, changePct: 150, changeBasis: 'percent' }
+
+function attributionTrend(overrides: Partial<GaAttributionTrendResponse> = {}): GaAttributionTrendResponse {
+  return gaAttributionTrendResponseSchema.parse({
+    organic: channelTrend(12, -3),
+    ai: channelTrend(150, null),
+    social: channelTrend(0, 100),
+    direct: channelTrend(-100, 7),
+    total: channelTrend(1, -1),
+    aiBiggestMover: PERCENT_SOURCE,
+    socialBiggestMover: SMALL_BASE_SOURCE,
+    ...overrides,
+  })
+}
+
+async function stdoutJson(fn: () => Promise<void>): Promise<Record<string, unknown>> {
+  return JSON.parse((await lines(fn)).join('\n')) as Record<string, unknown>
+}
+
 describe('ga human output — percentages', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -113,15 +137,15 @@ describe('ga human output — percentages', () => {
 
   it('ga social-referral-summary prints the share string and 0..100 trends through formatPercent', async () => {
     gaTraffic.mockResolvedValue(traffic())
-    const socialTrend: GaSocialReferralTrendResponse = {
+    const socialTrend: GaSocialReferralTrendResponse = gaSocialReferralTrendResponseSchema.parse({
       socialSessions7d: 115,
       socialSessionsPrev7d: 100,
       trend7dPct: 15,
       socialSessions30d: 0,
       socialSessionsPrev30d: 0,
       trend30dPct: null,
-      biggestMover: { source: 'reddit.com', sessions7d: 4, sessionsPrev7d: 0, changePct: 100 },
-    }
+      biggestMover: { source: 'reddit.com', sessions7d: 4, sessionsPrev7d: 0, changeSessions: 4, changePct: null, changeBasis: 'new' },
+    })
     gaSocialReferralTrend.mockResolvedValue(socialTrend)
 
     expect(await lines(() => gaSocialReferralSummary('p', {}))).toContain('  Sessions: 80 (8.0% of 1000 total)')
@@ -130,21 +154,36 @@ describe('ga human output — percentages', () => {
     expect(withTrend).toContain('  Sessions: 80 (8.0% of 1000 total)')
     expect(withTrend).toContain('  7d trend:  +15.0% (115 vs 100)')
     expect(withTrend).toContain('  30d trend: n/a (0 vs 0)')
-    expect(withTrend).toContain('  Mover:     reddit.com (+100%, 0→4)')
+    // A source with no sessions last week is new: a change from zero has no percentage.
+    expect(withTrend).toContain('  Mover:     reddit.com (new, 0→4)')
+    expect(withTrend.find((line) => line.startsWith('  Mover:'))).not.toMatch(/%/)
+  })
+
+  it('ga social-referral-summary --trend --format json passes the new mover through with no percentage', async () => {
+    gaTraffic.mockResolvedValue(traffic())
+    gaSocialReferralTrend.mockResolvedValue(gaSocialReferralTrendResponseSchema.parse({
+      socialSessions7d: 9,
+      socialSessionsPrev7d: 0,
+      trend7dPct: null,
+      socialSessions30d: 9,
+      socialSessionsPrev30d: 0,
+      trend30dPct: null,
+      biggestMover: NEW_SOURCE,
+    }))
+    const out = await stdoutJson(() => gaSocialReferralSummary('p', { trend: true, format: 'json' }))
+    expect((out.trend as GaSocialReferralTrendResponse).biggestMover).toEqual({
+      source: 'perplexity.ai',
+      sessions7d: 9,
+      sessionsPrev7d: 0,
+      changeSessions: 9,
+      changePct: null,
+      changeBasis: 'new',
+    })
   })
 
   it('ga attribution --trend keeps every row under the trend headings with six-wide share cells', async () => {
     gaTraffic.mockResolvedValue(traffic())
-    const attributionTrend: GaAttributionTrendResponse = {
-      organic: channelTrend(12, -3),
-      ai: channelTrend(150, null),
-      social: channelTrend(0, 100),
-      direct: channelTrend(-100, 7),
-      total: channelTrend(1, -1),
-      aiBiggestMover: { source: 'chatgpt.com', sessions7d: 30, sessionsPrev7d: 12, changePct: 150 },
-      socialBiggestMover: { source: 'reddit.com', sessions7d: 2, sessionsPrev7d: 8, changePct: -75 },
-    }
-    gaAttributionTrend.mockResolvedValue(attributionTrend)
+    gaAttributionTrend.mockResolvedValue(attributionTrend())
 
     const out = await lines(() => gaAttribution('p', { trend: true }))
     const header = out.find((line) => line.startsWith('  CHANNEL BREAKDOWN'))!
@@ -163,7 +202,25 @@ describe('ga human output — percentages', () => {
       expect(row(label).indexOf(sevenDayValue)).toBe(sevenDay)
       expect(row(label).indexOf(thirtyDayValue)).toBe(thirtyDay)
     }
-    expect(out).toContain('  AI Mover:     chatgpt.com (+150.0%, 12→30 sessions/7d)')
-    expect(out).toContain('  Social Mover: reddit.com (-75.0%, 8→2 sessions/7d)')
+    // A percent on a base of 30 or more; the session change below it (MIN_PCT_BASE).
+    expect(out).toContain('  AI Mover:     chatgpt.com (+150.0%, 30→75 sessions/7d)')
+    expect(out).toContain('  Social Mover: reddit.com (-6 sessions, 8→2 sessions/7d)')
+  })
+
+  it('ga attribution --trend calls a source with no prior sessions new and one that stopped -100%', async () => {
+    gaTraffic.mockResolvedValue(traffic())
+    gaAttributionTrend.mockResolvedValue(attributionTrend({ aiBiggestMover: NEW_SOURCE, socialBiggestMover: STOPPED_SOURCE }))
+
+    const out = await lines(() => gaAttribution('p', { trend: true }))
+    expect(out.filter((line) => line.includes('Mover:'))).toEqual([
+      '  AI Mover:     perplexity.ai (new, 0→9 sessions/7d)',
+      '  Social Mover: reddit.com (-100%, 40→0 sessions/7d)',
+    ])
+
+    const json = await stdoutJson(() => gaAttribution('p', { trend: true, format: 'json' }))
+    const trend = json.trend as GaAttributionTrendResponse
+    expect(trend.aiBiggestMover).toEqual(NEW_SOURCE)
+    expect(trend.aiBiggestMover?.changePct).toBeNull()
+    expect(trend.socialBiggestMover).toEqual(STOPPED_SOURCE)
   })
 })

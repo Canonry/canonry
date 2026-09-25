@@ -1,8 +1,8 @@
-import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { describeError, formatPercent } from '@ainyc/canonry-contracts'
+import { GaMoverChangeBases, describeError, formatPercent } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -532,11 +532,28 @@ export async function gaCoverage(project: string, format?: string): Promise<void
 }
 
 /**
- * A server trend or mover change, a 0..100 relative change (`15` = +15%), with
- * its sign; `n/a` when there was no prior period to compare.
+ * A server trend change, a 0..100 relative change (`15` = +15%), with its
+ * sign; `n/a` when there was no prior period to compare.
  */
 function fmtTrend(pct: number | null): string {
   return pct === null ? 'n/a' : `${pct >= 0 ? '+' : ''}${formatPercent(pct, 'percent')}`
+}
+
+/**
+ * A biggest mover's change, stated the way the server's `changeBasis` says: a
+ * source with no prior sessions is `new` (a change from zero has no
+ * percentage, so never "+100%"), a base too small for a percentage shows the
+ * signed session change, and otherwise the percent change.
+ */
+function fmtMoverChange(mover: GaSourceMover): string {
+  switch (mover.changeBasis) {
+    case GaMoverChangeBases.new:
+      return 'new'
+    case GaMoverChangeBases['small-base']:
+      return `${mover.changeSessions > 0 ? '+' : ''}${mover.changeSessions} sessions`
+    case GaMoverChangeBases.percent:
+      return fmtTrend(mover.changePct)
+  }
 }
 
 /**
@@ -583,7 +600,7 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
     console.log(`  30d trend: ${fmtTrend(trend.trend30dPct)} (${trend.socialSessions30d} vs ${trend.socialSessionsPrev30d})`)
     if (trend.biggestMover) {
       const m = trend.biggestMover
-      console.log(`  Mover:     ${m.source} (${fmtTrend(m.changePct)}, ${m.sessionsPrev7d}→${m.sessions7d})`)
+      console.log(`  Mover:     ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d})`)
     }
     console.log()
 
@@ -704,11 +721,11 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
 
     if (trend.aiBiggestMover) {
       const m = trend.aiBiggestMover
-      console.log(`\n  AI Mover:     ${m.source} (${fmtTrend(m.changePct)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+      console.log(`\n  AI Mover:     ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
     }
     if (trend.socialBiggestMover) {
       const m = trend.socialBiggestMover
-      console.log(`  Social Mover: ${m.source} (${fmtTrend(m.changePct)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+      console.log(`  Social Mover: ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
     }
 
     if (traffic.lastSyncedAt) {

@@ -3517,6 +3517,82 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GaAttributionTrendResponse = {
+    organic: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    ai: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    social: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    direct: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    total: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    aiBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+    socialBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaSocialReferralTrendResponse = {
+    socialSessions7d: number;
+    socialSessionsPrev7d: number;
+    trend7dPct: number | null;
+    socialSessions30d: number;
+    socialSessionsPrev30d: number;
+    trend30dPct: number | null;
+    biggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
 export type GbpAccountListResponse = {
     accounts: Array<{
         name: string;
@@ -24649,9 +24725,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralTrendResponses = {
     /**
      * Social referral trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaSocialReferralTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaSocialReferralTrendResponse = GetApiV1ProjectsByNameGaSocialReferralTrendResponses[keyof GetApiV1ProjectsByNameGaSocialReferralTrendResponses];
@@ -24685,9 +24759,7 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
     /**
      * Attribution trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaAttributionTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];

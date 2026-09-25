@@ -3,6 +3,7 @@ import {
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
+  MIN_PCT_BASE,
   runKindSchema,
   runStatusSchema,
 } from '@ainyc/canonry-contracts'
@@ -15,6 +16,11 @@ import {
   rawJsonResponse,
   type RegisteredSchemaName,
 } from './openapi-schemas.js'
+
+/** How the two GA trend reads pick and state a biggest mover (`findBiggestMover`). */
+const GA_MOVER_DESCRIPTION = 'A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. '
+  + 'A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. '
+  + `Below ${MIN_PCT_BASE} prior sessions changeBasis is small-base and changeSessions is the figure to state.`
 
 export interface OpenApiInfo {
   title?: string
@@ -5758,11 +5764,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/social-referral-trend',
     summary: 'Get social referral trend (7d/30d) with biggest mover',
+    description: GA_MOVER_DESCRIPTION,
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaSocialReferralTrendResponse` Zod schema in contracts.
-      200: rawJsonResponse('Social referral trend returned.', looseObjectSchema),
+      200: jsonResponse('Social referral trend returned.', 'GaSocialReferralTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },
@@ -5771,11 +5777,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/attribution-trend',
     summary: 'Get per-channel attribution trends (7d/30d) for organic, AI, and social',
+    description: GA_MOVER_DESCRIPTION,
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaAttributionTrendResponse` Zod schema in contracts.
-      200: rawJsonResponse('Attribution trend returned.', looseObjectSchema),
+      200: jsonResponse('Attribution trend returned.', 'GaAttributionTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },

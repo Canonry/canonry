@@ -25,6 +25,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
+| `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
@@ -450,6 +451,14 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `all` and an omitted window mean full retained history: totals and sibling history routes stay unbounded.
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
+
+### GA4 trend movers
+
+`src/ga-source-mover.ts`: `findBiggestMover` picks the source whose sessions changed most, in either direction, over the last 7 days against the 7 before.
+
+- Every source seen in EITHER period is a candidate, so a source that stopped sending sessions is a -100% mover.
+- `changePct` comes from `deltaPercent` and is null from a zero prior; `changeBasis` is then `new`. Never fall back to a number: growth from nothing is not +100%.
+- Below `MIN_PCT_BASE` prior sessions `changeBasis` is `small-base`, and surfaces state `changeSessions`, not the percent.
 
 ### OpenAI ads writes (Critical)
 

@@ -4,10 +4,11 @@ import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
 import { classifyAiReferralTrafficClass, deltaPercent, formatPercent, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
-import type { GA4ChannelBreakdownDto, ResolvedDateRange } from '@ainyc/canonry-contracts'
+import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
 import { buildSessionHistory } from './ga-session-history.js'
+import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import {
   getAccessToken,
@@ -1640,7 +1641,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const current30d = sumSocial(daysAgo(30), fmt(today))
     const prev30d = sumSocial(daysAgo(60), daysAgo(30))
 
-    // Biggest mover: source with largest absolute session change in 7d vs prev 7d
+    // Biggest mover: the source whose sessions changed most, in either
+    // direction, 7d vs prev 7d. See `findBiggestMover`.
     const sourceCurrent = app.db
       .select({
         source: gaSocialReferrals.source,
@@ -1669,32 +1671,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaSocialReferrals.source)
       .all()
 
-    const prevMap = new Map(sourcePrev.map((r) => [r.source, r.sessions]))
-    let biggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null = null
-    let maxDelta = 0
-    for (const row of sourceCurrent) {
-      const prev = prevMap.get(row.source) ?? 0
-      const delta = Math.abs(row.sessions - prev)
-      if (delta > maxDelta) {
-        maxDelta = delta
-        biggestMover = {
-          source: row.source,
-          sessions7d: row.sessions,
-          sessionsPrev7d: prev,
-          changePct: deltaPercent(row.sessions, prev) ?? (row.sessions > 0 ? 100 : 0),
-        }
-      }
-    }
-
-    return {
+    const response: GaSocialReferralTrendResponse = {
       socialSessions7d: current7d?.sessions ?? 0,
       socialSessionsPrev7d: prev7d?.sessions ?? 0,
       trend7dPct: deltaPercent(current7d?.sessions ?? 0, prev7d?.sessions ?? 0),
       socialSessions30d: current30d?.sessions ?? 0,
       socialSessionsPrev30d: prev30d?.sessions ?? 0,
       trend30dPct: deltaPercent(current30d?.sessions ?? 0, prev30d?.sessions ?? 0),
-      biggestMover,
+      biggestMover: findBiggestMover(sourceCurrent, sourcePrev),
     }
+    return response
   })
 
   // GET /projects/:name/ga/attribution-trend
@@ -1784,24 +1770,6 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaAiReferrals.source)
       .all()
 
-    const findBiggestMover = (
-      current: Array<{ source: string; sessions: number }>,
-      prev: Array<{ source: string; sessions: number }>,
-    ) => {
-      const prevMap = new Map(prev.map((r) => [r.source, r.sessions]))
-      let mover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null = null
-      let maxDelta = 0
-      for (const row of current) {
-        const p = prevMap.get(row.source) ?? 0
-        const delta = Math.abs(row.sessions - p)
-        if (delta > maxDelta) {
-          maxDelta = delta
-          mover = { source: row.source, sessions7d: row.sessions, sessionsPrev7d: p, changePct: deltaPercent(row.sessions, p) ?? (row.sessions > 0 ? 100 : 0) }
-        }
-      }
-      return mover
-    }
-
     // --- Biggest movers (Social) ---
     const socialSourceCurrent = app.db
       .select({ source: gaSocialReferrals.source, sessions: sql<number>`SUM(${gaSocialReferrals.sessions})` })
@@ -1817,7 +1785,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaSocialReferrals.source)
       .all()
 
-    return {
+    const response: GaAttributionTrendResponse = {
       total: buildTrend(sumTotal),
       organic: buildTrend(sumOrganic),
       ai: buildTrend(sumAi),
@@ -1826,6 +1794,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiBiggestMover: findBiggestMover(aiSourceCurrent, aiSourcePrev),
       socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
     }
+    return response
   })
 
   // GET /projects/:name/ga/session-history

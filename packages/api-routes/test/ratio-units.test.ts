@@ -90,6 +90,11 @@ describe('ratio units on the wire', () => {
     expect(unitAt('ProjectReportDto', 'whatsChanged', 'citationRate', 'deltaPct')).toBe('percent')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'ctr')).toBe('fraction')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'clicks')).toBe('fraction')
+    // GA trends and movers are whole-percent changes (`150` = +150%).
+    expect(unitAt('GaAttributionTrendResponse', 'aiBiggestMover', 'changePct')).toBe('percent')
+    expect(unitAt('GaAttributionTrendResponse', 'organic', 'trend30dPct')).toBe('percent')
+    expect(unitAt('GaSocialReferralTrendResponse', 'biggestMover', 'changePct')).toBe('percent')
+    expect(unitAt('GaSocialReferralTrendResponse', 'trend7dPct')).toBe('percent')
 
     // Ratios the name pattern cannot see still declare their unit.
     expect(unitAt('MeasurementOverviewResponse', 'metrics', 'mentionCoverage', 'value')).toBe('fraction')
