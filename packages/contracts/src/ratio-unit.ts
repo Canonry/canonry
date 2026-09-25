@@ -62,3 +62,158 @@ export function ratioUnitOf(schema: z.ZodType): RatioUnit | undefined {
   const parsed = ratioUnitSchema.safeParse(unit)
   return parsed.success ? parsed.data : undefined
 }
+
+/**
+ * Field names that read as a ratio: a name ending in rate, share, ratio,
+ * percent, percentage, pct, coverage or fraction, or a bare `ctr`. A number
+ * under such a name has to declare its unit, because the name alone says
+ * nothing about whether 2.07 means 2.07% or 207%.
+ */
+export const RATIO_FIELD_NAME_PATTERN = /(?:rate|share|ratio|percent|percentage|pct|coverage|fraction)$|^ctr$/i
+
+/** One node of a JSON Schema document, as `z.toJSONSchema` emits it. */
+type JsonSchemaNode = Readonly<Record<string, unknown>>
+
+const COMPOSITION_KEYS = ['anyOf', 'oneOf', 'allOf'] as const
+const DEFINITION_KEYS = ['definitions', '$defs'] as const
+const REF_DEPTH_LIMIT = 16
+
+function isSchemaNode(value: unknown): value is JsonSchemaNode {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function schemaNodes(value: unknown): JsonSchemaNode[] {
+  if (Array.isArray(value)) return value.filter(isSchemaNode)
+  return isSchemaNode(value) ? [value] : []
+}
+
+/** Union and intersection members: `.nullable()` and `z.union` land here. */
+function compositionMembers(node: JsonSchemaNode): JsonSchemaNode[] {
+  return COMPOSITION_KEYS.flatMap(key => schemaNodes(node[key]))
+}
+
+/** The element schemas of an array, a single `items` schema or a tuple's list. */
+function itemSchemas(node: JsonSchemaNode): JsonSchemaNode[] {
+  return schemaNodes(node.items)
+}
+
+/** The value schemas of a record. */
+function recordValueSchemas(node: JsonSchemaNode): JsonSchemaNode[] {
+  const patternValues = isSchemaNode(node.patternProperties) ? Object.values(node.patternProperties) : []
+  return [...schemaNodes(node.additionalProperties), ...patternValues.filter(isSchemaNode)]
+}
+
+/** The node a local `#/...` JSON pointer names, or undefined when it names nothing here. */
+function resolvePointer(root: JsonSchemaNode, ref: string): JsonSchemaNode | undefined {
+  if (!ref.startsWith('#/')) return undefined
+  let node: unknown = root
+  for (const segment of ref.slice(2).split('/')) {
+    if (!isSchemaNode(node)) return undefined
+    node = node[segment.replace(/~1/g, '/').replace(/~0/g, '~')]
+  }
+  return isSchemaNode(node) ? node : undefined
+}
+
+/**
+ * Follows local `$ref`s so a ratio behind a shared definition is judged by
+ * what it points at. A reference into another document stays as it is: there
+ * is nothing here to read, so it is neither a number nor a declared unit.
+ */
+function dereference(node: JsonSchemaNode, root: JsonSchemaNode): JsonSchemaNode {
+  let current = node
+  for (let depth = 0; depth < REF_DEPTH_LIMIT && typeof current.$ref === 'string'; depth++) {
+    const target = resolvePointer(root, current.$ref)
+    if (target === undefined) return current
+    current = target
+  }
+  return current
+}
+
+function isNumberType(type: unknown): boolean {
+  const types = Array.isArray(type) ? type : [type]
+  return types.includes('number') || types.includes('integer')
+}
+
+/**
+ * True when the schema is a number, a union holding one, or an array or record
+ * whose elements are numbers. An object with named properties is not: each of
+ * its properties is judged by its own name.
+ */
+function holdsNumbers(node: JsonSchemaNode, root: JsonSchemaNode, depth = 0): boolean {
+  if (depth > REF_DEPTH_LIMIT) return false
+  const schema = dereference(node, root)
+  if (isNumberType(schema.type)) return true
+  return [...compositionMembers(schema), ...itemSchemas(schema), ...recordValueSchemas(schema)]
+    .some(child => holdsNumbers(child, root, depth + 1))
+}
+
+/**
+ * The unit a schema declares on itself or on the number inside it: a union
+ * member (`.nullable()`), an array item or a record value. A value that is not
+ * one of the known units counts as no declaration at all.
+ */
+function declaredUnit(node: JsonSchemaNode, root: JsonSchemaNode, depth = 0): RatioUnit | undefined {
+  if (depth > REF_DEPTH_LIMIT) return undefined
+  const schema = dereference(node, root)
+  const own = ratioUnitSchema.safeParse(schema[RATIO_UNIT_META_KEY])
+  if (own.success) return own.data
+  for (const child of [...compositionMembers(schema), ...itemSchemas(schema), ...recordValueSchemas(schema)]) {
+    const unit = declaredUnit(child, root, depth + 1)
+    if (unit !== undefined) return unit
+  }
+  return undefined
+}
+
+function collectUndeclared(
+  node: JsonSchemaNode,
+  path: string,
+  root: JsonSchemaNode,
+  notARatio: Readonly<Record<string, string>>,
+  out: Set<string>,
+): void {
+  const properties = isSchemaNode(node.properties) ? node.properties : {}
+  for (const [key, child] of Object.entries(properties)) {
+    if (!isSchemaNode(child)) continue
+    const childPath = `${path}.${key}`
+    if (
+      RATIO_FIELD_NAME_PATTERN.test(key)
+      && !Object.hasOwn(notARatio, key)
+      && holdsNumbers(child, root)
+      && declaredUnit(child, root) === undefined
+    ) {
+      out.add(childPath)
+    }
+    collectUndeclared(child, childPath, root, notARatio, out)
+  }
+  for (const item of itemSchemas(node)) collectUndeclared(item, `${path}[]`, root, notARatio, out)
+  for (const value of recordValueSchemas(node)) collectUndeclared(value, `${path}.*`, root, notARatio, out)
+  for (const member of compositionMembers(node)) collectUndeclared(member, path, root, notARatio, out)
+}
+
+/**
+ * Every ratio-named number in a JSON Schema document that does not declare its
+ * unit, as sorted paths from `rootPath`: `.key` for a property, `[]` for an
+ * array item, `.*` for a record value, and `#/definitions/<name>` for a shared
+ * definition. A field counts when its name matches `RATIO_FIELD_NAME_PATTERN`
+ * and its schema holds numbers (directly, through `.nullable()` or a union, or
+ * as the elements of an array or record); it is declared when that number
+ * carries a known `x-unit`.
+ *
+ * `notARatio` maps a field name that reads as a ratio but is not one (a day
+ * count, a multiplier) to the reason, and exempts that name everywhere.
+ */
+export function undeclaredRatioFields(
+  jsonSchema: JsonSchemaNode,
+  rootPath: string,
+  notARatio: Readonly<Record<string, string>> = {},
+): string[] {
+  const out = new Set<string>()
+  collectUndeclared(jsonSchema, rootPath, jsonSchema, notARatio, out)
+  for (const key of DEFINITION_KEYS) {
+    const definitions = isSchemaNode(jsonSchema[key]) ? jsonSchema[key] : {}
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (isSchemaNode(definition)) collectUndeclared(definition, `${rootPath}#/${key}/${name}`, jsonSchema, notARatio, out)
+    }
+  }
+  return [...out].sort()
+}

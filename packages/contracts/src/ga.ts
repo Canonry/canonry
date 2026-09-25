@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { percent } from './ratio-unit.js'
 import type { AiReferralTrafficClass } from './traffic-class.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
 
@@ -85,7 +86,7 @@ export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
 export const ga4ChannelBucketDtoSchema = z.object({
   sessions: z.number(),
-  sharePct: z.number(),
+  sharePct: percent(),
   sharePctDisplay: z.string(),
 })
 export type GA4ChannelBucketDto = z.infer<typeof ga4ChannelBucketDtoSchema>
@@ -160,23 +161,23 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
   channelBreakdown: ga4ChannelBreakdownDtoSchema,
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
-  organicSharePct: z.number(),
+  organicSharePct: percent(),
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
-  aiSharePct: z.number(),
+  aiSharePct: percent(),
   /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
-  aiSharePctBySession: z.number(),
+  aiSharePctBySession: percent(),
   /** Paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePct: z.number(),
+  paidAiSharePct: percent(),
   /** Session-source paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePctBySession: z.number(),
+  paidAiSharePctBySession: percent(),
   /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePct: z.number(),
+  organicAiSharePct: percent(),
   /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePctBySession: z.number(),
+  organicAiSharePctBySession: percent(),
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
-  directSharePct: z.number(),
+  directSharePct: percent(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
-  socialSharePct: z.number(),
+  socialSharePct: percent(),
   /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: z.string(),
   /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
@@ -198,7 +199,7 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
   otherSessions: z.number(),
   /** Other sessions as a percentage of total sessions (0–100, rounded). */
-  otherSharePct: z.number(),
+  otherSharePct: percent(),
   /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   otherSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),

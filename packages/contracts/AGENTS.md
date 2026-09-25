@@ -33,6 +33,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/retry.ts` | Generic retry helpers: `backoffDelayMs`, `withRetry`, `isRetryableHttpError`, `isRateLimitError`, `retryAfterDelayMs`. Used by every API provider, GA4, GBP, and Bing — domain-specific code only supplies the `isRetryable` predicate; the math (jittered exponential backoff per Google's documented formula) lives here. **Rate limiting is detected semantically, not by status code**: a service may report a throttle on a 4xx (Bing answers `400` with `ErrorCode 5 ThrottleHost`), so `isRateLimitError` checks `Retry-After`, then 429, then documented throttle markers in the message. A new integration whose throttle signal is a private numeric code must surface that code's meaning in the error message or set `retryAfter`, or the shared predicate cannot see it. |
 | `src/concurrency.ts` | `mapWithConcurrency` — generic order-preserving bounded worker pool (fail-fast on the first rejection, in-flight tasks settle cleanly). Used by the discovery probe phase. |
 | `src/http-status.ts` | `LOCATION_REDIRECT_STATUSES` / `isLocationRedirectStatus` — the five statuses that mean "fetch a different URL" (301/302/303/307/308). Deliberately NOT all of 3xx: a 304 is a served page view from cache, so classing it as a redirect drops real visits. Shared by the AI-referral landed/hop split and the sitemap fetcher. |
+| `src/ratio-unit.ts` | `fraction()` / `percent()` declare a ratio field's wire unit (0..1 or 0..100) as `x-unit` schema metadata, which reaches OpenAPI and MCP output schemas; `ratioUnitOf` reads it back. `undeclaredRatioFields` walks a JSON Schema for ratio-named numbers (`RATIO_FIELD_NAME_PATTERN`) that declare no unit. See "Ratio units" below. |
 | `src/index.ts` | Barrel re-export of all modules |
 
 ## Patterns
@@ -157,6 +158,15 @@ function kindLabel(kind: string): string {
 6. **Test both directions.** A retry test that only proves "transient failure eventually succeeds" is half a test. Also assert that auth and validation failures are *not* retried — retrying a permanent failure multiplies load for nothing.
 
 `packages/contracts/test/integration-retry-coverage.test.ts` enforces this: a new HTTP-calling integration without `withRetry` fails CI. Packages that predate the rule are listed there explicitly, and the list may only shrink.
+
+### Ratio units
+
+A field name never tells a reader the unit: `citationRate` is 0..1 in analytics and a whole 0..100 in the report, `percentage` is 0..1 in the source reads and 0..100 in the index-coverage reads. So every ratio number declares the unit its producer actually emits:
+
+1. Read the code that produces the value, not the name or the doc comment, then wrap the number: `citationRate: fraction()`, `sharePct: percent()`, `share: fraction(z.number().min(0).max(1))`. Put bounds inside the call and `.nullable()` / `.optional()` after it. A signed change takes the unit of its scale: `deltaPct` (whole-percent change) is `percent`, a relative change ratio (0.5 = +50%) is `fraction`.
+2. Declare ratios the name pattern cannot see too (`point`, `score`, `progress`, a metric `value`).
+3. Never change a wire value to make units agree; that is a breaking change. If producers of one field disagree, declare the unit most of them use and fix the producers separately.
+4. `packages/api-routes/test/ratio-units.test.ts` (every registered OpenAPI schema) and `packages/canonry/test/mcp-ratio-units.test.ts` (every MCP tool schema) fail on an undeclared ratio-named number. A name that reads as a ratio but is not one (a day count, a multiplier) goes in that test's `NOT_A_RATIO` with the reason.
 
 ### Market selection
 

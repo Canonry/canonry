@@ -1,5 +1,6 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 
 /**
  * Aggregated answer-visibility stats — per-query mention / citation counts
@@ -36,9 +37,9 @@ export const visibilityStatsCountsSchema = z.object({
   /** Snapshots where `citationState === 'cited'` (domain in the grounding / source list). */
   cited: z.number().int(),
   /** `mentioned / checked`, rounded to 4 dp; `null` when `checked === 0` (rate undefined over no samples). */
-  mentionRate: z.number().nullable(),
+  mentionRate: fraction().nullable(),
   /** `cited / total`, rounded to 4 dp; `null` when `total === 0`. */
-  citedRate: z.number().nullable(),
+  citedRate: fraction().nullable(),
 })
 export type VisibilityStatsCounts = z.infer<typeof visibilityStatsCountsSchema>
 
@@ -118,7 +119,7 @@ export const visibilityStatsShareOfVoiceSchema = z.object({
    */
   queryClass: z.enum(['branded', 'non-brand', 'pooled']),
   /** `projectMentions / (projectMentions + competitorMentions)` as 0-100; `null` without a frame or for 0/0 mentions. */
-  percent: z.number().nullable(),
+  percent: percent().nullable(),
   /** Number of tracked competitors in the frame, including those with zero mentions. */
   competitorCount: z.number().int().nonnegative(),
   /** Snapshots (with answer text) where the project's brand appeared in the answer. */
@@ -196,11 +197,11 @@ export const visibilityCompareMetricPeriodSchema = z.object({
   /** Why this period can or cannot produce a proportion. Raw numerator counts remain visible when the frame is missing. */
   availability: z.enum(['available', 'no-observations', 'no-competitive-frame']),
   /** The proportion in `[0,1]`, rounded to 4 dp; `null` when `denominator === 0` (undefined over no data). */
-  point: z.number().nullable(),
+  point: fraction().nullable(),
   /** Wilson 95% lower bound `[0,1]`; `null` when `denominator === 0`. */
-  ciLow: z.number().nullable(),
+  ciLow: fraction().nullable(),
   /** Wilson 95% upper bound `[0,1]`; `null` when `denominator === 0`. */
-  ciHigh: z.number().nullable(),
+  ciHigh: fraction().nullable(),
   /** Successes (mentions / citations / project-brand mentions), preserved even when the competitive frame is unavailable. */
   numerator: z.number().int(),
   /** Sample size the proportion is over (checked snapshots / total / project+competitor brand mentions). */

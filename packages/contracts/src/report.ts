@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { reportVisibilitySchema } from './report-visibility.js'
 import { visibilityStatsShareOfVoiceSchema } from './visibility-stats.js'
 
@@ -147,7 +148,7 @@ export const reportExecutiveSummarySchema = z.object({
    * in the source list / grounding the AI used to answer. Computed per-query
    * (not per-(query × provider)) so the rate is invariant to provider count.
    */
-  citationRate: z.number().nullable(),
+  citationRate: percent().nullable(),
   /** Numerator of `citationRate` — distinct tracked queries cited by ≥1 provider in the latest run. */
   citedQueryCount: z.number().nullable(),
   /** Denominator of `citationRate` — total tracked queries. */
@@ -159,7 +160,7 @@ export const reportExecutiveSummarySchema = z.object({
    * the prose without citing your domain in its sources, and vice versa.
    * Same per-query denominator as `citationRate` for consistency.
    */
-  mentionRate: z.number().nullable(),
+  mentionRate: percent().nullable(),
   /** Numerator of `mentionRate` — distinct tracked queries mentioned in ≥1 provider's answer text. */
   mentionedQueryCount: z.number().nullable(),
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
@@ -174,7 +175,7 @@ export const reportExecutiveSummarySchema = z.object({
   gsc: z.object({
     clicks: z.number(),
     impressions: z.number(),
-    ctr: z.number(),
+    ctr: fraction(),
     avgPosition: z.number(),
     periodStart: z.string(),
     periodEnd: z.string(),
@@ -217,8 +218,8 @@ export const citationScorecardSchema = z.object({
     /** Number of snapshots for this provider where the answer text mentioned the project. */
     mentionedCount: z.number(),
     totalCount: z.number(),
-    citationRate: z.number(),
-    mentionRate: z.number(),
+    citationRate: percent(),
+    mentionRate: percent(),
   })),
 })
 
@@ -241,7 +242,7 @@ export const competitorRowSchema = z.object({
    * slots in the snapshot. Distinct from the project-level Mention Share
    * gauge — that one is brand-in-answer-text, this one is domain-in-source-list.
    */
-  sharePct: z.number(),
+  sharePct: percent(),
   /**
    * URLs from the latest run's grounding sources whose host matches this
    * competitor's domain, with the queries each URL was cited for. Empty
@@ -279,7 +280,7 @@ export const mentionRowSchema = z.object({
    * split of the same head-to-head measure the project's hero
    * `MentionShareDto` gauge headlines.
    */
-  sharePct: z.number().nullable(),
+  sharePct: percent().nullable(),
 })
 
 export type MentionRow = z.infer<typeof mentionRowSchema>
@@ -323,7 +324,7 @@ export const aiSourceCategoryBucketSchema = z.object({
   /** Number of citations falling in this category. */
   count: z.number(),
   /** 0..100 share of total citations. */
-  sharePct: z.number(),
+  sharePct: percent(),
 })
 
 export type AiSourceCategoryBucket = z.infer<typeof aiSourceCategoryBucketSchema>
@@ -345,7 +346,7 @@ export const gscQueryRowSchema = z.object({
   query: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   avgPosition: z.number(),
   /** Heuristic categorization: 'brand' | 'lead-gen' | 'industry' | 'other'. */
   category: z.enum(['brand', 'lead-gen', 'industry', 'other']),
@@ -358,14 +359,14 @@ export const gscSectionSchema = z.object({
   periodEnd: z.string(),
   totalClicks: z.number(),
   totalImpressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   avgPosition: z.number(),
   topQueries: z.array(gscQueryRowSchema),
   categoryBreakdown: z.array(z.object({
     category: z.enum(['brand', 'lead-gen', 'industry', 'other']),
     clicks: z.number(),
     impressions: z.number(),
-    sharePct: z.number(),
+    sharePct: percent(),
   })),
   trend: z.array(z.object({ date: z.string(), clicks: z.number(), impressions: z.number() })),
   /**
@@ -403,7 +404,7 @@ export const gaTrafficSectionSchema = z.object({
   channelBreakdown: z.array(z.object({
     channel: z.string(),
     sessions: z.number(),
-    sharePct: z.number(),
+    sharePct: percent(),
   })),
 })
 
@@ -416,7 +417,7 @@ export const socialReferralSectionSchema = z.object({
   channels: z.array(z.object({
     channelGroup: z.string(),
     sessions: z.number(),
-    sharePct: z.number(),
+    sharePct: percent(),
   })),
   topCampaigns: z.array(z.object({
     source: z.string(),
@@ -470,7 +471,7 @@ export const aiReferralSectionSchema = z.object({
     users: z.number().optional(),
     paidSessions: z.number(),
     organicSessions: z.number(),
-    sharePct: z.number(),
+    sharePct: percent(),
   })),
   trend: z.array(z.object({ date: z.string(), sessions: z.number() })),
   topLandingPages: z.array(z.object({
@@ -482,6 +483,9 @@ export const aiReferralSectionSchema = z.object({
 })
 
 export type AiReferralSection = z.infer<typeof aiReferralSectionSchema>
+
+/** A count in the report window, the same count in the window before it, and the signed whole-percent change. */
+const serverActivityCountSchema = z.object({ current: z.number(), prior: z.number(), deltaPct: percent().nullable() })
 
 /**
  * Server-side AI visibility — what AI engines actually do in your server logs.
@@ -503,9 +507,9 @@ export const serverActivitySectionSchema = z.object({
   hasData: z.boolean(),
 
   /** Last-7d total verified crawler hits, with prior 7d for delta. */
-  verifiedCrawlerHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  verifiedCrawlerHits: serverActivityCountSchema,
   /** Last-7d total unverified crawler hits, separated from verified trust metrics. */
-  unverifiedCrawlerHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  unverifiedCrawlerHits: serverActivityCountSchema,
   /**
    * Last-7d on-demand per-user fetches from AI surfaces (ChatGPT-User,
    * Perplexity-User, MistralAI-User). Disjoint from `verifiedCrawlerHits` /
@@ -514,7 +518,7 @@ export const serverActivitySectionSchema = z.object({
    * because the operational question for user-fetch is "is this happening?"
    * not "is this a confirmed bot identity?"
    */
-  aiUserFetchHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  aiUserFetchHits: serverActivityCountSchema,
   /**
    * Last-7d AI-referral sessions (sessionized from server-side request
    * evidence). Paid + organic + unclassified. Excludes subresource fetches and
@@ -522,7 +526,7 @@ export const serverActivitySectionSchema = z.object({
    * not an arrival, and its destination raises its own row. Redirect-answered
    * requests are reported separately in `referralRedirects`.
    */
-  referralArrivals: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  referralArrivals: serverActivityCountSchema,
   /**
    * AI-referred requests in the current window that were answered with a
    * Location redirect instead of a page. Not arrivals — but a site where this
@@ -540,9 +544,9 @@ export const serverActivitySectionSchema = z.object({
    * traffic by exactly a client's ad volume.
    */
   referralArrivalsByClass: z.object({
-    paid: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
-    organic: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
-    unclassified: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+    paid: serverActivityCountSchema,
+    organic: serverActivityCountSchema,
+    unclassified: serverActivityCountSchema,
   }),
   /** Pre-rendered one-line breakdown, e.g. "Paid 1,200 · Organic 24". Empty when there is nothing to split. */
   referralArrivalsClassSummary: z.string(),
@@ -556,7 +560,7 @@ export const serverActivitySectionSchema = z.object({
     /** Per-user fetches from this operator's AI surface (ChatGPT-User, …). */
     userFetchHits: z.number(),
     referralArrivals: z.number(),
-    deltaPct: z.number().nullable(),
+    deltaPct: percent().nullable(),
   })),
 
   /**
@@ -623,7 +627,7 @@ export const indexingHealthSectionSchema = z.object({
   /** Bing-only — pages with no inspection data yet. */
   unknown: z.number(),
   /** 0..100. */
-  indexedPct: z.number(),
+  indexedPct: percent(),
 })
 
 export type IndexingHealthSection = z.infer<typeof indexingHealthSectionSchema>
@@ -639,13 +643,13 @@ export const citationsTrendPointSchema = z.object({
    * provider counts so the trend line measures real movement rather than
    * provider-count variance.
    */
-  citationRate: z.number(),
+  citationRate: percent(),
   /** Numerator of `citationRate` for this run. */
   citedQueryCount: z.number(),
   /** Denominator of `citationRate` for this run. */
   totalQueryCount: z.number(),
   /** 0..100 — same per-query unique-mentioned definition as `ReportExecutiveSummary.mentionRate`. */
-  mentionRate: z.number(),
+  mentionRate: percent(),
   /** Numerator of `mentionRate` for this run. */
   mentionedQueryCount: z.number(),
   /**
@@ -655,8 +659,8 @@ export const citationsTrendPointSchema = z.object({
    */
   providerRates: z.array(z.object({
     provider: z.string(),
-    citationRate: z.number(),
-    mentionRate: z.number(),
+    citationRate: percent(),
+    mentionRate: percent(),
   })),
 })
 
@@ -720,7 +724,7 @@ export const reportRateDeltaSchema = z.object({
    * through the "smart %" rule — percentage when the prior base is large
    * enough (`MIN_PCT_BASE`), otherwise a rounded raw delta.
    */
-  deltaPct: z.number().nullable(),
+  deltaPct: percent().nullable(),
   /**
    * Direction tag for tone mapping. Threshold is metric-specific (3pp for
    * rates, 0.5 for counts) so small noise lands as 'flat' rather than
@@ -738,11 +742,16 @@ export const reportRateDeltaSchema = z.object({
 
 export type ReportRateDelta = z.infer<typeof reportRateDeltaSchema>
 
+/**
+ * One provider's citation rate, latest run against the prior one, read from
+ * `citationsTrend[].providerRates`: `current` and `prior` are 0..100 and
+ * `deltaAbs` is their difference in percentage points.
+ */
 export const reportProviderMovementSchema = z.object({
   provider: z.string(),
-  current: z.number(),
-  prior: z.number(),
-  deltaAbs: z.number(),
+  current: percent(),
+  prior: percent(),
+  deltaAbs: percent(),
   direction: z.enum(['up', 'down', 'flat']),
 })
 
