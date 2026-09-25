@@ -1,3 +1,4 @@
+import { visibilityCompareSelectionSchema } from '@ainyc/canonry-contracts'
 import { showVisibilityStats, showVisibilityCompare } from '../commands/visibility-stats.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
@@ -20,7 +21,7 @@ function parseQueryClass(value: string | undefined): 'branded' | 'non-brand' | u
   return value
 }
 
-const COMPARE_USAGE = 'canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM> [--format json]'
+const COMPARE_USAGE = 'canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM> [--scope project|group|market|property] [--scope-key <key>] [--market-key <key>] [--provider <engine>] [--location <label|none>] [--format json]'
 
 export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -59,12 +60,18 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       from: stringOption(),
       to: stringOption(),
+      scope: stringOption(),
+      'scope-key': stringOption(),
+      'market-key': stringOption(),
+      provider: stringOption(),
+      location: stringOption(),
     },
     run: async (input) => {
       const project = requireProject(input, 'visibility-compare', COMPARE_USAGE)
       await showVisibilityCompare(project, {
         from: getString(input.values, 'from'),
         to: getString(input.values, 'to'),
+        ...visibilityCompareSelectionSchema.parse({ scope: getString(input.values, 'scope'), scopeKey: getString(input.values, 'scope-key'), marketKey: getString(input.values, 'market-key'), provider: getString(input.values, 'provider'), location: getString(input.values, 'location') }),
         format: input.format,
       })
     },

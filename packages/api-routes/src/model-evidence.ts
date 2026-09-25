@@ -1,4 +1,4 @@
-import { modelIdsEquivalent, normalizeModelId, type ModelEvidenceState } from '@ainyc/canonry-contracts'
+import { modelIdsEquivalent, normalizeModelId, type ModelEvidenceState, type VisibilityCompareProviderContinuity } from '@ainyc/canonry-contracts'
 
 export type ModelEvidenceValue = string | null | undefined
 
@@ -68,4 +68,24 @@ export function modelEvidenceStatesEqual(a: ModelEvidenceState, b: ModelEvidence
   return a.includesUnknown === b.includesUnknown &&
     a.models.length === b.models.length &&
     a.models.every((model, index) => model === b.models[index])
+}
+
+/** Shared exclusion gate for monthly comparison and report-readiness diagnostics. */
+export function compareModelContinuity(
+  from: Iterable<ModelEvidenceValue>,
+  to: Iterable<ModelEvidenceValue>,
+): Omit<VisibilityCompareProviderContinuity, 'provider'> {
+  const fromEvidence = classifyModelEvidence(from)
+  const toEvidence = classifyModelEvidence(to)
+  const ids = (evidence: ModelEvidenceState): string[] => evidence.status === 'known'
+    ? [evidence.model] : evidence.status === 'mixed' ? evidence.models : []
+  const unknown = (evidence: ModelEvidenceState) => evidence.status === 'unknown'
+    || (evidence.status === 'mixed' && evidence.includesUnknown)
+  return {
+    status: unknown(fromEvidence) || unknown(toEvidence) ? 'model-unknown'
+      : fromEvidence.status === 'known' && toEvidence.status === 'known' && fromEvidence.model === toEvidence.model
+        ? 'included' : 'model-discontinuous',
+    fromModels: ids(fromEvidence),
+    toModels: ids(toEvidence),
+  }
 }

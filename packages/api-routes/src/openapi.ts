@@ -2519,9 +2519,16 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-compare',
     summary: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. A silent upstream version bump under an unchanged configured id remains undetectable.',
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced selections read frozen Property/market/execution assignments and reuse each answer once per class. Unfiltered Advanced class metrics carry their own `classComparison` cohort, while the four legacy metrics retain their existing frame. A silent upstream version bump under an unchanged configured id remains undetectable.',
     tags: ['analytics'],
-    parameters: [nameParameter, compareFromQueryParameter, compareToQueryParameter],
+    parameters: [
+      nameParameter, compareFromQueryParameter, compareToQueryParameter,
+      { name: 'scope', in: 'query', description: 'Advanced frozen population scope; default project.', schema: { type: 'string', enum: ['project', 'group', 'market', 'property'] } },
+      { name: 'scopeKey', in: 'query', description: 'Stable Property Target, group, or market key; required for non-project scope.', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Intersect project/group/property selection with exact frozen market edges.', schema: stringSchema },
+      { name: 'provider', in: 'query', description: 'Restrict the compared population to one provider.', schema: stringSchema },
+      { name: 'location', in: 'query', description: 'Execution location label, or none for no location.', schema: stringSchema },
+    ],
     responses: {
       200: jsonResponse('Month-over-month visibility comparison returned.', 'VisibilityCompareDto'),
       400: errorResponse('Invalid or missing from/to months.'),

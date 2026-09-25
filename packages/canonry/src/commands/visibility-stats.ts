@@ -5,6 +5,7 @@ import {
   type VisibilityStatsDto,
   type VisibilityStatsCounts,
   type VisibilityCompareDto,
+  type VisibilityCompareSelection,
   type VisibilityCompareMetric,
   type VisibilityCompareMetricPeriod,
 } from '@ainyc/canonry-contracts'
@@ -57,7 +58,7 @@ function pct(rate: number | null): string {
 
 // ── visibility-compare (month over month) ────────────────────────────────────
 
-export interface VisibilityCompareOptions {
+export interface VisibilityCompareOptions extends VisibilityCompareSelection {
   from?: string
   to?: string
   format?: string
@@ -67,7 +68,7 @@ export interface VisibilityCompareOptions {
 export async function showVisibilityCompare(project: string, opts: VisibilityCompareOptions): Promise<void> {
   if (!opts.from || !opts.to) throw new Error('visibility-compare requires --from <YYYY-MM> and --to <YYYY-MM>')
   const client = createApiClient()
-  const data = await client.getVisibilityCompare(project, opts.from, opts.to)
+  const data = await client.getVisibilityCompare(project, opts.from, opts.to, { scope: opts.scope, scopeKey: opts.scopeKey, marketKey: opts.marketKey, provider: opts.provider, location: opts.location })
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(data, null, 2))
@@ -78,6 +79,7 @@ export async function showVisibilityCompare(project: string, opts: VisibilityCom
 
 /** A metric period as `"2.1% [1.3, 3.5]"`, or `"no data"` when the sample was empty. */
 function periodCell(p: VisibilityCompareMetricPeriod): string {
+  if (p.availability === 'classification-unavailable') return 'unavailable: query classification'
   if (p.availability === 'no-competitive-frame') {
     return `unavailable: no competitive frame (${p.numerator} observed)`
   }
@@ -102,6 +104,7 @@ function verdictCell(m: VisibilityCompareMetric): string {
 }
 
 function metricQueryClassLabel(metric: VisibilityCompareMetric): string {
+  if (metric.queryClass === 'branded') return 'branded queries'
   if (metric.queryClass === 'non-brand') return 'non-brand queries'
   if (metric.queryClass === 'pooled') return 'pooled queries; classification unavailable'
   return 'all queries'
@@ -123,9 +126,19 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
   }
   console.log('')
 
+  if (data.classComparison) {
+    const frame = data.classComparison
+    console.log(`Class metrics basket (frozen Advanced): ${frame.basket.queryCount} queries; engines: ${frame.basket.providers.join(', ') || 'none'}`)
+    console.log(`Class basket sweeps: ${frame.from.month} ${frame.from.runCount}, ${frame.to.month} ${frame.to.runCount}; continuity: ${frame.continuity.status}`)
+    for (const provider of frame.continuity.providers) {
+      if (provider.status !== 'included') console.log(`Class basket excludes ${provider.provider}: ${provider.fromModels.join('/') || '?'} -> ${provider.toModels.join('/') || '?'} (${provider.status})`)
+    }
+    console.log('')
+  }
+
   // Column widths.
   const rows = data.metrics.map((m) => ({
-    label: `${m.label} · ${metricQueryClassLabel(m)}${m.driftRobust ? ' *' : ''}`,
+    label: `${m.label} · ${metricQueryClassLabel(m)}${data.classComparison && (m.key.startsWith('mention-rate-') || m.key.startsWith('cited-rate-')) ? ' · class basket' : ''}${m.driftRobust ? ' *' : ''}`,
     to: periodCell(m.to),
     from: periodCell(m.from),
     verdict: verdictCell(m),

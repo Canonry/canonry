@@ -1,3 +1,4 @@
+import { visibilityCompareSelectionSchema } from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -1578,17 +1579,18 @@ export const canonryMcpTools = [
     name: 'canonry_visibility_compare',
     title: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in ONE call — use this instead of hand-computing deltas from two visibility-stats calls. Share of voice (`mention-share-of-voice`, `driftRobust: true`) is less exposed to broad model-wide naming propensity than absolute rates, but it never overrides model continuity. The response restricts to common query/provider pairs, then includes only providers with exactly one known, identical configured model id in both months. `continuity` surfaces every provider, its model evidence, and whether it was excluded for a changed, mixed mid-month, or unknown model. When no provider remains, metrics return `model-discontinuous` or `model-unknown`, never a directional call. A silent upstream version bump under an unchanged configured id remains undetectable. `from` must be a month strictly before `to`.',
+      'Statistically honest month-over-month AEO comparison in ONE call — use this instead of hand-computing deltas from two visibility-stats calls. Share of voice (`mention-share-of-voice`, `driftRobust: true`) is less exposed to broad model-wide naming propensity than absolute rates, but it never overrides model continuity. Branded and non-brand mention/cited rates are separate additive metrics; classification-unavailable never falls back to pooling. Advanced scope, scopeKey, marketKey, provider and location preserve frozen assignments and deduplicate shared executions. Unfiltered Advanced class metrics use classComparison for their basket and continuity; the four original metrics keep their legacy frame. The response restricts to common query/provider pairs, then includes only providers with exactly one known, identical configured model id in both months. `continuity` surfaces every provider, its model evidence, and whether it was excluded for a changed, mixed mid-month, or unknown model. When no provider remains, metrics return `model-discontinuous` or `model-unknown`, never a directional call. A silent upstream version bump under an unchanged configured id remains undetectable. `from` must be a month strictly before `to`.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
+      ...visibilityCompareSelectionSchema.shape,
       from: z.string().describe('Earlier calendar month (YYYY-MM), the baseline. Must be strictly before "to".'),
       to: z.string().describe('Later calendar month (YYYY-MM), compared against "from".'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/visibility-compare'],
-    handler: (client, input) => client.getVisibilityCompare(input.project, input.from, input.to),
+    handler: (client, input) => client.getVisibilityCompare(input.project, input.from, input.to, { scope: input.scope, scopeKey: input.scopeKey, marketKey: input.marketKey, provider: input.provider, location: input.location }),
   }),
   defineTool({
     name: 'canonry_content_targets',

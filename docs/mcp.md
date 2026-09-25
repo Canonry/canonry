@@ -393,3 +393,25 @@ require full instance-administrator authority; a read-only or project-scoped key
 cannot read private conversations. New/resume preserve the prior conversation.
 Delete removes its transcript and compaction notes, retaining shared project
 notes. Native Aero can read history but cannot invoke conversation mutations.
+
+### Monthly class comparisons
+
+`canonry_visibility_compare` adds `mention-rate-branded`, `cited-rate-branded`,
+`mention-rate-non-brand`, and `cited-rate-non-brand`. Each metric carries its
+class, numerator, denominator, Wilson interval, and noise verdict. Missing
+classification returns `classification-unavailable`; it never pools the classes.
+`excludedUnknown` counts observations missing that metric's independent signal.
+
+Advanced portfolios accept `scope` (`project`, `group`, `market`, `property`),
+`scopeKey`, optional `marketKey`, `provider`, and `location`. Property keys are
+Target stable keys. Market selection intersects exact frozen assignment edges.
+Shared executions count once per class. Material plan changes are excluded;
+display-only comparable revisions retain continuity. Schema-v1 class metrics
+are unavailable because that history has no frozen class assignments.
+
+Unfiltered project responses preserve the four original metrics and their
+basket. Advanced class metrics use the separate `classComparison` frame,
+including its model-continuity exclusions and monthly run counts. Explicitly
+scoped responses use the top-level frame. All reads use stored evidence.
+The CLI exposes the same selectors as `--scope`, `--scope-key`, `--market-key`,
+`--provider`, and `--location`, and `--format json` returns the same response.

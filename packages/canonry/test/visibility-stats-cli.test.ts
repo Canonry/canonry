@@ -250,3 +250,21 @@ describe('showVisibilityCompare', () => {
     expect(cap.text()).not.toContain('100.0%')
   })
 })
+
+describe('monthly class metric presentation', () => {
+  it('prints the distinct frozen Advanced cohort and preserves the complete JSON response', async () => {
+    const dto = compareData('non-brand')
+    dto.classComparison = { from: dto.from, to: dto.to, basket: { ...dto.basket, queryCount: 3, providers: ['gemini'], excludedProviders: ['openai'] }, continuity: { status: 'comparable', comparedProviders: ['gemini'], providers: [{ provider: 'openai', status: 'model-discontinuous', fromModels: ['old'], toModels: ['new'] }] }, modelChanges: [{ provider: 'openai', fromModels: ['old'], toModels: ['new'] }] }
+    dto.metrics.push({ ...dto.metrics[0]!, key: 'mention-rate-branded', label: 'Mention rate', queryClass: 'branded', driftRobust: false })
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    expect(human.text()).toContain('Class metrics basket (frozen Advanced): 3 queries; engines: gemini')
+    expect(human.text()).toContain('Mention rate · branded queries · class basket')
+    expect(human.text()).toContain('Class basket excludes openai: old -> new (model-discontinuous)')
+    const machine = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06', scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', format: 'json' }))
+    await machine.run
+    expect(JSON.parse(machine.text())).toEqual(dto)
+    expect(mockGetVisibilityCompare).toHaveBeenLastCalledWith('acme', '2026-05', '2026-06', { scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', location: undefined })
+  })
+})

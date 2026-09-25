@@ -1093,3 +1093,48 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
     populations,
   })
 }
+
+/** Monthly comparison uses the same frozen scopes and independent signal attribution as reports. */
+export function visibilityComparisonPopulation(run: VisibilityReportRunInput, selection: VisibilityReportReaderSelection) {
+  const targets = targetMap(run.definition)
+  const byClass = ALL_CLASSES.map(queryClass => ({ queryClass, candidates: candidatesFor(run, selection, queryClass).candidates }))
+  const pooled = new Map<string, Candidate>()
+  for (const { candidates } of byClass) {
+    for (const candidate of candidates) {
+      const existing = pooled.get(candidate.slot.id)
+      if (existing) existing.edges.push(...candidate.edges)
+      else pooled.set(candidate.slot.id, { ...candidate, edges: [...candidate.edges] })
+    }
+  }
+  const cohortKeys = new Map([...pooled.values()].map(candidate => [candidate.slot.id, JSON.stringify({
+    definition: run.comparableDefinitionIds.at(-1) ?? run.definitionId,
+    query: candidate.slot.query,
+    execution: candidate.slot.executionId,
+    location: candidate.slot.location,
+    edges: candidate.edges.map(edge => [edge.targetKey, edge.queryClass, [...edge.marketKeys].sort()]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  })]))
+  const row = (candidate: Candidate, queryClass: VisibilityReportPopulationClass | null) => {
+    const signals = targetValues(candidate, targets)
+    return {
+      queryId: candidate.slot.queryId ?? candidate.slot.queryKey,
+      queryText: candidate.slot.query,
+      provider: candidate.slot.provider,
+      model: candidate.observation!.model,
+      answerMentioned: signals.mention,
+      citation: citationForCoverage(candidate, targets),
+      answerText: candidate.observation!.answerText,
+      competitorDomains: [...new Set(candidate.edges.flatMap(edge => edge.competitorDomains))],
+      competitorMentions: candidate.observation!.competitorMentionDomains.filter(domain => candidate.edges.some(edge => edge.competitorDomains.includes(domain))),
+      competitorCitations: candidate.observation!.competitorCitationDomains.filter(domain => candidate.edges.some(edge => edge.competitorDomains.includes(domain))),
+      cohortKey: cohortKeys.get(candidate.slot.id)!,
+      queryClass: queryClass === 'unknown' ? null : queryClass,
+    }
+  }
+  return {
+    snapshots: [...pooled.values()].filter(candidate => candidate.observation !== null).map(candidate => {
+      const classes = new Set(candidate.edges.map(edge => edge.queryClass))
+      return row(candidate, classes.size === 1 ? candidate.edges[0]!.queryClass : null)
+    }),
+    classSnapshots: byClass.flatMap(({ queryClass, candidates }) => candidates.filter(candidate => candidate.observation !== null).map(candidate => row(candidate, queryClass))),
+  }
+}
