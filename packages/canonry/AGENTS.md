@@ -127,6 +127,7 @@ The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated
 `src/commands/run.ts` → `throwIfWaitedRunFailed` decides the exit code of `run <project> --wait`, `--all-locations --wait`, and `run --all --wait`. It runs only after the full output is printed, so stdout is the same for every final status.
 
 - A waited run that ended `failed` throws `CliError` `RUN_FAILED` with exit 2. With `--all` or `--all-locations`, one failed run is enough.
+- Machine formats suppress wait progress so stderr keeps its JSON error envelope parseable; text mode keeps its progress messages.
 - `partial` exits 0: its answers are saved, and `run fill --wait` is the command that exits 2 while answers are still missing. `cancelled` exits 0 because an operator stopped the run. A run the wait stops at while it is still `running` also exits 0.
 - An `--all` row with `status: 'error'` (the trigger failed, so no run exists) is not a waited run and does not change the exit code.
 - `test/cli-run-wait-exit.test.ts` pins stdout and the exit code for each case.

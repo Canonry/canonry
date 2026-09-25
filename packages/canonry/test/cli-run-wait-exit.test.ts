@@ -1,3 +1,4 @@
+import { Console } from 'node:console'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectDto, RunDetailDto } from '@ainyc/canonry-contracts'
 
@@ -14,7 +15,7 @@ vi.mock('../src/client.js', async (importOriginal) => ({
   }),
 }))
 
-const { invokeCli, parseJsonOutput } = await import('./cli-test-utils.js')
+const { runCli } = await import('../src/cli.js')
 
 // Past the 10-minute poll bound, so a --wait that never returned would fail
 // with the timeout instead of hanging the test.
@@ -65,16 +66,35 @@ const project: ProjectDto = {
   autoExtractBacklinks: false,
 }
 
-/** Run the CLI to its exit, driving the 2-second poll with fake time. */
+/** Capture stderr in write order, including the real console.error newline. */
 async function cli(args: string[]) {
-  const done = invokeCli(args)
-  await vi.advanceTimersByTimeAsync(PAST_POLL_TIMEOUT_MS)
-  return done
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const originalLog = console.log
+  const originalError = console.error
+  const originalWrite = process.stderr.write
+  const terminal = new Console({ stdout: process.stdout, stderr: process.stderr })
+  console.log = (...parts: unknown[]) => { stdout.push(parts.join(' ')) }
+  console.error = terminal.error.bind(terminal)
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'))
+    return true
+  }) as typeof process.stderr.write
+  try {
+    const done = runCli(args)
+    await vi.advanceTimersByTimeAsync(PAST_POLL_TIMEOUT_MS)
+    const exitCode = await done
+    return { stdout: stdout.join('\n'), stderr: stderr.join(''), exitCode: exitCode === 0 ? undefined : exitCode }
+  } finally {
+    console.log = originalLog
+    console.error = originalError
+    process.stderr.write = originalWrite
+  }
 }
 
-/** The `{ error }` envelope printed to stderr, apart from the progress dots. */
+/** Machine stderr must contain only the error envelope, without progress text. */
 function stderrEnvelope(stderr: string) {
-  return parseJsonOutput(stderr) as { error: { code: string; message: string; details?: Record<string, unknown> } }
+  return JSON.parse(stderr) as { error: { code: string; message: string; details?: Record<string, unknown> } }
 }
 
 beforeEach(() => {
@@ -100,10 +120,10 @@ describe('canonry run <project> --wait exit code', () => {
     expect(result.stderr).toContain(`Error: Run run_1 failed: claude: ${CLAUDE_401}`)
   })
 
-  it('exits 2 with --format json, stdout still exactly the run detail and the error envelope on stderr', async () => {
+  it.each(['json', 'jsonl'])('exits 2 with --format %s, stdout still exactly the run detail and the error envelope on stderr', async format => {
     mockGetRun.mockResolvedValue(failedRun)
 
-    const result = await cli(['run', 'acme', '--wait', '--format', 'json'])
+    const result = await cli(['run', 'acme', '--wait', '--format', format])
 
     expect(result.exitCode).toBe(2)
     expect(JSON.parse(result.stdout)).toEqual(failedRun)
@@ -142,6 +162,17 @@ describe('canonry run <project> --wait exit code', () => {
     const json = await cli(['run', 'acme', '--wait', '--format', 'json'])
     expect(json.exitCode).toBeUndefined()
     expect(JSON.parse(json.stdout)).toEqual(completed)
+  })
+
+  it.each(['json', 'jsonl'])('keeps stderr empty for a completed --format %s wait', async format => {
+    const completed = run({ status: 'completed', finishedAt: '2026-09-24T06:05:00.000Z' })
+    mockGetRun.mockResolvedValue(completed)
+
+    const result = await cli(['run', 'acme', '--wait', '--format', format])
+
+    expect(result.exitCode).toBeUndefined()
+    expect(JSON.parse(result.stdout)).toEqual(completed)
+    expect(result.stderr).toBe('')
   })
 
   it('exits 0 for a partial run: its answers are saved and `canonry run fill` finishes it', async () => {
@@ -191,8 +222,8 @@ describe('canonry run <project> --all-locations --wait exit code', () => {
     expect(result.stderr).toContain(`Error: 1 of 2 runs failed: acme (nyc) run run_1: claude: ${CLAUDE_401}`)
   })
 
-  it('exits 2 with --format json and prints every location run unchanged', async () => {
-    const result = await cli(['run', 'acme', '--all-locations', '--wait', '--format', 'json'])
+  it.each(['json', 'jsonl'])('exits 2 with --format %s and prints every location run unchanged', async format => {
+    const result = await cli(['run', 'acme', '--all-locations', '--wait', '--format', format])
 
     expect(result.exitCode).toBe(2)
     expect(JSON.parse(result.stdout)).toEqual([
@@ -214,6 +245,19 @@ describe('canonry run <project> --all-locations --wait exit code', () => {
     const result = await cli(['run', 'acme', '--all-locations', '--wait'])
 
     expect(result.exitCode).toBeUndefined()
+  })
+
+  it.each(['json', 'jsonl'])('keeps stderr empty when every location completes with --format %s', async format => {
+    mockGetRun.mockImplementation(async (id: string) => run({ id, status: 'completed' }))
+
+    const result = await cli(['run', 'acme', '--all-locations', '--wait', '--format', format])
+
+    expect(result.exitCode).toBeUndefined()
+    expect(JSON.parse(result.stdout)).toEqual([
+      run({ id: 'run_1', status: 'completed', location: 'nyc' }),
+      run({ id: 'run_2', status: 'completed', location: 'sf' }),
+    ])
+    expect(result.stderr).toBe('')
   })
 })
 
@@ -249,8 +293,8 @@ describe('canonry run --all --wait exit code', () => {
     expect(result.stderr).toContain(`Error: 1 of 3 runs failed: acme run run_1: claude: ${CLAUDE_401}`)
   })
 
-  it('exits 2 with --format json and prints the same rows as before', async () => {
-    const result = await cli(['run', '--all', '--wait', '--format', 'json'])
+  it.each(['json', 'jsonl'])('exits 2 with --format %s and prints the same rows as before', async format => {
+    const result = await cli(['run', '--all', '--wait', '--format', format])
 
     expect(result.exitCode).toBe(2)
     expect(JSON.parse(result.stdout)).toEqual([
@@ -271,14 +315,21 @@ describe('canonry run --all --wait exit code', () => {
     })
   })
 
-  it('exits 0 when no waited run failed, partial included', async () => {
+  it.each(['json', 'jsonl'])('keeps stderr empty with --format %s when no waited run failed, partial included', async format => {
     mockGetRun.mockImplementation(async (id: string) => (id === 'run_3'
       ? run({ id, status: 'partial' })
       : run({ id, status: 'completed' })))
 
-    const result = await cli(['run', '--all', '--wait', '--format', 'json'])
+    const result = await cli(['run', '--all', '--wait', '--format', format])
 
     expect(result.exitCode).toBeUndefined()
+    expect(JSON.parse(result.stdout)).toEqual([
+      { project: 'acme', runId: 'run_1', status: 'completed', location: null },
+      { project: 'globex', runId: 'run_2', status: 'completed', location: null },
+      { project: 'initech', runId: 'run_3', status: 'partial', location: null },
+      { project: 'umbrella', runId: '', status: 'error', location: null, error: 'no providers configured' },
+    ])
+    expect(result.stderr).toBe('')
   })
 
   it('exits 0 without --wait, since nothing was waited on', async () => {

@@ -84,7 +84,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     if (isMachineFormat(opts?.format)) {
       if (opts?.wait) {
         const finals = await Promise.all(
-          locationRuns.map(async r => (!r.id || r.status === 'conflict' ? null : pollRun(client, r.id))),
+          locationRuns.map(async r => (!r.id || r.status === 'conflict' ? null : pollRun(client, r.id, false))),
         )
         console.log(JSON.stringify(locationRuns.map((r, i) => finals[i] ? { ...r, ...finals[i] } : r), null, 2))
         throwIfWaitedRunFailed(locationRuns.flatMap((r, i) => {
@@ -135,8 +135,9 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   const run = response as { id: string; status: string; kind: string }
 
   if (opts?.wait && run.id && !TERMINAL_STATUSES.has(run.status)) {
-    process.stderr.write(`Run ${run.id} started`)
-    const result = await pollRun(client, run.id)
+    const showProgress = !isMachineFormat(opts?.format)
+    if (showProgress) process.stderr.write(`Run ${run.id} started`)
+    const result = await pollRun(client, run.id, showProgress)
     if (isMachineFormat(opts?.format)) {
       console.log(JSON.stringify(result, null, 2))
     } else {
@@ -252,13 +253,14 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
   if (opts?.wait) {
     const pending = results.filter(r => r.runId && !TERMINAL_STATUSES.has(r.status))
     if (pending.length > 0) {
-      process.stderr.write(`Waiting for ${pending.length} run(s)`)
+      const showProgress = !isMachineFormat(opts?.format)
+      if (showProgress) process.stderr.write(`Waiting for ${pending.length} run(s)`)
       await Promise.all(pending.map(async (r) => {
-        const final = await pollRun(client, r.runId)
+        const final = await pollRun(client, r.runId, showProgress)
         r.status = final.status
         errors.set(r.runId, final.error)
       }))
-      process.stderr.write('\n')
+      if (showProgress) process.stderr.write('\n')
     }
   }
   // Only the runs that were dispatched: a project whose trigger failed has no
@@ -411,7 +413,7 @@ export async function listRuns(
 
 const POLL_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
-async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> {
+async function pollRun(client: ApiClient, runId: string, showProgress = true): Promise<RunDetailDto> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
     await new Promise(r => setTimeout(r, 2000))
@@ -419,7 +421,7 @@ async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> 
       throw new Error(`Timed out waiting for run ${runId} after ${POLL_TIMEOUT_MS / 1000}s`)
     }
     const run = await client.getRun(runId)
-    process.stderr.write('.')
+    if (showProgress) process.stderr.write('.')
     if (TERMINAL_STATUSES.has(run.status)) {
       return run
     }
