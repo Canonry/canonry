@@ -9,6 +9,7 @@ import {
   type CanonryMcpTool,
   type CanonryMcpToolName,
 } from '../mcp/tool-registry.js'
+import { renderRatioUnits, responseComponents, responseSchemasFor } from './tool-result-units.js'
 
 const MAX_TOOL_RESULT_CHARS = 20_000
 const TRUNCATION_NOTE = '... (truncated, result too large)'
@@ -724,9 +725,15 @@ export function truncateToolResult(details: unknown): string {
   return markedSlice(full, annotated)
 }
 
-function textResult<T>(details: T): AgentToolResult<T> {
+/**
+ * The model reads `content`; code reads `details`. Ratios the response schemas
+ * declare are shown as percent text in `content` only (see tool-result-units.ts).
+ */
+function textResult<T>(details: T, responseSchemas: readonly Record<string, unknown>[] = []): AgentToolResult<T> {
+  const components = responseSchemas.length > 0 ? responseComponents() : {}
+  const shown = responseSchemas.reduce<unknown>((value, schema) => renderRatioUnits(schema, value, components), details)
   return {
-    content: [{ type: 'text', text: truncateToolResult(details) }],
+    content: [{ type: 'text', text: truncateToolResult(shown) }],
     details,
   }
 }
@@ -784,7 +791,7 @@ function stripProjectFromJsonSchema(jsonSchema: unknown): {
  * - Wraps the JSON Schema in `Type.Unsafe` so pi-agent-core's TSchema-typed
  *   `parameters` field accepts it without conversion.
  * - Wraps the handler result in pi-agent-core's `AgentToolResult` envelope
- *   with a 20 KB truncation guard.
+ *   with a 20 KB truncation guard, showing declared ratios as percents.
  */
 export function mcpToAgentTool(
   tool: CanonryMcpTool,
@@ -792,6 +799,7 @@ export function mcpToAgentTool(
 ): AgentTool {
   const { schema: visibleSchema, hadProject } = stripProjectFromJsonSchema(tool.inputJsonSchema)
   const parameters = Type.Unsafe<Record<string, unknown>>(visibleSchema as object) as TSchema
+  const responseSchemas = responseSchemasFor(tool.openApiOperations)
 
   const execute = async (
     _toolCallId: string,
@@ -800,7 +808,7 @@ export function mcpToAgentTool(
     const handlerInput = hadProject ? { ...params, project: ctx.projectName } : params
     const result = await runWithUsageTags(ctx.client, { mcpTool: tool.name, mcpCall: randomUUID() }, () =>
       tool.handler(ctx.client, handlerInput as never))
-    return textResult(result)
+    return textResult(result, responseSchemas)
   }
 
   return {
