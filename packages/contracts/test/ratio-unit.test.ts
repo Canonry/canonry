@@ -72,6 +72,12 @@ describe('ratio wire precision', () => {
     expect(Object.is(roundRatio(-0.001, 'percent'), 0)).toBe(true)
   })
 
+  test('a half is judged on the decimal value, not the float the scaling leaves', () => {
+    // 1.005 * 100 is 100.49999999999999 in binary, which would round down.
+    expect(roundRatio(1.005, 'percent')).toBe(1.01)
+    expect(roundRatio(0.00125, 'fraction')).toBe(0.0013)
+  })
+
   test('percentOf is part / whole as 0..100 at two decimals', () => {
     expect(percentOf(2, 3)).toBe(66.67)
     expect(percentOf(1, 3)).toBe(33.33)

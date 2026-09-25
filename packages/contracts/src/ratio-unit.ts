@@ -64,8 +64,9 @@ export const RATIO_WIRE_DECIMALS: Readonly<Record<RatioUnit, number>> = {
 /** A ratio rounded half up to its unit's wire precision: `roundRatio(66.6667, 'percent')` is `66.67`. */
 export function roundRatio(value: number, unit: RatioUnit): number {
   const factor = 10 ** RATIO_WIRE_DECIMALS[unit]
-  // `+ 0` turns a rounded negative zero into 0.
-  return (Math.round(value * factor) + 0) / factor
+  // Cut the float error the scaling leaves before rounding, as `formatPercent`
+  // does (1.005 * 100 is 100.49999999999999). `+ 0` turns a negative zero into 0.
+  return (Math.round(Number((value * factor).toFixed(6))) + 0) / factor
 }
 
 /**
