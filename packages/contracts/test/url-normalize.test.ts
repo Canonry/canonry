@@ -120,7 +120,7 @@ describe('normalizeUrlPath', () => {
     })
 
     it('drops a trailing slash on a deep path', () => {
-      expect(normalizeUrlPath('/azcoating-stagin/')).toBe('/azcoating-stagin')
+      expect(normalizeUrlPath('/acme-staging/')).toBe('/acme-staging')
     })
 
     it('keeps the root / unchanged', () => {
