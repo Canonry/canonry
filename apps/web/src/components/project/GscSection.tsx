@@ -1506,9 +1506,10 @@ export function GscSection({
                     {/* Hero donut — centered, front and center */}
                     <div className="mt-6 flex flex-col items-center">
                       {(() => {
-                        const total = coverage.summary.indexed + coverage.summary.notIndexed
-                        const pct = total > 0 ? coverage.summary.indexed / total : 0
-                        const notPct = total > 0 ? coverage.summary.notIndexed / total : 0
+                        // The server's shares of the inspected pages. Arc
+                        // lengths are drawn from them; nothing is divided here.
+                        const pct = coverage.summary.indexedShare ?? 0
+                        const notPct = coverage.summary.notIndexedShare ?? 0
                         const r = 54
                         const circ = 2 * Math.PI * r
                         const indexedOffset = circ * (1 - pct)
@@ -1542,7 +1543,7 @@ export function GscSection({
                                 )}
                               </svg>
                               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-3xl font-bold tabular-nums text-primary">{formatPercent(pct)}</span>
+                                <span className="text-3xl font-bold tabular-nums text-primary">{formatPercent(coverage.summary.indexedShare)}</span>
                                 <span className="text-xs uppercase tracking-widest text-muted mt-0.5">Indexed</span>
                               </div>
                             </div>

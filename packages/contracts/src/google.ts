@@ -343,11 +343,22 @@ export type GscReasonGroup = z.infer<typeof gscReasonGroupSchema>
 
 export const gscCoverageSummaryDtoSchema = z.object({
   summary: z.object({
+    /** Inspected pages, each in exactly one of `indexed` / `notIndexed`. */
     total: z.number(),
     indexed: z.number(),
     notIndexed: z.number(),
+    /** Pages whose latest inspection lost the indexed state of the one before it. */
     deindexed: z.number(),
+    /** `indexed / total` as a 0..100 percent rounded to one decimal; 0 when nothing was inspected. */
     percentage: percent(),
+    /**
+     * `indexed / total` as an unrounded 0..1 fraction, so one page short of
+     * full coverage still reads short of 100%. Null when nothing was
+     * inspected: an empty site has no coverage share, not a 0% one.
+     */
+    indexedShare: fraction(z.number().min(0).max(1)).nullable(),
+    /** `notIndexed / total`, 0..1. With `indexedShare` it sums to 1. Null when nothing was inspected. */
+    notIndexedShare: fraction(z.number().min(0).max(1)).nullable(),
   }),
   lastInspectedAt: z.string().nullable(),
   lastSyncedAt: z.string().nullable(),

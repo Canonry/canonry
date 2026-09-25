@@ -4130,6 +4130,8 @@ export type GscCoverageSummaryDto = {
         notIndexed: number;
         deindexed: number;
         percentage: number;
+        indexedShare: number | null;
+        notIndexedShare: number | null;
     };
     lastInspectedAt: string | null;
     lastSyncedAt: string | null;

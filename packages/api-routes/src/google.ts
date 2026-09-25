@@ -1522,6 +1522,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         notIndexed,
         deindexed: deindexedUrls.length,
         percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+        // The coverage donut's two arcs and the CLI summary. Every latest
+        // inspection lands in exactly one bucket, so the two shares sum to 1.
+        // Unrounded: `percentage` rounds 9,999 of 10,000 up to a false 100.
+        indexedShare: total > 0 ? indexed / total : null,
+        notIndexedShare: total > 0 ? notIndexed / total : null,
       },
       lastInspectedAt,
       lastSyncedAt,
