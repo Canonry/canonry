@@ -7,7 +7,7 @@ import type {
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, formatPercent } from '@ainyc/canonry-contracts'
 
 const INDEXING_API_SCOPE_NOTICE =
   "Note: Google's Indexing API officially supports only pages with JobPosting or BroadcastEvent (livestream VideoObject) structured data. " +
@@ -299,7 +299,7 @@ export async function googlePerformanceDaily(project: string, opts: {
   }
   console.log(`  Clicks:      ${clicks.toLocaleString()}`)
   console.log(`  Impressions: ${impressions.toLocaleString()}`)
-  console.log(`  CTR:         ${(ctr * 100).toFixed(2)}%`)
+  console.log(`  CTR:         ${formatPercent(ctr)}`)
   console.log(`  Position:    ${position == null ? '—' : position.toFixed(1)}`)
 
   // The same fit the dashboard chart draws, so the two surfaces can never
@@ -360,9 +360,7 @@ export async function googlePerformanceDaily(project: string, opts: {
       }
       if (ratio === 0) return 'no change'
       const better = inverted ? ratio < 0 : ratio > 0
-      const magnitude = Math.abs(ratio * 100)
-      const shown = magnitude < 0.1 ? '<0.1' : magnitude.toFixed(1)
-      return `${ratio > 0 ? '+' : '-'}${shown}%  ${better ? 'better' : 'worse'}`
+      return `${ratio > 0 ? '+' : '-'}${formatPercent(Math.abs(ratio))}  ${better ? 'better' : 'worse'}`
     }
     console.log(
       `\nLast ${cmp.days} day${cmp.days === 1 ? '' : 's'} (${cmp.trailing.startDate} to ${cmp.trailing.endDate})`
@@ -394,7 +392,7 @@ export async function googlePerformanceDaily(project: string, opts: {
   console.log(`  ${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(9)}`)
   for (const row of data.daily) {
     console.log(
-      `  ${row.date.padEnd(12)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${(row.ctr * 100).toFixed(2).padStart(9)}%${(row.position == null ? '—' : row.position.toFixed(1)).padStart(9)}`,
+      `  ${row.date.padEnd(12)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${formatPercent(row.ctr).padStart(10)}${(row.position == null ? '—' : row.position.toFixed(1)).padStart(9)}`,
     )
   }
 }
@@ -435,7 +433,7 @@ export async function googleTopPages(project: string, opts: {
   for (const row of data.rows) {
     const page = row.page.length > pageWidth ? row.page.slice(0, pageWidth - 3) + '...' : row.page
     console.log(
-      `  ${page.padEnd(pageWidth)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${(row.ctr * 100).toFixed(2).padStart(9)}%`,
+      `  ${page.padEnd(pageWidth)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${formatPercent(row.ctr).padStart(10)}`,
     )
   }
 
@@ -445,7 +443,7 @@ export async function googleTopPages(project: string, opts: {
     console.log(`Property total (${days} day${days === 1 ? '' : 's'}, source: ${data.totalsSource}):`)
     console.log(`  Clicks:      ${clicks.toLocaleString()}`)
     console.log(`  Impressions: ${impressions.toLocaleString()}`)
-    console.log(`  CTR:         ${(ctr * 100).toFixed(2)}%`)
+    console.log(`  CTR:         ${formatPercent(ctr)}`)
     console.log()
     console.log('  The page rows above are a ranking. They do not add up to this total:')
     console.log('  Google withholds rare queries and repeats an impression per page.')
@@ -528,7 +526,7 @@ export async function googlePerformance(project: string, opts: {
   for (const row of rows.slice(0, 50)) {
     const query = row.query.length > 28 ? row.query.slice(0, 25) + '...' : row.query
     console.log(
-      `  ${row.date.padEnd(12)}${query.padEnd(30)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${(row.ctr * 100).toFixed(1).padStart(5)}%  ${row.position.toFixed(1).padStart(5)}`,
+      `  ${row.date.padEnd(12)}${query.padEnd(30)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${formatPercent(row.ctr).padStart(6)}  ${row.position.toFixed(1).padStart(5)}`,
     )
   }
   if (rows.length > 50) {
@@ -640,7 +638,7 @@ export async function googleCoverage(project: string, format?: string): Promise<
   const reset = '\x1b[0m'
 
   console.log(`\nIndex Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${formatPercent(summary.percentage, 'percent')})${reset}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)

@@ -1,5 +1,5 @@
 import type { RunDetailDto } from '@ainyc/canonry-contracts'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, formatPercent } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -213,7 +213,7 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
   const unknownNote = (summary.unknown ?? 0) > 0 ? `, ${summary.unknown} unknown` : ''
 
   console.log(`\nBing Index Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}${unknownNote}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${formatPercent(summary.percentage, 'percent')})${reset}${unknownNote}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)
@@ -513,7 +513,7 @@ export async function bingPerformance(project: string, format?: string): Promise
   for (const row of rows.slice(0, 50)) {
     const query = row.query.length > 38 ? row.query.slice(0, 35) + '...' : row.query
     console.log(
-      `  ${query.padEnd(40)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${(row.ctr * 100).toFixed(1).padStart(5)}%  ${row.averagePosition.toFixed(1).padStart(5)}`,
+      `  ${query.padEnd(40)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${formatPercent(row.ctr).padStart(6)}  ${row.averagePosition.toFixed(1).padStart(5)}`,
     )
   }
   if (rows.length > 50) {

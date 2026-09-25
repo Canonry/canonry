@@ -86,8 +86,18 @@ describe('google jsonl degrade (composite/object commands)', () => {
       await cap.run
       const out = cap.text()
       expect(out).toContain('Index Coverage for "demo"')
-      expect(out).toContain('42 / 50 pages indexed')
+      expect(out).toContain('42 / 50 pages indexed (84.0%)')
       expect(() => JSON.parse(out)).toThrow()
+    })
+
+    it('reads the summary percentage as 0..100, so 1 of 1,000 indexed is 0.1%, not 10%', async () => {
+      mockGscCoverage.mockResolvedValue({
+        ...coverageResult,
+        summary: { total: 1000, indexed: 1, notIndexed: 999, deindexed: 0, percentage: 0.1 },
+      })
+      const cap = captureLog(() => googleCoverage(PROJECT, undefined))
+      await cap.run
+      expect(cap.text()).toContain('1 / 1000 pages indexed (0.1%)')
     })
   })
 

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,6 +13,7 @@ import {
   gbpDisconnect,
   gbpSummary,
   gbpMetrics,
+  gbpKeywords,
 } from '../src/commands/gbp.js'
 
 /** UTC today as YYYY-MM-DD — matches how the summary route anchors `asOfDate`. */
@@ -299,6 +300,48 @@ describe('gbp CLI commands', () => {
       }
       expect(captured).toContain('Website clicks')
       expect(captured).not.toContain('WEBSITE_CLICKS')
+    })
+
+    /**
+     * `deltaPct` and `thresholdedPct` arrive as whole 0..100 percents, so they
+     * print as percents of themselves: 25 is 25.0%, never 2500%.
+     */
+    it('prints the 0..100 deltas and thresholded share through formatPercent', async () => {
+      const t = todayUtc()
+      await seedLocation({ locationName: 'locations/sum', displayName: 'Summary Hotel', selected: true })
+      seedMetric('locations/sum', shiftUtc(t, -3), 'WEBSITE_CLICKS', 30)
+      const real = await client.getGbpSummary('hotels')
+      const summarySpy = vi.spyOn(ApiClient.prototype, 'getGbpSummary').mockResolvedValue({
+        ...real,
+        performance: {
+          ...real.performance,
+          totals: { WEBSITE_CLICKS: 30, CALL_CLICKS: 4, BUSINESS_DIRECTION_REQUESTS: 0 },
+          deltaPct: { WEBSITE_CLICKS: 25, CALL_CLICKS: -50, BUSINESS_DIRECTION_REQUESTS: null },
+        },
+        keywords: { ...real.keywords, total: 8, thresholdedPct: 25 },
+      })
+      const keywordsSpy = vi.spyOn(ApiClient.prototype, 'listGbpKeywords').mockResolvedValue({
+        keywords: [{ locationName: 'locations/sum', periodStart: '2026-06', periodEnd: '2026-08', keyword: 'harbor hotel', valueCount: 120, valueThreshold: null }],
+        total: 1,
+        thresholdedPct: 0,
+      })
+
+      const lines: string[] = []
+      const origLog = console.log
+      console.log = (msg: string) => { lines.push(...String(msg).split('\n')) }
+      try {
+        await gbpSummary('hotels', {})
+        await gbpKeywords('hotels', {})
+      } finally {
+        console.log = origLog
+        summarySpy.mockRestore()
+        keywordsSpy.mockRestore()
+      }
+      expect(lines).toContain(`  ${'Website clicks'.padEnd(28)}       30   +25.0%`)
+      expect(lines).toContain(`  ${'Call clicks'.padEnd(28)}        4   -50.0%`)
+      expect(lines).toContain(`  ${'Direction requests'.padEnd(28)}        0   n/a`)
+      expect(lines).toContain('Keywords: 8 tracked, 25.0% privacy-thresholded')
+      expect(lines).toContain('1 keyword(s), 0% privacy-thresholded. Top by impressions:')
     })
   })
 })

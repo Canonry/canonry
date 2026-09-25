@@ -73,7 +73,7 @@ export async function showVisibilityCompare(project: string, opts: VisibilityCom
   printVisibilityCompare(data)
 }
 
-/** A metric period as `"2.1% [1.3, 3.5]"`, or `"no data"` when the sample was empty. */
+/** A metric period as `"2.1% [1.3%, 3.5%]"`, or `"no data"` when the sample was empty. */
 function periodCell(p: VisibilityCompareMetricPeriod): string {
   if (p.availability === 'no-competitive-frame') {
     return `unavailable: no competitive frame (${p.numerator} observed)`
@@ -239,7 +239,7 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
   if (sov) {
     console.log('')
     const pctStr = sov.availability !== undefined ? shareOfVoiceLabel(sov.percent, sov) : sov.percent !== null
-      ? `${sov.percent}%`
+      ? formatPercent(sov.percent, 'percent')
       : sov.competitorCount === 0
         ? '— (no competitors configured)'
         : sov.snapshotsWithAnswerText === 0

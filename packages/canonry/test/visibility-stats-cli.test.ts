@@ -185,6 +185,19 @@ describe('showVisibilityStats', () => {
     expect(output.text()).toContain('Requires 3 observed competitors mentioned in at least 3 answers each.')
   })
 
+  it('prints an older server share (no availability field) as a 0..100 percent', async () => {
+    const legacy = { queryClass: 'non-brand' as const, percent: 25, competitorCount: 3, projectMentions: 3, competitorMentions: 9, snapshotsWithAnswerText: 3, perCompetitor: [] }
+    mockGetVisibilityStats.mockResolvedValue({ ...data, shareOfVoice: legacy })
+    let cap = captureOutput(() => showVisibilityStats('acme', { shareOfVoice: true }))
+    await cap.run
+    expect(cap.text()).toContain('Share of voice (non-brand queries): 25.0%  (you 3 vs competitors 9 brand mentions across 3 answers)')
+
+    mockGetVisibilityStats.mockResolvedValue({ ...data, shareOfVoice: { ...legacy, percent: 0.04 } })
+    cap = captureOutput(() => showVisibilityStats('acme', { shareOfVoice: true }))
+    await cap.run
+    expect(cap.text()).toContain('Share of voice (non-brand queries): <0.1%  (you 3')
+  })
+
   it('distinguishes a missing competitor frame from a configured frame with no mentions', async () => {
     const share = {
       queryClass: 'non-brand' as const,

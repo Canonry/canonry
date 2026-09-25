@@ -216,6 +216,32 @@ describe('canonry overview — human output', () => {
     expect(output).toMatch(/Queries mentioned:\s+6\/8 \(75\.0%\)/)
   })
 
+  /**
+   * The overview mixes units: provider and health rates are 0..1 fractions,
+   * while a model score and a run-history rate arrive as 0..100 percents.
+   */
+  it('prints each rate through formatPercent in the unit its field carries', () => {
+    const overview = makeOverview({
+      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500 }],
+      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, mentionedPairs: 12,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+      runHistory: [
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
+      ],
+    })
+    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    expect(lines).toContain('    gemini       1/2500 (<0.1%)')
+    expect(lines).toContain(`    ${'openai/gpt-5'.padEnd(28)} 3/4 (75.0%)`)
+    expect(lines).toContain('  Health: 100% cited (12/12 pairs)')
+    expect(lines).toContain(`    2026-05-01  50.0% ${'█'.repeat(5)}`)
+    expect(lines).toContain(`    2026-05-02   100% ${'█'.repeat(10)}`)
+  })
+
   it('renders citation and mention movement separately with query-basket comparability', () => {
     const overview = makeOverview({
       citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },

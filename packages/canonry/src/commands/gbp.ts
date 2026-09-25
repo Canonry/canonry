@@ -1,5 +1,5 @@
 import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
-import { formatGbpMetricLabel } from '@ainyc/canonry-contracts'
+import { formatGbpMetricLabel, formatPercent } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 
@@ -229,7 +229,7 @@ export async function gbpKeywords(
     console.log('No GBP keyword impressions stored. Run `canonry gbp sync <project>` first.')
     return
   }
-  console.log(`${response.total} keyword(s), ${response.thresholdedPct}% privacy-thresholded. Top by impressions:`)
+  console.log(`${response.total} keyword(s), ${formatPercent(response.thresholdedPct, 'percent')} privacy-thresholded. Top by impressions:`)
   for (const k of response.keywords.slice(0, 15)) {
     const val = k.valueCount !== null ? String(k.valueCount) : `<${k.valueThreshold ?? '?'}`
     console.log(`  ${val.padStart(8)}  ${k.keyword}`)
@@ -328,9 +328,10 @@ export async function gbpPlaces(
   }
 }
 
+/** A 0..100 relative change (`deltaPct`, 12 = +12%); `n/a` when there is no prior value. */
 function fmtDelta(pct: number | null): string {
   if (pct === null) return 'n/a'
-  return `${pct >= 0 ? '+' : ''}${pct}%`
+  return `${pct >= 0 ? '+' : ''}${formatPercent(pct, 'percent')}`
 }
 
 export async function gbpSummary(
@@ -364,7 +365,7 @@ export async function gbpSummary(
     }
   }
 
-  console.log(`\nKeywords: ${s.keywords.total} tracked, ${s.keywords.thresholdedPct}% privacy-thresholded`)
+  console.log(`\nKeywords: ${s.keywords.total} tracked, ${formatPercent(s.keywords.thresholdedPct, 'percent')} privacy-thresholded`)
   console.log(`Place actions: ${s.placeActions.total} CTA(s)`
     + ` — reservation:${s.placeActions.hasReservationCta ? 'yes' : 'no'}`
     + ` booking:${s.placeActions.hasBookingCta ? 'yes' : 'no'}`

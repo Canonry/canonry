@@ -26,6 +26,7 @@ import {
   conversionTrackingContractWriteRequestSchema,
   describeError,
   formatMicros,
+  formatPercent,
 } from '@ainyc/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -252,15 +253,11 @@ function performanceMicros(micros: number | null, currencyCode: string | null): 
   return formatMicros(micros, currencyCode)
 }
 
-/** A raw ratio becomes a percentage only for a human reader; null stays visibly absent. */
-function performanceRatio(ratio: number | null): string {
-  return ratio === null ? '—' : `${(ratio * 100).toFixed(2)}%`
-}
-
+/** A relative change (0.25 = +25%) as a suffix; empty when there is no prior value to compare. */
 function performanceChange(ratio: number | null): string {
   if (ratio === null) return ''
   const sign = ratio > 0 ? '+' : ''
-  return ` (${sign}${(ratio * 100).toFixed(1)}% vs prior period)`
+  return ` (${sign}${formatPercent(ratio)} vs prior period)`
 }
 
 export async function googleAdsPerformance(
@@ -285,9 +282,9 @@ export async function googleAdsPerformance(
   console.log(`As of:        ${result.source.asOfDate}${result.source.openDate ? ` (${result.source.openDate} still open, excluded)` : ''}`)
   console.log(`Account:      ${result.source.customerId} (${currency ?? '?'}, ${result.source.timeZone ?? 'unknown zone'})`)
   console.log(`Impressions:  ${totals.impressions}${performanceChange(comparison?.change.impressions ?? null)}`)
-  console.log(`Clicks:       ${totals.clicks} (CTR ${performanceRatio(totals.ctr)})${performanceChange(comparison?.change.clicks ?? null)}`)
+  console.log(`Clicks:       ${totals.clicks} (CTR ${formatPercent(totals.ctr)})${performanceChange(comparison?.change.clicks ?? null)}`)
   console.log(`Cost:         ${performanceMicros(totals.costMicros, currency)} (CPC ${performanceMicros(totals.cpcMicros, currency)})${performanceChange(comparison?.change.costMicros ?? null)}`)
-  console.log(`Conversions:  ${totals.conversions} (rate ${performanceRatio(totals.conversionRate)}, cost/conv ${performanceMicros(totals.costPerConversionMicros, currency)})`)
+  console.log(`Conversions:  ${totals.conversions} (rate ${formatPercent(totals.conversionRate)}, cost/conv ${performanceMicros(totals.costPerConversionMicros, currency)})`)
   if (!comparison) {
     console.log(`Comparison:   unavailable (${result.comparisonUnavailableReason ?? 'unknown'})`)
   }
