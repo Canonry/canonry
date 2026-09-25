@@ -11,6 +11,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
 import {
   aeroPreviewResponseSchema,
+  formatPercent,
   parseStoredMeasurementPlanAnyVersion,
   wilsonInterval,
   type AeroPreviewResponse,
@@ -103,7 +104,8 @@ export function formatPreviewDay(iso: string): string {
 const engineName = (provider: string): string => ENGINE_NAMES[provider] ?? provider
 const quoted = (text: string): string => `"${text}"`
 const ratio = (numerator: number, denominator: number): string => `${numerator}/${denominator}`
-const percent = (numerator: number, denominator: number): number => denominator === 0 ? 0 : Math.round(numerator / denominator * 100)
+/** The share as Aero states every ratio: through `formatPercent`, from the unrounded counts. */
+const percent = (numerator: number, denominator: number): string => denominator === 0 ? formatPercent(0) : formatPercent(numerator / denominator)
 const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)]
 
 function listJoin(items: readonly string[], conjunction: 'and' | 'or' = 'and'): string {
@@ -354,7 +356,7 @@ function summitStatus(facts: ProjectFacts): AeroPreviewStarter {
       '| Queries | Mentioned | Cited |',
       '|---|---|---|',
       `| Branded (${queryIdsOf(branded).length}) | ${ratio(brandedCounts.mentioned, brandedCounts.total)} | ${ratio(brandedCounts.cited, brandedCounts.total)} |`,
-      `| Non-brand (${nonBrandQueries}) | ${ratio(nonBrandCounts.mentioned, nonBrandCounts.total)} (${percent(nonBrandCounts.mentioned, nonBrandCounts.total)}%) | ${ratio(nonBrandCounts.cited, nonBrandCounts.total)} (${percent(nonBrandCounts.cited, nonBrandCounts.total)}%) |`,
+      `| Non-brand (${nonBrandQueries}) | ${ratio(nonBrandCounts.mentioned, nonBrandCounts.total)} (${percent(nonBrandCounts.mentioned, nonBrandCounts.total)}) | ${ratio(nonBrandCounts.cited, nonBrandCounts.total)} (${percent(nonBrandCounts.cited, nonBrandCounts.total)}) |`,
     ].join('\n'),
     `Non-brand by engine, mentioned then cited: ${perEngine.map(entry => `${engineName(entry.provider)} ${ratio(entry.mentioned, entry.total)} and ${ratio(entry.cited, entry.total)}`).join(', ')}.`,
     ...(attention.length > 0 ? [`**Needs attention**\n${attention.join('\n')}`] : []),

@@ -30,11 +30,12 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {
-      mention: { label: 'Mention Coverage', value: '75', delta: '6 of 8 queries mentioned', tone: 'positive', description: '', trend: [], progress: 75 },
-      visibility: { label: 'Citation Coverage', value: '50', delta: '4 of 8 queries cited', tone: 'caution', description: '', trend: [], progress: 50 },
+      // A ratio gauge's value arrives formatted by the API (formatPercent), a count gauge's as the count.
+      mention: { label: 'Mention Coverage', value: '75.0%', delta: '6 of 8 queries mentioned', tone: 'positive', description: '', trend: [], progress: 75 },
+      visibility: { label: 'Citation Coverage', value: '50.0%', delta: '4 of 8 queries cited', tone: 'caution', description: '', trend: [], progress: 50 },
       mentionShare: {
         label: 'Mention Share',
-        value: '60',
+        value: '60.0%',
         delta: '6 of 10 brand mentions',
         tone: 'positive',
         description: '',
@@ -191,6 +192,21 @@ describe('canonry overview — human output', () => {
   it('omits suggested-queries panel when no GSC suggestions exist', () => {
     output = captureOutput(() => renderHuman(makeOverview()))
     expect(output).not.toContain('Suggested queries')
+  })
+
+  it('prints each gauge value as the API sent it, with no sign of its own', () => {
+    const overview = makeOverview()
+    // 2 of 3 is 66.67% on the wire and "66.7%" in the gauge's value.
+    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.67 }
+    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
+      `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`
+    expect(lines).toContain(scoreLine('Mention          ', 'positive', '66.7%', '2 of 3 queries mentioned'))
+    expect(lines).toContain(scoreLine('Visibility       ', 'caution', '50.0%', '4 of 8 queries cited'))
+    expect(lines).toContain(scoreLine('Mention share    ', 'positive', '60.0%', '6 of 10 brand mentions'))
+    // A count gauge stays a count, and nothing gains a second sign.
+    expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries at risk'))
+    expect(lines.join('\n')).not.toContain('%%')
   })
 
   it('shows all 8 scores (no SoV — that field is gone)', () => {

@@ -146,11 +146,11 @@ describe('agency server activity', () => {
 
     const unverified = tile(section, 'Unverified crawler hits (7d)')
     expect(unverified.value.textContent).toBe('15')
-    expect(unverified.subtitle?.textContent).toBe('Up 200% vs prior 7 days (5 hits)')
+    expect(unverified.subtitle?.textContent).toBe('Up 200.0% vs prior 7 days (5 hits)')
 
     const userFetches = tile(section, 'AI user-fetch hits (7d)')
     expect(userFetches.value.textContent).toBe('42')
-    expect(userFetches.subtitle?.textContent).toBe('Up 133% vs prior 7 days (18 hits)')
+    expect(userFetches.subtitle?.textContent).toBe('Up 133.3% vs prior 7 days (18 hits)')
 
     // The referral line joins the delta, the paid/organic split and the redirect note, in the HTML order.
     const referral = tile(section, 'AI-referral sessions (7d)')
@@ -165,7 +165,8 @@ describe('agency server activity', () => {
     const report = fullReport()
     report.serverActivity = {
       ...report.serverActivity!,
-      verifiedCrawlerHits: { current: 90, prior: 117, deltaPct: -23 },
+      // 117 → 90 is -23.08%, the two-decimal deltaPct the report sends.
+      verifiedCrawlerHits: { current: 90, prior: 117, deltaPct: -23.08 },
       unverifiedCrawlerHits: { current: 5, prior: 5, deltaPct: 0 },
       aiUserFetchHits: { current: 42, prior: 0, deltaPct: null },
       referralArrivals: { current: 12, prior: 6, deltaPct: null },
@@ -173,7 +174,7 @@ describe('agency server activity', () => {
     renderReportPage(report, { audience: 'agency' })
     const section = getReportSection(SERVER_ACTIVITY)
 
-    const down = within(tile(section, 'Verified crawler hits (7d)').subtitle!).getByText('Down 23% vs prior 7 days (117 hits)')
+    const down = within(tile(section, 'Verified crawler hits (7d)').subtitle!).getByText('Down 23.1% vs prior 7 days (117 hits)')
     expect(down.className).toContain('text-negative-400')
     const flat = within(tile(section, 'Unverified crawler hits (7d)').subtitle!).getByText('Flat vs prior 7 days (5 hits)')
     expect(flat.className).not.toMatch(TONED)
@@ -252,12 +253,12 @@ describe('agency server activity', () => {
 
     // Every operator is listed, a user-fetch-only operator included.
     expect(bodyRows(operators!)).toEqual([
-      ['OpenAI', '140', '10', '32', '8', '+75%'],
-      ['Anthropic', '70', '0', '0', '3', '+40%'],
+      ['OpenAI', '140', '10', '32', '8', '+75.0%'],
+      ['Anthropic', '70', '0', '0', '3', '+40.0%'],
       ['Google AI', '24', '5', '0', '1', '—'],
       ['Perplexity', '0', '0', '10', '0', '—'],
     ])
-    expect(bodyCell(operators!, '+75%').className).toContain('text-positive-400')
+    expect(bodyCell(operators!, '+75.0%').className).toContain('text-positive-400')
     expect(operators!.querySelector('tbody tr')?.querySelectorAll('td')[2]?.className).toContain('text-secondary')
 
     // Hits add the unverified crawl to the verified crawl: 80 + 15 = 95 and 50 + 0 = 50.
@@ -289,7 +290,8 @@ describe('agency server activity', () => {
     report.serverActivity = {
       ...report.serverActivity!,
       byOperator: [
-        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: -30 },
+        // -33.33 is the two-decimal deltaPct the report sends for a third fewer hits.
+        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: -33.33 },
         { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 3, deltaPct: 0 },
         { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, userFetchHits: 0, referralArrivals: 1, deltaPct: null },
       ],
@@ -298,8 +300,8 @@ describe('agency server activity', () => {
     const serverTables = tables(getReportSection(SERVER_ACTIVITY))
     expect(serverTables).toHaveLength(4)
     const [operators] = serverTables
-    expect(bodyRows(operators!).map(row => row[5])).toEqual(['-30%', '0%', '—'])
-    expect(bodyCell(operators!, '-30%').className).toContain('text-negative-400')
+    expect(bodyRows(operators!).map(row => row[5])).toEqual(['-33.3%', '0%', '—'])
+    expect(bodyCell(operators!, '-33.3%').className).toContain('text-negative-400')
     expect(bodyCell(operators!, '0%').className).not.toMatch(TONED)
     expect(bodyCell(operators!, '—').className).not.toMatch(TONED)
   })

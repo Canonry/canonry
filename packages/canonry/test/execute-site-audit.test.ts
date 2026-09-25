@@ -579,6 +579,36 @@ describe('executeSiteAudit', () => {
       ])
   })
 
+  it('stores a cross-cutting issue share to two decimals, not a whole percent', async () => {
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      // One of three audited pages fails Structured Data: 33.33% affected, which used to be stored as 33.
+      const scored = (key: string, url: string, score: number) => {
+        const base = page(key, url)
+        return { ...base, audit: { ...base.audit, factors: [scoredFactor('sd', 'Structured Data', 12, score)] } }
+      }
+      await options.onEvent?.({
+        type: 'pages', sequence: 1, batchId: 'three-pages', checksum: 'three-pages',
+        rows: [scored('page:root', 'https://example.com/', 10), scored('page:a', 'https://example.com/a', 80), scored('page:b', 'https://example.com/b', 80)],
+      })
+      const endSummary = summary({
+        pagesDiscovered: 3,
+        pagesFetched: 3,
+        pagesObserved: 3,
+        auditRollup: { auditedPages: 3, aggregateScore: 57, factors: [{ id: 'sd', name: 'Structured Data', count: 3, averageScore: 57 }] },
+      })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary', checksum: 'summary', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+
+    await executeSiteAudit(db, runId, projectId)
+
+    const snapshot = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()
+    expect(snapshot?.crossCuttingIssues).toEqual([expect.objectContaining({
+      factorId: 'sd', avgScore: 57, affectedPages: 1, totalPages: 3, affectedPct: 33.33,
+    })])
+  })
+
   it('backfills an inbound edge node key when its target page arrives later', async () => {
     vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
       await options.onEvent?.({

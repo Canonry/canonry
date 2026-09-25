@@ -196,6 +196,27 @@ describe('analyzeGbp', () => {
       expect(drop[0]!.severity).toBe('high')
       expect(drop[0]!.title.toLowerCase()).toContain('call')
     })
+
+    it('states the two-decimal delta through formatPercent in the title', () => {
+      // 30 → 17 is a 43.33% drop, which the summary now sends unrounded.
+      const insights = analyzeGbp([healthy({
+        metricPrior7d: { WEBSITE_CLICKS: 30 },
+        metricRecent7d: { WEBSITE_CLICKS: 17 },
+        metricDeltaPct: { WEBSITE_CLICKS: -43.33 },
+      })])
+      const drop = insights.find((i) => i.type === 'gbp-metric-drop')
+      expect(drop?.title).toBe('Test Hotel: Website clicks down 43.3% week-over-week')
+    })
+
+    it('holds the drop floor to the delta as sent', () => {
+      // -39.6% is short of the 40% floor; a whole-percent delta used to lift it to -40 and alert.
+      const insights = analyzeGbp([healthy({
+        metricPrior7d: { WEBSITE_CLICKS: 1000 },
+        metricRecent7d: { WEBSITE_CLICKS: 604 },
+        metricDeltaPct: { WEBSITE_CLICKS: -39.6 },
+      })])
+      expect(insights.some((i) => i.type === 'gbp-metric-drop')).toBe(false)
+    })
   })
 
   describe('keyword drop (month-over-month)', () => {
@@ -229,6 +250,19 @@ describe('analyzeGbp', () => {
         const drop = insights.filter((i) => i.type === 'gbp-keyword-drop')
         expect(drop[0]!.severity).toBe('medium')
       })
+
+    it('states the unrounded drop through formatPercent and holds the floor to it', () => {
+      // 300 → 170 is a 43.33% drop.
+      const shown = analyzeGbp([healthy({
+        keywordPoints: [{ keyword: 'venice hotel', recent: 170, prior: 300 }],
+      })]).find((i) => i.type === 'gbp-keyword-drop')
+      expect(shown?.title).toBe('Test Hotel: "venice hotel" impressions down 43.3% month-over-month (2026-03→2026-04)')
+      // 1,000 → 604 is 39.6%, short of the 40% floor that a whole-percent rounding used to reach.
+      const belowFloor = analyzeGbp([healthy({
+        keywordPoints: [{ keyword: 'venice hotel', recent: 604, prior: 1000 }],
+      })])
+      expect(belowFloor.some((i) => i.type === 'gbp-keyword-drop')).toBe(false)
+    })
 
     it('ignores keywords with a tiny prior baseline', () => {
       const insights = analyzeGbp([healthy({

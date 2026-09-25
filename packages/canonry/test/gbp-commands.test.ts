@@ -303,8 +303,8 @@ describe('gbp CLI commands', () => {
     })
 
     /**
-     * `deltaPct` and `thresholdedPct` arrive as whole 0..100 percents, so they
-     * print as percents of themselves: 25 is 25.0%, never 2500%.
+     * `deltaPct` and `thresholdedPct` arrive as 0..100 percents (two decimals),
+     * so they print as percents of themselves: 25 is 25.0%, never 2500%.
      */
     it('prints the 0..100 deltas and thresholded share through formatPercent', async () => {
       const t = todayUtc()

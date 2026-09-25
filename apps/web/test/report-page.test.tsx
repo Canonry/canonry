@@ -235,8 +235,9 @@ describe('client server activity', () => {
     renderReportPage(richReport())
     const section = getReportSection(ReportSectionIds['server-activity'])
     const crawler = tileSubtitle(section, copy.client.tiles.botRequests)
-    expect(crawler.textContent).toBe('234 verified · 15 unverified · Up 104% vs prior 7 days (122 requests)')
-    expect(within(crawler).getByText('Up 104% vs prior 7 days (122 requests)').className).toContain('text-positive-400')
+    // 122 → 249 requests is +104.10%, which a whole percent read as 104.
+    expect(crawler.textContent).toBe('234 verified · 15 unverified · Up 104.1% vs prior 7 days (122 requests)')
+    expect(within(crawler).getByText('Up 104.1% vs prior 7 days (122 requests)').className).toContain('text-positive-400')
     // Only the delta is toned; the crawler trust summary rides beside it plain.
     expect(crawler.querySelectorAll('[class*="text-positive"], [class*="text-caution"], [class*="text-negative"]')).toHaveLength(1)
 
@@ -260,8 +261,8 @@ describe('client server activity', () => {
     const section = getReportSection(ReportSectionIds['server-activity'])
 
     const crawler = tileSubtitle(section, copy.client.tiles.botRequests)
-    expect(crawler.textContent).toBe('100 verified · 0 unverified · Down 50% vs prior 7 days (200 requests)')
-    expect(within(crawler).getByText('Down 50% vs prior 7 days (200 requests)').className).toContain('text-negative-400')
+    expect(crawler.textContent).toBe('100 verified · 0 unverified · Down 50.0% vs prior 7 days (200 requests)')
+    expect(within(crawler).getByText('Down 50.0% vs prior 7 days (200 requests)').className).toContain('text-negative-400')
 
     const fetches = tileSubtitle(section, copy.client.tiles.userFetches)
     expect(fetches.textContent).toBe('Flat vs prior 7 days (42 requests)')
@@ -317,8 +318,9 @@ describe("what's changed", () => {
     expect(tile(section, agency.tiles.citationRate)).toEqual({ value: '65.0% ↑', subtitle: '+15.0 pts vs 50.0%' })
     expect(tile(section, agency.tiles.mentionRate)).toEqual({ value: '40.0% ↓', subtitle: '-5.0 pts vs 45.0%' })
     expect(tile(section, agency.tiles.citedQueryCount)).toEqual({ value: '3.3 ↑', subtitle: '+0.6 vs 2.7' })
-    expect(tile(section, agency.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
-    expect(tile(section, agency.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
+    // 480 → 520 clicks is +8.33% and 90 → 110 sessions +22.22%: two decimals on the wire, one on the page.
+    expect(tile(section, agency.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8.3% vs prior 14 days' })
+    expect(tile(section, agency.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22.2% vs prior 14 days' })
   })
 
   test('the client tiles lead with the mention delta, in the client audience’s words', () => {
@@ -327,8 +329,8 @@ describe("what's changed", () => {
     expect(tile(section, client.tiles.mentionRate)).toEqual({ value: '40.0% ↓', subtitle: '-5.0 pts vs 45.0%' })
     expect(tile(section, client.tiles.citationRate)).toEqual({ value: '65.0% ↑', subtitle: '+15.0 pts vs 50.0%' })
     expect(tile(section, client.tiles.mentionedQueryCount)).toEqual({ value: '2 →', subtitle: '0 vs 2' })
-    expect(tile(section, client.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
-    expect(tile(section, client.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
+    expect(tile(section, client.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8.3% vs prior 14 days' })
+    expect(tile(section, client.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22.2% vs prior 14 days' })
   })
 
   test('movement, win and regression rows read like the HTML tables in each audience', () => {

@@ -325,6 +325,30 @@ describe('mentionLandscape', () => {
     expect(byDomain['rival-b.com']!.sharePct).toBe(20)
   })
 
+  test('keeps each mention share and the share of voice to two decimals, not a tenth', async () => {
+    const projectId = insertProject(ctx.db, 'thirds', 'thirds.example.com')
+    insertCompetitor(ctx.db, projectId, 'rival-a.com')
+    insertCompetitor(ctx.db, projectId, 'rival-b.com')
+    const k1 = insertQuery(ctx.db, projectId, 'k1')
+    const k2 = insertQuery(ctx.db, projectId, 'k2')
+    const k3 = insertQuery(ctx.db, projectId, 'k3')
+    const runId = insertRun(ctx.db, projectId)
+    // One named brand per answer: the project, rival-a, rival-b. Each is 1 of 3 credits.
+    insertSnapshot(ctx.db, runId, k1, { answerText: 'thirds.example.com is a strong pick.', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, k2, { answerText: 'rival-a.com is a strong pick.', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, k3, { answerText: 'rival-b.com is a strong pick.', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/thirds/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    const byDomain = Object.fromEntries(body.mentionLandscape.competitors.map(c => [c.domain, c]))
+    // 33.33, where the two producers used to send 33 and 33.3.
+    expect(byDomain['rival-a.com']).toMatchObject({ mentionCount: 1, sharePct: 33.33 })
+    expect(byDomain['rival-b.com']).toMatchObject({ mentionCount: 1, sharePct: 33.33 })
+    expect(body.mentionLandscape.shareOfVoice).toMatchObject({ projectMentions: 1, competitorMentions: 2, percent: 33.33 })
+  })
+
   test('splits branded out of the competitive figure, keeping it visible and separate', async () => {
     // The lopsided shape in miniature: on branded queries the project is named
     // and no competitor can be; on category queries the competitor wins.
