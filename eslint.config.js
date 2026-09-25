@@ -4,6 +4,7 @@ import regexpPlugin from 'eslint-plugin-regexp'
 import reactHooksPlugin from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 import { noLiteralPaletteRule } from './eslint-rules/no-literal-palette.js'
+import { noInlinePercentRule } from './eslint-rules/no-inline-percent.js'
 import { createRestrictedSyntaxRule } from './eslint-rules/restricted-syntax.js'
 
 const ALT_CHART_LIB_PATHS = [
@@ -232,6 +233,7 @@ const canonryGuardsPlugin = {
     'no-inline-ai-hostname': inlineAiHostnameRule,
     'no-raw-http-web': rawHttpWebRule,
     'no-raw-http-cli': rawHttpCliRule,
+    'no-inline-percent': noInlinePercentRule,
   },
 }
 
@@ -278,6 +280,25 @@ export default tseslint.config(
     ],
     plugins: { 'canonry-vocabulary': canonryVocabularyPlugin },
     rules: { 'canonry-vocabulary/no-banned-metric-literal': 'error' },
+  },
+  {
+    // Percent display guard — see eslint-rules/no-inline-percent.js. Every
+    // percentage a person reads (CLI text, dashboard, both reports, server-built
+    // copy, Aero tool text) goes through `formatPercent`, which is the one
+    // place that formats a percent inline and so is exempt.
+    files: [
+      'packages/canonry/src/commands/**/*.ts',
+      'packages/canonry/src/cli-commands/**/*.ts',
+      'packages/canonry/src/agent/**/*.ts',
+      'packages/api-routes/src/**/*.ts',
+      'packages/intelligence/src/**/*.ts',
+      'packages/contracts/src/**/*.ts',
+      'apps/web/src/**/*.ts',
+      'apps/web/src/**/*.tsx',
+    ],
+    ignores: ['packages/contracts/src/formatting.ts'],
+    plugins: { 'canonry-guards': canonryGuardsPlugin },
+    rules: { 'canonry-guards/no-inline-percent': 'error' },
   },
   {
     // GA4 dimension drift guard — see `inlineGa4DimensionRule` above. This tree

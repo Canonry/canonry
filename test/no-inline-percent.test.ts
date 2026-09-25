@@ -19,6 +19,10 @@ describe('canonry-guards/no-inline-percent', () => {
       'const full = "100%"',
       'const count = `${total.toLocaleString()} answers`',
       '<span>{formatPercent(share)}</span>',
+      // CSS geometry in markup or a style object is layout, even when rounded.
+      'const bar = `<div class="fill" style="width:${pct.toFixed(1)}%;background:red"></div>`',
+      'const dot = `<i style="left: ${Math.round(x * 100)}%"></i>`',
+      'const style = { width: `${pct.toFixed(1)}%`, minHeight: `${Math.round(h)}%` }',
     ],
     invalid: [
       { code: 'const label = `${(share * 100).toFixed(1)}%`', errors: [{ messageId: 'inlinePercent' }] },
@@ -30,6 +34,9 @@ describe('canonry-guards/no-inline-percent', () => {
       { code: '<span>{(share * 100).toFixed(0)}%</span>', errors: [{ messageId: 'inlinePercent' }] },
       { code: '<>{Math.round(rate)}% cited</>', errors: [{ messageId: 'inlinePercent' }] },
       { code: 'const label = `${new Intl.NumberFormat("en-US").format(pct)}%`', errors: [{ messageId: 'inlinePercent' }] },
+      // Text next to a style is still text: only the declaration itself is exempt.
+      { code: 'const row = `<div style="width:${pct.toFixed(1)}%"></div><span>${pct.toFixed(1)}%</span>`', errors: [{ messageId: 'inlinePercent' }] },
+      { code: 'const meta = { label: `${Math.round(share * 100)}%` }', errors: [{ messageId: 'inlinePercent' }] },
     ],
   })
 })

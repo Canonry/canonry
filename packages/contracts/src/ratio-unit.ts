@@ -33,14 +33,17 @@ function withRatioUnit<T extends z.ZodNumber>(schema: T, unit: RatioUnit): T {
   return schema.meta({ [RATIO_UNIT_META_KEY]: unit })
 }
 
+// Not generic on purpose: a generic return type is inferred from the call's
+// context, and inside `z.object({ rate: fraction() })` that context is `any`.
+
 /** A 0..1 share or rate. */
-export function fraction<T extends z.ZodNumber = z.ZodNumber>(schema?: T): T {
-  return withRatioUnit(schema ?? (z.number() as T), RatioUnits.fraction)
+export function fraction(schema: z.ZodNumber = z.number()): z.ZodNumber {
+  return withRatioUnit(schema, RatioUnits.fraction)
 }
 
 /** A 0..100 percent. */
-export function percent<T extends z.ZodNumber = z.ZodNumber>(schema?: T): T {
-  return withRatioUnit(schema ?? (z.number() as T), RatioUnits.percent)
+export function percent(schema: z.ZodNumber = z.number()): z.ZodNumber {
+  return withRatioUnit(schema, RatioUnits.percent)
 }
 
 const WRAPPER_TYPES = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'nonoptional', 'catch'])
