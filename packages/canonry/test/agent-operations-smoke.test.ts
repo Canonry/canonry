@@ -45,7 +45,7 @@ async function harness() {
   const providers = [{ name: 'openai', configured: true, model: 'gpt-old' }]
   let telemetry = false
   const logs = new OperationalLogStore(db)
-  logs.append({ ts: now, level: 'info', module: 'Smoke', action: 'smoke.completed', projectId: 'project-demo', runId: 'fixture-run', query: 'private query' })
+  logs.append({ ts: now, level: 'info', module: 'Smoke', action: 'smoke.completed', projectId: 'project-demo', runId: 'fixture-run', provider: 'openai', query: 'private query' })
   const providerUpdate = vi.fn((_provider: string, _key: string, model?: string) => {
     providers[0]!.model = model ?? providers[0]!.model
     return { ...providers[0]! }
@@ -95,7 +95,10 @@ describe('agent operations cross-surface smoke', () => {
     await showApiKeySelf('json')
     expect(JSON.parse(out.mock.calls.at(-1)![0])).toMatchObject({ operator: true, readOnly: true })
     await showOperationalLogs({}, 'json')
-    expect(JSON.parse(out.mock.calls.at(-1)![0]).entries).toHaveLength(1)
+    expect(JSON.parse(out.mock.calls.at(-1)![0]).entries).toMatchObject([{ context: { runId: 'fixture-run', provider: 'openai' } }])
+    out.mockClear()
+    await showOperationalLogs({}, 'text')
+    expect(out.mock.calls.map(call => String(call[0])).find(line => line.includes('smoke.completed'))).toContain('"provider":"openai"')
   })
   it('reads remote settings through CLI and edits a provider without transporting its secret', async () => {
     const { api, connect, providerUpdate } = await harness()
@@ -155,7 +158,7 @@ describe('agent operations cross-surface smoke', () => {
     const mcp = await connect('logs')
     const result = await mcp.callTool({ name: 'canonry_logs_list', arguments: {} })
     expect(result.isError).not.toBe(true)
-    expect(result.structuredContent).toMatchObject({ retention: 'durable', entries: [expect.objectContaining({ runId: 'fixture-run' })] })
+    expect(result.structuredContent).toMatchObject({ retention: 'durable', entries: [expect.objectContaining({ runId: 'fixture-run', context: expect.objectContaining({ provider: 'openai' }) })] })
     expect(JSON.stringify(result)).not.toContain('private query')
   })
 

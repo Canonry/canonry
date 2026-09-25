@@ -28,6 +28,7 @@ const diagnosticContextSchema = z.object({
   jobId: z.string().min(1).max(256).optional(),
   taskId: z.string().min(1).max(256).optional(),
   traceId: z.string().min(1).max(256).optional(),
+  provider: z.string().min(1).max(256).optional(),
   errorCode: z.string().min(1).max(128).optional(),
   attempt: z.number().finite().optional(),
   count: z.number().finite().optional(),

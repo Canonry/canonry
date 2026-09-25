@@ -17,6 +17,13 @@ describe('operational log contracts', () => {
     }).message).toBe('safe message')
   })
 
+  test('carries the provider an entry came from, bounded like the other diagnostic names', () => {
+    const entry = { cursor: 'cursor', ts: '2026-09-11T00:00:00.000Z', level: 'error', module: 'JobRunner', action: 'query.failed' }
+    expect(operationalLogEntryDtoSchema.parse({ ...entry, context: { provider: 'claude' } }).context.provider).toBe('claude')
+    expect(() => operationalLogEntryDtoSchema.parse({ ...entry, context: { provider: '' } })).toThrow()
+    expect(() => operationalLogEntryDtoSchema.parse({ ...entry, context: { provider: 'x'.repeat(257) } })).toThrow()
+  })
+
   test('validates bounded query identities and an ordered ISO range', () => {
     expect(logQuerySchema.parse({
       actor: 'scheduler', requestId: 'request_123', since: '2026-09-10T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z',

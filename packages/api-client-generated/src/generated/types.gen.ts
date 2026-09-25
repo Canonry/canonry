@@ -11698,6 +11698,7 @@ export type OperationalLogListDto = {
             jobId?: string;
             taskId?: string;
             traceId?: string;
+            provider?: string;
             errorCode?: string;
             attempt?: number;
             count?: number;
