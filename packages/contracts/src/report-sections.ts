@@ -243,15 +243,15 @@ export function reportDirectionTone(direction: ReportRateDelta['direction']): De
 /**
  * The magnitude of a report rate's change, in percentage points: `15.0`,
  * `<0.1`, or `0`. The report's rates are 0..100 on the wire, so the change is
- * scaled to the 0..1 delta `formatPointDelta` reads.
+ * already in points.
  */
 function reportPointChangeMagnitude(deltaPoints: number): string {
-  return formatPointDelta(deltaPoints / 100).magnitude
+  return formatPointDelta(deltaPoints, RatioUnits.percent).magnitude
 }
 
 /** A report rate's change, signed, in percentage points: `+15.0 pts`, `-3.5 pts`, `0 pts`. */
 function reportPointChange(deltaPoints: number): string {
-  const { direction, magnitude } = formatPointDelta(deltaPoints / 100)
+  const { direction, magnitude } = formatPointDelta(deltaPoints, RatioUnits.percent)
   const sign = direction === 'up' ? '+' : direction === 'down' ? '-' : ''
   return `${sign}${magnitude} pts`
 }

@@ -694,6 +694,20 @@ describe('formatPointDelta', () => {
     expect(formatPointDelta(24 / 36 - 0.5)).toEqual({ direction: 'up', magnitude: '16.7' })
   })
 
+  test('rounds a half tenth up, exactly like formatPercent', () => {
+    // 0.0045 * 100 is 0.44999999999999996: formatPercent reads 0.5%, so the change does too.
+    expect(formatPointDelta(0.0045)).toEqual({ direction: 'up', magnitude: '0.5' })
+    expect(formatPercent(0.0045)).toBe('0.5%')
+    expect(formatPointDelta(-0.0015)).toEqual({ direction: 'down', magnitude: '0.2' })
+  })
+
+  test('reads a change already in 0..100 points with unit percent', () => {
+    expect(formatPointDelta(15, 'percent')).toEqual({ direction: 'up', magnitude: '15.0' })
+    expect(formatPointDelta(-3.5, 'percent')).toEqual({ direction: 'down', magnitude: '3.5' })
+    expect(formatPointDelta(0.04, 'percent')).toEqual({ direction: 'up', magnitude: '<0.1' })
+    expect(formatPointDelta(0, 'percent')).toEqual({ direction: 'none', magnitude: '0' })
+  })
+
   test('keeps a trailing .0, matching formatPercent', () => {
     expect(formatPointDelta(0.1)).toEqual({ direction: 'up', magnitude: '10.0' })
     expect(formatPointDelta(-1)).toEqual({ direction: 'down', magnitude: '100.0' })

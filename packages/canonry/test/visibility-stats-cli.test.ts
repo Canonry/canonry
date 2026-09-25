@@ -260,6 +260,7 @@ describe('showVisibilityCompare', () => {
 
     expect(cap.text()).toContain('unavailable: no competitive frame (3 observed)')
     expect(cap.text()).toContain('unavailable: no competitive frame (2 observed)')
-    expect(cap.text()).not.toContain('100.0%')
+    // An exact 100% reads '100%' now, so match either form of a full share.
+    expect(cap.text()).not.toMatch(/\b100(?:\.0)?%/)
   })
 })

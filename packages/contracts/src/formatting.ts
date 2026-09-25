@@ -1,5 +1,15 @@
 import { RatioUnits, type RatioUnit } from './ratio-unit.js'
 
+/** A ratio in percent units (or a change in points), with the float error of the scaling removed. */
+function inPercentUnits(value: number, unit: RatioUnit): number {
+  return Number((unit === RatioUnits.percent ? value : value * 100).toFixed(6))
+}
+
+/** A non-negative percent rounded half up to one decimal, after removing the float error of `* 10`. */
+function roundedTenths(size: number): number {
+  return Math.round(Number((size * 10).toFixed(4))) / 10
+}
+
 /**
  * The one way a ratio is shown: a percent with one decimal, `0.0207` → `2.1%`.
  *
@@ -20,12 +30,12 @@ import { RatioUnits, type RatioUnit } from './ratio-unit.js'
  */
 export function formatPercent(value: number | null | undefined, unit: RatioUnit = RatioUnits.fraction): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—'
-  const percent = Number((unit === RatioUnits.percent ? value : value * 100).toFixed(6))
+  const percent = inPercentUnits(value, unit)
   if (percent === 0) return '0%'
   const sign = percent < 0 ? '-' : ''
   const size = Math.abs(percent)
   if (size === 100) return `${sign}100%`
-  const tenths = Math.round(Number((size * 10).toFixed(4))) / 10
+  const tenths = roundedTenths(size)
   if (tenths === 0) return `${sign}<0.1%`
   if (tenths === 100 && size < 100) return `${sign}>99.9%`
   return `${sign}${tenths.toFixed(1)}%`
@@ -504,17 +514,20 @@ export function formatWindowCountDelta(
 export type PointDeltaDirection = 'up' | 'down' | 'none'
 
 /**
- * A server rate delta (a fraction in [-1, 1]) as percentage points for a change
- * line. Formats only: the delta is the server's own `current - previous`.
+ * A server rate delta as percentage points for a change line. Formats only:
+ * the delta is the server's own `current - previous`. `unit` is the delta's
+ * wire unit: a 0..1 `fraction` change (the default) or a change already in
+ * 0..100 points (`percent`).
  *
  * A non-zero change below 0.05 points reads `<0.1`, so a real movement never
- * rounds to a misleading `0.0`. One decimal keeps its trailing `.0`, matching
- * `formatPercent`.
+ * rounds to a misleading `0.0`. It rounds exactly like `formatPercent` (one
+ * decimal, half up, float-safe) and keeps the trailing `.0` it keeps.
  */
-export function formatPointDelta(delta: number): { direction: PointDeltaDirection; magnitude: string } {
-  if (delta === 0) return { direction: 'none', magnitude: '0' }
-  const points = Math.abs(delta) * 100
-  return { direction: delta > 0 ? 'up' : 'down', magnitude: points < 0.05 ? '<0.1' : points.toFixed(1) }
+export function formatPointDelta(delta: number, unit: RatioUnit = RatioUnits.fraction): { direction: PointDeltaDirection; magnitude: string } {
+  const points = inPercentUnits(delta, unit)
+  if (points === 0) return { direction: 'none', magnitude: '0' }
+  const tenths = roundedTenths(Math.abs(points))
+  return { direction: points > 0 ? 'up' : 'down', magnitude: tenths === 0 ? '<0.1' : tenths.toFixed(1) }
 }
 
 /**
