@@ -22,6 +22,8 @@ import {
 } from '../src/measurement-demo-reads.js'
 
 const METRIC = { state: 'available' as const, value: 0.5, numerator: 2, denominator: 4 }
+/** `propertiesMentioned` is a count: the server sets `value` to the numerator. */
+const COUNT_METRIC = { state: 'available' as const, value: 2, numerator: 2, denominator: 4 }
 const MEASUREMENT = {
   state: 'complete' as const,
   displayedRunId: 'run-cedar-01',
@@ -41,7 +43,7 @@ const SUMMARY = {
   queryClass: 'non-brand' as const,
   engines: ['gemini', 'openai'],
   metrics: {
-    propertiesMentioned: METRIC,
+    propertiesMentioned: COUNT_METRIC,
     mentionCoverage: METRIC,
     citationCoverage: METRIC,
   },
@@ -73,7 +75,7 @@ const SUMMARY = {
     parentGroupKey: 'harbor-metro',
     childMarketCount: 0,
     propertyCount: 3,
-    propertiesMentioned: METRIC,
+    propertiesMentioned: COUNT_METRIC,
     mentionCoverage: METRIC,
     citationCoverage: METRIC,
   }],
@@ -287,7 +289,7 @@ describe('advanced measurement demo reads', () => {
           measurementScope: 'full',
         },
         metrics: {
-          propertiesMentioned: { state: 'available', previous: METRIC, current: METRIC, delta: 0 },
+          propertiesMentioned: { state: 'available', previous: COUNT_METRIC, current: COUNT_METRIC, delta: 0 },
           mentionCoverage: { state: 'available', previous: METRIC, current: METRIC, delta: 0 },
           citationCoverage: { state: 'available', previous: METRIC, current: METRIC, delta: 0 },
         },
@@ -377,7 +379,8 @@ describe('advanced measurement demo reads', () => {
     expect(measurementChangesQuerySchema.safeParse({ sort: 'size' }).success).toBe(false)
 
     const delta = { state: 'available' as const, previous: METRIC, current: METRIC, delta: 0 }
-    const metrics = { propertiesMentioned: delta, mentionCoverage: delta, citationCoverage: delta }
+    const countDelta = { state: 'available' as const, previous: COUNT_METRIC, current: COUNT_METRIC, delta: 0 }
+    const metrics = { propertiesMentioned: countDelta, mentionCoverage: delta, citationCoverage: delta }
     const distribution = { improved: 1, declined: 0, mixed: 0, withinNoise: 1, unchanged: 3, notComparable: 0, total: 5, noiseAnswers: 2 }
     const response = {
       current: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' as const },

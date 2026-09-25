@@ -6235,7 +6235,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6245,7 +6244,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6319,7 +6317,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6329,7 +6326,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6402,7 +6398,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6412,7 +6407,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6869,7 +6863,6 @@ export type MeasurementOverviewResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7024,7 +7017,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7222,7 +7214,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';

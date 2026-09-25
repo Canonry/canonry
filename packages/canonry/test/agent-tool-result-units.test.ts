@@ -82,7 +82,7 @@ describe('Aero tool results', () => {
       overall: [{ category: 'brand', label: 'Brand', count: 12, percentage: 0.0207, topDomains: [] }],
       ranked: {
         entries: [{ domain: 'own.example', count: 12, percentage: 0.0207, answerShare: 0.0345, category: 'brand', label: 'Brand', surfaceClass: 'own' }],
-        surfaceClasses: [{ surfaceClass: 'own', label: 'Your domains', count: 12, percentage: 0.0207, domainCount: 1 }],
+        bySurfaceClass: [{ surfaceClass: 'own', label: 'Your domains', count: 12, percentage: 0.0207, domainCount: 1 }],
         totalCitedSlots: 580,
       },
       byProvider: {},
@@ -97,5 +97,23 @@ describe('Aero tool results', () => {
     expect(text).not.toContain('0.0207')
     // Code that reads the result programmatically still gets the raw fraction.
     expect((result.details as typeof breakdown).ranked.entries[0]!.percentage).toBe(0.0207)
+  })
+
+  it('keeps a count of Properties a count beside a coverage it shows as a percent', async () => {
+    const summary = canonryMcpTools.find(tool => tool.name === 'canonry_measurement_portfolio_summary')!
+    const metrics = {
+      propertiesMentioned: { state: 'available', value: 12, numerator: 12, denominator: 40 },
+      mentionCoverage: { state: 'available', value: 0.25, numerator: 10, denominator: 40 },
+      citationCoverage: { state: 'unavailable', reason: 'no_population' },
+    }
+    const payload = { metrics, markets: [{ groupKey: 'nyc', label: 'New York', propertiesMentioned: { state: 'available', value: 3, numerator: 3, denominator: 5 } }] }
+    const client = {} as unknown as ApiClient
+    const tool = mcpToAgentTool({ ...summary, handler: async () => payload }, { client, projectName: 'demo' })
+    const text = ((await tool.execute('call-2', {})).content[0] as { text: string }).text
+    expect(text).toContain('"propertiesMentioned":{"state":"available","value":12,"numerator":12,"denominator":40}')
+    expect(text).toContain('"mentionCoverage":{"state":"available","value":"25.0%","numerator":10,"denominator":40}')
+    expect(text).toContain('"citationCoverage":{"state":"unavailable","reason":"no_population"}')
+    expect(text).toContain('"propertiesMentioned":{"state":"available","value":3,')
+    expect(text).not.toContain('1200')
   })
 })

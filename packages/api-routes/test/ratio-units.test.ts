@@ -97,6 +97,15 @@ describe('ratio units on the wire', () => {
     expect(unitAt('CompetitorLandscapeResponse', 'project', 'shareOfVoice')).toBe('percent')
     expect(unitAt('VisibilityStatsDto', 'shareOfVoice', 'percent')).toBe('percent')
 
+    // `propertiesMentioned` shares the metric shape but its value is a count of
+    // Properties, so it declares no unit: a reader showing ratios as percents
+    // must never turn "12 Properties" into "1200.0%".
+    expect(unitAt('MeasurementOverviewResponse', 'metrics', 'propertiesMentioned', 'value')).toBe('undeclared')
+    expect(unitAt('MeasurementPortfolioSummaryResponse', 'metrics', 'propertiesMentioned', 'value')).toBe('undeclared')
+    expect(unitAt('MeasurementPortfolioSummaryResponse', 'markets', '[]', 'propertiesMentioned', 'value')).toBe('undeclared')
+    expect(unitAt('MeasurementChangesResponse', 'comparison', 'metrics', 'propertiesMentioned', 'delta')).toBe('undeclared')
+    expect(unitAt('MeasurementChangesResponse', 'comparison', 'metrics', 'mentionCoverage', 'delta')).toBe('fraction')
+
     // An exclusion stays undeclared rather than borrowing a unit, and a path
     // that names nothing reads as missing, never as a unit.
     expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'rateRatio')).toBe('undeclared')

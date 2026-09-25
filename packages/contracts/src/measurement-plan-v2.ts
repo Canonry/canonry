@@ -502,6 +502,26 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
 ])
 export type MetricValue = z.output<typeof measurementMetricValueSchema>
 
+/**
+ * `propertiesMentioned`: how many Properties were mentioned (the numerator),
+ * with the eligible population in `denominator`. The same shape as
+ * `measurementMetricValueSchema`, but `value` is a count, not a 0..1 coverage,
+ * so it declares no ratio unit and is never shown as a percent.
+ */
+export const measurementCountMetricValueSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    value: z.number().int().nonnegative(),
+    numerator: z.number().int().nonnegative().optional(),
+    denominator: z.number().int().positive().optional(),
+  }).strict(),
+  z.object({
+    state: z.literal('unavailable'),
+    reason: measurementMetricUnavailableReasonSchema,
+  }).strict(),
+])
+export type CountMetricValue = z.output<typeof measurementCountMetricValueSchema>
+
 export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'property'])
 export type MeasurementOverviewScopeKind = z.output<typeof measurementOverviewScopeKindSchema>
 
@@ -669,7 +689,7 @@ export const measurementOverviewResponseSchema = z.object({
     count: z.number().int().nonnegative().optional(),
   }).strict(),
   metrics: z.object({
-    propertiesMentioned: measurementMetricValueSchema,
+    propertiesMentioned: measurementCountMetricValueSchema,
     mentionCoverage: measurementMetricValueSchema,
     citationCoverage: measurementMetricValueSchema,
     /** Independent identity presence, not a shared-denominator market share. */
