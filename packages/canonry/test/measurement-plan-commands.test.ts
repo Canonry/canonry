@@ -617,9 +617,9 @@ describe('measurement-plan CLI commands', () => {
     })
 
     log.mockRestore()
-    expect(text).toContain('Mentioned  9 of 11 (82%) · 1 of 12 answers could not be tied to one property')
+    expect(text).toContain('Mentioned  9 of 11 (81.8%) · 1 of 12 answers could not be tied to one property')
     // Citation reads its own denominator; the note belongs to the mention rate only.
-    expect(text).toMatch(/^Cited {6}3 of 12 \(25%\)$/m)
+    expect(text).toMatch(/^Cited {6}3 of 12 \(25\.0%\)$/m)
     expect(JSON.parse(logged.join('\n')).properties.items[0].mentionCoverage).toEqual(partial)
   })
 

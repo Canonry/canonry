@@ -138,9 +138,10 @@ export async function listContentGaps(project: string, opts: { format?: string }
   console.log(`${response.gaps.length} gap${response.gaps.length === 1 ? '' : 's'} found`)
   console.log('')
   for (const gap of response.gaps) {
+    // Six columns fit every formatPercent value up to `>99.9%`, so the counts line up.
     const missPct = formatPercent(gap.missRate)
-    console.log(`${missPct.padStart(4)}  ${gap.competitorCount} competitor(s)  ${gap.query}`)
-    console.log(`       competitors: ${gap.competitorDomains.join(', ')}`)
+    console.log(`${missPct.padStart(6)}  ${gap.competitorCount} competitor(s)  ${gap.query}`)
+    console.log(`        competitors: ${gap.competitorDomains.join(', ')}`)
     console.log('')
   }
 }

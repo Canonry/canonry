@@ -119,6 +119,27 @@ describe('canonry google performance-daily — period comparison', () => {
     expect(out).not.toMatch(/CTR:\s+no prior period/)
   })
 
+  it('prints the window CTR and every daily CTR as a percent of the 0..1 ratio', async () => {
+    const lines = (await captureLog(() => googlePerformanceDaily('demo', { format: 'text' }))).split('\n')
+    expect(lines).toContain('  CTR:         1.8%')
+    const row = (date: string, clicks: string, impressions: string, ctr: string, position: string) =>
+      `  ${date.padEnd(12)}${clicks.padStart(10)}${impressions.padStart(12)}${ctr.padStart(10)}${position.padStart(9)}`
+    expect(lines).toContain(row('2026-07-01', '5', '1,000', '0.5%', '12.0'))
+    // 1.25% rounds half up, the same way on every surface.
+    expect(lines).toContain(row('2026-07-02', '10', '800', '1.3%', '11.0'))
+    expect(lines).toContain(row('2026-07-04', '20', '400', '5.0%', '9.0'))
+  })
+
+  it('keeps a real movement below a tenth of a percent visible and a total loss exact', async () => {
+    gscPerformanceDaily.mockResolvedValue(response({
+      periodComparison: { ...response().periodComparison, change: { clicks: -1, impressions: 0.0004, ctr: -0.0004, position: 0 } },
+    }))
+    const out = await captureLog(() => googlePerformanceDaily('demo', { format: 'text' }))
+    expect(out).toMatch(/Clicks:\s+-100%\s+worse/)
+    expect(out).toMatch(/Impressions:\s+\+<0\.1%\s+better/)
+    expect(out).toMatch(/CTR:\s+-<0\.1%\s+worse/)
+  })
+
   it('reports an exact zero as no change rather than a signed zero', async () => {
     gscPerformanceDaily.mockResolvedValue(response({
       periodComparison: {

@@ -197,4 +197,31 @@ describe('showHealth human render', () => {
     expect(out).toContain('3/12')
     expect(out).toContain('5/12')
   })
+
+  it('reads 0% and 100% only for exact rates, and keeps a tiny real rate visible', async () => {
+    mockGetHealth.mockResolvedValue({
+      ...health,
+      overallMentionRate: 1,
+      overallCitedRate: 1 / 2500,
+      totalPairs: 2500,
+      mentionedPairs: 2500,
+      citedPairs: 1,
+      providerBreakdown: { openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 6, total: 6 } },
+    })
+    mockGetHealthHistory.mockResolvedValue([{ ...snapshots[0]!, overallMentionRate: 0, overallCitedRate: 0.9996 }])
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', {})
+      await showHealth('demo', { history: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs).toContain('Health: 100% mentioned (2500/2500 pairs)')
+    expect(logs).toContain('        <0.1% cited (1/2500 pairs)')
+    expect(logs).toContain(`  ${'openai'.padEnd(15)} 100% mentioned (6/6)   0% cited (0/6)`)
+    // History columns stay six wide whatever the value.
+    expect(logs).toContain(`${'2026-04-28T00:00:00'.padEnd(25)}     0%        ${'3/12'.padEnd(15)}   >99.9%        5/12`)
+  })
 })
