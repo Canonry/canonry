@@ -6549,6 +6549,7 @@ export type MeasurementChangesResponse = {
             flags: number;
             mentionAnswersDelta?: number | null;
             citationAnswersDelta?: number | null;
+            denominatorChanged?: boolean;
             withinNoise?: boolean;
         }>;
         totalProperties: number;
@@ -15591,7 +15592,7 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          */
         runId?: string;
         /**
-         * Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation changes in answers, then the other, then label. label: alphabetical.
+         * Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation moves in answers (rate change times the larger answer count), then the other, then label. label: alphabetical.
          */
         sort?: 'magnitude' | 'label';
         /**

@@ -244,13 +244,24 @@ interface RunLine {
 }
 
 interface RunContext {
-  /** Non-probe answer-visibility runs, newest first. */
+  /** The newest non-probe answer-visibility runs (up to MAX_RECENT_RUNS), newest first. */
   recent: RunLine[]
   latest: RunLine | null
   /** Newest completed whole-project sweep. */
   latestComplete: RunLine | null
   previousComplete: RunLine | null
+  /** Set when history ran past the widest window before two complete sweeps were found: how many runs were searched. */
+  searchedNewest?: number
 }
+
+/**
+ * Widening windows of newest runs. GET /projects/:name/runs has no offset and
+ * no probe filter, so a run of newer probes can fill a small window and hide
+ * every sweep; each window is read until one holds two complete sweeps or the
+ * whole history.
+ */
+const RUN_WINDOWS = [10, 100, 1_000] as const
+const MAX_RECENT_RUNS = 10
 
 /** A run's error as one line: the top-level message, then each engine's message (never the raw provider payload). */
 function runErrorText(error: RunDto['error'] | string | undefined): string | undefined {
@@ -277,18 +288,30 @@ function runLine(run: RunDto): RunLine {
   }
 }
 
+function isCompleteSweep(run: RunLine): boolean {
+  return run.status === 'completed' && run.scope === 'full'
+}
+
 async function readRuns(ctx: GroundTruthContext): Promise<RunContext> {
-  const rows = await getJson<RunDto[]>(ctx, `${projectPath(ctx)}/runs`, { kind: 'answer-visibility', limit: 10 })
-  const recent = rows
-    .filter(run => run.trigger !== 'probe')
-    .map(runLine)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-  const complete = recent.filter(run => run.status === 'completed' && run.scope === 'full')
+  let lines: RunLine[] = []
+  let complete: RunLine[] = []
+  let settled = false
+  for (const limit of RUN_WINDOWS) {
+    const rows = await getJson<RunDto[]>(ctx, `${projectPath(ctx)}/runs`, { kind: 'answer-visibility', limit })
+    lines = rows
+      .filter(run => run.trigger !== 'probe')
+      .map(runLine)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    complete = lines.filter(isCompleteSweep)
+    settled = rows.length < limit || complete.length >= 2
+    if (settled) break
+  }
   return {
-    recent,
-    latest: recent[0] ?? null,
+    recent: lines.slice(0, MAX_RECENT_RUNS),
+    latest: lines[0] ?? null,
     latestComplete: complete[0] ?? null,
     previousComplete: complete[1] ?? null,
+    ...(settled ? {} : { searchedNewest: RUN_WINDOWS[RUN_WINDOWS.length - 1] }),
   }
 }
 
@@ -300,9 +323,11 @@ function briefRun(run: RunLine | null): string | null {
 
 function sweepFacts(runs: Soft<RunContext>): Record<string, unknown> {
   if (!runs.ok) return { sweeps: failed(runs) }
+  const searched = runs.value.searchedNewest
   return {
     latestCompleteSweep: briefRun(runs.value.latestComplete),
     previousCompleteSweep: briefRun(runs.value.previousComplete),
+    ...(searched ? { sweepSearch: `Only the newest ${searched} runs were searched; an older complete sweep may exist.` } : {}),
   }
 }
 

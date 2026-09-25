@@ -590,7 +590,7 @@ describe('MCP tool registry', () => {
     expect(getMeasurementChanges.mock.lastCall?.[1]).not.toHaveProperty('sort')
     await tool.handler(client, tool.inputSchema.parse({ project: 'acme', sort: 'label' }))
     expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ sort: 'label' })
-    for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means both counts moved by 2 answers or fewer', 'metricsByClass', 'totalProperties above the rows returned']) {
+    for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means every move was 2 answers or fewer', 'denominatorChanged true means a rate was taken over a different number of answers', 'metricsByClass', 'totalProperties above the rows returned']) {
       expect(tool.description).toContain(phrase)
     }
   })

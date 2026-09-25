@@ -4,6 +4,7 @@
  * guard, the request guard, and an in-process target on a throwaway database.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -37,6 +38,7 @@ import {
   createDbCostReader,
   detectProjectKind,
   discoverLiveDatabases,
+  processesHoldingFile,
   startTarget,
   type LiveDatabaseDiscovery,
 } from '../eval/aero/target.js'
@@ -474,6 +476,172 @@ describe('live-database guard', () => {
   it('refuses a file another process holds open', () => {
     const copy = file('work/busy.db')
     expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: () => [4242] })).toThrow(/pid 4242/)
+  })
+
+  it('refuses when it cannot check who has the file open', () => {
+    const copy = file('work/unknown.db')
+    const cannotTell = () => {
+      throw new Error('lsof is not installed')
+    }
+    expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: cannotTell }))
+      .toThrow(/could not check whether another process has the database open \(lsof is not installed\); refusing/)
+  })
+
+  describe('open-file detection with lsof (macOS and other non-Linux platforms)', () => {
+    const exitError = (status: number, stdout: string, stderr = '') =>
+      Object.assign(new Error(`Command failed: lsof (exit ${status})`), { status, stdout, stderr })
+    const lsof = (exec: (command: string, args: string[]) => string) => (target: string) =>
+      processesHoldingFile(target, { platform: 'darwin', exec })
+
+    it('refuses a file lsof reports another pid holding, and checks the WAL files that exist', () => {
+      const copy = file('work/held.db')
+      fs.writeFileSync(`${copy}-wal`, '')
+      const calls: string[][] = []
+      const holders = lsof((command, args) => {
+        calls.push([command, ...args])
+        return `4242\n${process.pid}\n`
+      })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders })).toThrow(/another process \(pid 4242\) has it open/)
+      expect(calls).toEqual([['lsof', '-w', '-t', '--', copy, `${copy}-wal`]])
+    })
+
+    it('accepts a file when lsof exits 1 with no output', () => {
+      const copy = file('work/idle.db')
+      const holders = lsof(() => {
+        throw exitError(1, '')
+      })
+      expect(assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders })).toBe(copy)
+    })
+
+    it('refuses when lsof is missing, fails, or errors without output', () => {
+      const copy = file('work/unchecked.db')
+      const missing = lsof(() => {
+        throw Object.assign(new Error('spawnSync lsof ENOENT'), { code: 'ENOENT' })
+      })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: missing })).toThrow(/could not check .*\(lsof is not installed\); refusing/)
+      const crashed = lsof(() => {
+        throw exitError(2, '')
+      })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: crashed })).toThrow(/could not check .*\(lsof failed \(exit status 2\)\)/)
+      const errored = lsof(() => {
+        throw exitError(1, '', 'lsof: status error on the file\n')
+      })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: errored })).toThrow(/could not check .*\(lsof reported an error\)/)
+      // Pids beside an error still count as holders.
+      expect(lsof(() => {
+        throw exitError(1, '4242\n', 'lsof: status error on a sibling\n')
+      })(copy)).toEqual([4242])
+    })
+  })
+
+  describe('open-file detection with /proc (Linux)', () => {
+    it('finds a process holding only the shared-memory file', () => {
+      const copy = file('work/shm.db')
+      const tree: Record<string, string[]> = { '/proc': ['self', String(process.pid), '4242'], '/proc/4242/fd': ['0', '7'] }
+      const links: Record<string, string> = { '/proc/4242/fd/0': '/dev/null', '/proc/4242/fd/7': `${copy}-shm` }
+      const holders = processesHoldingFile(copy, {
+        platform: 'linux',
+        readdir: dir => tree[dir] ?? [],
+        readlink: link => links[link] ?? '',
+      })
+      expect(holders).toEqual([4242])
+    })
+
+    it('finds a process holding the file under another name, by device and inode', () => {
+      const copy = file('work/linked.db')
+      const tree: Record<string, string[]> = { '/proc': [String(process.pid), '4242', '4343'], '/proc/4242/fd': ['3'], '/proc/4343/fd': ['3'] }
+      const links: Record<string, string> = { '/proc/4242/fd/3': '/elsewhere/live.db', '/proc/4343/fd/3': '/elsewhere/other.db' }
+      const inode = fs.statSync(copy).ino
+      const identities: Record<string, { dev: number; ino: number }> = {
+        '/proc/4242/fd/3': { dev: fs.statSync(copy).dev, ino: inode },
+        '/proc/4343/fd/3': { dev: fs.statSync(copy).dev, ino: inode + 1 },
+      }
+      const holders = processesHoldingFile(copy, {
+        platform: 'linux',
+        readdir: dir => tree[dir] ?? [],
+        readlink: link => links[link] ?? '',
+        stat: p => identities[p] ?? fs.statSync(p),
+      })
+      expect(holders).toEqual([4242])
+    })
+
+    it('refuses when /proc cannot be listed or does not show this process', () => {
+      const copy = file('work/noproc.db')
+      const unreadable = (target: string) => processesHoldingFile(target, {
+        platform: 'linux',
+        readdir: () => {
+          throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        },
+      })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: unreadable })).toThrow(/could not check .*\(\/proc could not be listed\); refusing/)
+      const empty = (target: string) => processesHoldingFile(target, { platform: 'linux', readdir: () => [] })
+      expect(() => assertSafeDatabasePath(copy, { discovery: NO_LIVE, holders: empty })).toThrow(/could not check .*\(\/proc does not list this process\)/)
+    })
+  })
+
+  describe('open-file detection against a real process', () => {
+    const lsofInstalled = !spawnSync('lsof', ['-v'], { stdio: 'ignore' }).error
+
+    async function holdOpen(target: string): Promise<ChildProcess> {
+      const fd = fs.openSync(target, 'r')
+      try {
+        const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: [fd, 'ignore', 'ignore'] })
+        await new Promise<void>((resolve, reject) => {
+          child.once('spawn', resolve)
+          child.once('error', reject)
+        })
+        return child
+      } finally {
+        fs.closeSync(fd)
+      }
+    }
+
+    it.runIf(process.platform === 'linux')('sees a child process holding the file through /proc', async () => {
+      const copy = file('work/proc-held.db')
+      const child = await holdOpen(copy)
+      try {
+        expect(processesHoldingFile(copy)).toEqual([child.pid])
+        expect(processesHoldingFile(file('work/proc-idle.db'))).toEqual([])
+      } finally {
+        child.kill()
+      }
+    })
+
+    it.runIf(process.platform === 'linux')('sees a child process holding the file through a hard link, through /proc', async () => {
+      const held = file('work/proc-original.db')
+      const link = path.join(tmp, 'work/proc-hardlink.db')
+      fs.linkSync(held, link)
+      const child = await holdOpen(held)
+      try {
+        expect(processesHoldingFile(link)).toEqual([child.pid])
+        expect(() => assertSafeDatabasePath(link, { discovery: NO_LIVE })).toThrow(new RegExp(`another process \\(pid ${child.pid}\\) has it open`))
+      } finally {
+        child.kill()
+      }
+    })
+
+    it.runIf(lsofInstalled)('sees a child process holding the file through a hard link, through the real lsof', async () => {
+      const held = file('work/lsof-original.db')
+      const link = path.join(tmp, 'work/lsof-hardlink.db')
+      fs.linkSync(held, link)
+      const child = await holdOpen(held)
+      try {
+        expect(processesHoldingFile(link, { platform: 'darwin' })).toEqual([child.pid])
+      } finally {
+        child.kill()
+      }
+    })
+
+    it.runIf(lsofInstalled)('sees a child process holding the file through the real lsof', async () => {
+      const copy = file('work/lsof-held.db')
+      const child = await holdOpen(copy)
+      try {
+        expect(processesHoldingFile(copy, { platform: 'darwin' })).toEqual([child.pid])
+        expect(processesHoldingFile(file('work/lsof-idle.db'), { platform: 'darwin' })).toEqual([])
+      } finally {
+        child.kill()
+      }
+    })
   })
 
   it('discovers databases from pm2 config dirs and every ~/.canonry* config, keeping only paths', () => {

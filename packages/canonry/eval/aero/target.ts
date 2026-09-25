@@ -13,7 +13,8 @@
  * Three independent checks refuse a database that looks live: the path a
  * running pm2 process (or any `~/.canonry*` config) uses, a path under
  * `~/.canonry*` outside a temp or scratch folder, and a file another process
- * has open. The config directory is never used in place: only its
+ * has open (/proc on Linux, lsof elsewhere; refused when neither can tell).
+ * The config directory is never used in place: only its
  * `config.yaml` is copied into a private temp directory (0700, file 0600) and
  * deleted on close.
  */
@@ -142,28 +143,58 @@ export function discoverLiveDatabases(opts: { home?: string; pm2?: () => Pm2Proc
   return { databases: [...databases], referencedPaths: [...referenced], notes }
 }
 
-/** Pids (other than this one) holding the file or its WAL open. Linux only; empty elsewhere. */
-export function processesHoldingFile(file: string): number[] {
-  if (process.platform !== 'linux') return []
-  const targets = new Set([file, `${file}-wal`])
-  const pids: number[] = []
+/** Test seams for `processesHoldingFile`. Production leaves every one unset. */
+export interface HolderProbe {
+  platform?: NodeJS.Platform
+  readdir?: (dir: string) => string[]
+  readlink?: (link: string) => string
+  stat?: (file: string) => { dev: number; ino: number }
+  /** Runs a command the way `execFileSync` does: stdout back, a throw on a non-zero exit or a missing binary. */
+  exec?: (command: string, args: string[]) => string
+}
+
+function runCommand(command: string, args: string[]): string {
+  return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 })
+}
+
+function procHolders(targets: Set<string>, probe: HolderProbe): number[] {
+  const readdir = probe.readdir ?? ((dir: string) => fs.readdirSync(dir))
+  const readlink = probe.readlink ?? ((link: string) => fs.readlinkSync(link))
+  const stat = probe.stat ?? ((file: string) => fs.statSync(file))
+  const identity = (file: string): string | null => {
+    try {
+      const { dev, ino } = stat(file)
+      return `${dev}:${ino}`
+    } catch {
+      return null
+    }
+  }
+  // A hard link opened under another name reads back as that name, so a path
+  // match alone would miss it; the device and inode do not.
+  const identities = new Set([...targets].map(identity).filter((id): id is string => id !== null))
   let entries: string[]
   try {
-    entries = fs.readdirSync('/proc')
+    entries = readdir('/proc')
   } catch {
-    return []
+    throw new Error('/proc could not be listed')
   }
+  // An empty or foreign /proc would read as "nobody has it open".
+  if (!entries.includes(String(process.pid))) throw new Error('/proc does not list this process')
+  const pids: number[] = []
   for (const entry of entries) {
     if (!/^\d+$/.test(entry) || Number(entry) === process.pid) continue
     let fds: string[]
     try {
-      fds = fs.readdirSync(`/proc/${entry}/fd`)
+      fds = readdir(`/proc/${entry}/fd`)
     } catch {
       continue
     }
     for (const fd of fds) {
+      const link = `/proc/${entry}/fd/${fd}`
       try {
-        if (targets.has(fs.readlinkSync(`/proc/${entry}/fd/${fd}`))) {
+        const target = readlink(link)
+        // Sockets, pipes and anonymous inodes do not start with a slash.
+        if (targets.has(target) || (target.startsWith('/') && identities.has(identity(link) ?? ''))) {
           pids.push(Number(entry))
           break
         }
@@ -173,6 +204,42 @@ export function processesHoldingFile(file: string): number[] {
     }
   }
   return pids
+}
+
+function lsofHolders(files: string[], exec: NonNullable<HolderProbe['exec']>): number[] {
+  let out: string
+  try {
+    // -t prints pids only; -w drops warnings, so stderr carries only errors.
+    out = exec('lsof', ['-w', '-t', '--', ...files])
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & { status?: number | null; stdout?: unknown; stderr?: unknown }
+    if (failure.code === 'ENOENT') throw new Error('lsof is not installed')
+    const stdout = typeof failure.stdout === 'string' ? failure.stdout : ''
+    const stderr = typeof failure.stderr === 'string' ? failure.stderr : ''
+    // lsof exits 1 when nobody has the files open, and also on an error. Only
+    // a silent exit 1 means "no holders"; pids beside an error still count.
+    if (failure.status !== 1) throw new Error(`lsof failed (${failure.code ?? `exit status ${failure.status ?? 'unknown'}`})`)
+    if (!stdout.trim() && stderr.trim()) throw new Error('lsof reported an error')
+    out = stdout
+  }
+  const pids = new Set<number>()
+  for (const line of out.split('\n').map(l => l.trim()).filter(Boolean)) {
+    if (!/^\d+$/.test(line)) throw new Error('lsof printed something other than pids')
+    if (Number(line) !== process.pid) pids.add(Number(line))
+  }
+  return [...pids]
+}
+
+/**
+ * Pids (other than this one) holding the file, its WAL or its shared-memory
+ * file open: /proc on Linux, `lsof` everywhere else. Throws when it cannot
+ * tell, so a check that never ran is not read as "nobody has it open".
+ */
+export function processesHoldingFile(file: string, probe: HolderProbe = {}): number[] {
+  const siblings = [`${file}-wal`, `${file}-shm`]
+  if ((probe.platform ?? process.platform) === 'linux') return procHolders(new Set([file, ...siblings]), probe)
+  // lsof errors on a path that does not exist, so pass only the siblings that do.
+  return lsofHolders([file, ...siblings.filter(sibling => fs.existsSync(sibling))], probe.exec ?? runCommand)
 }
 
 const SCRATCH_SEGMENT = /^(?:tmp|temp|scratch.*|.*-scratch|.*-tmp)$/i
@@ -239,7 +306,12 @@ export function assertSafeDatabasePath(
     }
   }
 
-  const holders = (opts.holders ?? processesHoldingFile)(real)
+  let holders: number[]
+  try {
+    holders = (opts.holders ?? processesHoldingFile)(real)
+  } catch (error) {
+    return refuse(`could not check whether another process has the database open (${error instanceof Error ? error.message : String(error)}); refusing.`)
+  }
   if (holders.length > 0) refuse(`another process (pid ${holders.join(', ')}) has it open.`)
   return real
 }

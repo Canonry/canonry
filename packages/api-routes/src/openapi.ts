@@ -1419,7 +1419,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-changes',
     summary: 'Compare the latest two comparable measurements',
-    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas and withinNoise (every count moved by at most 2 answers). distribution buckets every Property in scope, not just the returned rows. With queryClass all, metricsByClass reports branded and non-brand beside the pooled metrics.',
+    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. With queryClass all, metricsByClass reports branded and non-brand beside the pooled metrics.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1430,7 +1430,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict both runs to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict both runs to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Use this completed or partial run as the current side.', schema: stringSchema },
-      { name: 'sort', in: 'query', description: 'Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation changes in answers, then the other, then label. label: alphabetical.', schema: { type: 'string', enum: ['magnitude', 'label'], default: 'magnitude' } },
+      { name: 'sort', in: 'query', description: 'Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation moves in answers (rate change times the larger answer count), then the other, then label. label: alphabetical.', schema: { type: 'string', enum: ['magnitude', 'label'], default: 'magnitude' } },
       { name: 'limit', in: 'query', description: 'Maximum changed Property rows. Defaults to 10, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
     ],
     responses: {

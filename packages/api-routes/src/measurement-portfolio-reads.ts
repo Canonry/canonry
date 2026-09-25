@@ -1175,17 +1175,26 @@ function answerCount(metric: MetricValue): number | null {
   return metric.state === 'available' ? metric.numerator ?? null : null
 }
 
+/** Answers a Property's rate was taken over; absent on an unavailable metric or an empty one. */
+function answerBase(metric: MetricValue): number | null {
+  return metric.state === 'available' && metric.denominator !== undefined && metric.denominator > 0
+    ? metric.denominator
+    : null
+}
+
 type MoveBucket = 'improved' | 'declined' | 'mixed' | 'withinNoise' | 'unchanged' | 'notComparable'
 
 export interface PropertyMove {
   /** Current minus previous answer count; null unless both runs measured the signal. */
   mentionAnswersDelta: number | null
   citationAnswersDelta: number | null
+  /** A signal measured in both runs was taken over a different number of answers. */
+  denominatorChanged: boolean
   /** Every measured move is at most `MEASUREMENT_CHANGES_NOISE_ANSWERS` answers. */
   withinNoise: boolean
   /** A direction counts only signals that moved beyond noise. */
   bucket: MoveBucket
-  /** Absolute sizes for the magnitude order; -1 when the signal changed availability. */
+  /** Absolute sizes for the magnitude order; -1 when the signal cannot be sized. */
   mentionSize: number
   citationSize: number
 }
@@ -1193,8 +1202,14 @@ export interface PropertyMove {
 /**
  * How one Property moved between two runs, sized in answers rather than rates:
  * one answer is a large rate move on a small denominator and a tiny one on a
- * large denominator, and the noise rule is about answers. A signal unmeasured
- * in both runs did not move; one measured in only one run cannot be sized.
+ * large denominator, and the noise rule is about answers. A move is the rate
+ * change times the larger of the two denominators. That is the raw count
+ * change when the denominators match; it keeps a falling rate on a grown
+ * denominator from reading as a gain (1 of 1 to 4 of 8 is four answers down,
+ * not three up), and a collapse on a shrunken one from reading as noise (10
+ * of 12 to 0 of 2 is ten down, not under two). A signal unmeasured in both
+ * runs did not move; one measured in only one run, or over no answers, cannot
+ * be sized.
  *
  * Exported for its own unit test: the bucket rules need metric pairs the
  * seeded run fixtures cannot all produce.
@@ -1207,14 +1222,26 @@ export function classifyPropertyMove(
     if (pair.previous.state === 'unavailable' && pair.current.state === 'unavailable') return 0
     const previous = answerCount(pair.previous)
     const current = answerCount(pair.current)
-    return previous === null || current === null ? null : current - previous
+    const previousBase = answerBase(pair.previous)
+    const currentBase = answerBase(pair.current)
+    if (previous === null || current === null || previousBase === null || currentBase === null) return null
+    // (current / currentBase - previous / previousBase) * base, divided once so
+    // equal denominators give the exact integer count change.
+    const base = Math.max(previousBase, currentBase)
+    return (current * previousBase - previous * currentBase) * base / (previousBase * currentBase)
   }
   const bothMeasured = (pair: { previous: MetricValue; current: MetricValue }) =>
     pair.previous.state === 'available' && pair.current.state === 'available'
+  const answersDelta = (pair: { previous: MetricValue; current: MetricValue }): number | null => {
+    const previous = answerCount(pair.previous)
+    const current = answerCount(pair.current)
+    return bothMeasured(pair) && previous !== null && current !== null ? current - previous : null
+  }
+  const baseChanged = (pair: { previous: MetricValue; current: MetricValue }) =>
+    pair.previous.state === 'available' && pair.current.state === 'available'
+    && pair.previous.denominator !== pair.current.denominator
   const mentionMove = size(mention)
   const citationMove = size(citation)
-  const mentionAnswersDelta = bothMeasured(mention) ? mentionMove : null
-  const citationAnswersDelta = bothMeasured(citation) ? citationMove : null
   const changed = deltaChanged(mention.previous, mention.current) || deltaChanged(citation.previous, citation.current)
   const comparable = mentionMove !== null && citationMove !== null
   const withinNoise = comparable
@@ -1235,8 +1262,9 @@ export function classifyPropertyMove(
     bucket = up && down ? 'mixed' : up ? 'improved' : 'declined'
   }
   return {
-    mentionAnswersDelta,
-    citationAnswersDelta,
+    mentionAnswersDelta: answersDelta(mention),
+    citationAnswersDelta: answersDelta(citation),
+    denominatorChanged: baseChanged(mention) || baseChanged(citation),
     withinNoise: changed && withinNoise,
     bucket,
     mentionSize: mentionMove === null ? -1 : Math.abs(mentionMove),
@@ -1359,6 +1387,7 @@ function changesResponse(
         flags: currentProperty?.flags ?? 0,
         mentionAnswersDelta: move.mentionAnswersDelta,
         citationAnswersDelta: move.citationAnswersDelta,
+        denominatorChanged: move.denominatorChanged,
         withinNoise: move.withinNoise,
       },
       move,

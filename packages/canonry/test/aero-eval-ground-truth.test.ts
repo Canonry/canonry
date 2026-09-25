@@ -765,6 +765,93 @@ describe('buildGroundTruth: simple and legacy builders', () => {
   })
 })
 
+describe('buildGroundTruth: sweep selection behind newer probes', () => {
+  /** GET /projects/:name/runs as the route answers it: the newest `limit` runs, oldest first. */
+  function runsRoute(runs: ReturnType<typeof runDto>[]): Handler {
+    return url => {
+      const limit = Number(url.searchParams.get('limit'))
+      const newest = [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      return (limit > 0 ? newest.slice(0, limit) : newest).reverse()
+    }
+  }
+
+  /** `count` completed probe runs a minute apart, from `start`. */
+  function probes(prefix: string, count: number, start: string) {
+    const base = Date.parse(start)
+    return Array.from({ length: count }, (_, index) => runDto(`${prefix}-${index}`, 'completed', 'probe', new Date(base + index * 60_000).toISOString()))
+  }
+
+  const runLimits = (requests: Recorded[]) => requests
+    .filter(request => request.url.pathname === `/api/v1${P}/runs`)
+    .map(request => request.url.searchParams.get('limit'))
+
+  const SWEEP_PREV = runDto('run-prev', 'completed', 'scheduled', '2026-09-01T09:00:00.000Z')
+  const SWEEP_CUR = runDto('run-cur', 'completed', 'scheduled', '2026-09-15T09:00:00.000Z')
+  const NEWER_PROBES = probes('probe-new', 12, '2026-09-16T09:00:00.000Z')
+
+  it('finds both complete sweeps behind more newer probes than the first window holds', async () => {
+    // 12 probes newer than the latest sweep, 150 between it and the previous one.
+    const runs = [SWEEP_PREV, ...probes('probe-mid', 150, '2026-09-02T09:00:00.000Z'), SWEEP_CUR, ...NEWER_PROBES]
+    const { ctx, requests } = stubServer('simple', {
+      [`${P}/runs`]: runsRoute(runs),
+      [`${P}/analytics/sources`]: sourcesHandler,
+    })
+    const facts = json((await buildGroundTruth('sources-latest', ctx)).facts)
+
+    expect(facts.noCompletedSweep).toBeUndefined()
+    expect(facts.run.runId).toBe('run-cur')
+    expect(facts.run.latestCompleteSweep).toContain('run-cur')
+    expect(facts.run.previousCompleteSweep).toContain('run-prev')
+    expect(facts.run.sweepSearch).toBeUndefined()
+    expect(runLimits(requests)).toEqual(['10', '100', '1000'])
+
+    // The latest non-probe run and the recent list come from the same widened read.
+    const quality = json((await buildGroundTruth('data-quality', ctx)).facts)
+    expect(quality.sweeps.latest).toContain('run-cur')
+    expect(quality.sweeps.recent).toHaveLength(2)
+  })
+
+  it('stops widening once a window holds two complete sweeps', async () => {
+    // More history than the second window holds, all older than both sweeps.
+    const runs = [...probes('probe-old', 200, '2026-08-01T09:00:00.000Z'), SWEEP_PREV, SWEEP_CUR, ...NEWER_PROBES]
+    const { ctx, requests } = stubServer('simple', {
+      [`${P}/runs`]: runsRoute(runs),
+      [`${P}/analytics/sources`]: sourcesHandler,
+    })
+    const facts = json((await buildGroundTruth('sources-latest', ctx)).facts)
+
+    expect(facts.run.latestCompleteSweep).toContain('run-cur')
+    expect(facts.run.previousCompleteSweep).toContain('run-prev')
+    expect(runLimits(requests)).toEqual(['10', '100'])
+  })
+
+  it('still reports no completed sweep when the history ends without one', async () => {
+    const runs = [
+      runDto('run-failed', 'failed', 'scheduled', '2026-09-14T09:00:00.000Z'),
+      runDto('run-running', 'running', 'manual', '2026-09-15T09:00:00.000Z'),
+      ...NEWER_PROBES,
+    ]
+    const { ctx, requests } = stubServer('simple', { [`${P}/runs`]: runsRoute(runs) })
+    const facts = json((await buildGroundTruth('sources-latest', ctx)).facts)
+
+    expect(facts.noCompletedSweep).toBe(true)
+    expect(facts.latestCompleteSweep).toBeNull()
+    expect(facts.sweepSearch).toBeUndefined()
+    expect(runLimits(requests)).toEqual(['10', '100'])
+    expect(requests.some(request => request.url.pathname.endsWith('/analytics/sources'))).toBe(false)
+  })
+
+  it('searches at most the newest 1000 runs and says so when that finds no sweep', async () => {
+    const runs = [SWEEP_CUR, ...probes('probe-many', 1_005, '2026-09-16T09:00:00.000Z')]
+    const { ctx, requests } = stubServer('simple', { [`${P}/runs`]: runsRoute(runs) })
+    const facts = json((await buildGroundTruth('sources-latest', ctx)).facts)
+
+    expect(facts.noCompletedSweep).toBe(true)
+    expect(facts.sweepSearch).toBe('Only the newest 1000 runs were searched; an older complete sweep may exist.')
+    expect(runLimits(requests)).toEqual(['10', '100', '1000'])
+  })
+})
+
 describe('buildGroundTruth: errors', () => {
   it('refuses an unknown builder and a builder for another project kind', async () => {
     const { ctx } = stubServer('simple', {})

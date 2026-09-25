@@ -15,14 +15,15 @@ The eval never touches a live instance or its database.
   - the path a running pm2 process or any `~/.canonry*` config uses;
   - a hard link to one of those;
   - a path inside `~/.canonry*` that is not in a `tmp` or `scratch` folder;
-  - a file another process has open.
+  - a file another process has open, under this name or through a hard link, counting its `-wal` and `-shm` files. Linux reads `/proc`; macOS and other systems run `lsof`. When the check cannot run (`/proc` unreadable, `lsof` missing or failing), the eval refuses the database.
 
-  A whole config dir copied into a temp or scratch folder, with its database inside it, is accepted as a copy.
+  A whole config dir copied into a temp or scratch folder, with its database inside it, is accepted as a copy. The open-file check still applies to it.
 - It never uses the config directory in place. Only `config.yaml` is copied, into a private temp directory (0700, file 0600), which is deleted when the run ends. The copy drops `basePath`, `publicUrl` and `externalMcpServers`.
 - It starts Canonry from this worktree's source, in-process, on `127.0.0.1` with no background work:
   - The listener is bound directly, so the scheduler, the site-liveness loop and research re-dispatch never start.
   - Aero is prompt-only, so it never wakes itself.
   - Telemetry and the update check are off.
+  - Startup still marks every queued or running run in the copy as failed, as any Canonry restart does. `createServer` has no option to skip that, so the guards above are what keep it off a live database.
 - A request guard in front of the router refuses every write except Aero's own prompt and reset routes. It also refuses reads that call a provider or outside service live: the ads account reads, Google Ads and Tag Manager lists, GA and Business Profile account lists, Search Console sitemaps, the doctor checks, the Common Crawl release probe and query harvest. Aero reads a refusal as a tool error, and the run's log lists every refused request.
 - The only paid calls are Aero's own LLM turns and the Claude grader.
 - Reports hold project data. They are written with 0600 permissions to `~/.canonry-evals/reports/<project>-<time>/` unless `--out` says otherwise. The eval refuses an `--out` inside this repository.

@@ -13,6 +13,7 @@ import {
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsResponse,
+  type MetricValue,
   type ProjectReportDto,
   type VisibilityReportResponse,
 } from '@ainyc/canonry-contracts'
@@ -1209,6 +1210,41 @@ describe('measurement portfolio reads', () => {
     expect(first.body.comparison).toMatchObject({ totalProperties: 4, truncated: true })
   })
 
+  it('sizes a move on the larger denominator when unresolved answers shrank the previous one', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const previous = seedFullRun(versionId, { createdAt: '2026-08-02T08:00:00.000Z' })
+    const current = seedFullRun(versionId, { createdAt: '2026-08-02T09:00:00.000Z' })
+    const answer = (runId: string, executionKey: string, provider?: string) => and(
+      eq(querySnapshots.runId, runId),
+      eq(querySnapshots.measurementExecutionId, executionKey),
+      ...(provider === undefined ? [] : [eq(querySnapshots.provider, provider)]),
+    )
+    // Previously Harbor was named once and three answers asked which Harbor
+    // Homes was meant, so it read 1 of 1. Now it is named once in 4: the same
+    // count on a rate down from 100% to 25%.
+    db.update(querySnapshots).set({ answerText: 'Which Harbor Homes do you mean?' }).where(eq(querySnapshots.runId, previous)).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is listed.' }).where(answer(previous, 'exec-nearby', 'openai')).run()
+    // Bayside goes from 0 to 2 of its 2 answers, a wobble within noise.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes and Bayside Homes are listed.' }).where(answer(current, 'exec-nearby', 'openai')).run()
+    db.update(querySnapshots).set({ answerText: 'Bayside Homes is listed.' }).where(answer(current, 'exec-nearby', 'gemini')).run()
+
+    const { status, body } = await changes()
+    expect(status).toBe(200)
+    if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    const [harbor, bayside] = body.comparison.changedProperties
+    expect(harbor).toMatchObject({
+      targetKey: 'harbor', mentionAnswersDelta: 0, citationAnswersDelta: 0, denominatorChanged: true, withinNoise: false,
+      mentionCoverage: {
+        state: 'available',
+        previous: { value: 1, numerator: 1, denominator: 1, unattributed: 3 },
+        current: { value: 0.25, numerator: 1, denominator: 4 },
+      },
+    })
+    expect(bayside).toMatchObject({ targetKey: 'bayside', mentionAnswersDelta: 2, denominatorChanged: false, withinNoise: true })
+    expect(body.comparison.distribution).toMatchObject({ declined: 1, withinNoise: 1, improved: 0, total: 2 })
+  })
+
   it('does not report a Property changed when its unavailable metrics remain unavailable for the same reason', async () => {
     plan.targets.find(target => target.stableKey === 'bayside')!.mentionNotApplicable = true
     const versionId = seedVersion(1)
@@ -1575,7 +1611,7 @@ describe('classifyPropertyMove', () => {
   const answers = (numerator: number, denominator = 10) =>
     ({ state: 'available' as const, value: numerator / denominator, numerator, denominator })
   const gone = { state: 'unavailable' as const, reason: 'evidence_incomplete' as const }
-  const move = (mention: [typeof gone | ReturnType<typeof answers>, typeof gone | ReturnType<typeof answers>], citation: [typeof gone | ReturnType<typeof answers>, typeof gone | ReturnType<typeof answers>]) =>
+  const move = (mention: [MetricValue, MetricValue], citation: [MetricValue, MetricValue]) =>
     classifyPropertyMove({ previous: mention[0], current: mention[1] }, { previous: citation[0], current: citation[1] })
 
   it('sizes moves in answers and holds two answers each way within noise', () => {
@@ -1583,6 +1619,75 @@ describe('classifyPropertyMove', () => {
       mentionAnswersDelta: 2, citationAnswersDelta: -2, withinNoise: true, bucket: 'withinNoise', mentionSize: 2, citationSize: 2,
     })
     expect(move([answers(4), answers(7)], [answers(3), answers(3)])).toMatchObject({ withinNoise: false, bucket: 'improved', mentionSize: 3 })
+  })
+
+  it('sizes a move on the larger denominator, so a falling rate never reads as a gain', () => {
+    // 1 of 1 to 4 of 8: three more answers, but the rate halved. At the old
+    // rate the 8 answers would all have named it, so it is four down.
+    expect(move([answers(1, 1), answers(4, 8)], [answers(0, 1), answers(0, 8)])).toEqual({
+      mentionAnswersDelta: 3, citationAnswersDelta: 0, denominatorChanged: true,
+      withinNoise: false, bucket: 'declined', mentionSize: 4, citationSize: 0,
+    })
+    // 2 of 10 to 5 of 40: three more answers on a rate down from 20% to 12.5%.
+    expect(move([answers(2), answers(5, 40)], [answers(1), answers(4, 40)])).toMatchObject({
+      mentionAnswersDelta: 3, denominatorChanged: true, bucket: 'declined', mentionSize: 3,
+    })
+    // 8 of 20 to 5 of 5: three fewer answers on a rate up from 40% to 100%,
+    // 60 points of the previous run's 20 answers.
+    expect(move([answers(8, 20), answers(5, 5)], [answers(0, 20), answers(0, 5)])).toMatchObject({
+      mentionAnswersDelta: -3, denominatorChanged: true, bucket: 'improved', mentionSize: 12,
+    })
+  })
+
+  it('never shrinks a collapse into noise when the current denominator shrank', () => {
+    // 10 of 12 to 0 of 2: ten answers stopped naming it while most went
+    // unresolved. Sized on the 2 current answers this would read as noise.
+    expect(move([answers(10, 12), answers(0, 2)], [answers(0, 12), answers(0, 2)])).toEqual({
+      mentionAnswersDelta: -10, citationAnswersDelta: 0, denominatorChanged: true,
+      withinNoise: false, bucket: 'declined', mentionSize: 10, citationSize: 0,
+    })
+    // The same pair the other way round is the same size, rising.
+    expect(move([answers(0, 2), answers(10, 12)], [answers(0, 2), answers(0, 12)])).toMatchObject({
+      bucket: 'improved', mentionSize: 10,
+    })
+  })
+
+  it('keeps the answer delta as the move when the denominator held', () => {
+    expect(move([answers(4), answers(7)], [answers(3), answers(1)])).toEqual({
+      mentionAnswersDelta: 3, citationAnswersDelta: -2, denominatorChanged: false,
+      withinNoise: false, bucket: 'improved', mentionSize: 3, citationSize: 2,
+    })
+  })
+
+  it('holds a small rate-adjusted move within noise whichever way the raw count went', () => {
+    // 2 of 10 to 3 of 20: one more answer, but 20% to 15% is one answer down.
+    expect(move([answers(2), answers(3, 20)], [answers(1), answers(2, 20)])).toEqual({
+      mentionAnswersDelta: 1, citationAnswersDelta: 1, denominatorChanged: true,
+      withinNoise: true, bucket: 'withinNoise', mentionSize: 1, citationSize: 0,
+    })
+  })
+
+  it('never sizes a signal over no answers or an unknown number of them', () => {
+    const empty = { state: 'available' as const, value: 0, numerator: 0, denominator: 0 }
+    expect(move([empty, answers(2)], [answers(3), answers(3)])).toMatchObject({
+      withinNoise: false, bucket: 'notComparable', mentionSize: -1,
+    })
+    const unsized = { state: 'available' as const, value: 0.5, numerator: 1 }
+    expect(move([answers(2), unsized], [answers(3), answers(3)])).toMatchObject({
+      mentionAnswersDelta: -1, denominatorChanged: true, withinNoise: false, bucket: 'notComparable', mentionSize: -1,
+    })
+  })
+
+  it('orders and buckets by the rate-adjusted move, not the raw count', () => {
+    const rows = [
+      // Raw +3 looks like a gain; 50% to 40% is two answers down, within noise.
+      { targetKey: 'a-grown', move: move([answers(5), answers(8, 20)], [answers(0), answers(0, 20)]) },
+      // Raw 0 looks like noise; 10% to 3.3% is four answers down.
+      { targetKey: 'b-diluted', move: move([answers(2, 20), answers(2, 60)], [answers(0, 20), answers(0, 60)]) },
+    ]
+    expect(rows.map(row => row.move.bucket)).toEqual(['withinNoise', 'declined'])
+    expect(rows.map(row => ({ row: { targetKey: row.targetKey, label: row.targetKey }, move: row.move }))
+      .sort(compareChangeMagnitude).map(row => row.row.targetKey)).toEqual(['b-diluted', 'a-grown'])
   })
 
   it('calls a move beyond noise improved, declined or mixed by the signals that moved beyond noise', () => {

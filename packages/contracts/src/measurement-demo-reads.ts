@@ -629,10 +629,14 @@ const measurementChangesMetricsSchema = z.object({
 /**
  * Every Property in scope, split by how it moved. The buckets are DISJOINT
  * and EXHAUSTIVE, so they sum to `total`, and they count every Property, not
- * the returned page. A Property whose every move is at most `noiseAnswers`
- * answers counts once, in `withinNoise`, whichever way it moved; `improved`,
- * `declined` and `mixed` hold only moves beyond that. `mixed` is one signal up
- * and the other down, each beyond noise. `notComparable` is a metric measured in one run only.
+ * the returned page. A move is the rate change times the larger run's
+ * answers, so a rate that fell on a grown denominator is a decline even when
+ * more answers named the Property, and a collapse on a shrunken denominator
+ * is never noise. A Property whose every move is at most
+ * `noiseAnswers` answers counts once, in `withinNoise`, whichever way it
+ * moved; `improved`, `declined` and `mixed` hold only moves beyond that.
+ * `mixed` is one signal up and the other down, each beyond noise.
+ * `notComparable` is a metric measured in one run only.
  */
 export const measurementChangesDistributionSchema = z.object({
   improved: measurementDemoCountSchema,
@@ -661,9 +665,18 @@ export const measurementChangedPropertySchema = measurementDemoPropertySchema.ex
   /** Current minus previous answers that cited the Property. Null unless both runs measured it. */
   citationAnswersDelta: z.number().int().nullable().optional(),
   /**
-   * True when both counts moved by at most `MEASUREMENT_CHANGES_NOISE_ANSWERS`
-   * answers (a metric unmeasured in both runs did not move). False when a
-   * metric was measured in one run only.
+   * True when a metric measured in both runs was taken over a different
+   * number of answers, so its answer delta above is not like for like. The
+   * move is then sized on the larger of the two: 1 of 1 to 4 of 8 is a
+   * delta of +3 but a move of four answers down.
+   */
+  denominatorChanged: z.boolean().optional(),
+  /**
+   * True when both moves are at most `MEASUREMENT_CHANGES_NOISE_ANSWERS`
+   * answers (a metric unmeasured in both runs did not move). A move is the
+   * rate change times the larger run's answers, which is the answer delta
+   * whenever the denominator held. False when a metric was measured in one
+   * run only.
    */
   withinNoise: z.boolean().optional(),
 }).strict()
