@@ -10,7 +10,7 @@ import { mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGsc
  * `gsc_search_data` carries the `page` dimension, so one SERP showing several
  * of the site's URLs becomes several rows. Summing it by query multiplies
  * impressions by how many pages ranked together. Measured on a live property:
- * "gjelina hotel" read 14,366 impressions summed against a true 2,415 (+495%),
+ * "harborline hotel" read 11,900 impressions summed against a true 2,000 (+495%),
  * while single-page queries were within 1%.
  */
 describe('mergeGscQueryTotalsWithFallback', () => {
@@ -19,10 +19,10 @@ describe('mergeGscQueryTotalsWithFallback', () => {
 
   test('prefers the accurate source for a day both cover', () => {
     const merged = mergeGscQueryTotalsWithFallback(
-      [day('2026-07-01', 'gjelina hotel', 4, 2415, 3.8)],
-      [day('2026-07-01', 'gjelina hotel', 4, 14366, 4.4)],
+      [day('2026-07-01', 'harborline hotel', 4, 2000, 3.8)],
+      [day('2026-07-01', 'harborline hotel', 4, 11900, 4.4)],
     )
-    expect(merged[0]!.impressions).toBe(2415)
+    expect(merged[0]!.impressions).toBe(2000)
     expect(merged[0]!.source).toBe('google')
   })
 
@@ -141,30 +141,30 @@ describe('readGscQueryDailyRows', () => {
   }
 
   test('returns one row per (date, query), not a per-query fold', () => {
-    seed('2026-07-01', 'gjelina', 10, 100, '2.0')
-    seed('2026-07-02', 'gjelina', 5, 400, '3.0')
+    seed('2026-07-01', 'harborline', 10, 100, '2.0')
+    seed('2026-07-02', 'harborline', 5, 400, '3.0')
     const rows = readGscQueryDailyRows(db, projectId, '2026-07-01', '2026-07-31')
     // Day grain is the contract: the merge needs it to decide source per day.
     expect(rows).toHaveLength(2)
     expect(rows.map(r => r.date).sort()).toEqual(['2026-07-01', '2026-07-02'])
-    expect(rows.every(r => r.query === 'gjelina')).toBe(true)
+    expect(rows.every(r => r.query === 'harborline')).toBe(true)
   })
 
   test('parses position out of its text column', () => {
-    seed('2026-07-01', 'gjelina', 10, 100, '2.5')
+    seed('2026-07-01', 'harborline', 10, 100, '2.5')
     const [row] = readGscQueryDailyRows(db, projectId, '2026-07-01', '2026-07-31')
     expect(row!.position).toBe(2.5)
   })
 
   test('coerces an unparseable position to 0 rather than NaN', () => {
-    seed('2026-07-01', 'gjelina', 10, 100, 'not-a-number')
+    seed('2026-07-01', 'harborline', 10, 100, 'not-a-number')
     const [row] = readGscQueryDailyRows(db, projectId, '2026-07-01', '2026-07-31')
     expect(row!.position).toBe(0)
   })
 
   test('respects the date window', () => {
-    seed('2026-06-30', 'gjelina', 99, 999, '9.0')
-    seed('2026-07-01', 'gjelina', 10, 100, '2.0')
+    seed('2026-06-30', 'harborline', 99, 999, '9.0')
+    seed('2026-07-01', 'harborline', 10, 100, '2.0')
     const rows = readGscQueryDailyRows(db, projectId, '2026-07-01', '2026-07-31')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.impressions).toBe(100)
@@ -175,8 +175,8 @@ describe('readGscQueryDailyRows', () => {
   })
 
   test('round-trips through the merge to a correct per-query total', () => {
-    seed('2026-07-01', 'gjelina', 10, 100, '2.0')
-    seed('2026-07-02', 'gjelina', 5, 400, '3.0')
+    seed('2026-07-01', 'harborline', 10, 100, '2.0')
+    seed('2026-07-02', 'harborline', 5, 400, '3.0')
     const merged = mergeGscQueryTotalsWithFallback(
       readGscQueryDailyRows(db, projectId, '2026-07-01', '2026-07-31'),
       [],

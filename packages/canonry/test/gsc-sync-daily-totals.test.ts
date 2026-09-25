@@ -34,8 +34,8 @@ vi.mock('@ainyc/canonry-integration-google', async () => {
 // Imported AFTER the mock is registered so the module picks up the mocked deps.
 const { executeGscSync } = await import('../src/gsc-sync.js')
 
-const DOMAIN = 'gjelina.example.com'
-const PROPERTY = 'sc-domain:gjelina.example.com'
+const DOMAIN = 'harborline.example.com'
+const PROPERTY = 'sc-domain:harborline.example.com'
 
 /** YYYY-MM-DD for `n` days before now — used so seeded dates land inside the
  * sync window (`daysAgo(lag+1)` .. `daysAgo(lag+days)`, lag=3, days=30). */
@@ -66,8 +66,8 @@ function seedProject(db: ReturnType<typeof createClient>) {
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: 'proj_gsc',
-    name: 'gjelina',
-    displayName: 'Gjelina',
+    name: 'harborline',
+    displayName: 'Harborline',
     canonicalDomain: DOMAIN,
     country: 'US',
     language: 'en',
@@ -263,8 +263,8 @@ describe('executeGscSync — gsc_daily_totals (property total)', () => {
           }
           // Dimensioned: query, page, country, device, date
           return Promise.resolve([
-            { keys: ['gjelina brand', 'https://gjelina.example.com/a', 'usa', 'DESKTOP', earlyDate], clicks: 400, impressions: 25_000, ctr: 0.016, position: 4 },
-            { keys: ['venice hotel', 'https://gjelina.example.com/b', 'usa', 'MOBILE', lateDate], clicks: 320, impressions: 21_325, ctr: 0.015, position: 6 },
+            { keys: ['harborline brand', 'https://harborline.example.com/a', 'usa', 'DESKTOP', earlyDate], clicks: 400, impressions: 25_000, ctr: 0.016, position: 4 },
+            { keys: ['bayport hotel', 'https://harborline.example.com/b', 'usa', 'MOBILE', lateDate], clicks: 320, impressions: 21_325, ctr: 0.015, position: 6 },
           ])
         },
       )

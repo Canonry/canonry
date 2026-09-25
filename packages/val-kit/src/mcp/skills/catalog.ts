@@ -42,7 +42,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Discovery (Tracked-Basket Expansion)",
     description: "How to operate the tracked-basket discovery pipeline. Read when an operator asks to expand a project's basket, audit its competitive surface, or you wake unprompted on `aeo-discover-probe.completed`.",
     entryPoint: false,
-    characters: 12617,
+    characters: 12640,
     content: aeroReferencesAeoDiscoveryPart0,
   },
   {
@@ -172,7 +172,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 32627,
+    characters: 32632,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {

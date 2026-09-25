@@ -112,9 +112,9 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
 
     db.insert(projects).values({
       id: projectId,
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'acme-coatings',
+      displayName: 'Acme Coatings',
+      canonicalDomain: 'acmecoatings.test',
       country: 'US',
       language: 'en',
       ownedDomains: '[]',
@@ -148,8 +148,8 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
 
     // The same call should yield the same run id every time — no
     // insertion-order or storage-order influence.
-    const first = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings/runs/latest' })
-    const second = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings/runs/latest' })
+    const first = await app.inject({ method: 'GET', url: '/api/v1/projects/acme-coatings/runs/latest' })
+    const second = await app.inject({ method: 'GET', url: '/api/v1/projects/acme-coatings/runs/latest' })
     expect(first.statusCode).toBe(200)
     expect(second.statusCode).toBe(200)
     const firstBody = JSON.parse(first.payload) as { run: { id: string } }

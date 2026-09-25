@@ -154,14 +154,14 @@ describe('buildMentionShare', () => {
     expect(buildMentionShare(snaps, baseOpts).tone).toBe('negative')
   })
 
-  it('tolerates spacing / hyphenation variants via brand-key match (demand-iq token matches "Demand IQ" prose)', () => {
+  it('tolerates spacing / hyphenation variants via brand-key match (vexlo-iq token matches "Vexlo IQ" prose)', () => {
     // Mirrors `extractAnswerMentions` brand-key normalization so the
     // competitor matcher and project matcher stay in lockstep.
-    const competitor: MentionShareCompetitor = { domain: 'demand-iq.com', brandTokens: ['demand-iq'] }
+    const competitor: MentionShareCompetitor = { domain: 'vexlo-iq.example.com', brandTokens: ['vexlo-iq'] }
     const variants = [
-      'Demand IQ is a leading solar CRM.',           // space-separated
-      'DemandIQ integrates with rooftop scanners.',   // concatenated
-      'demand-iq.com is the URL to check out.',       // hyphenated, exact match
+      'Vexlo IQ is a leading solar CRM.',            // space-separated
+      'VexloIQ integrates with rooftop scanners.',    // concatenated
+      'vexlo-iq.example.com is the URL to check out.', // hyphenated, exact match
     ]
     for (const text of variants) {
       const result = buildMentionShare([snap(false, text)], { competitors: [competitor] })
@@ -214,20 +214,20 @@ describe('buildMentionShare', () => {
     expect(total).toBeLessThanOrEqual(100.2)
   })
 
-  it('demand-iq replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
+  it('abstract-brand replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
     // Mirrors the empirical finding from the 2026-07 SoV rework analysis.
     const competitors: MentionShareCompetitor[] = [
-      { domain: 'roofr.com', brandTokens: ['roofr'] },
-      { domain: 'buildxact.com', brandTokens: ['buildxact'] },
+      { domain: 'rooftally.example.com', brandTokens: ['rooftally'] },
+      { domain: 'bidframe.example.com', brandTokens: ['bidframe'] },
     ]
     const snaps: MentionShareSnapshot[] = []
-    for (let i = 0; i < 5; i++) snaps.push(snap(true, `Demand-iq answer ${i}`))
-    for (let i = 0; i < 20; i++) snaps.push(snap(false, `Talking about Roofr software ${i}`))
-    for (let i = 0; i < 13; i++) snaps.push(snap(false, `BuildXact integration story ${i}`))
+    for (let i = 0; i < 5; i++) snaps.push(snap(true, `Vexlo-iq answer ${i}`))
+    for (let i = 0; i < 20; i++) snaps.push(snap(false, `Talking about Rooftally software ${i}`))
+    for (let i = 0; i < 13; i++) snaps.push(snap(false, `BidFrame integration story ${i}`))
     const result = buildMentionShare(snaps, { competitors })
     expect(result.value).toBe('13') // 5 / 38
     expect(result.tone).toBe('negative')
-    expect(result.breakdown.perCompetitor[0]!.domain).toBe('roofr.com')
+    expect(result.breakdown.perCompetitor[0]!.domain).toBe('rooftally.example.com')
     expect(result.breakdown.perCompetitor[0]!.mentionSnapshots).toBe(20)
   })
 })
