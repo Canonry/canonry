@@ -84,7 +84,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     if (isMachineFormat(opts?.format)) {
       if (opts?.wait) {
         const finals = await Promise.all(
-          locationRuns.map(r => (!r.id || r.status === 'conflict' ? null : pollRun(client, r.id))),
+          locationRuns.map(async r => (!r.id || r.status === 'conflict' ? null : pollRun(client, r.id))),
         )
         console.log(JSON.stringify(locationRuns.map((r, i) => finals[i] ? { ...r, ...finals[i] } : r), null, 2))
         throwIfWaitedRunFailed(locationRuns.flatMap((r, i) => {
