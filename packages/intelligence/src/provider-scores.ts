@@ -1,4 +1,4 @@
-import { CitationStates, type ProjectOverviewProviderScoreDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type ProjectOverviewProviderScoreDto } from '@ainyc/canonry-contracts'
 
 export interface ProviderScoreSnapshot {
   provider: string
@@ -7,7 +7,8 @@ export interface ProviderScoreSnapshot {
 }
 
 /**
- * Per-(provider, model) citation score for the latest run. Distinct from
+ * Per-(provider, model) citation score for the latest run: `cited / total`
+ * snapshots as 0..100, to two decimals. Distinct from
  * `ProjectOverviewProviderEntryDto`, which collapses across models. The
  * dashboard shows one row per (provider, model) pair sorted by provider then
  * model name.
@@ -34,7 +35,7 @@ export function buildProviderScores(
     .map(({ provider, model, cited, total }) => ({
       provider,
       model,
-      score: total > 0 ? Math.round((cited / total) * 100) : 0,
+      score: percentOf(cited, total) ?? 0,
       cited,
       total,
     }))

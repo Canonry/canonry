@@ -163,7 +163,24 @@ describe('buildMentionLandscape', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.projectMentionCount).toBe(1)
-    expect(result.competitors[0]?.sharePct).toBe(67) // 2 of 3 total
+    expect(result.competitors[0]?.sharePct).toBe(66.67) // 2 of 3 total, two decimals, not 67
+  })
+
+  it('keeps a share a whole percent used to round to 0', () => {
+    // 1 rival mention among 250 named slots is 0.4%.
+    const snapshots = Array.from({ length: 250 }, (_, index) => index === 0
+      ? snap({ queryId: `q${index}`, answerText: 'Rival Co is at rival.com', answerMentioned: false })
+      : snap({ queryId: `q${index}`, answerText: 'Acme is great. acme.com', answerMentioned: true }))
+    const result = buildMentionLandscape(
+      snapshots,
+      ['rival.com'],
+      PROJECT_BRAND_NAMES,
+      PROJECT_DOMAINS,
+      lookup(snapshots.map(s => [s.queryId, 'best crm'] as [string, string])),
+    )
+    expect(result.projectMentionCount).toBe(249)
+    expect(result.competitors[0]?.mentionCount).toBe(1)
+    expect(result.competitors[0]?.sharePct).toBe(0.4)
   })
 
   it('sorts competitor rows by mention count descending', () => {

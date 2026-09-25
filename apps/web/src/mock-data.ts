@@ -387,16 +387,16 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
-      value: '67',
+      value: '66.7%',
       delta: '6 of 9 queries mentioned',
       tone: 'positive',
       description: 'Brand named in answer text for most tracked queries.',
-      trend: [70, 72, 73, 74, 67],
-      progress: 67,
+      trend: [70, 72, 73, 74, 66.67],
+      progress: 66.67,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '61',
+      value: '61.0%',
       delta: '-8 this week',
       tone: 'caution',
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
@@ -405,23 +405,23 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '38',
+      value: '38.1%',
       delta: '8 of 21 brand mentions · non-brand queries',
       tone: 'caution',
       description: 'Downtown Smiles leads on emergency intent; Citypoint trails on availability copy.',
-      trend: [44, 42, 40, 39, 38],
-      progress: 38,
+      trend: [44, 42, 40, 39, 38.1],
+      progress: 38.1,
       scope: 'non-brand',
       breakdown: {
         projectMentionSnapshots: 8,
         competitorMentionSnapshots: 13,
         perCompetitor: [
-          { domain: 'downtownsmiles.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 69.2 },
-          { domain: 'harbordental.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 30.8 },
+          { domain: 'downtownsmiles.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 69.23 },
+          { domain: 'harbordental.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 30.77 },
         ],
         snapshotsWithAnswerText: 24,
         snapshotsTotal: 32,
-        score: 38,
+        score: 38.1,
       },
       branded: {
         projectMentionSnapshots: 6,
@@ -439,7 +439,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
-      progress: Math.round((1 / 9) * 100),
+      progress: 11.11,
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -448,20 +448,20 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'Two tracked queries mention competitors but never Citypoint.',
       trend: [],
-      progress: Math.round((2 / 9) * 100),
+      progress: 22.22,
     },
     indexCoverage: {
       label: 'Index Coverage',
-      value: '82',
+      value: '82.1%',
       delta: 'Google · 46 of 56 indexed',
       tone: 'caution',
       description: '10 URLs are not indexed in Google Search Console.',
       trend: [84, 84, 83, 82, 82],
     },
     providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55, cited: 5, total: 9 },
-      { provider: 'openai', model: 'gpt-5.4', score: 67, cited: 6, total: 9 },
-      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
+      { provider: 'openai', model: 'gpt-5.4', score: 66.67, cited: 6, total: 9 },
+      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
     ],
     queryCounts: { cited: 6, total: 9 },
     citationMovement: {
@@ -603,16 +603,16 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     contextLabel: 'US / English / Service-area legal prompts',
     mentionSummary: {
       label: 'Mention Coverage',
-      value: '82',
+      value: '81.8%',
       delta: '9 of 11 queries mentioned',
       tone: 'positive',
       description: 'Brand named in answer text on most tracked prompts.',
-      trend: [76, 78, 80, 81, 82],
-      progress: 82,
+      trend: [76, 78, 80, 81, 81.82],
+      progress: 81.82,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '74',
+      value: '74.0%',
       delta: '+2 this week',
       tone: 'positive',
       description: 'Branded prompts are stable and informational queries are gradually improving.',
@@ -621,12 +621,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '64',
+      value: '64.7%',
       delta: '11 of 17 brand mentions · non-brand queries',
       tone: 'positive',
       description: 'Harbor Law outpaces Shoreline on informational injury prompts.',
-      trend: [58, 60, 62, 63, 64],
-      progress: 64,
+      trend: [58, 60, 62, 63, 64.71],
+      progress: 64.71,
       scope: 'non-brand',
       breakdown: {
         projectMentionSnapshots: 11,
@@ -636,7 +636,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         ],
         snapshotsWithAnswerText: 19,
         snapshotsTotal: 24,
-        score: 64,
+        score: 64.71,
       },
       branded: {
         projectMentionSnapshots: 5,
@@ -667,7 +667,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     indexCoverage: {
       label: 'Index Coverage',
-      value: '91',
+      value: '91.1%',
       delta: 'Google · 51 of 56 indexed',
       tone: 'positive',
       description: '5 URLs are not indexed in Google Search Console.',
@@ -781,16 +781,16 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     contextLabel: 'US / English / Multi-location treatment prompts',
     mentionSummary: {
       label: 'Mention Coverage',
-      value: '67',
+      value: '66.7%',
       delta: '10 of 15 queries mentioned',
       tone: 'caution',
       description: 'Brand named in the answer text for most queries; gaps on long-tail location prompts.',
-      trend: [60, 63, 65, 66, 67],
-      progress: 67,
+      trend: [60, 63, 65, 66, 66.67],
+      progress: 66.67,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '58',
+      value: '58.0%',
       delta: 'Run in progress',
       tone: 'neutral',
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
@@ -799,12 +799,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '21',
+      value: '21.1%',
       delta: '4 of 19 brand mentions · non-brand queries',
       tone: 'negative',
       description: 'Regional Joint Care dominates broad treatment prompts with deeper physician proof.',
-      trend: [28, 26, 24, 22, 21],
-      progress: 21,
+      trend: [28, 26, 24, 22, 21.05],
+      progress: 21.05,
       scope: 'non-brand',
       breakdown: {
         projectMentionSnapshots: 4,
@@ -814,7 +814,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         ],
         snapshotsWithAnswerText: 21,
         snapshotsTotal: 28,
-        score: 21,
+        score: 21.05,
       },
       branded: {
         projectMentionSnapshots: 7,
@@ -832,7 +832,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
-      progress: Math.round((2 / 7) * 100),
+      progress: 28.57,
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -841,18 +841,18 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'negative',
       description: 'Three tracked queries mention competitors but never Northstar.',
       trend: [],
-      progress: Math.round((3 / 7) * 100),
+      progress: 42.86,
     },
     indexCoverage: {
       label: 'Index Coverage',
-      value: '71',
+      value: '71.1%',
       delta: 'Bing · 27 of 38 indexed',
       tone: 'caution',
       description: '11 URLs are not indexed in Bing Webmaster Tools.',
       trend: [68, 69, 70, 71, 71],
     },
     providerScores: [
-      { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
+      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
     ],
     queryCounts: { cited: 4, total: 7 },
     citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
@@ -1216,7 +1216,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     )
 
     if (project) {
-      project.visibilitySummary.value = '49'
+      project.visibilitySummary.value = '49.0%'
       project.visibilitySummary.progress = 49
       project.visibilitySummary.delta = '-12 in 48h'
       project.visibilitySummary.tone = 'negative'

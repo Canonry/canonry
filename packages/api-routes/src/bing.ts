@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError } from '@ainyc/canonry-contracts'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf } from '@ainyc/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -378,7 +378,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         indexed,
         notIndexed,
         unknown,
-        percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+        percentage: percentOf(indexed, total) ?? 0,
       },
       lastInspectedAt,
       indexed: indexedUrls.map(formatRow),

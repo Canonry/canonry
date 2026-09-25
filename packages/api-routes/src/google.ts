@@ -18,6 +18,7 @@ import {
   calendarDateRange,
   describeError,
   inclusiveDayCount,
+  percentOf,
   shiftIsoCalendarDate,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
@@ -1521,10 +1522,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         indexed,
         notIndexed,
         deindexed: deindexedUrls.length,
-        percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+        percentage: percentOf(indexed, total) ?? 0,
         // The coverage donut's two arcs and the CLI summary. Every latest
         // inspection lands in exactly one bucket, so the two shares sum to 1.
-        // Unrounded: `percentage` rounds 9,999 of 10,000 up to a false 100.
+        // Unrounded: `percentage` keeps two decimals, so 99,999 of 100,000
+        // still reads a false 100.
         indexedShare: total > 0 ? indexed / total : null,
         notIndexedShare: total > 0 ? notIndexed / total : null,
       },
@@ -2376,7 +2378,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         valueThreshold: r.valueThreshold ?? null,
       })),
       total: rows.length,
-      thresholdedPct: rows.length ? Math.round((thresholded / rows.length) * 100) : 0,
+      thresholdedPct: percentOf(thresholded, rows.length) ?? 0,
     }
   })
 

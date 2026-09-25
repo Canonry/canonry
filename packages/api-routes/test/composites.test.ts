@@ -214,14 +214,17 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
 
     expect(body.scores.visibility.label).toBe('Citation Coverage')
-    expect(body.scores.visibility.value).toBe('100')
+    // A ratio gauge's value arrives already formatted; an exact 100 keeps no decimal.
+    expect(body.scores.visibility.value).toBe('100%')
+    expect(body.scores.visibility.progress).toBe(100)
     expect(body.scores.visibility.tone).toBe('positive')
 
     // Mention coverage is the new primary metric. The seeded snapshots have
     // queryA and queryB both with answerMentioned=true on gemini's latest run,
     // so all 2 tracked queries count as mentioned → 100%.
     expect(body.scores.mention.label).toBe('Mention Coverage')
-    expect(body.scores.mention.value).toBe('100')
+    expect(body.scores.mention.value).toBe('100%')
+    expect(body.scores.mention.progress).toBe(100)
     expect(body.scores.mention.tone).toBe('positive')
     expect(body.scores.mention.delta).toBe('2 of 2 queries mentioned')
 
@@ -355,7 +358,8 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
-    expect(body.scores.indexCoverage.value).toBe('95')
+    expect(body.scores.indexCoverage.value).toBe('95.0%')
+    expect(body.scores.indexCoverage.progress).toBe(95)
     expect(body.scores.indexCoverage.tone).toBe('negative')
     expect(body.scores.indexCoverage.description).toMatch(/1 deindexed URL detected/)
   })
@@ -377,10 +381,37 @@ describe('GET /api/v1/projects/:name/overview', () => {
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
     expect(body.scores.indexCoverage.delta).toMatch(/^Bing/)
-    expect(body.scores.indexCoverage.value).toBe('60')
+    expect(body.scores.indexCoverage.value).toBe('60.0%')
+    expect(body.scores.indexCoverage.progress).toBe(60)
     // 60% indexed → negative under the headline-only thresholds, unrelated to deindexed.
     expect(body.scores.indexCoverage.tone).toBe('negative')
     expect(body.scores.indexCoverage.description).not.toMatch(/deindexed/)
+  })
+
+  it('sends the index-coverage share unrounded: value formatted, progress to two decimals', async () => {
+    const { app, db, projectId } = seedProjectWithRuns()
+    // 2 of 3 indexed is 66.67%, which the gauge used to send as "67" and 67.
+    db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-04-18',
+      indexed: 2,
+      notIndexed: 1,
+      reasonBreakdown: {},
+      createdAt: '2026-04-18T14:25:00.000Z',
+    }).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
+    expect(body.scores.indexCoverage).toMatchObject({
+      value: '66.7%',
+      progress: 66.67,
+      delta: 'Google · 2 of 3 indexed',
+      tone: 'negative',
+    })
   })
 
   it('honors the ?since filter by excluding runs older than the cutoff', async () => {
@@ -828,8 +859,8 @@ describe('GET /api/v1/projects/:name/overview', () => {
       notMentionedQueries: 0,
       mentionRate: 1,
     })
-    expect(body.scores.visibility.value).toBe('100')
-    expect(body.scores.mention.value).toBe('100')
+    expect(body.scores.visibility.value).toBe('100%')
+    expect(body.scores.mention.value).toBe('100%')
 
     // Provider rollup excludes the archived gemini snapshot (gemini stays 2/2,
     // not 2/3).

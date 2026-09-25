@@ -1,4 +1,4 @@
-import { CitationStates, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { CitationStates, formatPercent, percentOf, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { scoreTone } from './score-tones.js'
 
 export interface VisibilityScoreSnapshot {
@@ -18,8 +18,9 @@ export interface VisibilityScoreOptions {
 /**
  * Computes the "Citation Coverage" score gauge — the headline metric for the
  * project page. A query counts as cited when at least one snapshot for that
- * query has `citationState === 'cited'`. The score is the rounded percentage
- * of cited queries.
+ * query has `citationState === 'cited'`. The score is the percentage of cited
+ * queries, 0..100 to two decimals in `progress`, and `value` is the same share
+ * through `formatPercent` ("66.7%").
  *
  * Label history: this gauge was previously labelled "Answer Visibility". The
  * old name conflicted with AGENTS.md vocabulary rules — "visibility" is the
@@ -57,7 +58,7 @@ export function buildVisibilityScore(
   }
   const totalCount = queryCited.size
   const citedCount = [...queryCited.values()].filter(Boolean).length
-  const score = totalCount > 0 ? Math.round((citedCount / totalCount) * 100) : 0
+  const score = percentOf(citedCount, totalCount) ?? 0
 
   const runProviders = new Set(snapshots.map(s => s.provider))
   const runApiProviderCount = options.configuredApiProviders.filter(p => runProviders.has(p)).length
@@ -67,7 +68,7 @@ export function buildVisibilityScore(
 
   return {
     label: 'Citation Coverage',
-    value: `${score}`,
+    value: formatPercent(citedCount / totalCount),
     delta: `${citedCount} of ${totalCount} queries cited`,
     tone: isPartialProviderRun ? 'caution' : scoreTone(score),
     description: `${citedCount} of ${totalCount} tracked queries found your domain in at least one AI answer engine.`,

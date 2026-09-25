@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { formatPercent } from '@ainyc/canonry-contracts'
 import {
   formatHour,
   buildPreset,
@@ -6,7 +7,23 @@ import {
   scheduleLabel,
   formatTimeZoneLabel,
   localTimeZoneLabel,
+  splitPercentSign,
 } from '../src/lib/format-helpers.js'
+
+describe('splitPercentSign', () => {
+  it('sets the sign of a formatted percent apart without reformatting the figure', () => {
+    expect(splitPercentSign('66.7%')).toEqual({ figure: '66.7', sign: '%' })
+    expect(splitPercentSign(formatPercent(1))).toEqual({ figure: '100', sign: '%' })
+    expect(splitPercentSign(formatPercent(0.0004))).toEqual({ figure: '<0.1', sign: '%' })
+    expect(splitPercentSign(formatPercent(0.9996))).toEqual({ figure: '>99.9', sign: '%' })
+  })
+
+  it('returns a label or a count whole, with no sign to add', () => {
+    expect(splitPercentSign('No data')).toEqual({ figure: 'No data', sign: '' })
+    expect(splitPercentSign('3')).toEqual({ figure: '3', sign: '' })
+    expect(splitPercentSign(formatPercent(null))).toEqual({ figure: '—', sign: '' })
+  })
+})
 
 describe('formatHour', () => {
   it('formats midnight', () => {

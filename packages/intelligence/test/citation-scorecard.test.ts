@@ -107,7 +107,7 @@ describe('buildCitationScorecard', () => {
     })
   })
 
-  it('rounds citation rate per provider to integer percent', () => {
+  it('keeps each provider rate to two decimals, not a whole percent', () => {
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'cited' }),
       snap({ queryId: 'q2', citationState: 'cited' }),
@@ -118,7 +118,20 @@ describe('buildCitationScorecard', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 2, mentionedCount: 0, totalCount: 3, citationRate: 67, mentionRate: 0 },
+      { provider: 'gemini', citedCount: 2, mentionedCount: 0, totalCount: 3, citationRate: 66.67, mentionRate: 0 },
+    ])
+  })
+
+  it('keeps a small share a whole percent used to round to 0', () => {
+    // 1 cited of 250 is 0.4%, which used to arrive as 0.
+    const snapshots = Array.from({ length: 250 }, (_, index) => snap({
+      queryId: `q${index}`,
+      citationState: index === 0 ? 'cited' : 'not-cited',
+      answerMentioned: index < 249,
+    }))
+    const result = buildCitationScorecard(snapshots, lookup(snapshots.map(s => [s.queryId, s.queryId] as [string, string])))
+    expect(result.providerRates).toEqual([
+      { provider: 'gemini', citedCount: 1, mentionedCount: 249, totalCount: 250, citationRate: 0.4, mentionRate: 99.6 },
     ])
   })
 
@@ -134,7 +147,7 @@ describe('buildCitationScorecard', () => {
     )
 
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 3, citationRate: 33, mentionRate: 33 },
+      { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 3, citationRate: 33.33, mentionRate: 33.33 },
     ])
   })
 

@@ -995,6 +995,38 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     const body = res.json() as { lastSyncedAt: string | null }
     expect(body.lastSyncedAt).toBe(latestSync)
   })
+
+  it('sends the indexed percentage to two decimals, not a tenth', async () => {
+    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.33%.
+    for (const [id, url] of [['i2', 'https://coverage.com/page-2'], ['i3', 'https://coverage.com/page-3']] as const) {
+      db.insert(gscUrlInspections).values({
+        id,
+        projectId: 'p1',
+        syncRunId: 'r1',
+        url,
+        indexingState: 'BLOCKED_BY_META_TAG',
+        verdict: 'NEUTRAL',
+        coverageState: 'Excluded by noindex tag',
+        pageFetchState: 'SUCCESSFUL',
+        robotsTxtState: 'ALLOWED',
+        crawlTime: '2026-05-01T08:00:00.000Z',
+        lastCrawlResult: null,
+        isMobileFriendly: 1,
+        richResults: '[]',
+        referringUrls: '[]',
+        inspectedAt: '2026-05-01T08:00:00.000Z',
+        createdAt: '2026-05-01T08:00:00.000Z',
+      }).run()
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/covproj/google/gsc/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
+    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.33 })
+  })
 })
 
 describe('googleRoutes: GSC coverage shares', () => {
@@ -1082,7 +1114,7 @@ describe('googleRoutes: GSC coverage shares', () => {
     expect(formatPercent(summary.notIndexedShare)).toBe('25.0%')
   })
 
-  it('keeps the shares unrounded where the rounded percentage claims a false 100', async () => {
+  it('keeps the shares unrounded beside the two-decimal percentage', async () => {
     const projectId = seedProject('sharesliver')
     const rows = Array.from({ length: 2000 }, (_, i) =>
       inspect(projectId, `https://sharesliver.example/p${i}`, 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'))
@@ -1094,8 +1126,8 @@ describe('googleRoutes: GSC coverage shares', () => {
     expect(summary.indexedShare).toBe(2000 / 2001)
     expect(summary.notIndexedShare).toBe(1 / 2001)
     expect(summary.indexedShare! + summary.notIndexedShare!).toBeCloseTo(1, 12)
-    // The one-decimal `percentage` rounds 99.95% up to 100; the share does not.
-    expect(summary.percentage).toBe(100)
+    // `percentage` keeps two decimals (99.95); the shares keep every digit.
+    expect(summary.percentage).toBe(99.95)
     expect(formatPercent(summary.indexedShare)).toBe('>99.9%')
     expect(formatPercent(summary.notIndexedShare)).toBe('<0.1%')
   })
