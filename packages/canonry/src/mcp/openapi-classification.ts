@@ -1,6 +1,7 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
   'GET /api/v1/operations/logs': 'included',
   'GET /api/v1/openapi.json': 'excluded-protocol',
   // The browser launchpad needs create-only collision semantics. Agents already

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import dns from 'node:dns/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -98,10 +99,19 @@ describe('WordPress routes', () => {
 
   beforeEach(() => {
     connections.clear()
+    // Keep the URL safety guard real without resolving external fixture hosts.
+    vi.spyOn(dns, 'resolve4').mockImplementation(async (hostname) => (
+      hostname === 'example.com' ? ['93.184.216.34'] : []
+    ))
+    vi.spyOn(dns, 'resolve6').mockResolvedValue([])
   })
 
   afterEach(() => {
+    const dnsHosts = [...vi.mocked(dns.resolve4).mock.calls, ...vi.mocked(dns.resolve6).mock.calls]
+      .map(([hostname]) => hostname)
     vi.restoreAllMocks()
+    // The resolver catches errors, so unexpected fixture hosts must fail here.
+    expect(dnsHosts.filter((hostname) => hostname !== 'example.com')).toEqual([])
   })
 
   afterAll(async () => {

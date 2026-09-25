@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
+import dns from 'node:dns/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, createClient, migrate } from '@ainyc/canonry-db'
 import { parse } from 'yaml'
 import { createServer } from '../src/server.js'
@@ -101,7 +102,17 @@ describe('wordpress CLI commands', () => {
   let originalFetch: typeof globalThis.fetch
   let closeHarness: (() => Promise<void>) | null = null
 
+  beforeEach(() => {
+    // Keep the URL safety guard real without resolving external fixture hosts.
+    vi.spyOn(dns, 'resolve4').mockImplementation(async (hostname) => (
+      hostname === 'example.com' ? ['93.184.216.34'] : []
+    ))
+    vi.spyOn(dns, 'resolve6').mockResolvedValue([])
+  })
+
   afterEach(async () => {
+    const dnsHosts = [...vi.mocked(dns.resolve4).mock.calls, ...vi.mocked(dns.resolve6).mock.calls]
+      .map(([hostname]) => hostname)
     vi.restoreAllMocks()
     globalThis.fetch = originalFetch
     if (closeHarness) {
@@ -113,6 +124,8 @@ describe('wordpress CLI commands', () => {
     } else {
       process.env.CANONRY_CONFIG_DIR = originalConfigDir
     }
+    // The resolver catches errors, so unexpected fixture hosts must fail here.
+    expect(dnsHosts.filter((hostname) => hostname !== 'example.com')).toEqual([])
   })
 
   it('errors when wordpress connect omits --app-password', async () => {

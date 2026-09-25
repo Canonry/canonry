@@ -1,3 +1,5 @@
+import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
@@ -3742,6 +3744,12 @@ export class ApiClient {
         path: { name: project, id: sourceId },
       }),
     )
+  }
+
+  async trafficReferralAssessment(project: string, query: ReferralAssessmentQuery): Promise<ReferralAssessment> {
+    return this.invoke<ReferralAssessment>(() => getApiV1ProjectsByNameTrafficReferralAssessment({
+      client: this.heyClient, path: { name: project }, query,
+    }))
   }
 
   async trafficListEvents(

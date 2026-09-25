@@ -1,4 +1,4 @@
-import { visibilityCompareSelectionSchema, reportMonthSchema } from '@ainyc/canonry-contracts'
+import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -2261,6 +2261,20 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/status'],
     handler: (client, input) => client.trafficStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_traffic_referral_assessment',
+    title: 'Assess AI referral bursts',
+    description: 'Read stored AI-referral burst evidence and a separate adjusted estimate without changing raw totals or report headlines. Candidate bursts are not confirmed automation. Project/source scope only, for Simple or Advanced portfolios; Property, Target and market attribution are unavailable. GA quotient is descriptive with unknown matching coverage. No provider calls.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: referralAssessmentQuerySchema.extend({ project: projectNameSchema }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/referral-assessment'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.trafficReferralAssessment(project, query)
+    },
   }),
   defineTool({
     name: 'canonry_traffic_events',
