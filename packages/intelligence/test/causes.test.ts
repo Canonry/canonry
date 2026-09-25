@@ -41,9 +41,10 @@ describe('analyzeCause', () => {
   })
 
   it('identifies third_party_displacement when no tracked competitor is in the snapshot but the engine cited other domains', () => {
-    // A roof-coating project case: openai stopped citing the project for
-    // "roof coating springfield" and grounded on a state .gov site plus a
-    // manufacturer's site instead. Neither was in the configured competitor list, so the old
+    // Modeled on a roof-coating project case (query wording illustrative):
+    // openai stopped citing the project for a query like "roof coating
+    // springfield" and grounded on a state .gov site plus a manufacturer's
+    // site instead. Neither was in the configured competitor list, so the old
     // detector returned `cause: unknown` and the recommendation was the
     // useless "audit yourself, position unknown."
     const reg = makeRegression()

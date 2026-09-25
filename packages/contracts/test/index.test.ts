@@ -931,8 +931,9 @@ describe('extractAnswerMentions', () => {
   })
 
   it('matches when display name has no spaces but the answer spaces it out', () => {
-    // Real-world shape: project registered as "zyloqcoatings" with domain
-    // zyloqcoatingsllc.test; answer says "Zyloq Coatings (Springfield Area)".
+    // Illustrative example of a real-world shape: project registered as
+    // "zyloqcoatings" with domain zyloqcoatingsllc.test; answer says
+    // "Zyloq Coatings (Springfield Area)".
     const result = extractAnswerMentions(
       'Local contractors include Zyloq Coatings (Springfield Area), specializing in polyurea roof restoration.',
       ['zyloqcoatings'],
