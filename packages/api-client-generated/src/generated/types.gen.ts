@@ -4323,6 +4323,26 @@ export type GscTopPagesDto = {
     rankedThrough: string | null;
 };
 
+export type GscQueryTotalsDto = {
+    rows: Array<{
+        query: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        position: number;
+        days: number;
+        source: 'google' | 'page-summed' | 'mixed';
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+        latestDataDate: string | null;
+        daysSinceLatestData: number | null;
+    };
+};
+
 export type GscDiscoverSitemapsResponseDto = {
     sitemaps: Array<{
         path: string;
@@ -20361,6 +20381,61 @@ export type GetApiV1ProjectsByNameGoogleGscTopPagesResponses = {
 };
 
 export type GetApiV1ProjectsByNameGoogleGscTopPagesResponse = GetApiV1ProjectsByNameGoogleGscTopPagesResponses[keyof GetApiV1ProjectsByNameGoogleGscTopPagesResponses];
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive start date (YYYY-MM-DD). Replaces the window's lower bound; the window still ends on the last published day unless endDate is given.
+         */
+        startDate?: string;
+        /**
+         * Inclusive end date (YYYY-MM-DD). With a window and no startDate, the window's span ends on this date (window=30d&endDate=2026-06-30 reads 2026-06-01 to 2026-06-30). The response `window` is the range read.
+         */
+        endDate?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+    };
+    url: '/api/v1/projects/{name}/google/gsc/query-totals';
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors = {
+    /**
+     * Invalid date, range or window.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsError = GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors[keyof GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors];
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses = {
+    /**
+     * Per-query Search Console totals for the window.
+     */
+    200: GscQueryTotalsDto;
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsResponse = GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses[keyof GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses];
 
 export type PostApiV1ProjectsByNameGoogleGscInspectData = {
     body: {

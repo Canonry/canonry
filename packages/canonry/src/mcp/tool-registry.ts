@@ -379,6 +379,15 @@ const gscTopPagesInputSchema = z.object({
   window: analyticsWindowSchema.optional(),
 })
 
+const gscQueryTotalsInputSchema = z.object({
+  project: projectNameSchema,
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  limit: z.number().int().positive().max(5000).optional(),
+  offset: z.number().int().nonnegative().optional(),
+  window: analyticsWindowSchema.optional(),
+})
+
 const gscInspectionsInputSchema = z.object({
   project: projectNameSchema,
   url: z.string().optional(),
@@ -1881,6 +1890,17 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/google/gsc/top-pages'],
     handler: (client, input) => client.gscTopPages(input.project, compactStringParams(input, ['startDate', 'endDate', 'limit', 'window'])),
+  }),
+  defineTool({
+    name: 'canonry_gsc_query_totals',
+    title: 'Get GSC query totals',
+    description: 'Get stored Google Search Console totals per search query for a date window (no call to Google): clicks, impressions, CTR, impression-weighted average position and the number of days the query appeared. Rows are ordered clicks desc, impressions desc, query asc; page with limit/offset until truncated is false. The rows are the queries Google names: Google leaves rare queries out, so never sum them for a property total, use canonry_gsc_performance_daily. Each row has `source`: google (Google\'s per-query figures), page-summed (legacy page table, impressions over-count) or mixed (both across the window).',
+    access: 'read',
+    tier: 'gsc',
+    inputSchema: gscQueryTotalsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/google/gsc/query-totals'],
+    handler: (client, input) => client.gscQueryTotals(input.project, compactStringParams(input, ['startDate', 'endDate', 'limit', 'offset', 'window'])),
   }),
   defineTool({
     name: 'canonry_gsc_inspections',

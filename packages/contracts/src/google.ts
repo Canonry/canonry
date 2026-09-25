@@ -300,6 +300,63 @@ export const gscTopPagesDtoSchema = z.object({
 })
 export type GscTopPagesDto = z.infer<typeof gscTopPagesDtoSchema>
 
+/**
+ * Where one query's window total came from.
+ *
+ * `google`: every day came from Google's un-dimensioned `['date','query']`
+ * fetch, so the figures match Search Console's own per-query numbers.
+ * `page-summed`: every day came from the legacy page-dimensioned table, where
+ * one search showing several of the site's pages is stored as several rows, so
+ * impressions over-count (clicks and position are still usable).
+ * `mixed`: the window spans both, the normal state while a backfill is partial.
+ */
+export const gscQueryTotalsSourceSchema = z.enum(['google', 'page-summed', 'mixed'])
+export type GscQueryTotalsSource = z.infer<typeof gscQueryTotalsSourceSchema>
+
+export const gscQueryTotalRowSchema = z.object({
+  query: z.string(),
+  clicks: z.number(),
+  impressions: z.number(),
+  /** clicks / impressions, 0 when impressions are 0. */
+  ctr: z.number(),
+  /**
+   * Impression-weighted average position over the window:
+   * sum(position * impressions) / sum(impressions). When the query has no
+   * impressions in the window, the plain mean of its daily positions.
+   */
+  position: z.number(),
+  /** Distinct dates the query appeared on in the window. */
+  days: z.number(),
+  source: gscQueryTotalsSourceSchema,
+})
+export type GscQueryTotalRow = z.infer<typeof gscQueryTotalRowSchema>
+
+/**
+ * Search Console totals per query over a date window, read from stored sync
+ * data (no call to Google).
+ *
+ * The rows cover the queries Google NAMES. Google leaves rare and anonymised
+ * queries out of per-query data, so summing `rows` gives less than the
+ * property's total; read `GET /google/gsc/performance/daily` (CLI
+ * `canonry google performance-daily`) for the property total.
+ *
+ * Rows are ordered clicks desc, impressions desc, then query ascending by code
+ * point, so `limit` / `offset` pages are stable. `totalMatching` counts every
+ * query in the window; `truncated` is true when more rows follow this page.
+ */
+export const gscQueryTotalsDtoSchema = z.object({
+  rows: z.array(gscQueryTotalRowSchema),
+  totalMatching: z.number(),
+  truncated: z.boolean(),
+  /**
+   * The range the rows were read from, exactly. Explicit dates win; a labelled
+   * window paired with only `endDate` spans that many days ending on it. A
+   * `null` side is unbounded.
+   */
+  window: gscWindowRangeSchema,
+})
+export type GscQueryTotalsDto = z.infer<typeof gscQueryTotalsDtoSchema>
+
 export const gscUrlInspectionDtoSchema = z.object({
   id: z.string(),
   url: z.string(),

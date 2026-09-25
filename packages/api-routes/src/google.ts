@@ -25,8 +25,9 @@ import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-perio
 import { buildGbpSummary } from './gbp-summary.js'
 import {
   mergeGscDailyTotalsWithFallback, readGscDailyTotals,
+  readGscQueryTotalsPage,
   readEarliestGscDataDate, readLatestGscDataDate,
-  resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
+  resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -1230,6 +1231,62 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       totalsSource: 'property-daily' as const,
       rankedFrom: rankedSpan?.first ?? null,
       rankedThrough: rankedSpan?.last ?? null,
+    }
+  })
+
+  // GET /projects/:name/google/gsc/query-totals
+  //
+  // One row per query over the window, read from stored rows only: no call to
+  // Google and no writes. The fold is `readGscQueryTotalsPage`, the SQL form of
+  // `mergeGscQueryTotalsWithFallback` (which the report, suggested queries and
+  // content data use), held to identical numbers by a parity test: the accurate
+  // `['date','query']` table wins per day and the legacy page-dimensioned table
+  // fills days it does not cover.
+  //
+  // The rows are the queries Google NAMES. Their sum is not the property total
+  // (Google leaves rare queries out); `performance/daily` carries that.
+  app.get<{
+    Params: { name: string }
+    Querystring: { startDate?: string; endDate?: string; window?: string; limit?: string; offset?: string }
+  }>('/projects/:name/google/gsc/query-totals', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { startDate, endDate, limit, offset } = request.query
+    assertForwardRange(startDate, endDate)
+    // One range for the read AND the report: a label paired with an explicit
+    // end is anchored on that end, so the SQL never applies a bound the
+    // response leaves out. See `resolveGscRequestWindow`.
+    const window = resolveGscRequestWindow(
+      parseWindow(request.query.window),
+      readLatestGscDataDate(app.db, project.id),
+      gscToday(),
+      startDate,
+      endDate,
+    )
+
+    const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
+    const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)
+    // Merged, aggregated, ordered and paged in SQLite, so a page reads only its
+    // own rows. Ties break on the query by code point, so a page boundary never
+    // moves between calls and never depends on the server's locale.
+    const { rows, totalMatching } = readGscQueryTotalsPage(
+      app.db, project.id, window.startDate, window.endDate, limitVal, offsetVal,
+    )
+
+    return {
+      rows: rows.map((r) => ({
+        query: r.query,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
+        position: r.position,
+        days: r.days,
+        source: r.source,
+      })),
+      totalMatching,
+      // Measured from where this page ends, so a page past the end is not
+      // reported as truncated.
+      truncated: offsetVal + rows.length < totalMatching,
+      window,
     }
   })
 
