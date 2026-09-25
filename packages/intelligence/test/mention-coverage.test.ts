@@ -27,16 +27,34 @@ describe('buildMentionCoverage', () => {
     expect(result.providerCoverage).toBeUndefined()
   })
 
-  it('computes score as the rounded percentage of mentioned queries', () => {
+  it('keeps the share to two decimals in progress and formats value from the unrounded share', () => {
     const snapshots = [
       snap({ queryId: 'q1', answerMentioned: true }),
       snap({ queryId: 'q2', answerMentioned: true }),
       snap({ queryId: 'q3', answerMentioned: false }),
     ]
     const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini'] })
-    expect(result.value).toBe('67')
-    expect(result.progress).toBe(67)
+    expect(result.value).toBe('66.7%')
+    expect(result.progress).toBe(66.67)
     expect(result.delta).toBe('2 of 3 queries mentioned')
+  })
+
+  it('never shows an edge a whole percent used to invent', () => {
+    const mentioned = (count: number, total: number) => Array.from({ length: total }, (_, i) =>
+      snap({ queryId: `q${i}`, answerMentioned: i < count }))
+    // 1 of 250 used to arrive as 0 and 249 of 250 as 100.
+    const low = buildMentionCoverage(mentioned(1, 250), { configuredApiProviders: ['gemini'] })
+    expect([low.value, low.progress]).toEqual(['0.4%', 0.4])
+    const high = buildMentionCoverage(mentioned(249, 250), { configuredApiProviders: ['gemini'] })
+    expect([high.value, high.progress]).toEqual(['99.6%', 99.6])
+    const none = buildMentionCoverage(mentioned(0, 3), { configuredApiProviders: ['gemini'] })
+    expect([none.value, none.progress]).toEqual(['0%', 0])
+  })
+
+  it('tones by the unrounded share: 69.6% is below the 70% positive band', () => {
+    const snapshots = Array.from({ length: 250 }, (_, i) => snap({ queryId: `q${i}`, answerMentioned: i < 174 }))
+    const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini'] })
+    expect([result.value, result.progress, result.tone]).toEqual(['69.6%', 69.6, 'caution'])
   })
 
   it('treats a query as mentioned when ANY provider snapshot has answerMentioned=true', () => {
@@ -45,7 +63,8 @@ describe('buildMentionCoverage', () => {
       snap({ queryId: 'q1', provider: 'openai', answerMentioned: true }),
     ]
     const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini', 'openai'] })
-    expect(result.value).toBe('100')
+    expect(result.value).toBe('100%')
+    expect(result.progress).toBe(100)
   })
 
   it('treats null/undefined answerMentioned as not-mentioned', () => {
@@ -57,7 +76,8 @@ describe('buildMentionCoverage', () => {
       snap({ queryId: 'q3', answerMentioned: true }),
     ]
     const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini'] })
-    expect(result.value).toBe('33')
+    expect(result.value).toBe('33.3%')
+    expect(result.progress).toBe(33.33)
     expect(result.delta).toBe('1 of 3 queries mentioned')
   })
 

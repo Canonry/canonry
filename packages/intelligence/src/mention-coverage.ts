@@ -1,4 +1,4 @@
-import type { ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { formatPercent, percentOf, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { scoreTone } from './score-tones.js'
 
 export interface MentionCoverageSnapshot {
@@ -21,7 +21,8 @@ export interface MentionCoverageOptions {
  * metric for AEO health. A query counts as mentioned when at least one
  * snapshot for that query has `answerMentioned === true` (i.e. the AI
  * actually said the brand's name or domain in its answer text). The score
- * is the rounded percentage of mentioned queries.
+ * is the percentage of mentioned queries, 0..100 to two decimals in
+ * `progress`, and `value` is the same share through `formatPercent` ("66.7%").
  *
  * This is the dashboard's *primary* metric — what most operators actually
  * care about. The mirror-image `buildVisibilityScore` (a.k.a. "Citation
@@ -57,7 +58,7 @@ export function buildMentionCoverage(
   }
   const totalCount = queryMentioned.size
   const mentionedCount = [...queryMentioned.values()].filter(Boolean).length
-  const score = totalCount > 0 ? Math.round((mentionedCount / totalCount) * 100) : 0
+  const score = percentOf(mentionedCount, totalCount) ?? 0
 
   const runProviders = new Set(snapshots.map(s => s.provider))
   const runApiProviderCount = options.configuredApiProviders.filter(p => runProviders.has(p)).length
@@ -67,7 +68,7 @@ export function buildMentionCoverage(
 
   return {
     label: 'Mention Coverage',
-    value: `${score}`,
+    value: formatPercent(mentionedCount / totalCount),
     delta: `${mentionedCount} of ${totalCount} queries mentioned`,
     tone: isPartialProviderRun ? 'caution' : scoreTone(score),
     description: `${mentionedCount} of ${totalCount} tracked queries had your brand or domain in the AI answer text.`,

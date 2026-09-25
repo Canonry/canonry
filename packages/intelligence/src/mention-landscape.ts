@@ -4,6 +4,7 @@ import {
   compileQueryClassifier,
   determineAnswerMentioned,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
+  percentOf,
   type MentionRow,
   type ProjectReportDto,
   type QueryClass,
@@ -47,9 +48,7 @@ function toSection(tally: SectionTally): LandscapeSection {
       else if (ratio >= 0.2) pressureLabel = 'Moderate'
       else pressureLabel = 'Low'
     }
-    const sharePct = totalMentionedSlots > 0
-      ? Math.round((data.count / totalMentionedSlots) * 100)
-      : null
+    const sharePct = percentOf(data.count, totalMentionedSlots)
     return {
       domain,
       mentionCount: data.count,

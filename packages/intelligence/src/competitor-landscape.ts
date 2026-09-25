@@ -1,5 +1,5 @@
 import type { CompetitorRow, GroundingSource, ProjectReportDto } from '@ainyc/canonry-contracts'
-import { hostMatchesDomain } from '@ainyc/canonry-contracts'
+import { hostMatchesDomain, percentOf } from '@ainyc/canonry-contracts'
 import { compileCompetitiveSignalResolver } from './competitive-signals.js'
 
 export interface CompetitorLandscapeSnapshot {
@@ -71,9 +71,7 @@ export function buildCompetitorLandscape(
       else if (ratio >= 0.2) pressureLabel = 'Moderate'
       else pressureLabel = 'Low'
     }
-    const sharePct = totalCitedSlots > 0
-      ? Math.round((data.count / totalCitedSlots) * 100)
-      : 0
+    const sharePct = percentOf(data.count, totalCitedSlots) ?? 0
     const theirCitedPages = [...data.pages.entries()]
       .map(([url, qs]) => ({ url, citedFor: [...qs].sort() }))
       .sort((a, b) => b.citedFor.length - a.citedFor.length)

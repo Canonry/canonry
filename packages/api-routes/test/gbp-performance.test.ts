@@ -139,6 +139,26 @@ describe('GBP performance routes (Phase 2)', () => {
       expect(body.keywords[0]!.valueCount).toBe(10939)
     })
 
+    it('sends thresholdedPct to two decimals, not a whole percent', async () => {
+      const projectId = ctx.seedProject('thirds', 'thirds.example.com')
+      // 2 exact + 1 thresholded → 33.33%, which used to arrive as 33.
+      const rows = [
+        { keyword: 'x', valueCount: 40, valueThreshold: null },
+        { keyword: 'y', valueCount: 20, valueThreshold: null },
+        { keyword: 'z', valueCount: null, valueThreshold: 15 },
+      ]
+      for (const r of rows) {
+        ctx.db.insert(gbpKeywordImpressions).values({
+          id: crypto.randomUUID(), projectId, locationName: 'locations/1', periodStart: '2025-06', periodEnd: '2026-05',
+          keyword: r.keyword, valueCount: r.valueCount, valueThreshold: r.valueThreshold, syncRunId: null,
+        }).run()
+      }
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/thirds/gbp/keywords' })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { total: number; thresholdedPct: number }
+      expect(body).toMatchObject({ total: 3, thresholdedPct: 33.33 })
+    })
+
     it('returns thresholdedPct=0 for an empty project', async () => {
       ctx.seedProject('empty', 'empty.example.com')
       const res = await ctx.app.inject({ method: 'GET', url: '/projects/empty/gbp/keywords' })

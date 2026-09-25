@@ -25,6 +25,16 @@ export const SEARCH_METRIC_SHORT_LABELS: Record<SearchMetric, string> = {
 /** One-line summary of a `RunErrorDto`, suitable for tight UI surfaces. */
 export const summarizeRunError = formatRunErrorOneLine
 
+/**
+ * A figure and its percent sign, split so a hero can set the sign apart
+ * (rendered faint): `66.7%` is `{ figure: '66.7', sign: '%' }`. Text with no
+ * trailing sign (`No data`, a count) comes back whole with an empty sign. Both
+ * halves are the input's own characters; nothing is reformatted.
+ */
+export function splitPercentSign(text: string): { figure: string; sign: string } {
+  return text.endsWith('%') ? { figure: text.slice(0, -1), sign: '%' } : { figure: text, sign: '' }
+}
+
 export function formatErrorLog(error: RunErrorDto): string {
   const sections: string[] = []
   if (error.message) sections.push(error.message)

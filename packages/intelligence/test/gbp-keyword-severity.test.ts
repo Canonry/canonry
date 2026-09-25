@@ -31,7 +31,8 @@ describe('a keyword drop is only severe if it cost something', () => {
     const drop = keywordDrop(
       analyzeGbp([{ ...base, metricDeltaPct: { WEBSITE_CLICKS: -9, CALL_CLICKS: 4, BUSINESS_DIRECTION_REQUESTS: 0 } }]),
     )
-    expect(drop?.title).toContain('79%')
+    // 1,019 → 210 is a 79.39% drop, shown through formatPercent rather than rounded to 79.
+    expect(drop?.title).toContain('impressions down 79.4% month-over-month')
     expect(drop?.severity).toBe('medium')
   })
 

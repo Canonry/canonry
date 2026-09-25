@@ -703,8 +703,9 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
 
   // Mention Coverage is the headline portfolio metric (did the AI actually say
   // the brand?), not the cited/source signal. Both ride on the overview; we
-  // read `mention`. The gauge's `value` is presentational ("67"/"No data");
-  // `progress` is the same number as 0–100, so we read that for the score.
+  // read `mention`. The gauge's `value` is presentational ("66.7%"/"No data");
+  // `progress` is the same share as 0–100 (two decimals), so we read that for
+  // the score and the view formats it.
   const mention = overview.scores.mention
   const mentionScore = mention.progress ?? 0
   const mentioned = overview.queryCounts.mentionedQueries
