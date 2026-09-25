@@ -635,6 +635,7 @@ cnry traffic sync <project> --source <source-id>      # pull adapters, including
 cnry traffic sources <project> --format json
 cnry traffic status <project> --format json
 cnry traffic events <project> --source <source-id> --format json
+cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
 
 cnry doctor --project <project> --check 'traffic.source.*' --format json
 cnry schedule show <project> --kind traffic-sync --format json
@@ -654,6 +655,27 @@ the schedule interval.
 
 Read the [server-side traffic guide](server-side-traffic.md) for token safety,
 route checks, activation order, smoke tests, rollback, and troubleshooting.
+
+`traffic referral-assessment` is a DB-only diagnostic, also available as MCP
+`canonry_traffic_referral_assessment`. Date bounds are inclusive UTC dates, at
+most 366 days. `--source` optionally selects one source. Thresholds tune only
+the read; `--limit` caps candidate details, never totals. JSON and JSONL both
+return the full assessment object.
+
+Raw counts and existing headlines stay unchanged. The separate adjusted
+estimate excludes every hit in a candidate burst hour, not proven automation.
+The default 100-hit threshold is an uncalibrated review trigger. Normalized
+paths may combine multiple pages, and sources may overlap. Simple and Advanced
+projects use project/source scope; Property, Target and market attribution are
+unavailable and unsupported filters are rejected.
+
+`observedRatio` is a descriptive server/GA quotient when GA sessions are
+positive and server rows exist. Server and GA observation states distinguish
+missing evidence from stored zero. `observedRatioAboveThreshold` compares it with `--ratio-threshold`;
+it is not a quality verdict. Complete matching coverage and the GA timezone
+are unknown. Missing GA differs from an explicit stored zero. The silent
+`report.ai-referral-ratio` doctor check reports these limits. Keep GA evidence;
+this assessment does not establish a replacement human-visit count.
 
 ## Google Analytics 4
 

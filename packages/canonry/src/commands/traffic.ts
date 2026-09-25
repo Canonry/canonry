@@ -1,3 +1,4 @@
+import { referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import type {
   RunDetailDto,
   TrafficBackfillResponse,
@@ -1045,4 +1046,23 @@ export async function trafficEvents(project: string, opts: {
   for (const event of result.events) {
     console.log(`  ${formatEventLine(event)}`)
   }
+}
+
+/** Separate diagnostic: existing traffic/report headlines retain their meaning. */
+export async function trafficReferralAssessment(project: string, options: Partial<ReferralAssessmentQuery> & { format?: string }): Promise<void> {
+  const { format, ...query } = options
+  const parsed = referralAssessmentQuerySchema.safeParse(query)
+  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: parsed.error.message })
+  const result = await createApiClient().trafficReferralAssessment(project, parsed.data)
+  if (isMachineFormat(format)) { console.log(JSON.stringify(result, null, 2)); return }
+  console.log(`AI referral assessment for "${project}" · ${result.window.startDate} to ${result.window.endDate} UTC`)
+  console.log(`  Raw stored hits: ${result.totals.raw.total}`)
+  console.log(`  Countable stored hits: ${result.totals.countable.total}`)
+  console.log(`  Suspected burst hits: ${result.totals.suspected.total} (not confirmed automation)`)
+  console.log(`  Adjusted estimate: ${result.totals.adjustedEstimate.total} (countable minus candidate bursts)`)
+  console.log(`  Rule: ${result.rule.version}; threshold ${result.rule.burstThreshold}; ${result.rule.calibration}`)
+  console.log(`  Observed server/GA quotient: ${result.comparison.observedRatio ?? 'unavailable'}; comparable coverage: unavailable`)
+  console.log(`  Evidence: ${result.evidence.returned} of ${result.evidence.total} candidate hours`)
+  for (const burst of result.bursts) console.log(`  ${burst.tsHour} ${burst.sourceId} ${burst.product} ${burst.landingPathNormalized} ${burst.counts.total}`)
+  for (const caveat of result.caveats) console.log(`  ${caveat}`)
 }

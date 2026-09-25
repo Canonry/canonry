@@ -54,6 +54,10 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 - v1 registers validators for `cloud-run` (service-account-token resolution), `wordpress` (probe-call against the plugin's REST endpoint), and `vercel` (probe-call against the `request-logs` endpoint — 401/403 maps to `traffic.credentials.unauthorized`), wired from the corresponding credential stores in `index.ts`. Future adapters plug in by adding a key to that map — no doctor-side changes needed.
 - Cloudflare sources follow "Cloudflare traffic doctor boundary" above.
 
+## Referral reporting diagnostic
+
+`report.ai-referral-ratio` is a DB-only, silent project check. It follows the report-month selection and calls the same assessment reader as the API/CLI/MCP. It reports `report.ai-referral-ratio.coverage-unknown` with raw server counts, dimension-deduplicated GA counts, an observed quotient and explicit missing/zero states. Current records cannot prove complete server intervals or the GA reporting timezone. A high quotient is not a comparable-window warning or proof of automation. Silent checks never change health paging state.
+
 ## Scheduled health alerts
 
 Two schedules feed `health.degraded` and `health.recovered`, which reach every enabled webhook whether or not it subscribes to them:

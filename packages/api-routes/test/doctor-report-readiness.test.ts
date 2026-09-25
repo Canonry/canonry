@@ -37,10 +37,10 @@ describe('monthly report readiness (stored evidence only)', () => {
     db.insert(querySnapshots).values({ id: randomUUID(), runId: id, queryId, provider: 'perplexity', model, citationState: CitationStates['not-cited'], answerMentioned: false, answerText: 'Other service', createdAt: `${date}T12:00:00.000Z` }).run()
     return id
   }
-  it('registers three default checks with an explicit silent notification policy', async () => {
+  it('registers four default checks with an explicit silent notification policy', async () => {
     const result = await report()
-    expect(result.checks.map(c => c.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data'])
-    expect(result.checks.map(c => c.notificationPolicy)).toEqual(['silent', 'silent', 'silent'])
+    expect(result.checks.map(c => c.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data', 'report.ai-referral-ratio'])
+    expect(result.checks.map(c => c.notificationPolicy)).toEqual(['silent', 'silent', 'silent', 'silent'])
   })
   it('does not clear missing monthly evidence with a probe, failed run, or spot check', async () => {
     sweep('2026-09-10', 'fast', { trigger: RunTriggers.probe })

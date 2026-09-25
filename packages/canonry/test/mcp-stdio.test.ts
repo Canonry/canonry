@@ -211,6 +211,7 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_competitor_landscape')
     expect(names).toContain('canonry_backlinks_latest_release')
     expect(names).toContain('canonry_traffic_connect_vercel')
+    expect(names).toContain('canonry_traffic_referral_assessment')
     expect(names).toContain('canonry_ads_operation_resume_activation')
     expect(names).toContain('canonry_google_ads_sync')
     expect(names).toContain('canonry_gtm_sync')

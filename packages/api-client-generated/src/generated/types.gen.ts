@@ -10317,6 +10317,96 @@ export type QueryDto = {
     createdAt: string;
 };
 
+export type ReferralAssessment = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        attribution: 'project-source-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    window: {
+        startDate: string;
+        endDate: string;
+        timeZone: 'UTC';
+    };
+    rule: {
+        version: 'hourly-normalized-path-v1';
+        burstThreshold: number;
+        ratioThreshold: number;
+        calibration: 'uncalibrated-default' | 'request-override';
+        grouping: Array<string>;
+        confirmsAutomation: false;
+    };
+    totals: {
+        raw: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        redirects: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        subresources: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        countable: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        suspected: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        adjustedEstimate: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+    };
+    bursts: Array<{
+        sourceId: string;
+        product: string;
+        landingPathNormalized: string;
+        tsHour: string;
+        counts: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+    }>;
+    evidence: {
+        total: number;
+        returned: number;
+        truncated: boolean;
+    };
+    comparison: {
+        status: 'unavailable';
+        serverCountable: number;
+        serverObservation: 'missing' | 'observed-zero' | 'observed-positive';
+        gaSessions: number | null;
+        gaObservation: 'missing' | 'observed-zero' | 'observed-positive';
+        observedRatio: number | null;
+        observedRatioAboveThreshold: boolean | null;
+        ratio: null;
+        reasons: Array<string>;
+        gaScope: 'project';
+    };
+    caveats: Array<string>;
+};
+
 export type ResultsExportDto = {
     schemaVersion: 'canonry.results-export/v1';
     generatedAt: string;
@@ -26373,6 +26463,65 @@ export type GetApiV1ProjectsByNameTrafficSourcesByIdResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficSourcesByIdResponse = GetApiV1ProjectsByNameTrafficSourcesByIdResponses[keyof GetApiV1ProjectsByNameTrafficSourcesByIdResponses];
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Inclusive UTC calendar date, YYYY-MM-DD.
+         */
+        startDate: string;
+        /**
+         * Inclusive UTC calendar date; window must be 1 to 366 days.
+         */
+        endDate: string;
+        /**
+         * Project-owned traffic source ID.
+         */
+        sourceId?: string;
+        /**
+         * Minimum countable stored hits in one grouped hour, default 100 (uncalibrated review trigger).
+         */
+        burstThreshold?: number;
+        /**
+         * Descriptive observed-quotient threshold, default 3; never asserts comparable coverage.
+         */
+        ratioThreshold?: number;
+        /**
+         * Maximum candidate hour details, default 100; full totals are never truncated.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/referral-assessment';
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentErrors = {
+    /**
+     * Invalid or unsupported selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentError = GetApiV1ProjectsByNameTrafficReferralAssessmentErrors[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentErrors];
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponses = {
+    /**
+     * Referral assessment with raw totals, candidate evidence, adjusted estimate and coverage limits.
+     */
+    200: ReferralAssessment;
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponse = GetApiV1ProjectsByNameTrafficReferralAssessmentResponses[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;
