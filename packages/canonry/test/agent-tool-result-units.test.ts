@@ -116,4 +116,29 @@ describe('Aero tool results', () => {
     expect(text).toContain('"propertiesMentioned":{"state":"available","value":3,')
     expect(text).not.toContain('1200')
   })
+
+  it('shows link importance as the 0 to 100 percent the dashboard shows', async () => {
+    const crawlPages = canonryMcpTools.find(tool => tool.name === 'canonry_technical_aeo_crawl_pages')!
+    const page = (nodeKey: string, linkScoreNormalized: number) => ({
+      nodeKey, url: `https://example.com/${nodeKey}`, finalUrl: null, path: `/${nodeKey}`, parentPath: '/',
+      discoverySource: 'link', fetchState: 'html', httpStatus: 200, canonicalUrl: null,
+      indexabilityState: 'indexable', indexabilityReasons: [], auditState: 'success', auditScore: 80,
+      inventoryEligible: true, depth: 1, inboundUniqueEdges: 3, outboundUniqueEdges: 2, inboundOccurrences: 3, outboundOccurrences: 2,
+      linkScoreRaw: 0.0123, linkScoreNormalized, healthState: 'eligible',
+    })
+    const payload = { project: 'demo', hasCrawlData: true, runId: 'run-1', total: 2, nextCursor: null, healthStateFilter: null, pages: [page('top', 100), page('low', 0.85)] }
+    const client = {} as unknown as ApiClient
+    const tool = mcpToAgentTool({ ...crawlPages, handler: async () => payload }, { client, projectName: 'demo' })
+    const result = await tool.execute('call-3', {})
+    const text = (result.content[0] as { text: string }).text
+    // 0.85 is out of 100, not a fraction, so it reads 0.9%, never 85%.
+    expect(text).toContain('"linkScoreNormalized":"100%"')
+    expect(text).toContain('"linkScoreNormalized":"0.9%"')
+    expect(text).not.toContain('0.85')
+    expect(text).not.toContain('85.0%')
+    // The raw PageRank probability and the audit score are not percents.
+    expect(text).toContain('"linkScoreRaw":0.0123')
+    expect(text).toContain('"auditScore":80')
+    expect((result.details as typeof payload).pages[1]!.linkScoreNormalized).toBe(0.85)
+  })
 })
