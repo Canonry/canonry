@@ -7,7 +7,7 @@ import type { RunCompletionOrigin } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { CheckNotificationPolicies, describeError, type CheckNotificationPolicy } from '@ainyc/canonry-contracts'
 
 const log = createLogger('Notifier')
 
@@ -173,7 +173,7 @@ export class Notifier {
   async onHealthChecked(
     projectId: string,
     report: {
-      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string }>
+      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy }>
       checkedAt: string
     },
   ): Promise<'health.degraded' | 'health.recovered' | null> {
@@ -203,7 +203,10 @@ export class Notifier {
         default: return 0
       }
     }
-    const graded = report.checks.filter(c => c.status === 'fail' || c.status === 'warn' || c.status === 'ok')
+    const healthChecks = report.checks.filter(c => c.notificationPolicy !== CheckNotificationPolicies.silent)
+    // A report-only pass says nothing about operational recovery. Preserve its state.
+    if (healthChecks.length === 0 && report.checks.length > 0) return null
+    const graded = healthChecks.filter(c => c.status === 'fail' || c.status === 'warn' || c.status === 'ok')
     const failing = graded
       .filter(c => c.status !== 'ok')
       .sort((a, b) =>
@@ -223,7 +226,7 @@ export class Notifier {
         : 'ok'
     const code = noSignal ? 'health.no-signal' : (worst?.code ?? 'health.ok')
     const summary = noSignal
-      ? `No health check produced a result (${report.checks.length} skipped) — health is unknown, not confirmed.`
+      ? `No health check produced a result (${healthChecks.length} skipped) — health is unknown, not confirmed.`
       : (worst?.summary ?? `All ${graded.length} health check(s) passing.`)
 
     const previous = this.db.select().from(doctorHealthState)

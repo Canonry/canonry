@@ -6,6 +6,7 @@ import { emitJsonl } from '../cli-output.js'
 
 interface DoctorOptions {
   project?: string
+  reportMonth?: string
   /** When true, fan out doctor across every configured project in parallel
    *  AND run the global checks once. Replaces an N+1 loop of `canonry doctor
    *  --project X` invocations for portfolio-level health audits. */
@@ -24,6 +25,7 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
   const report = await client.runDoctor({
     project: opts.project,
     checkIds: opts.checks,
+    ...(opts.reportMonth ? { reportMonth: opts.reportMonth } : {}),
   })
 
   if (opts.format === 'json') {
@@ -67,8 +69,8 @@ async function runDoctorAll(opts: DoctorOptions): Promise<void> {
   // Global checks ride alongside the per-project fan-out so a single
   // --all invocation covers everything `canonry doctor` could surface.
   const [globalReport, ...projectReports] = await Promise.all([
-    client.runDoctor({ checkIds: opts.checks }),
-    ...projects.map(p => client.runDoctor({ project: p.name, checkIds: opts.checks })),
+    client.runDoctor({ checkIds: opts.checks, ...(opts.reportMonth ? { reportMonth: opts.reportMonth } : {}) }),
+    ...projects.map(p => client.runDoctor({ project: p.name, checkIds: opts.checks, ...(opts.reportMonth ? { reportMonth: opts.reportMonth } : {}) })),
   ])
 
   const byKey: Record<string, DoctorReportDto> = { __global__: globalReport! }

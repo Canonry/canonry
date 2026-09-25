@@ -680,3 +680,11 @@ Native `agent ask` supports `--context <json>`, `--max-tool-calls`, and
 turn; it does not widen tool scope. Preserve terminal `aero_turn_status` in JSON
 output and fail unexpected SSE EOF. See `src/agent/AGENTS.md` and
 `docs/aero-evaluation.md` for runtime boundaries and captured-turn evaluation.
+
+### Report-readiness doctor selection
+
+`doctor --report-month YYYY-MM` forwards `reportMonth` unchanged through the typed
+client and MCP. It also works with `--all`. Project JSON carries `reportMonths`;
+JSONL records keep their check's `details.months`. Report advisories have
+`notificationPolicy: silent` and cannot change operational health signatures or
+produce degraded/recovered notifications. See `api-routes/src/doctor/AGENTS.md`.

@@ -67,3 +67,29 @@ Two schedules feed `health.degraded` and `health.recovered`, which reach every e
 2. Register it in `packages/api-routes/src/doctor/registry.ts` (`ALL_CHECKS`).
 3. Add a `<topic>.ts` test under `packages/api-routes/test/doctor-*` covering the happy path + each `code` value the check can emit.
 4. Both the CLI and MCP tool surface the new check automatically — no additional wiring required.
+
+## Monthly report readiness
+
+`report.sweeps`, `report.models`, and `report.daily-data` are stored-evidence
+project checks. They run by default and carry `notificationPolicy: silent`.
+The notifier excludes silent checks from health status, signatures and recovery;
+a report-only pass must leave existing operational state untouched.
+
+`reportMonth=YYYY-MM` selects a report month (never a future month). Omitted,
+checks cover the current UTC month and retain the previous closed month through
+day 3. This is read selection, not a work-identity or tuning parameter.
+
+Sweep readiness excludes probes and spot checks. Advanced runs validate their
+frozen revision, complete manifest and usable observations. Simple runs use the
+frozen input definition when present; legacy runs explicitly report current-basket
+coverage as their basis. A failed or empty run cannot clear readiness.
+Model checks use the same matched-pair snapshot continuity gate as monthly
+comparison, including unknown and mixed models. First observed dates do not
+claim to be provider deployment dates.
+
+Daily checks distinguish observed totals (including measured zero), unknown
+dates, onboarding dates and pending reporting dates. Both APIs omit zero-data
+rows. No current store proves every interior date was queried, so missing rows
+never become confirmed collection gaps or synthetic zeros. Search Console uses
+Pacific dates. GA timezone is unrecorded and the response labels its UTC fallback.
+Both use a conservative three-day reporting lag. Backfill is advice only.

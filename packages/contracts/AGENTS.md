@@ -200,3 +200,11 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 
 - `packages/api-routes/` — consumes DTOs for request/response validation
 - `packages/canonry/src/client.ts` — uses DTOs for typed API client methods
+
+### Doctor report readiness
+
+`doctor.ts` owns `reportMonthSchema`, `reportMonthsForDoctor`,
+`groupIsoDateRanges`, and the optional check `notificationPolicy`. Silent means
+exclude from notification grading, not exclude from doctor output. Project
+reports expose selected `reportMonths`; the previous month stays selected through
+UTC day 3 unless the caller supplies one explicit month.
