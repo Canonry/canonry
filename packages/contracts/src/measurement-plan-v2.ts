@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { queryClassFilterSchema, queryClassSchema } from './query-class.js'
 import { hostOf } from './url-normalize.js'
@@ -485,7 +486,7 @@ export type MeasurementMetricUnavailableReason = z.output<typeof measurementMetr
 export const measurementMetricValueSchema = z.discriminatedUnion('state', [
   z.object({
     state: z.literal('available'),
-    value: z.number(),
+    value: fraction(),
     numerator: z.number().int().nonnegative().optional(),
     denominator: z.number().int().positive().optional(),
     /**
@@ -629,7 +630,7 @@ export const measurementNamedShareOfVoiceEntrySchema = z.object({
   label: z.string().min(1),
   domain: z.string().min(1),
   credits: z.number().int().nonnegative(),
-  share: z.number().min(0).max(1),
+  share: fraction(z.number().min(0).max(1)),
 }).strict()
 
 /**

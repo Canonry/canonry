@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { percent } from './ratio-unit.js'
 
 // One GBP account the OAuth user can access. `name` is the resource name
 // ("accounts/{n}") used to list that account's locations; the rest are
@@ -138,7 +139,7 @@ export const gbpKeywordImpressionListResponseSchema = z.object({
   keywords: z.array(gbpKeywordImpressionDtoSchema),
   total: z.number().int().nonnegative(),
   /** Share of returned keywords that are privacy-thresholded (0–100, rounded). */
-  thresholdedPct: z.number().int().min(0).max(100),
+  thresholdedPct: percent(z.number().int().min(0).max(100)),
 })
 export type GbpKeywordImpressionListResponse = z.infer<typeof gbpKeywordImpressionListResponseSchema>
 
@@ -247,7 +248,7 @@ export const gbpSummaryDtoSchema = z.object({
     // Per-metric % change recent-vs-prior, computed over COMPLETE days only
     // (the windows anchor to `freshness.dataThroughDate`, never the lagging
     // tail), so a reporting-lag artifact is never shown as a real delta.
-    deltaPct: z.record(z.string(), z.number().nullable()),
+    deltaPct: z.record(z.string(), percent().nullable()),
   }),
   // GBP Performance data lags a few days; the most recent stored days can be
   // not-yet-reported zeros. `freshness` lets every renderer mark the trailing
@@ -271,7 +272,7 @@ export const gbpSummaryDtoSchema = z.object({
   keywords: z.object({
     total: z.number().int().nonnegative(),
     thresholdedCount: z.number().int().nonnegative(),
-    thresholdedPct: z.number().int().min(0).max(100),
+    thresholdedPct: percent(z.number().int().min(0).max(100)),
   }),
   placeActions: z.object({
     total: z.number().int().nonnegative(),

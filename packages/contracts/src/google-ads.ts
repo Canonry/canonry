@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 const opaqueIdSchema = z.string().trim().min(1)
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i)
@@ -512,11 +513,11 @@ export const googleAdsMetricTotalsSchema = z.object({
   /** Null when no row in scope reported a value. */
   conversionValueMicros: z.number().int().nonnegative().nullable(),
   /** clicks / impressions. Null when impressions === 0. */
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   /** Math.round(costMicros / clicks). Null when clicks === 0. */
   cpcMicros: z.number().int().nonnegative().nullable(),
   /** conversions / clicks. Null when clicks === 0. */
-  conversionRate: z.number().nullable(),
+  conversionRate: fraction().nullable(),
   /** Math.round(costMicros / conversions). Null when conversions === 0. */
   costPerConversionMicros: z.number().int().nonnegative().nullable(),
 })
@@ -534,7 +535,7 @@ export const googleAdsMetricsDailyPointSchema = z.object({
   clicks: z.number().int().nonnegative(),
   costMicros: z.number().int().nonnegative(),
   conversions: z.number().nonnegative(),
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
 })
 export type GoogleAdsMetricsDailyPoint = z.infer<typeof googleAdsMetricsDailyPointSchema>
 
@@ -587,12 +588,12 @@ export const googleAdsPerformanceComparisonSchema = z.object({
   days: z.number().int().positive(),
   prior: googleAdsPerformancePeriodSchema,
   change: z.object({
-    impressions: z.number().nullable(),
-    clicks: z.number().nullable(),
-    costMicros: z.number().nullable(),
-    conversions: z.number().nullable(),
-    ctr: z.number().nullable(),
-    conversionRate: z.number().nullable(),
+    impressions: fraction().nullable(),
+    clicks: fraction().nullable(),
+    costMicros: fraction().nullable(),
+    conversions: fraction().nullable(),
+    ctr: fraction().nullable(),
+    conversionRate: fraction().nullable(),
   }),
 })
 export type GoogleAdsPerformanceComparison = z.infer<typeof googleAdsPerformanceComparisonSchema>

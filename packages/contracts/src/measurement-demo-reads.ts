@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import {
   measurementAttributionClassSchema,
@@ -202,8 +203,8 @@ export type MeasurementPortfolioTieMetro = z.output<typeof measurementPortfolioT
  */
 export const measurementPortfolioWeakestTieSchema = z.object({
   count: z.number().int().min(2),
-  mentionRate: z.number(),
-  citationRate: z.number(),
+  mentionRate: fraction(),
+  citationRate: fraction(),
   note: z.literal(MEASUREMENT_PORTFOLIO_TIE_NOTE),
   /**
    * Tied Properties per top-level market, most first, then by label. A
@@ -600,7 +601,7 @@ export const measurementMetricDeltaSchema = z.discriminatedUnion('state', [
     state: z.literal('available'),
     previous: measurementMetricValueSchema,
     current: measurementMetricValueSchema,
-    delta: z.number(),
+    delta: fraction(),
   }).strict().superRefine((metric, ctx) => {
     if (metric.previous.state !== 'available' || metric.current.state !== 'available') {
       ctx.addIssue({

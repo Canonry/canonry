@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 function dedupeStable(values: readonly string[], caseInsensitive = false): string[] {
   const seen = new Set<string>()
@@ -139,7 +140,7 @@ const analysisEngagementPeriodSchema = analysisPeriodSchema.extend({
    * engagedSessions / sessions, so the weighted mean reconstructs the bucket
    * rate exactly. `null` when no day in the bucket carries a reading.
    */
-  engagementRate: z.number().min(0).max(1).nullable(),
+  engagementRate: fraction(z.number().min(0).max(1)).nullable(),
   dailyTotalUsers: z.number().int().nonnegative().nullable(),
   dailyNewUsers: z.number().int().nonnegative().nullable(),
   /** False when the bucket has no engagement reading at all. */

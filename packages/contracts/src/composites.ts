@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { citationStateSchema, latestProjectRunDtoSchema } from './run.js'
 import type { LatestProjectRunDto } from './run.js'
 import { projectDtoSchema } from './project.js'
@@ -302,8 +303,8 @@ const scoreSummarySchema = z.object({
   tone: metricToneSchema,
   description: z.string(),
   tooltip: z.string().optional(),
-  trend: z.array(z.number()),
-  progress: z.number().optional(),
+  trend: z.array(percent()),
+  progress: percent().optional(),
   providerCoverage: z.string().optional(),
 })
 
@@ -313,11 +314,11 @@ const mentionShareBreakdownSchema = z.object({
   perCompetitor: z.array(z.object({
     domain: z.string(),
     mentionSnapshots: z.number().int().nonnegative(),
-    shareOfCompetitiveTotal: z.number(),
+    shareOfCompetitiveTotal: percent(),
   })),
   snapshotsWithAnswerText: z.number().int().nonnegative(),
   snapshotsTotal: z.number().int().nonnegative(),
-  score: z.number().int().min(0).max(100).nullable(),
+  score: percent(z.number().int().min(0).max(100)).nullable(),
 })
 
 const mentionShareSchema = scoreSummarySchema.extend({
@@ -393,14 +394,14 @@ const projectOverviewHealthSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: z.number(),
-  overallMentionRate: z.number(),
+  overallCitedRate: fraction(),
+  overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: z.number(),
-    mentionRate: z.number(),
+    citedRate: fraction(),
+    mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
@@ -425,14 +426,14 @@ export const projectOverviewDtoSchema = z.object({
     totalQueries: z.number().int().nonnegative(),
     citedQueries: z.number().int().nonnegative(),
     notCitedQueries: z.number().int().nonnegative(),
-    citedRate: z.number(),
+    citedRate: fraction(),
     mentionedQueries: z.number().int().nonnegative(),
     notMentionedQueries: z.number().int().nonnegative(),
-    mentionRate: z.number(),
+    mentionRate: fraction(),
   }),
   providers: z.array(z.object({
     provider: z.string(),
-    citedRate: z.number(),
+    citedRate: fraction(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
   })),
@@ -467,10 +468,10 @@ export const projectOverviewDtoSchema = z.object({
   providerScores: z.array(z.object({
     provider: z.string(),
     model: z.string().nullable(),
-    score: z.number(),
+    score: percent(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
-    trend: z.array(z.number()).optional(),
+    trend: z.array(percent()).optional(),
   })),
   attentionItems: z.array(z.object({
     id: z.string(),
@@ -485,9 +486,9 @@ export const projectOverviewDtoSchema = z.object({
     createdAt: z.string(),
     citedCount: z.number().int().nonnegative(),
     totalCount: z.number().int().nonnegative(),
-    citationRate: z.number(),
+    citationRate: percent(),
     mentionedCount: z.number().int().nonnegative(),
-    mentionRate: z.number(),
+    mentionRate: percent(),
     status: z.string(),
   })),
   suggestedQueries: z.object({
