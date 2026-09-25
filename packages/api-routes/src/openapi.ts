@@ -3817,6 +3817,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/google/gsc/query-totals',
+    summary: 'Get GSC totals per query for a date window',
+    description: 'One row per search query over the window, read from stored sync data (no call to Google, no writes): clicks, impressions, CTR, impression-weighted average position (sum(position*impressions)/sum(impressions)) and the number of days the query appeared. Rows are ordered by clicks desc, impressions desc, then query ascending by code point, and paged with `limit` / `offset`; `totalMatching` counts every query and `truncated` says more rows follow. The rows cover the queries Google names only: Google leaves rare and anonymised queries out of per-query data, so their sum is below the property total (read `/google/gsc/performance/daily` for that). Each row carries `source`: `google` when every day came from Google\'s per-query fetch, `page-summed` when every day came from the legacy page-dimensioned table (impressions over-count), `mixed` when the window spans both.',
+    tags: ['google'],
+    parameters: [
+      nameParameter,
+      { name: 'startDate', in: 'query', description: 'Inclusive start date (YYYY-MM-DD). Overrides the window\'s lower bound.', schema: stringSchema },
+      { name: 'endDate', in: 'query', description: 'Inclusive end date (YYYY-MM-DD). Overrides the window\'s upper bound.', schema: stringSchema },
+      limitQueryParameter,
+      offsetQueryParameter,
+      analyticsWindowParameter,
+    ],
+    responses: {
+      200: jsonResponse('Per-query Search Console totals for the window.', 'GscQueryTotalsDto'),
+      400: errorResponse('Invalid date, range or window.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/google/gsc/inspect',
     summary: 'Inspect a URL through Google Search Console',

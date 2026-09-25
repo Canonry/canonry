@@ -201,6 +201,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/google/gsc/performance': 'included',
   'GET /api/v1/projects/{name}/google/gsc/performance/daily': 'included',
   'GET /api/v1/projects/{name}/google/gsc/top-pages': 'included',
+  'GET /api/v1/projects/{name}/google/gsc/query-totals': 'included',
   'POST /api/v1/projects/{name}/google/gsc/inspect': 'deferred',
   'GET /api/v1/projects/{name}/google/gsc/inspections': 'included',
   'GET /api/v1/projects/{name}/google/gsc/deindexed': 'included',

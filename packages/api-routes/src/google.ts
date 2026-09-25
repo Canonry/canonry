@@ -25,6 +25,7 @@ import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-perio
 import { buildGbpSummary } from './gbp-summary.js'
 import {
   mergeGscDailyTotalsWithFallback, readGscDailyTotals,
+  mergeGscQueryTotalsWithFallback, readGscQueryDailyRows, readGscQueryDailyFallbackRows,
   readEarliestGscDataDate, readLatestGscDataDate,
   resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
@@ -1230,6 +1231,66 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       totalsSource: 'property-daily' as const,
       rankedFrom: rankedSpan?.first ?? null,
       rankedThrough: rankedSpan?.last ?? null,
+    }
+  })
+
+  // GET /projects/:name/google/gsc/query-totals
+  //
+  // One row per query over the window, read from stored rows only: no call to
+  // Google and no writes. The fold is `mergeGscQueryTotalsWithFallback`, the
+  // same one the report, suggested queries and content data use, so the numbers
+  // agree across surfaces: the accurate `['date','query']` table wins per day
+  // and the legacy page-dimensioned table fills days it does not cover.
+  //
+  // The rows are the queries Google NAMES. Their sum is not the property total
+  // (Google leaves rare queries out); `performance/daily` carries that.
+  app.get<{
+    Params: { name: string }
+    Querystring: { startDate?: string; endDate?: string; window?: string; limit?: string; offset?: string }
+  }>('/projects/:name/google/gsc/query-totals', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { startDate, endDate, limit, offset } = request.query
+    assertForwardRange(startDate, endDate)
+    const resolvedWindow = resolveGscWindowRange(
+      parseWindow(request.query.window),
+      readLatestGscDataDate(app.db, project.id),
+      gscToday(),
+    )
+    const reportedWindow = resolveReportedWindow(resolvedWindow, startDate, endDate)
+    const windowStart = startDate ?? resolvedWindow.startDate ?? ''
+    const windowEnd = endDate ?? resolvedWindow.endDate ?? '9999-12-31'
+
+    const merged = mergeGscQueryTotalsWithFallback(
+      readGscQueryDailyRows(app.db, project.id, windowStart, windowEnd),
+      readGscQueryDailyFallbackRows(app.db, project.id, windowStart, windowEnd),
+    )
+    // Fully determined so a page boundary never moves between calls. The final
+    // tiebreak compares code points, not `localeCompare`, so the order does not
+    // depend on the server's locale.
+    merged.sort((a, b) =>
+      b.clicks - a.clicks
+      || b.impressions - a.impressions
+      || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0))
+
+    const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
+    const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)
+    const page = merged.slice(offsetVal, offsetVal + limitVal)
+
+    return {
+      rows: page.map((r) => ({
+        query: r.query,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
+        position: r.position,
+        days: r.days,
+        source: r.source,
+      })),
+      totalMatching: merged.length,
+      // Measured from where this page ends, so a page past the end is not
+      // reported as truncated.
+      truncated: offsetVal + page.length < merged.length,
+      window: reportedWindow,
     }
   })
 

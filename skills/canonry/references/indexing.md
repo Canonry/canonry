@@ -33,6 +33,7 @@ cnry google sync <project> --full --wait      # full re-sync
 cnry google performance <project>                        # top rows by clicks
 cnry google performance <project> --days 90 --keyword "term"
 cnry google performance <project> --start 2026-06-01 --end 2026-06-30 --order-by date
+cnry google query-totals <project> --window 30d        # one row per named query (not a property total)
 ```
 
 ### Discover and inspect sitemaps

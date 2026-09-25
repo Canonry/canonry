@@ -74,6 +74,7 @@ const expectedToolNames = [
   'canonry_gsc_performance',
   'canonry_gsc_performance_daily',
   'canonry_gsc_top_pages',
+  'canonry_gsc_query_totals',
   'canonry_gsc_inspections',
   'canonry_gsc_deindexed',
   'canonry_gsc_coverage',
@@ -675,8 +676,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(228)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(151)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(229)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(152)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -715,7 +716,7 @@ describe('MCP tool registry', () => {
     }
     expect(counts.get('monitoring')).toBe(50)
     expect(counts.get('setup')).toBe(60)
-    expect(counts.get('gsc')).toBe(10)
+    expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(13)
     expect(counts.get('ads')).toBe(26)
@@ -1427,6 +1428,12 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
   { tool: 'canonry_gsc_performance', input: { project: 'acme', window: '30d' }, methods: ['gscPerformance'] },
   { tool: 'canonry_gsc_performance_daily', input: { project: 'acme', window: '30d' }, methods: ['gscPerformanceDaily'] },
+  {
+    tool: 'canonry_gsc_query_totals',
+    input: { project: 'acme', startDate: '2026-06-01', endDate: '2026-06-30', limit: 100, offset: 100 },
+    methods: ['gscQueryTotals'],
+    expectedArgs: [['acme', { startDate: '2026-06-01', endDate: '2026-06-30', limit: '100', offset: '100' }]],
+  },
   { tool: 'canonry_gsc_inspections', input: { project: 'acme', limit: 5 }, methods: ['gscInspections'] },
   { tool: 'canonry_gsc_deindexed', input: projectInput, methods: ['gscDeindexed'] },
   { tool: 'canonry_gsc_coverage', input: projectInput, methods: ['gscCoverage'] },

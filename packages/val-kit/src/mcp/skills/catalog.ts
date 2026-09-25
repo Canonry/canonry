@@ -162,7 +162,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 109733,
+    characters: 110945,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {
@@ -192,7 +192,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Indexing Workflows for AEO",
     description: "canonry skill reference: references/indexing.md",
     entryPoint: false,
-    characters: 6438,
+    characters: 6542,
     content: canonryReferencesIndexingPart0,
   },
   {

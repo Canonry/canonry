@@ -278,6 +278,12 @@ export interface GscQueryAggregate extends GscQueryTotal {
    * saying so would overstate. The caller is told instead.
    */
   source: 'google' | 'page-summed' | 'mixed'
+  /**
+   * Distinct dates the query appeared on in the window, across both sources.
+   * A day covered by both counts once: the merge keeps one row per
+   * (date, query).
+   */
+  days: number
 }
 
 /**
@@ -322,6 +328,54 @@ export function readGscQueryDailyRows(
       position: Number.isFinite(position) ? position : 0,
     }
   })
+}
+
+/**
+ * Read per-(date, query) rows from the legacy dimensioned `gsc_search_data`
+ * table over an inclusive `[startDate, endDate]` window, folded across its
+ * `page` / `country` / `device` rows.
+ *
+ * This is the FALLBACK side of `mergeGscQueryTotalsWithFallback`. Its
+ * impressions over-count (one SERP showing several of the site's pages becomes
+ * several rows), which is why the merge prefers the accurate table wherever it
+ * has the day. Position is TEXT in this table, so it is cast explicitly before
+ * the impression weighting. Empty queries (the sync writes `query ?? ''`) and
+ * zero-impression rows are left out: neither names a query anyone searched.
+ */
+export function readGscQueryDailyFallbackRows(
+  db: DatabaseClient,
+  projectId: string,
+  startDate: string,
+  endDate: string,
+): GscQueryDayRow[] {
+  const rows = db
+    .select({
+      date: gscSearchData.date,
+      query: gscSearchData.query,
+      clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
+      impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
+      position: sql<number>`COALESCE(SUM(CAST(${gscSearchData.position} AS REAL) * ${gscSearchData.impressions}) * 1.0 / NULLIF(SUM(${gscSearchData.impressions}), 0), 0)`,
+    })
+    .from(gscSearchData)
+    .where(
+      and(
+        eq(gscSearchData.projectId, projectId),
+        sql`${gscSearchData.date} >= ${startDate}`,
+        sql`${gscSearchData.date} <= ${endDate}`,
+        sql`${gscSearchData.query} <> ''`,
+        sql`${gscSearchData.impressions} > 0`,
+      ),
+    )
+    .groupBy(gscSearchData.date, gscSearchData.query)
+    .all()
+
+  return rows.map((r) => ({
+    date: r.date,
+    query: r.query,
+    clicks: Number(r.clicks),
+    impressions: Number(r.impressions),
+    position: Number(r.position),
+  }))
 }
 
 interface QueryAccumulator {
@@ -393,5 +447,7 @@ export function mergeGscQueryTotalsWithFallback(
           ? acc.positionSum / acc.positionDays
           : 0,
     source: acc.sawAccurate && acc.sawLegacy ? 'mixed' : acc.sawAccurate ? 'google' : 'page-summed',
+    // One merged row per (date, query), so this is the distinct-date count.
+    days: acc.positionDays,
   }))
 }

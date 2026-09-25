@@ -229,6 +229,13 @@ canonry google performance <project> --limit 2000 --offset 2000
 canonry google top-pages <project>
 canonry google top-pages <project> --start 2026-06-01 --end 2026-06-30 --limit 20
 
+# Totals per search query for a window (one row per query, clicks desc).
+# `position` is weighted by impressions and `days` counts the dates the query
+# appeared. These are the queries Google names; Google leaves rare queries
+# out, so the rows do not add up to the property total (use performance-daily).
+canonry google query-totals <project> --start 2026-06-01 --end 2026-06-30
+canonry google query-totals <project> --window 90d --limit 500 --offset 500
+
 # Index coverage summary
 canonry google coverage <project>
 canonry google coverage-history <project>
