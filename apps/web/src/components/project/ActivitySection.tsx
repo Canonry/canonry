@@ -32,7 +32,7 @@ import { AiTrafficHistoryPanel } from './AiTrafficHistoryPanel.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import type { MetricsWindow } from '@ainyc/canonry-contracts'
+import { formatPercent, type MetricsWindow } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import {
   toneFromTrafficSourceStatus,
@@ -1506,9 +1506,7 @@ function AttributionStat({
 }
 
 function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
-  const organicPct = page.sessions > 0
-    ? ((page.organicSessions / page.sessions) * 100).toFixed(1)
-    : '0.0'
+  const organicShare = formatPercent(page.sessions > 0 ? page.organicSessions / page.sessions : 0)
 
   return (
     <tr className="border-t border-subtle">
@@ -1522,7 +1520,7 @@ function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
         {page.organicSessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {organicPct}%
+        {organicShare}
       </td>
     </tr>
   )
@@ -1547,7 +1545,7 @@ function AiReferralRow({
   referral: ApiGaTrafficReferral
   totalSessions: number
 }) {
-  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+  const share = formatPercent(totalSessions > 0 ? referral.sessions / totalSessions : 0)
   const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
   const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
   const trafficClassLabel = referral.trafficClass === 'paid' ? 'Paid' : 'Organic'
@@ -1587,7 +1585,7 @@ function AiReferralRow({
         {referral.sessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}%
+        {share}
       </td>
     </tr>
   )
@@ -1627,7 +1625,7 @@ function SocialReferralRow({
   referral: ApiGaSocialReferral
   totalSessions: number
 }) {
-  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+  const share = formatPercent(totalSessions > 0 ? referral.sessions / totalSessions : 0)
   const channelLabel = referral.channelGroup === 'Paid Social' ? 'Paid' : 'Organic'
   const sourceDisplay = decodeSocialSourceLabel(referral.source)
   const mediumDisplay = decodeSocialSourceLabel(referral.medium)
@@ -1652,7 +1650,7 @@ function SocialReferralRow({
         {referral.sessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}%
+        {share}
       </td>
     </tr>
   )

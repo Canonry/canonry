@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   formatMicros,
+  formatPercent,
   type GoogleAdsCampaignStatus,
   type GoogleAdsMetricsWindow,
   type GoogleAdsPerformanceDto,
@@ -62,7 +63,6 @@ export const GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY: Record<'insufficient-histor
 const COUNT_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
 /** Google reports fractional conversions, so 0.5 is a real value, not a rounding artifact. */
 const CONVERSION_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
-const PERCENT_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
 /** Currency-less amount, used only when the account currency is unresolved. */
 const AMOUNT_FORMAT = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -81,15 +81,13 @@ export function formatGoogleAdsMicros(micros: number | null, currency: string | 
   return formatMicros(micros, currency)
 }
 
-/** A raw ratio (0.0731) as a display percentage. Never rounded before this point. */
+/**
+ * A raw ratio (0.0731) as a display percentage. Never rounded before this point.
+ * An undefined ratio keeps this surface's own word rather than the shared dash.
+ */
 export function formatGoogleAdsRatio(ratio: number | null): string {
   if (ratio === null || !Number.isFinite(ratio)) return GOOGLE_ADS_NOT_AVAILABLE
-  const percent = ratio * 100
-  // One decimal turns a measured 0.04% into "0%", which asserts no rate at all.
-  // A rate that is small is not a rate that is absent, and this surface already
-  // distinguishes those everywhere else.
-  if (percent > 0 && percent < 0.1) return '<0.1%'
-  return `${PERCENT_FORMAT.format(percent)}%`
+  return formatPercent(ratio)
 }
 
 /**
@@ -102,9 +100,7 @@ export function formatGoogleAdsRatio(ratio: number | null): string {
 export function formatGoogleAdsChange(ratio: number | null, days: number): string {
   if (ratio === null || !Number.isFinite(ratio)) return `${GOOGLE_ADS_NOT_AVAILABLE} vs prior ${days}d`
   if (ratio === 0) return `no change vs prior ${days}d`
-  const percent = Math.abs(ratio * 100)
-  const formatted = percent < 0.1 ? '<0.1%' : `${PERCENT_FORMAT.format(percent)}%`
-  return `${ratio > 0 ? '↑' : '↓'} ${formatted} vs prior ${days}d`
+  return `${ratio > 0 ? '↑' : '↓'} ${formatPercent(Math.abs(ratio))} vs prior ${days}d`
 }
 
 function campaignStatusTone(status: GoogleAdsCampaignStatus): MetricTone {

@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
+import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -244,7 +244,7 @@ function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasi
       </span>
     )
   }
-  const percent = `${Math.round(metric.value * 100)}%`
+  const percent = formatPercent(metric.value)
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
@@ -419,7 +419,10 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
       </div>
     )
   }
-  const percent = Math.round(metric.value * 100)
+  // The hero sets the percent sign apart from the figure, as the Simple overview
+  // hero does; both halves are the shared format's own output.
+  const percent = formatPercent(metric.value)
+  const figure = percent.endsWith('%') ? percent.slice(0, -1) : percent
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
@@ -427,9 +430,9 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>
-      <p className="aeo-hero-row-value text-heading">{percent}<span className="text-faint">%</span></p>
+      <p className="aeo-hero-row-value text-heading">{figure}{figure === percent ? null : <span className="text-faint">%</span>}</p>
       <div className="aeo-hero-row-bar" aria-hidden="true">
-        <div className="metric-card-bar-fill progress-fill-neutral" style={{ width: `${percent}%` }} />
+        <div className="metric-card-bar-fill progress-fill-neutral" style={{ width: `${metric.value * 100}%` }} />
       </div>
       <p className="aeo-hero-row-detail tabular-nums">
         {counted ?? ''}
