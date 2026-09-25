@@ -146,6 +146,16 @@ test('does not report unconfigured providers to a viewer whose settings are unav
   expect(doc.body.textContent).toContain('Infrastructure')
 })
 
+test('shows each project mention rate through formatPercent, not as a bare number', async () => {
+  const doc = await renderOverview(fixture => {
+    // 2 of 3 queries mentioned is 66.67 on the wire; the others are whole.
+    fixture.dashboard.portfolioOverview.projects[0]!.mentionScore = 66.67
+  })
+  const mentioned = [...doc.querySelectorAll('.project-row')]
+    .map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)
+  expect(mentioned).toEqual(['66.7%', '74.0%', '58.0%'])
+})
+
 test('shows an awaiting-baseline state rather than zero performance or stable results', async () => {
   const doc = await renderOverview(fixture => {
     fixture.dashboard.portfolioOverview.projects.forEach(project => { project.hasMeasurement = false; project.mentionScore = 0 })

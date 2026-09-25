@@ -69,7 +69,8 @@ describe('buildMentionShare', () => {
       [snap(true, 'Some answer.'), snap(true, 'Another.')],
       baseOpts,
     )
-    expect(result.value).toBe('100')
+    expect(result.value).toBe('100%')
+    expect(result.progress).toBe(100)
     expect(result.tone).toBe('positive')
   })
 
@@ -81,7 +82,8 @@ describe('buildMentionShare', () => {
       ],
       baseOpts,
     )
-    expect(result.value).toBe('50')
+    expect(result.value).toBe('50.0%')
+    expect(result.progress).toBe(50)
     expect(result.tone).toBe('positive')
     expect(result.breakdown.projectMentionSnapshots).toBe(1)
     expect(result.breakdown.competitorMentionSnapshots).toBe(1)
@@ -94,10 +96,11 @@ describe('buildMentionShare', () => {
     for (let i = 0; i < 2; i++) snaps.push(snap(false, `Praising OtherBrand and similar #${i}`))
     const result = buildMentionShare(snaps, { competitors: [rivalA, rivalB] })
     expect(result.breakdown.perCompetitor).toEqual([
-      { domain: 'rival-a.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 66.7 },
-      { domain: 'rival-b.com', mentionSnapshots: 2, shareOfCompetitiveTotal: 33.3 },
+      { domain: 'rival-a.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 66.67 },
+      { domain: 'rival-b.com', mentionSnapshots: 2, shareOfCompetitiveTotal: 33.33 },
     ])
-    expect(result.value).toBe('40') // 4 project / (4 + 6) = 40
+    expect(result.value).toBe('40.0%') // 4 project / (4 + 6) = 40
+    expect(result.breakdown.score).toBe(40)
   })
 
   it('respects word-boundary matching: brand token "rival" does NOT match "Survival"', () => {
@@ -187,15 +190,16 @@ describe('buildMentionShare', () => {
     const snaps: MentionShareSnapshot[] = []
     for (let i = 0; i < 5; i++) snaps.push(snap(false, `Rival update ${i}`))
     const result = buildMentionShare(snaps, baseOpts)
-    expect(result.value).toBe('0')
+    expect(result.value).toBe('0%')
+    expect(result.breakdown.score).toBe(0)
     expect(result.tone).toBe('negative')
     expect(result.breakdown.projectMentionSnapshots).toBe(0)
     expect(result.breakdown.competitorMentionSnapshots).toBe(5)
   })
 
-  it('shareOfCompetitiveTotal rows sum to ≈100 (within ±0.2 for three-way splits)', () => {
-    // Three competitors each mentioned in 1 snapshot → each gets ~33.3%.
-    // Rounding gives 33.3 × 3 = 99.9 (or 100.1 depending on direction).
+  it('shareOfCompetitiveTotal rows sum to ≈100 (within ±0.02 for three-way splits)', () => {
+    // Three competitors each mentioned in 1 snapshot → each gets 33.33%.
+    // Two-decimal rounding gives 33.33 × 3 = 99.99.
     // Assert the residual stays within a tight band so an agent consumer
     // can rely on "approximately 100" without exact arithmetic.
     const competitors: MentionShareCompetitor[] = [
@@ -209,9 +213,10 @@ describe('buildMentionShare', () => {
       snap(false, 'ThreeCo announcement'),
     ]
     const result = buildMentionShare(snaps, { competitors })
+    expect(result.breakdown.perCompetitor.map(r => r.shareOfCompetitiveTotal)).toEqual([33.33, 33.33, 33.33])
     const total = result.breakdown.perCompetitor.reduce((sum, r) => sum + r.shareOfCompetitiveTotal, 0)
-    expect(total).toBeGreaterThanOrEqual(99.8)
-    expect(total).toBeLessThanOrEqual(100.2)
+    expect(total).toBeCloseTo(99.99, 10)
+    expect(Math.abs(total - 100)).toBeLessThanOrEqual(0.02)
   })
 
   it('demand-iq replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
@@ -225,7 +230,10 @@ describe('buildMentionShare', () => {
     for (let i = 0; i < 20; i++) snaps.push(snap(false, `Talking about Roofr software ${i}`))
     for (let i = 0; i < 13; i++) snaps.push(snap(false, `BuildXact integration story ${i}`))
     const result = buildMentionShare(snaps, { competitors })
-    expect(result.value).toBe('13') // 5 / 38
+    // 5 / 38 = 13.157…%: two decimals on the wire, one decimal in `value`.
+    expect(result.breakdown.score).toBe(13.16)
+    expect(result.progress).toBe(13.16)
+    expect(result.value).toBe('13.2%')
     expect(result.tone).toBe('negative')
     expect(result.breakdown.perCompetitor[0]!.domain).toBe('roofr.com')
     expect(result.breakdown.perCompetitor[0]!.mentionSnapshots).toBe(20)
@@ -281,7 +289,7 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
     expect(result.breakdown.projectMentionSnapshots).toBe(1)
     expect(result.breakdown.competitorMentionSnapshots).toBe(24)
     expect(result.breakdown.score).toBe(4) // 1 / 25 = 4%
-    expect(result.value).toBe('4')
+    expect(result.value).toBe('4.0%')
     expect(result.tone).toBe('negative')
 
     // THE INVARIANT: every tracked competitor outranks the subject.
@@ -308,7 +316,8 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
     expect(pooled.scope).toBe('pooled')
     expect(pooled.breakdown.projectMentionSnapshots).toBe(21)
     expect(pooled.breakdown.competitorMentionSnapshots).toBe(24)
-    expect(pooled.breakdown.score).toBe(47) // 21 / 45
+    expect(pooled.breakdown.score).toBe(46.67) // 21 / 45, two decimals, not 47
+    expect(pooled.value).toBe('46.7%')
     expect(pooled.delta).toBe('21 of 45 brand mentions · pooled queries · classification unavailable')
     const topCompetitor = pooled.breakdown.perCompetitor[0]!
     expect(pooled.breakdown.projectMentionSnapshots).toBeGreaterThan(topCompetitor.mentionSnapshots)

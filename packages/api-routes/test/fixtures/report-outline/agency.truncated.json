@@ -172,10 +172,10 @@
           "tile": "Cited queries «positive|3.3 ↑» +0.6 vs 2.7"
         },
         {
-          "tile": "GSC clicks «positive|520 ↑» +8% vs prior 14 days"
+          "tile": "GSC clicks «positive|520 ↑» +8.3% vs prior 14 days"
         },
         {
-          "tile": "AI referral sessions «positive|110 ↑» +22% vs prior 14 days"
+          "tile": "AI referral sessions «positive|110 ↑» +22.2% vs prior 14 days"
         },
         {
           "text": "AI engine movements"
@@ -745,7 +745,7 @@
           "text": "Channel mix"
         },
         {
-          "text": "Organic Search 8.0K sessions · 67.0% Direct 4.0K sessions · 33.0%"
+          "text": "Organic Search 8.0K sessions · 66.7% Direct 4.0K sessions · 33.3%"
         }
       ]
     },
@@ -792,7 +792,7 @@
           "text": "Social channel mix"
         },
         {
-          "text": "Organic Social 1.0K sessions · 67.0% Paid Social 500 sessions · 33.0%"
+          "text": "Organic Social 1.0K sessions · 66.7% Paid Social 500 sessions · 33.3%"
         },
         {
           "text": "Top campaigns"
@@ -935,10 +935,10 @@
           "tile": "Verified crawler hits (7d) 234 «positive|Up 100% vs prior 7 days (117 hits)»"
         },
         {
-          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200% vs prior 7 days (5 hits)»"
+          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200.0% vs prior 7 days (5 hits)»"
         },
         {
-          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133% vs prior 7 days (18 hits)»"
+          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133.3% vs prior 7 days (18 hits)»"
         },
         {
           "tile": "AI-referral sessions (7d) 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1 · 120 blocked by redirects"
@@ -959,7 +959,7 @@
             "0",
             "30",
             "8",
-            "«positive|+75%»"
+            "«positive|+75.0%»"
           ]
         },
         {

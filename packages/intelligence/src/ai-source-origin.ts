@@ -1,6 +1,7 @@
 import {
   categorizeSourceWithCompetitors,
   categoryLabel,
+  percentOf,
   type AiSourceCategoryBucket,
   type ProjectReportDto,
   type SourceCategory,
@@ -51,7 +52,7 @@ export function buildAiSourceOrigin(
       category,
       label,
       count,
-      sharePct: totalCitations > 0 ? Math.round((count / totalCitations) * 100) : 0,
+      sharePct: percentOf(count, totalCitations) ?? 0,
     }))
     .sort((a, b) => b.count - a.count)
 

@@ -1,4 +1,4 @@
-import { CitationStates, type CitationCell, type ProjectReportDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type CitationCell, type ProjectReportDto } from '@ainyc/canonry-contracts'
 
 export interface ScorecardSnapshot {
   queryId: string
@@ -56,8 +56,8 @@ export function buildCitationScorecard(
 
   const providerRates = providerList.map(provider => {
     const counts = providerCounts.get(provider) ?? { cited: 0, mentioned: 0, total: 0 }
-    const citationRate = counts.total > 0 ? Math.round((counts.cited / counts.total) * 100) : 0
-    const mentionRate = counts.total > 0 ? Math.round((counts.mentioned / counts.total) * 100) : 0
+    const citationRate = percentOf(counts.cited, counts.total) ?? 0
+    const mentionRate = percentOf(counts.mentioned, counts.total) ?? 0
     return {
       provider,
       citedCount: counts.cited,

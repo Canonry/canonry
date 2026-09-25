@@ -1,4 +1,4 @@
-import { CitationStates, type RunHistoryPointDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type RunHistoryPointDto } from '@ainyc/canonry-contracts'
 
 export interface RunHistoryRun {
   id: string
@@ -25,8 +25,9 @@ export const DEFAULT_RUN_HISTORY_LIMIT = 12
  * Each point carries both signals, computed independently at the *query*
  * level: a query is "cited" for a run if any snapshot in that run has
  * citationState='cited', and "mentioned" if any snapshot has
- * answerMentioned===true. The two are never derived from each other. Runs
- * without any snapshots produce a zero-rate point.
+ * answerMentioned===true. The two are never derived from each other. Rates
+ * are 0..100 to two decimals (2 of 3 is 66.67). Runs without any snapshots
+ * produce a zero-rate point.
  */
 export function buildRunHistory(
   runs: readonly RunHistoryRun[],
@@ -52,9 +53,9 @@ export function buildRunHistory(
     }
     const totalCount = queryCited.size
     const citedCount = [...queryCited.values()].filter(Boolean).length
-    const citationRate = totalCount > 0 ? Math.round((citedCount / totalCount) * 100) : 0
+    const citationRate = percentOf(citedCount, totalCount) ?? 0
     const mentionedCount = [...queryMentioned.values()].filter(Boolean).length
-    const mentionRate = totalCount > 0 ? Math.round((mentionedCount / totalCount) * 100) : 0
+    const mentionRate = percentOf(mentionedCount, totalCount) ?? 0
     return {
       runId: run.id,
       createdAt: run.createdAt,

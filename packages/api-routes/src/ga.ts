@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
@@ -95,7 +95,7 @@ function buildChannelBreakdown(input: {
 
   const bucket = (sessions: number) => ({
     sessions,
-    sharePct: input.totalSessions > 0 ? Math.round((sessions / input.totalSessions) * 100) : 0,
+    sharePct: percentOf(sessions, input.totalSessions) ?? 0,
     sharePctDisplay: formatSharePct(sessions, input.totalSessions),
   })
 
@@ -106,7 +106,7 @@ function buildChannelBreakdown(input: {
     ai: bucket(aiSessions),
     other: {
       sessions: otherSessions,
-      sharePct: input.totalSessions > 0 ? Math.round((otherSessions / input.totalSessions) * 100) : 0,
+      sharePct: percentOf(otherSessions, input.totalSessions) ?? 0,
       sharePctDisplay: input.totalSessions <= 0 && coveredSessions > 0 ? '—' : formatSharePct(otherSessions, input.totalSessions),
     },
   }
@@ -1473,15 +1473,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       }))),
       socialSessions,
       channelBreakdown,
-      organicSharePct: total > 0 ? Math.round((totalOrganicSessions / total) * 100) : 0,
-      aiSharePct: total > 0 ? Math.round((aiSummary.deduped.sessions / total) * 100) : 0,
-      aiSharePctBySession: total > 0 ? Math.round((aiSummary.bySession.sessions / total) * 100) : 0,
-      paidAiSharePct: total > 0 ? Math.round((aiSummary.paidDeduped.sessions / total) * 100) : 0,
-      paidAiSharePctBySession: total > 0 ? Math.round((aiSummary.paidBySession.sessions / total) * 100) : 0,
-      organicAiSharePct: total > 0 ? Math.round((aiSummary.organicDeduped.sessions / total) * 100) : 0,
-      organicAiSharePctBySession: total > 0 ? Math.round((aiSummary.organicBySession.sessions / total) * 100) : 0,
-      directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
-      socialSharePct: total > 0 ? Math.round((socialSessions / total) * 100) : 0,
+      organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,
+      aiSharePct: percentOf(aiSummary.deduped.sessions, total) ?? 0,
+      aiSharePctBySession: percentOf(aiSummary.bySession.sessions, total) ?? 0,
+      paidAiSharePct: percentOf(aiSummary.paidDeduped.sessions, total) ?? 0,
+      paidAiSharePctBySession: percentOf(aiSummary.paidBySession.sessions, total) ?? 0,
+      organicAiSharePct: percentOf(aiSummary.organicDeduped.sessions, total) ?? 0,
+      organicAiSharePctBySession: percentOf(aiSummary.organicBySession.sessions, total) ?? 0,
+      directSharePct: percentOf(totalDirectSessions, total) ?? 0,
+      socialSharePct: percentOf(socialSessions, total) ?? 0,
       otherSessions: channelBreakdown.other.sessions,
       otherSharePct: channelBreakdown.other.sharePct,
       otherSharePctDisplay: channelBreakdown.other.sharePctDisplay,

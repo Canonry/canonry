@@ -21,9 +21,11 @@ import type {
 
 import {
   formatGbpMetricLabel,
+  formatPercent,
   classifyGbpMetric,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
+  RatioUnits,
   RunKinds,
   type InsightType,
 } from '@ainyc/canonry-contracts'
@@ -376,7 +378,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                 <p className="eyebrow eyebrow-soft">Search terms</p>
                 {keywordsQuery.data && keywordsQuery.data.total > 0 && (
                   <span className="text-[11px] text-faint">
-                    {keywordsQuery.data.thresholdedPct}% privacy-thresholded
+                    {formatPercent(keywordsQuery.data.thresholdedPct, RatioUnits.percent)} privacy-thresholded
                   </span>
                 )}
               </div>

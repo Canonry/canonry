@@ -30,7 +30,7 @@ describe('buildSourceMover', () => {
     expect(buildSourceMover('reddit.com', 0, 3)).toMatchObject({ changeSessions: -3, changePct: -100, changeBasis: GaMoverChangeBases['small-base'] })
   })
 
-  it('keeps the rounded percent on a small base and flags it by MIN_PCT_BASE', () => {
+  it('keeps the percent on a small base and flags it by MIN_PCT_BASE', () => {
     // (30 - 12) / 12 = +150%, but off a base of 12.
     expect(buildSourceMover('chatgpt.com', 30, 12)).toEqual({
       source: 'chatgpt.com',
@@ -40,14 +40,14 @@ describe('buildSourceMover', () => {
       changePct: 150,
       changeBasis: GaMoverChangeBases['small-base'],
     })
-    // (5 - 3) / 3 = 66.67%, rounded half up to 67.
-    expect(buildSourceMover('chatgpt.com', 5, 3)).toMatchObject({ changeSessions: 2, changePct: 67 })
+    // (5 - 3) / 3 = 66.67%, at the two decimals every percent is sent with.
+    expect(buildSourceMover('chatgpt.com', 5, 3)).toMatchObject({ changeSessions: 2, changePct: 66.67 })
   })
 
   it('states a percent from MIN_PCT_BASE up, and the session change just below it', () => {
     expect(MIN_PCT_BASE).toBe(30)
     expect(buildSourceMover('a.com', 45, MIN_PCT_BASE)).toMatchObject({ changeSessions: 15, changePct: 50, changeBasis: GaMoverChangeBases.percent })
-    expect(buildSourceMover('a.com', 44, MIN_PCT_BASE - 1)).toMatchObject({ changeSessions: 15, changePct: 52, changeBasis: GaMoverChangeBases['small-base'] })
+    expect(buildSourceMover('a.com', 44, MIN_PCT_BASE - 1)).toMatchObject({ changeSessions: 15, changePct: 51.72, changeBasis: GaMoverChangeBases['small-base'] })
     expect(moverChangeBasis(0)).toBe(GaMoverChangeBases.new)
     expect(moverChangeBasis(1)).toBe(GaMoverChangeBases['small-base'])
     expect(moverChangeBasis(MIN_PCT_BASE - 1)).toBe(GaMoverChangeBases['small-base'])
@@ -73,7 +73,7 @@ describe('findBiggestMover', () => {
       sessions7d: 10,
       sessionsPrev7d: 35,
       changeSessions: -25,
-      changePct: -71,
+      changePct: -71.43,
       changeBasis: GaMoverChangeBases.percent,
     })
   })

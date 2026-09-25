@@ -23,7 +23,7 @@ function breakdown(over: Partial<MentionShareBreakdownVm> = {}): MentionShareBre
 function summary(over: Partial<Summary> = {}): Summary {
   return {
     label: 'Mention Share',
-    value: '38',
+    value: '38.0%',
     delta: '',
     tone: 'caution',
     description: '',
@@ -83,8 +83,8 @@ describe('MentionShare class control', () => {
     expect(within(group).getByRole('radio', { name: 'Non-brand' }).getAttribute('aria-checked')).toBe('true')
     expect(within(group).getByRole('radio', { name: 'Branded' }).getAttribute('aria-checked')).toBe('false')
 
-    // The competitive figure, and only it.
-    expect(block().querySelector('.mention-share-value')?.textContent).toBe('10%')
+    // The competitive figure, and only it, through the shared percent format.
+    expect(block().querySelector('.mention-share-value')?.textContent).toBe('10.0%')
     expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
     // 100 is the branded score. It must not be on screen while non-brand is.
     expect(block().textContent).not.toContain('100%')
@@ -93,6 +93,24 @@ describe('MentionShare class control', () => {
     const shares = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
       .map(row => row.querySelector('.mention-share-share')?.textContent)
     expect(shares).toEqual(['90.0%', '10.0%'])
+  })
+
+  it('shows the API share to one decimal, with the sign set apart and never doubled', () => {
+    // 1 of 3 named brands is 33.33 on the wire.
+    renderShare({
+      breakdown: breakdown({
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 2,
+        perCompetitor: [{ domain: 'rival-one.example', mentionSnapshots: 2, shareOfCompetitiveTotal: 100 }],
+        snapshotsWithAnswerText: 3,
+        snapshotsTotal: 3,
+        score: 33.33,
+      }),
+    })
+    const value = block().querySelector('.mention-share-value')!
+    expect(value.textContent).toBe('33.3%')
+    expect(value.querySelector('.text-faint')?.textContent).toBe('%')
+    expect(block().textContent).not.toContain('%%')
   })
 
   it('switching to Branded swaps the denominator, the caption word, and the rows together', () => {

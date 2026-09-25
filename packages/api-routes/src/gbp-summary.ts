@@ -13,7 +13,7 @@
  *   - Empty input yields zeros / empty maps, never `NaN`.
  */
 
-import { deltaPercent } from '@ainyc/canonry-contracts'
+import { deltaPercent, percentOf } from '@ainyc/canonry-contracts'
 
 export interface DailyMetricInput {
   metric: string
@@ -64,15 +64,10 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(ty!, tm! - 1, td!) - Date.UTC(fy!, fm! - 1, fd!)) / 86_400_000)
 }
 
-function roundPct(numerator: number, denominator: number): number {
-  if (denominator === 0) return 0
-  return Math.round((numerator / denominator) * 100)
-}
-
 export interface WindowDelta {
   recent7d: Record<string, number>
   prior7d: Record<string, number>
-  /** Per-metric % change recent-vs-prior; null when the prior window is 0. */
+  /** Per-metric % change recent-vs-prior in percent units, to two decimals; null when the prior window is 0. */
   deltaPct: Record<string, number | null>
 }
 
@@ -200,7 +195,7 @@ export function buildTimeseries(rows: DailyMetricInput[], freshness: GbpFreshnes
 export interface KeywordCoverage {
   total: number
   thresholdedCount: number
-  /** Share of keywords privacy-redacted by Google, 0–100. */
+  /** Share of keywords privacy-redacted by Google, 0–100 to two decimals; 0 with no keywords. */
   thresholdedPct: number
 }
 
@@ -208,7 +203,7 @@ export interface KeywordCoverage {
 export function computeKeywordCoverage(rows: KeywordInput[]): KeywordCoverage {
   const total = rows.length
   const thresholdedCount = rows.filter((r) => r.valueCount === null).length
-  return { total, thresholdedCount, thresholdedPct: roundPct(thresholdedCount, total) }
+  return { total, thresholdedCount, thresholdedPct: percentOf(thresholdedCount, total) ?? 0 }
 }
 
 export interface PlaceActionSummary {
