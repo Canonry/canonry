@@ -16,6 +16,7 @@ The publishable npm package (`@canonry/canonry`, plus compatibility publish as `
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — resolves embed mode (see "Embed mode (#716)") |
 | `src/agent-config.ts` | `resolveAgentEnabled(env, config)` — the Aero kill-switch (rules: `src/agent/AGENTS.md`) |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps (see "Run completion pipeline") |
+| `src/provider-batch-poller.ts` | Polls submitted provider batches, enforces their deadlines, drives ingest and batch-run finalization (see "Run completion pipeline") |
 | `src/scheduler.ts` | Cron runner for all schedule kinds |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters (see "Provider registration") |
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
@@ -174,7 +175,8 @@ Different run kinds may overlap on one project. Preserve shared provider gates
 and same-kind admission guards. Project-only cancellation requires exactly one
 active run; otherwise the CLI lists the candidates and requires a run ID.
 Boot recovery fails every queued/running run and its active crawl attempts;
-it does not resume interrupted work.
+it does not resume interrupted work. The one exception is a running sweep that
+wrote provider batches (see "Finalizing a sweep" below).
 
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
 The frozen definition records exact query text, identity, classification, location, and requested models.
@@ -185,6 +187,91 @@ This capture does not change current report calculations or reconstruct historic
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
+
+#### Finalizing a sweep (Critical)
+
+A sweep that measured ends through one compare-and-set on `running`:
+`finalizeRun` (from the sweep's own counts) or `finalizeBatchRun` (a run that
+wrote provider batches, from the database). Only the winner writes the
+status from those counts (`completed`, `partial` or `failed`), emits
+`run.completed` / `activation.completed`, counts the run and calls
+`onRunCompleted`, so a late or repeated attempt reports nothing. A new path
+that ends a sweep from what it recorded goes through one of them; never write
+that status directly.
+
+Four other writes end a sweep or change how it ended, each with its own guard:
+
+- Thrown: `executeRun`'s catch writes `failed` (compare-and-set on
+  `queued|running`, so a finished run is never overwritten) and cancels the
+  batches the sweep submitted. It reports from that execution whether or not
+  its write matched (`run.completed` failed, or `run.aborted` for a setup
+  abort, then `onRunCompleted`), so a stray dispatch of a run that already
+  ended reports again.
+- Cancelled: `POST /runs/:id/cancel` writes `cancelled` (compare-and-set on
+  `queued|running`) and reports nothing itself. `handleCancelledRun` reports
+  it (`run.completed` with status `cancelled`, then `onRunCompleted`).
+  `executeRun` calls it when the sweep sees the cancel while executing, and
+  when a run is dispatched already cancelled. Once the sweep has handed off,
+  `cancelRunBatches` calls it only after winning the claim (clearing
+  `pending_provider_errors`), so that path reports at most once.
+  `handleCancelledRun` itself has no guard (only its `finishedAt` write is
+  conditional): as with Thrown, a stray dispatch of an already-cancelled run
+  reports it again, even one `cancelRunBatches` already reported.
+- Restarted: `recoverStaleRuns` writes `failed` (compare-and-set on the status
+  it read) and reports no `run.completed` or `onRunCompleted`. A running sweep
+  with batch rows is handed to the poller instead (see below).
+- Filled: `finalizeRunFill` moves a `partial` run to `completed`
+  (compare-and-set on `partial`). Only that winner, unless a newer sweep
+  superseded it, calls `onRunCompleted` (`fill` origin); no second
+  `run.completed` is emitted.
+
+Provider batch lifecycle (`docs/batch-mode.md`):
+
+- `executeRun` submits each batch provider's slots (frozen
+  `runs.provider_dispatch_modes` AND `adapterSupportsBatch`), grouped by frozen
+  model and chunked to the request and byte limits. The `provider_batches` row
+  (`submitting`) and its `provider_batch_requests` ledger (inserted in slices,
+  under SQLite's variable limit) commit in one transaction BEFORE `submit`; if
+  that transaction fails, nothing was sent and the slots run sync. The lines
+  count as sent before `submit`, so a sweep that aborts mid-submit keeps their
+  reservation. A definite refusal (nothing was created) sets the row's
+  `quota_released` to its line count and moves it from `submitting` to
+  `failed` (compare-and-set, so a row already cancelled with its run stays
+  `cancelled`). If the sweep is still live, holding the provider's
+  reservation, the lines are uncounted and those slots run sync in the same
+  sweep. If it returns after the sweep aborted (whose catch settled the
+  reservation and cancelled the row), the row stays `cancelled`, the lines go
+  back to the day's quota and no slot is answered. Any other failure moves a
+  still-`submitting` row to `unknown`, never resubmitted.
+- A sweep that wrote a batch row never finalizes from its own count. It writes
+  its sync errors to `runs.pending_provider_errors` (`{}` when none: the marker
+  that the sweep is done), settles only its own reservation (what a batch
+  carries stays reserved on the row until ingest), leaves the run `running`,
+  and calls `finalizeBatchRun`. That finalizes only when the marker is set, no
+  batch is `submitting|submitted|ended`, and no `executeRun` in this process
+  holds the run. The marker covers a restart; the in-memory set covers the live
+  race in which a batch ends before the sync providers do.
+- `src/provider-batch-poller.ts` polls with a per-batch backoff, cancels at the
+  deadline (then waits an hour for the batch to end), and drives
+  `ingestProviderBatch`: lines map by `custom_id` → `parseTrackedQueryResponse`
+  → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
+  Unbilled lines (`errored|expired|canceled`) release their reservation under
+  `quota_released`. Ingest scores answers against the project's identity at
+  ingest time, as a fill does. An ended batch whose results stay unreadable is
+  given up by `abandonUnreadableProviderBatch`: `cancelled`, with the counts of
+  what was read and the unbilled part of that released; unread lines keep their
+  reservation. A batch cancelled mid-ingest keeps its counts too.
+- `onRunCancelled` calls `cancelRunBatches`: batches are cancelled at the
+  provider and never ingested. A handed-off run's cancellation is reported
+  there at most once (clearing the marker is the claim; a later stray
+  dispatch still reports it again, see "Cancelled" above); a live sweep
+  reports its own.
+  A sweep that throws after submitting cancels its batches before failing the
+  run, so no failed run keeps a batch working for it.
+- Boot recovery exception: `submitting` rows become `unknown`, and a running run
+  with batch rows is not failed. Its sync gaps get "Server restarted while run
+  was in progress", the marker is set, and the poller finalizes it (on its first
+  pass when nothing is outstanding, by which time `onRunCompleted` is wired).
 
 The notification system supports `citation.lost`, `citation.gained`, `run.completed`,
 `run.failed`, `insight.critical`, `insight.high`. `insight.critical` and
@@ -295,6 +382,8 @@ The command lives in `src/commands/backfill.ts` (historical recomputation for an
 ### Provider registration
 
 Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
+
+`src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `providerName`: the redactor omits a `provider` key. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 
 ### Health endpoint
 

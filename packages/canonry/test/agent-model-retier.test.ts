@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, MIGRATION_VERSIONS, agentSessions, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, MIGRATION_VERSIONS, agentSessions, type DatabaseClient } from '@ainyc/canonry-db'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { AGENT_PROVIDERS } from '../src/agent/providers.js'
 import { AeroToolScopes } from '../src/agent/tools.js'
@@ -60,16 +60,10 @@ describe('the one-time agent model migration', () => {
     db = createClient(path.join(tmpDir, 'test.db'))
     migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 158))
     const now = new Date().toISOString()
-    db.insert(projects).values({
-      id: PROJECT_ID,
-      name: PROJECT,
-      displayName: PROJECT,
-      canonicalDomain: 'acme.example.com',
-      country: 'US',
-      language: 'en',
-      createdAt: now,
-      updatedAt: now,
-    }).run()
+    // Physical columns only: Drizzle names every current project column, and
+    // this database is still below v158.
+    db.$client.prepare('INSERT INTO projects (id, name, display_name, canonical_domain, country, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(PROJECT_ID, PROJECT, PROJECT, 'acme.example.com', 'US', 'en', now, now)
     registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
   })
 

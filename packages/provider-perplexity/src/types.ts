@@ -1,5 +1,6 @@
 import type {
   ProviderQuotaPolicy,
+  ProviderUsage,
   GroundingSource,
   LocationContext,
   RetrievalContract,
@@ -66,6 +67,10 @@ export interface PerplexityRawResult {
   groundingSources: GroundingSource[]
   searchQueries: string[]
   retrievalStatus?: RetrievalStatus
+  /** Billable tokens and searches from the response's `usage` object; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `incomplete_details.reason`, else `status`, verbatim; undefined when the response had neither. */
+  stopReason?: string
 }
 
 export interface PerplexityNormalizedResult {

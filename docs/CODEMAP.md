@@ -110,6 +110,8 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/site-crawl-graph-layout.ts` | Publication-time Graphology/ForceAtlas2 worker: deterministic hierarchy seed → bounded layout → persisted coordinates/edge sample; timeout or failure records an unavailable layout without failing the crawl. |
 | `src/job-runner.ts` | In-process queue: `answer-visibility`, `site-audit`, `discovery`, `research`, etc. |
 | `src/provider-registry.ts` | Collects `ProviderAdapter` impls |
+| `src/provider-batch-config.ts` | Batch dispatch config (`docs/batch-mode.md`): validates `providers.<name>.batch` / `.pricing`, builds each registered `ProviderConfig`, `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) |
+| `src/provider-batch-poller.ts` | In-process loop that owns submitted provider batches: per-batch poll backoff (30s doubling to 10 min), deadline cancel + 1 h grace, hands ended batches to `JobRunner.ingestProviderBatch` and runs to `JobRunner.finalizeBatchRun`; started/stopped by `server.ts` |
 | `src/scheduler.ts` | Cron kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`, `ads-sync`, `doctor` |
 | `src/agent/*` | Aero agent: `session.ts` (pi-agent-core), `session-registry.ts` (hybrid mem+DB), `runtime.ts` (progressive tools / limits), `view-context.ts` (selected evidence), `tools.ts` (MCP adapter catalog), `memory-store.ts`, `compaction.ts` |
 | `src/mcp/*` | `canonry-mcp` stdio adapter, `tool-registry.ts` (188 tools), `toolkits.ts`, `dynamic-catalog.ts`. Cloudflare connect is classified `deferred`: deployment consumes local secrets and must stay out of MCP/Aero transcripts. |
@@ -127,7 +129,10 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `notProbeRun()` — **every dashboard read MUST AND `notProbeRun()`** |
 | `src/auth.ts` | API key + session, `hashApiKey`, `requireScope`, read-only gate (method-based), `requirePaidReadScope` for billed GETs |
 | `src/projects.ts` | `PUT /projects/:name` upsert (largest route file) |
-| `src/runs.ts` | Run CRUD + batch `POST /runs` |
+| `src/runs.ts` | Run CRUD + batch `POST /runs`; `dispatchMode` on both triggers; run detail `providerBatches` + `usage` |
+| `src/run-queue.ts` | `queueRunIfProjectIdle`: stamps the plan manifest and freezes `runs.provider_dispatch_modes` (rules: `resolveRunDispatchModes` in contracts) |
+| `src/provider-batches.ts` | Reads over `provider_batches` (run detail, fill age, scheduler `batch-pending`) |
+| `src/snapshot-evidence-fingerprint.ts` | The evidence fingerprint measurement cursors pin (excludes dispatch provenance columns) |
 | `src/queries.ts` / `src/query-replace.ts` | Query basket ops — `replaceProjectQueries` is only declarative replace (preserves FKs) |
 | `src/technical-aeo.ts` | Exact-identity `POST /technical-aeo/runs`; legacy score/page/trend reads; bounded crawl summary, page inventory, hierarchy, links/neighbors, semantic subgraph/path, complete-run changes, opt-in dead-links, persisted `/technical-aeo/graph` visualization projection (with server-owned `rootNodeKey`), and `GET /technical-aeo/runs` scan history with per-scan `hasCrawlData`. Legacy score-only runs answer crawl-scoped reads with their no-crawl shape; only unknown run ids 404. All use `notProbeRun()`. |
 | `src/composites.ts` / `src/db-derived-dtos.ts` | Composite reads, `drizzle-zod` row schemas |
@@ -142,6 +147,7 @@ only other published artifact; every remaining internal package is bundled into 
 
 ### `packages/contracts/` — DTOs, enums, Zod schemas, error codes
 Single source of truth for API ↔ web ↔ CLI types. Every new route adds a Zod schema here + `openapi.ts` registration + generated client.
+Batch dispatch: `src/provider-batch.ts` (dispatch mode, batch status, usage, price schemas, adapter capability), `src/run-dispatch.ts` (`resolveRunDispatchModes`, ineligibility reasons, ledger outcomes, `summarizeRunUsage`), and `src/sweep-pricing.ts` (built-in `DEFAULT_MODEL_PRICES`, `resolveModelPrice`, `estimateAnswerCostMicros`, `buildSnapshotUsage`, `usageCount`: per-answer cost estimates; update a model price here).
 
 ### `packages/db/` — Drizzle ORM, SQLite/Postgres, migrations
 Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
@@ -151,7 +157,7 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 ### `packages/intelligence/` — Insights + health snapshot logic
 
 ### Providers (`packages/provider-*`)
-`provider-gemini`, `provider-openai`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`.
+`provider-gemini`, `provider-openai`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`. Every API provider (not cdp) splits `executeTrackedQuery` into `buildTrackedQueryRequest` + `parseTrackedQueryResponse`; `provider-claude/src/batch.ts` is the Message Batches capability (`adapter.batch`).
 
 ### Integrations (`packages/integration-*`)
 `integration-google`, `integration-google-ads` (read-only Google Ads discovery and snapshots), `integration-google-analytics`, `integration-bing`, `integration-google-business-profile`, `integration-google-places`, `integration-google-tag-manager` (read-only GTM discovery and live-container snapshots), `integration-openai-ads`, `integration-wordpress`, `integration-commoncrawl`, `integration-cloud-run`, `integration-cloudflare-worker` (transport-neutral edge batch + ES-module direct-push / Queue-producer delivery), `integration-cloudflare-queue` (Queues HTTP pull/ack client), `integration-vercel`, `integration-traffic`, `integration-wordpress-traffic`.
@@ -170,6 +176,7 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 | Add a CLI command | `packages/canonry/src/cli-commands/<cmd>.ts` → `packages/canonry/src/mcp/tool-registry.ts` (tier) + `openapi-classification.ts` → test | Every command supports `--format json`; add the MCP tool or classify the operation (root `AGENTS.md` → "Agent & automation design principles") |
 | Change SPA serving / embed | `packages/canonry/src/server.ts` (`sendSpaDocument`, `assetsDir`) + `packages/canonry/src/embed.ts` + `apps/web/src/embed.ts` | `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` env, `window.__CANONRY_CONFIG__.embed` |
 | Touch Site Health / Technical AEO | `packages/canonry/src/execute-site-audit.ts` → `site-crawl-graph-layout.ts` → `packages/api-routes/src/technical-aeo.ts` → `packages/contracts/src/technical-aeo.ts` → regenerate `api-client-generated` → `packages/canonry/src/mcp/tool-registry.ts` → `apps/web/src/components/project/SiteHealthSection.tsx` | Keep `technical-aeo` as the stable route/API/embed key; label it **Site Health**. Every operator-visible graph state must have a shared API/MCP semantic field or task-shaped read. Sigma receives persisted positions; agents receive bounded subgraphs, paths, and run diffs rather than the visualization payload. |
+| Touch batch dispatch | `docs/batch-mode.md` → `packages/contracts/src/run-dispatch.ts` → `packages/contracts/src/sweep-pricing.ts` (prices, cost estimates) → `packages/api-routes/src/run-queue.ts` (freezing) → `packages/canonry/src/provider-batch-config.ts` (config) → `packages/canonry/src/job-runner.ts` (submission, ingest, DB-derived finalize, cancel, boot recovery) → `packages/canonry/src/provider-batch-poller.ts` (polling, deadlines) | Eligibility lives only in `resolveRunDispatchModes`; planless runs never batch; dispatch mode stays out of the execution identity; a batch run finalizes only through `finalizeBatchRun` (`packages/canonry/AGENTS.md` → "Run completion pipeline") |
 | Touch Aero agent | `packages/canonry/src/agent/session.ts` → `session-registry.ts` → `tools.ts` → `apps/web/src/components/shared/AeroBar.tsx` | `agent.mode: 'disabled'` / `CANONRY_AGENT_DISABLED` kill-switch; `agent.mode: 'prompt-only'` / `CANONRY_AGENT_PROMPT_ONLY` keeps Aero interactive but never self-waking. `agent.provider` / `agent.model` pin which LLM answers; unpinned falls back to the first provider holding a key, by `autoDetectPriority`. Every agent route is administrator-only (`requireInstanceAdministrator`: refuses a viewer AND any key narrower than the install) |
 | Debug auth / keys | `packages/api-routes/src/auth.ts` → `packages/api-routes/src/keys.ts` → `packages/canonry/src/commands/keys.ts` | `isReadOnlyKey` in `contracts`, single-tenant posture in `AGENTS.md` |
 | Inspect Google marketing conversion integrity | `docs/google-marketing.md` → `skills/canonry/references/google-marketing.md` → `packages/canonry/src/google-marketing-runtime.ts` | Stored snapshots are default. A bounded provider read needs `google-marketing.read-live`. |

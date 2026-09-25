@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, or } from 'drizzle-orm'
 import {
+  batchDispatchRefusalMessage,
   buildMeasurementExecutionIdentity,
   buildMeasurementRunManifestV1,
   canonicalMeasurementExecutionIdentityJson,
@@ -10,6 +11,8 @@ import {
   measurementRunScopeSchema,
   normalizeMeasurementExecutionQueryText,
   parseStoredMeasurementPlanAnyVersion,
+  ProviderDispatchModes,
+  resolveRunDispatchModes,
   RunTriggers,
   nextScheduleUpdatedAt,
   resolveMeasurementRunQueryScope,
@@ -26,6 +29,8 @@ import {
   type MeasurementRunScope,
   type MeasurementRunScopeRequest,
   type MeasurementV2ExecutionNode,
+  type ProviderDispatchMode,
+  type RunDispatchResolution,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { measurementPlans, measurementPlanVersions, projects, runs, schedules } from '@ainyc/canonry-db'
@@ -57,6 +62,18 @@ export interface QueueRunParams {
   providerModels?: Readonly<Record<string, string>> | null
   /** Groups/targets to spot-check, resolved against the plan revision pinned here. */
   measurementScope?: MeasurementRunScopeRequest | null
+  /**
+   * The dispatch mode the request asked for explicitly. `batch` batches every
+   * eligible provider and is refused when none is; `sync` batches nothing;
+   * omitted leaves the decision to the trigger (only a scheduled run reads the
+   * project's `providerDispatchModes`).
+   */
+  dispatchMode?: ProviderDispatchMode | null
+  /**
+   * Providers this instance can batch: the adapter has a batch API and
+   * `providers.<name>.batch.enabled` is true. Omitted means none can.
+   */
+  batchEligibleProviders?: readonly string[] | null
   /** Atomically advance one due calendar occurrence while queueing this run. */
   scheduleClaim?: {
     scheduleId: string
@@ -77,6 +94,27 @@ interface MeasurementStamp {
 export function hasActiveMeasurementPlan(db: DatabaseClient, projectId: string): boolean {
   return db.select({ projectId: measurementPlans.projectId }).from(measurementPlans)
     .where(eq(measurementPlans.projectId, projectId)).get() !== undefined
+}
+
+/**
+ * The engines an Advanced project's runs measure: those its active v2 revision
+ * froze on its execution nodes, whatever the project row lists (see
+ * `measurementStampV2`). Empty for a project with no published plan or a v1
+ * plan, whose runs measure the project's own provider list.
+ */
+export function activeRevisionProviders(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
+  const version = db.select({ canonicalJson: measurementPlanVersions.canonicalJson })
+    .from(measurementPlans)
+    .innerJoin(measurementPlanVersions, and(
+      eq(measurementPlanVersions.projectId, measurementPlans.projectId),
+      eq(measurementPlanVersions.id, measurementPlans.activeVersionId),
+    ))
+    .where(eq(measurementPlans.projectId, projectId))
+    .get()
+  if (!version) return []
+  const stored = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+  if (stored.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return []
+  return normalizeProviders(stored.executionNodes.flatMap(node => node.context.providers))
 }
 
 /** The checksum layer contracts deliberately leaves to whoever owns hashing. */
@@ -587,12 +625,54 @@ function sliceFor(plan: MeasurementPlan, params: QueueRunParams) {
  * describing work that had already been sent to providers.
  */
 export function assertMeasurementRunStampable(db: DatabaseClient, params: QueueRunParams): void {
-  measurementStamp(db, params)
+  const stamp = measurementStamp(db, params)
+  resolveQueueDispatch(db, params, stamp)
+}
+
+/**
+ * Which of this run's providers go to a batch API, decided from what the run
+ * will be stored as: its stamp (plan or planless, full sweep or slice) and the
+ * trigger it is written with. A batch request no provider can honour is a
+ * caller mistake, refused before anything is written.
+ */
+function resolveQueueDispatch(tx: DatabaseClient, params: QueueRunParams, stamp: MeasurementStamp | null): RunDispatchResolution {
+  const trigger = stamp?.scope ? RunTriggers.probe : params.trigger ?? RunTriggers.manual
+  const projectModes = params.dispatchMode == null && params.trigger === RunTriggers.scheduled
+    ? tx.select({ modes: projects.providerDispatchModes }).from(projects)
+      .where(eq(projects.id, params.projectId)).get()?.modes ?? {}
+    : {}
+  // Nobody asked: the common case reads nothing more.
+  const asked = params.dispatchMode === ProviderDispatchModes.batch
+    || Object.values(projectModes).includes(ProviderDispatchModes.batch)
+  if (!asked) return { modes: {}, ineligible: {}, requested: [] }
+
+  const expectedSlots = stamp?.manifest.expectedSlots ?? null
+  const resolution = resolveRunDispatchModes({
+    trigger,
+    requestedMode: params.dispatchMode ?? null,
+    projectModes,
+    providers: expectedSlots ? expectedSlots.map(slot => slot.provider) : providerRoster(tx, params),
+    expectedSlots,
+    scoped: params.queries != null || stamp?.scope != null,
+    batchEligibleProviders: params.batchEligibleProviders ?? null,
+  })
+  if (params.dispatchMode === ProviderDispatchModes.batch && Object.keys(resolution.modes).length === 0) {
+    throw validationError(batchDispatchRefusalMessage(resolution.ineligible), { ineligible: resolution.ineligible })
+  }
+  return resolution
 }
 
 export type QueueRunResult =
   | { conflict: true; activeRunId: string; scheduleClaimed?: false }
-  | { conflict: false; runId: string }
+  | {
+      conflict: false
+      runId: string
+      /**
+       * What was frozen onto the run, and which providers that asked to batch
+       * run sync instead (a scheduled run logs these; nothing refuses them).
+       */
+      dispatch: RunDispatchResolution
+    }
 
 /** Queue only when this project has no active run of the requested kind. */
 export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams): QueueRunResult {
@@ -627,6 +707,9 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
     }
 
     const stamp = measurementStamp(tx as unknown as DatabaseClient, params)
+    // Frozen now, never re-read at execution: a queued run cannot change mode
+    // because the project preference or the instance config moved.
+    const dispatch = resolveQueueDispatch(tx as unknown as DatabaseClient, params, stamp)
 
     if (params.scheduleClaim) {
       const claim = tx.update(schedules).set({
@@ -683,9 +766,10 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       measurementManifest: stamp?.manifest ?? null,
       measurementScope: stamp?.scope ?? null,
       measurementExecutionIdentity: stamp?.identity ?? null,
+      providerDispatchModes: Object.keys(dispatch.modes).length > 0 ? dispatch.modes : null,
       createdAt,
     }).run()
 
-    return { conflict: false, runId } as const
+    return { conflict: false, runId, dispatch } as const
   })
 }

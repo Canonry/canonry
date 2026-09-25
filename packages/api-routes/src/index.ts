@@ -177,6 +177,8 @@ export interface ApiRoutesOptions {
    * moves shows up as a new measurement series instead of silent drift.
    */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /** Providers the host can dispatch to a batch API. See `RunRoutesOptions.getBatchEligibleProviderNames`. */
+  getBatchEligibleProviderNames?: RunRoutesOptions['getBatchEligibleProviderNames']
   /** Optional deterministic sitemap-fetch seam for Target discovery tests/hosts. */
   fetchMeasurementSitemap?: MeasurementServiceRoutesOptions['fetchSitemap']
   /** Bounded read-through cache for a server instance's measurement overview aggregates. */
@@ -204,6 +206,8 @@ export interface ApiRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
   /** Pre-delete durable cleanup. May throw to abort the database delete. */
   onProjectDeleting?: ProjectRoutesOptions['onProjectDeleting']
+  /** Stops a run's provider batches before its project is deleted. See `ProjectRoutesOptions.cancelRunProviderBatches`. */
+  cancelRunProviderBatches?: ProjectRoutesOptions['cancelRunProviderBatches']
   /** Callback when a project is created or updated */
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit callback for newly created projects. Errors are logged and isolated by the route. */
@@ -532,6 +536,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(projectRoutes, {
       onProjectDeleting: opts.onProjectDeleting,
       onProjectDeleted: opts.onProjectDeleted,
+      cancelRunProviderBatches: opts.cancelRunProviderBatches,
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
@@ -551,6 +556,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       validProviderNames: opts.providerAdapters?.map(a => a.name),
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
@@ -784,6 +790,7 @@ export { hashUserPassword, verifyUserPassword } from './user-password.js'
 export type { AuthPrincipal } from './auth.js'
 export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
 export { evaluateRunFill, formatRunFill, newerFullSweep, queueRunFill, readRunCompleteness } from './run-fill.js'
+export { formatProviderBatchSummary, hasOutstandingProviderBatch, readRunProviderBatches, runHadProviderBatch } from './provider-batches.js'
 export { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, type PlanCompetitor, type RunCompetitors } from './plan-competitors.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'

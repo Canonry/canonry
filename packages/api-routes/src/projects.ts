@@ -5,8 +5,10 @@ import { projects, queries, competitors, schedules, notifications, runs, querySn
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
+  describeError,
   forbidden,
   hostOf,
+  notFound,
   validationError,
   locationContextSchema,
   normalizeProjectAliases,
@@ -19,21 +21,37 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderModels } from '@ainyc/canonry-contracts'
+import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
+import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { activeRevisionProviders } from './run-queue.js'
+import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
 
 export interface ProjectRoutesOptions {
   /**
-   * Runs before the project-delete transaction. It may throw to abort the
-   * deletion. A returned compensator is called if the database transaction
-   * cannot commit after this pre-delete work has persisted.
+   * Runs synchronously right before the project-delete transaction, after
+   * `cancelRunProviderBatches` and a re-read of the project. It may throw to
+   * abort the deletion. A returned compensator is called if the database
+   * transaction cannot commit after this pre-delete work has persisted. Not
+   * called when a concurrent DELETE removed the project first.
    */
   onProjectDeleting?: (projectId: string) => void | (() => void)
   onProjectDeleted?: (projectId: string) => void
+  /**
+   * Stops one run's outstanding provider batches at the provider. Awaited
+   * first, before `onProjectDeleting` and the project-delete transaction, for
+   * each of the project's runs still waiting on a batch: the delete cascades
+   * away the only rows holding the provider's batch id, so afterwards nothing
+   * could cancel a batch that keeps processing and billing. Best effort: a
+   * rejection is logged and the delete goes ahead. The project is re-read
+   * after these awaits, so a concurrent DELETE that committed meanwhile makes
+   * this one the missing-project 404. A delete that `onProjectDeleting` then
+   * aborts keeps the project, but its batches stay stopped.
+   */
+  cancelRunProviderBatches?: (runId: string, projectId: string) => Promise<void>
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit lifecycle hook; failures must not turn a committed create into an HTTP 500. */
   onProjectCreated?: (projectId: string, projectName: string) => void
@@ -102,6 +120,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       nextProviders,
     )
     assertProviderModelScope(request, {}, providerModels, nextProviders)
+    // Pruned like model overrides: a preference for an engine the project
+    // does not run would silently take effect the day it is added back.
+    const providerDispatchModes = pruneProviderModelsForProviders(
+      validateProviderDispatchModes(body.providerDispatchModes ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
 
     const nextLocations = body.locations ?? []
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -142,6 +166,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: nextProviders,
         providerModels,
+        providerDispatchModes,
         measurement: body.measurement ?? DEFAULT_MEASUREMENT_CONFIG,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -188,6 +213,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       configSource?: string
       providerModels?: Record<string, string>
+      providerDispatchModes?: ProviderDispatchModesMap
       measurement?: MeasurementConfig
     }
   }>('/projects/:name', async (request, reply) => {
@@ -223,6 +249,15 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
     assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
+    // Omitted keeps the stored preference (the dashboard's settings save and
+    // other full-replace callers predate the field and never send it).
+    const providerDispatchModes = pruneProviderDispatchModes(
+      body.providerDispatchModes !== undefined
+        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
+        : existing?.providerDispatchModes ?? {},
+      nextProviders,
+      existing ? activeRevisionProviders(app.db, existing.id) : [],
+    )
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -265,6 +300,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           labels: body.labels ?? {},
           providers: body.providers ?? [],
           providerModels,
+          providerDispatchModes,
           measurement: nextMeasurement,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
@@ -305,6 +341,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: body.providers ?? [],
         providerModels,
+        providerDispatchModes,
         measurement: nextMeasurement,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
@@ -402,8 +439,31 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // DELETE /projects/:name
   app.delete<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
+    const addressed = resolveProject(app.db, request.params.name)
 
+    // Stop the project's outstanding provider batches first: the delete
+    // cascades away the only rows holding the provider's batch ids. These
+    // awaits are the handler's only suspension point, so they come before
+    // every other side effect.
+    if (opts.cancelRunProviderBatches) {
+      for (const runId of readProjectRunsWithOutstandingProviderBatch(app.db, addressed.id)) {
+        try {
+          await opts.cancelRunProviderBatches(runId, addressed.id)
+        } catch (error) {
+          app.log.warn({ runId, projectId: addressed.id, error: describeError(error) }, 'Provider batch cancellation failed before project delete')
+        }
+      }
+    }
+
+    // A concurrent DELETE of this project may have committed during those
+    // awaits. Re-read it by id: once it is gone (even if its name now belongs
+    // to a recreated project, whose batches were never stopped here), answer
+    // exactly as a DELETE of a missing project does, before the credential
+    // hook, the audit row or any rollback can run.
+    const project = app.db.select().from(projects).where(eq(projects.id, addressed.id)).get()
+    if (!project) throw notFound('Project', request.params.name)
+
+    // No await from here to the commit, so no other request can interleave.
     // Private credential stores are outside SQLite. Let their host persist a
     // durable removal first; if that fails, the project remains fully usable
     // and the caller can retry rather than leaving an orphaned secret behind.
@@ -571,6 +631,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         competitors: comps.map(c => c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
+        ...(Object.keys(project.providerDispatchModes).length > 0 ? { providerDispatchModes: project.providerDispatchModes } : {}),
         measurement: project.measurement,
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
@@ -659,6 +720,7 @@ export function formatProject(row: InferSelectModel<typeof projects>) {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    providerDispatchModes: row.providerDispatchModes,
     measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,

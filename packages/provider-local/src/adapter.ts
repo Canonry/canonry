@@ -4,17 +4,20 @@ import type {
   ProviderConfig,
   ProviderHealthcheckResult,
   TrackedQueryInput,
+  TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
   validateConfig as localValidateConfig,
   healthcheck as localHealthcheck,
+  buildTrackedQueryRequest as localBuildTrackedQueryRequest,
   executeTrackedQuery as localExecuteTrackedQuery,
+  parseTrackedQueryResponse as localParseTrackedQueryResponse,
   normalizeResult as localNormalizeResult,
   generateText as localGenerateText,
 } from './normalize.js'
-import type { LocalConfig } from './types.js'
+import type { LocalConfig, LocalRawResult, LocalTrackedQueryInput } from './types.js'
 
 function toLocalConfig(config: ProviderConfig): LocalConfig {
   return {
@@ -22,6 +25,33 @@ function toLocalConfig(config: ProviderConfig): LocalConfig {
     apiKey: config.apiKey,
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+  }
+}
+
+function toLocalInput(input: TrackedQueryInput, config: ProviderConfig): LocalTrackedQueryInput {
+  return {
+    query: input.query,
+    canonicalDomains: input.canonicalDomains,
+    competitorDomains: input.competitorDomains,
+    config: toLocalConfig(config),
+    location: input.location,
+  }
+}
+
+function toRawQueryResult(raw: LocalRawResult): RawQueryResult {
+  return {
+    provider: 'local',
+    rawResponse: raw.rawResponse,
+    model: raw.model,
+    servedModel: raw.servedModel,
+    groundingSources: raw.groundingSources,
+    searchQueries: raw.searchQueries,
+    // A plain chat completion with no web access: there is no retrieval step
+    // to report, which is what `not-applicable` means.
+    retrievalStatus: 'not-applicable' as const,
+    retrievalContract: 'native-auto-v1' as const,
+    usage: raw.usage,
+    stopReason: raw.stopReason,
   }
 }
 
@@ -62,26 +92,16 @@ export const localAdapter: ProviderAdapter = {
     }
   },
 
+  buildTrackedQueryRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
+    return localBuildTrackedQueryRequest(toLocalInput(input, config))
+  },
+
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await localExecuteTrackedQuery({
-      query: input.query,
-      canonicalDomains: input.canonicalDomains,
-      competitorDomains: input.competitorDomains,
-      config: toLocalConfig(config),
-      location: input.location,
-    })
-    return {
-      provider: 'local',
-      rawResponse: raw.rawResponse,
-      model: raw.model,
-      servedModel: raw.servedModel,
-      groundingSources: raw.groundingSources,
-      searchQueries: raw.searchQueries,
-      // A plain chat completion with no web access: there is no retrieval step
-      // to report, which is what `not-applicable` means.
-      retrievalStatus: 'not-applicable' as const,
-      retrievalContract: 'native-auto-v1' as const,
-    }
+    return toRawQueryResult(await localExecuteTrackedQuery(toLocalInput(input, config)))
+  },
+
+  parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
+    return toRawQueryResult(localParseTrackedQueryResponse(body, model))
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {

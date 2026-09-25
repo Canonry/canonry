@@ -5342,6 +5342,9 @@ export type LatestProjectRunDto = {
             };
         } | null;
         queryBasketRevision?: number | null;
+        dispatchModes?: {
+            [key: string]: 'batch';
+        };
         createdAt: string;
         snapshots?: Array<{
             id: string;
@@ -5393,7 +5396,44 @@ export type LatestProjectRunDto = {
                     timezone?: string;
                 } | null;
             } | null;
+            dispatchMode?: 'sync' | 'batch' | null;
+            stopReason?: string | null;
+            usage?: {
+                inputTokens: number;
+                cachedInputTokens: number;
+                cacheWriteTokens: number;
+                outputTokens: number;
+                searchCount: number;
+                pricingTier: 'standard' | 'batch';
+                estimatedCostMicros: number | null;
+                priceSource: 'default' | 'override' | null;
+            } | null;
             createdAt: string;
+        }>;
+        providerBatches?: Array<{
+            id: string;
+            provider: string;
+            model: string;
+            status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+            requestCount: number;
+            ingestedCount: number;
+            recordedCount: number;
+            submittedAt: string | null;
+            endedAt: string | null;
+            deadlineAt: string;
+            error: string | null;
+        }>;
+        usage?: Array<{
+            provider: string;
+            pricingTier: 'standard' | 'batch';
+            answers: number;
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            estimatedCostMicros: number | null;
+            unpricedAnswers: number;
         }>;
     } | null;
 };
@@ -8980,6 +9020,9 @@ export type ProjectCreateRequest = {
     providerModels?: {
         [key: string]: string;
     };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
     locations?: Array<{
         label: string;
         city: string;
@@ -9015,6 +9058,9 @@ export type ProjectDto = {
     providerModels: {
         [key: string]: string;
     };
+    providerDispatchModes: {
+        [key: string]: 'sync' | 'batch';
+    };
     locations: Array<{
         label: string;
         city: string;
@@ -9049,6 +9095,9 @@ export type ProjectUpsertRequest = {
     providers?: Array<string>;
     providerModels?: {
         [key: string]: string;
+    };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
     };
     locations?: Array<{
         label: string;
@@ -9089,6 +9138,9 @@ export type ProjectConfig = {
         providers: Array<string>;
         providerModels: {
             [key: string]: string;
+        };
+        providerDispatchModes?: {
+            [key: string]: 'sync' | 'batch';
         };
         locations: Array<{
             label: string;
@@ -9151,6 +9203,9 @@ export type ProjectOverviewDto = {
         providerModels: {
             [key: string]: string;
         };
+        providerDispatchModes: {
+            [key: string]: 'sync' | 'batch';
+        };
         locations: Array<{
             label: string;
             city: string;
@@ -9210,6 +9265,9 @@ export type ProjectOverviewDto = {
                 };
             } | null;
             queryBasketRevision?: number | null;
+            dispatchModes?: {
+                [key: string]: 'batch';
+            };
             createdAt: string;
             snapshots?: Array<{
                 id: string;
@@ -9261,7 +9319,44 @@ export type ProjectOverviewDto = {
                         timezone?: string;
                     } | null;
                 } | null;
+                dispatchMode?: 'sync' | 'batch' | null;
+                stopReason?: string | null;
+                usage?: {
+                    inputTokens: number;
+                    cachedInputTokens: number;
+                    cacheWriteTokens: number;
+                    outputTokens: number;
+                    searchCount: number;
+                    pricingTier: 'standard' | 'batch';
+                    estimatedCostMicros: number | null;
+                    priceSource: 'default' | 'override' | null;
+                } | null;
                 createdAt: string;
+            }>;
+            providerBatches?: Array<{
+                id: string;
+                provider: string;
+                model: string;
+                status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+                requestCount: number;
+                ingestedCount: number;
+                recordedCount: number;
+                submittedAt: string | null;
+                endedAt: string | null;
+                deadlineAt: string;
+                error: string | null;
+            }>;
+            usage?: Array<{
+                provider: string;
+                pricingTier: 'standard' | 'batch';
+                answers: number;
+                inputTokens: number;
+                cachedInputTokens: number;
+                cacheWriteTokens: number;
+                outputTokens: number;
+                searchCount: number;
+                estimatedCostMicros: number | null;
+                unpricedAnswers: number;
             }>;
         } | null;
     };
@@ -10431,6 +10526,9 @@ export type RunDetailDto = {
         };
     } | null;
     queryBasketRevision?: number | null;
+    dispatchModes?: {
+        [key: string]: 'batch';
+    };
     createdAt: string;
     snapshots?: Array<{
         id: string;
@@ -10482,7 +10580,44 @@ export type RunDetailDto = {
                 timezone?: string;
             } | null;
         } | null;
+        dispatchMode?: 'sync' | 'batch' | null;
+        stopReason?: string | null;
+        usage?: {
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            pricingTier: 'standard' | 'batch';
+            estimatedCostMicros: number | null;
+            priceSource: 'default' | 'override' | null;
+        } | null;
         createdAt: string;
+    }>;
+    providerBatches?: Array<{
+        id: string;
+        provider: string;
+        model: string;
+        status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+        requestCount: number;
+        ingestedCount: number;
+        recordedCount: number;
+        submittedAt: string | null;
+        endedAt: string | null;
+        deadlineAt: string;
+        error: string | null;
+    }>;
+    usage?: Array<{
+        provider: string;
+        pricingTier: 'standard' | 'batch';
+        answers: number;
+        inputTokens: number;
+        cachedInputTokens: number;
+        cacheWriteTokens: number;
+        outputTokens: number;
+        searchCount: number;
+        estimatedCostMicros: number | null;
+        unpricedAnswers: number;
     }>;
 };
 
@@ -10571,6 +10706,9 @@ export type RunDto = {
         };
     } | null;
     queryBasketRevision?: number | null;
+    dispatchModes?: {
+        [key: string]: 'batch';
+    };
     createdAt: string;
 };
 
@@ -11484,6 +11622,18 @@ export type SnapshotListResponse = {
                 country: string;
                 timezone?: string;
             } | null;
+        } | null;
+        dispatchMode?: 'sync' | 'batch' | null;
+        stopReason?: string | null;
+        usage?: {
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            pricingTier: 'standard' | 'batch';
+            estimatedCostMicros: number | null;
+            priceSource: 'default' | 'override' | null;
         } | null;
         createdAt: string;
     }>;
@@ -16924,6 +17074,10 @@ export type PostApiV1ProjectsByNameRunsData = {
         location?: string;
         allLocations?: boolean;
         noLocation?: boolean;
+        /**
+         * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
+         */
+        dispatchMode?: 'sync' | 'batch';
     };
     path: {
         /**
@@ -16937,7 +17091,7 @@ export type PostApiV1ProjectsByNameRunsData = {
 
 export type PostApiV1ProjectsByNameRunsErrors = {
     /**
-     * Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, a scope combined with a query list, a per-run location on a plan project, or a provider roster the plan was not published for.
+     * Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider's reason).
      */
     400: ErrorEnvelope;
     /**
@@ -17027,6 +17181,10 @@ export type PostApiV1RunsData = {
     body?: {
         kind?: string;
         providers?: Array<string>;
+        /**
+         * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
+         */
+        dispatchMode?: 'sync' | 'batch';
     };
     path?: never;
     query?: never;

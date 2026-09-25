@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
+import type { ProviderQuotaPolicy, ProviderUsage, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -42,6 +42,10 @@ export interface GeminiRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** Billable usage from the response's `usageMetadata`; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `candidates[0].finishReason` verbatim; undefined when the response had none. */
+  stopReason?: string
 }
 
 export interface GeminiNormalizedResult {

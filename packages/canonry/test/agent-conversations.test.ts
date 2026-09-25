@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { agentConversations, agentMemory, agentSessions, createClient, migrate, MIGRATION_VERSIONS, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { agentConversations, agentMemory, agentSessions, createClient, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '@ainyc/canonry-db'
 import { AppError, MemorySources, agentConversationListSchema, agentConversationSchema } from '@ainyc/canonry-contracts'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
@@ -29,7 +29,10 @@ beforeEach(async () => {
   db = createClient(path.join(directory, 'data.db'))
   migrate(db, MIGRATION_VERSIONS.filter(version => version.version <= 158))
   const now = '2026-09-01T10:00:00.000Z'
-  for (const name of ['demo', 'other']) db.insert(projects).values({ id: name, name, displayName: name, canonicalDomain: `${name}.example`, country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  // Physical columns only: Drizzle names every current project column, and
+  // this database is still at v158.
+  const insertProject = db.$client.prepare('INSERT INTO projects (id, name, display_name, canonical_domain, country, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+  for (const name of ['demo', 'other']) insertProject.run(name, name, name, `${name}.example`, 'US', 'en', now, now)
   db.insert(agentSessions).values({ id: 'legacy', projectId: 'demo', systemPrompt: 'Old installed prompt', modelProvider: 'claude', modelId: 'claude-opus-4-7', messages: JSON.stringify(messages), followUpQueue: '[]', createdAt: now, updatedAt: now }).run()
   migrate(db)
   registry = new SessionRegistry({ db, client: {} as ApiClient, config, proactive: false })

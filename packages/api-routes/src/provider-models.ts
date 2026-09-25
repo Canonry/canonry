@@ -1,4 +1,9 @@
-import { resolveProviderModel, validationError, type ProviderModels } from '@ainyc/canonry-contracts'
+import {
+  resolveProviderModel,
+  validationError,
+  type ProviderDispatchModesMap,
+  type ProviderModels,
+} from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 
 /**
@@ -53,6 +58,37 @@ export function validateProviderModels(
 }
 
 /**
+ * Validate a project's dispatch preference the way model overrides are: every
+ * key must name a provider the host has a descriptor for, and a deployment with
+ * no descriptor catalog refuses a non-empty map rather than storing names
+ * nothing checked. Values are already `sync` / `batch` by schema. Whether the
+ * instance can actually batch a provider is decided per run, not here: a
+ * preference may be stored before the operator enables batch in config.yaml.
+ */
+export function validateProviderDispatchModes(
+  modes: ProviderDispatchModesMap,
+  adapters: readonly ProviderAdapterInfo[] | undefined,
+): ProviderDispatchModesMap {
+  const entries = Object.entries(modes)
+  if (entries.length === 0) return {}
+  if (!adapters || adapters.length === 0) {
+    throw validationError('Project dispatch modes are unavailable because provider metadata is not configured.')
+  }
+  const names = new Set(adapters.map(adapter => adapter.name))
+  const normalized: ProviderDispatchModesMap = {}
+  for (const [provider, mode] of entries) {
+    if (!names.has(provider)) {
+      throw validationError(`Invalid provider dispatch mode: unknown provider "${provider}".`, {
+        provider,
+        validProviders: adapters.map(item => item.name),
+      })
+    }
+    normalized[provider] = mode
+  }
+  return normalized
+}
+
+/**
  * A model override only means something for an engine the project actually
  * runs. An override for an unselected engine is inert but stored, and it
  * silently takes effect the day that engine is added back — so it must not be
@@ -72,15 +108,36 @@ export function validateProviderModels(
  * An EMPTY provider list means "every configured engine" (both routes persist
  * `providers ?? []` and read it that way), so nothing is orphaned there and
  * every override is kept.
+ *
+ * `providerDispatchModes` is pruned by the same rule, for the same reason,
+ * through `pruneProviderDispatchModes`.
  */
-export function pruneProviderModelsForProviders(
-  models: ProviderModels,
+export function pruneProviderModelsForProviders<T extends string>(
+  models: Readonly<Record<string, T>>,
   providers: readonly string[],
-): ProviderModels {
+): Record<string, T> {
   if (providers.length === 0) return { ...models }
-  const kept: ProviderModels = {}
+  const kept: Record<string, T> = {}
   for (const [provider, model] of Object.entries(models)) {
     if (providers.includes(provider)) kept[provider] = model
   }
   return kept
+}
+
+/**
+ * A dispatch preference is kept for every engine the project's runs measure,
+ * which for a simple portfolio is its provider list and for an Advanced one
+ * also includes the engines its active revision froze (`revisionProviders`, see
+ * `activeRevisionProviders`). A v2 run measures those whatever the project row
+ * lists, so pruning against the row alone would silently drop, or refuse to
+ * store, a preference its scheduled sweeps still honour. An empty provider
+ * list keeps everything, as for model overrides.
+ */
+export function pruneProviderDispatchModes(
+  modes: Readonly<ProviderDispatchModesMap>,
+  providers: readonly string[],
+  revisionProviders: readonly string[],
+): ProviderDispatchModesMap {
+  if (providers.length === 0) return { ...modes }
+  return pruneProviderModelsForProviders(modes, [...providers, ...revisionProviders])
 }

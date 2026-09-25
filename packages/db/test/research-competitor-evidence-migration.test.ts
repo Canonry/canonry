@@ -3,7 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 
-import { createClient, migrate, MIGRATION_VERSIONS, projects, researchRunQueries } from '../src/index.js'
+import { createClient, migrate, MIGRATION_VERSIONS, researchRunQueries } from '../src/index.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 const cleanups: string[] = []
 afterEach(() => cleanups.splice(0).forEach(dir => fs.rmSync(dir, { recursive: true, force: true })))
@@ -15,7 +16,7 @@ test('v110 adds empty named/cited competitor signals without changing existing r
   const now = new Date().toISOString()
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version <= 109))
-  db.insert(projects).values({ id: 'project', name: 'project', displayName: 'Project', canonicalDomain: 'project.example', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  insertLegacyProject(db, { id: 'project', displayName: 'Project', canonicalDomain: 'project.example', createdAt: now })
   // Use the historical physical shape because current Drizzle also knows
   // about fields added after v109 (including v151 principal attribution).
   db.$client.prepare(`INSERT INTO research_runs (

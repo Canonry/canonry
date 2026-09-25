@@ -11,6 +11,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
 } from '../src/index.js'
+import { insertLegacyRow } from './legacy-rows.js'
 
 const NOW = '2026-09-04T12:00:00.000Z'
 const PRE_SIDECAR_VERSION = 149
@@ -35,14 +36,16 @@ function seedProject(db: ReturnType<typeof createTempDb>, id = 'project_1') {
 }
 
 function seedRun(db: ReturnType<typeof createTempDb>, projectId = 'project_1', id = 'run_1') {
-  db.insert(runs).values({
+  // Physical columns only: some tests seed a v149 database, which predates
+  // run columns the current Drizzle schema declares.
+  insertLegacyRow(db, 'runs', {
     id,
-    projectId,
+    project_id: projectId,
     kind: RunKinds['answer-visibility'],
     status: RunStatuses.queued,
     trigger: RunTriggers.manual,
-    createdAt: NOW,
-  }).run()
+    created_at: NOW,
+  })
 }
 
 const DEFINITION: SimpleMeasurementDefinition = {

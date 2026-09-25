@@ -3,6 +3,7 @@ import {
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
+  providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
 } from '@ainyc/canonry-contracts'
@@ -131,6 +132,14 @@ const adsCreativeRequestSchema = {
   },
 }
 const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4', 'gbp'] }
+const dispatchModeRequestSchema = {
+  type: 'string',
+  enum: providerDispatchModeSchema.options,
+  description: 'How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider '
+    + 'that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer\'s model '
+    + 'frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never '
+    + 'what is measured, and is frozen on the run as `dispatchModes`.',
+}
 const locationSchema = {
   type: 'object',
   required: ['label', 'city', 'region', 'country'],
@@ -2217,6 +2226,7 @@ const routeCatalog: OpenApiOperation[] = [
               location: stringSchema,
               allLocations: booleanSchema,
               noLocation: booleanSchema,
+              dispatchMode: dispatchModeRequestSchema,
             },
           },
         },
@@ -2226,7 +2236,8 @@ const routeCatalog: OpenApiOperation[] = [
       201: jsonResponse('Run queued.', 'RunDto'),
       400: errorResponse(
         'Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, '
-        + 'a scope combined with a query list, a per-run location on a plan project, or a provider roster the plan was not published for.',
+        + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
+        + 'or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider\'s reason).',
       ),
       422: errorResponse('Project has no tracked queries.'),
       409: errorResponse('Run already in progress.'),
@@ -2282,6 +2293,7 @@ const routeCatalog: OpenApiOperation[] = [
             properties: {
               kind: stringSchema,
               providers: stringArraySchema,
+              dispatchMode: dispatchModeRequestSchema,
             },
           },
         },

@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
@@ -10,7 +10,7 @@ function getClient() {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
@@ -22,7 +22,12 @@ export async function createProject(
     language: opts.language,
     providers: opts.providers ?? [],
     providerModels: opts.providerModels ?? {},
+    ...(opts.providerDispatchModes && Object.keys(opts.providerDispatchModes).length > 0
+      ? { providerDispatchModes: opts.providerDispatchModes }
+      : {}),
   })
+
+  warnDroppedDispatchModes(opts.providerDispatchModes ?? {}, result)
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -30,6 +35,20 @@ export async function createProject(
   }
 
   console.log(`Project created: ${result.name} (${result.id})`)
+}
+
+/**
+ * The server keeps a dispatch preference only for an engine the project's runs
+ * measure, and prunes the rest. Name what it dropped on stderr in BOTH formats:
+ * whoever asked for batch must not read a plain success, and stdout's JSON
+ * stays the API response byte for byte.
+ */
+function warnDroppedDispatchModes(sent: ProviderDispatchModesMap, result: ProjectDto): void {
+  const kept = result.providerDispatchModes ?? {}
+  const dropped = Object.keys(sent).filter(provider => !(provider in kept))
+  if (dropped.length > 0) {
+    console.error(`Warning: Dropped dispatch mode for engine(s) the project does not measure: ${dropped.join(', ')}`)
+  }
 }
 
 export async function listProjects(format?: string): Promise<void> {
@@ -100,6 +119,8 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Providers:        ${(project.providers ?? []).length > 0 ? project.providers.join(', ') : 'all configured'}`)
   const providerModels = Object.entries(project.providerModels ?? {})
   console.log(`  Model overrides:  ${providerModels.length > 0 ? providerModels.map(([provider, model]) => `${provider}=${model}`).join(', ') : '(none; instance settings inherited)'}`)
+  const dispatchModes = Object.entries(project.providerDispatchModes ?? {}).sort(([left], [right]) => left.localeCompare(right))
+  console.log(`  Dispatch modes:   ${dispatchModes.length > 0 ? `${dispatchModes.map(([provider, mode]) => `${provider}=${mode}`).join(', ')} (scheduled sweeps; others sync)` : '(none; every provider runs sync)'}`)
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -123,6 +144,8 @@ export async function updateProjectSettings(
     providers?: string[]
     providerModels?: Record<string, string>
     clearProviderModels?: string[]
+    dispatchModes?: ProviderDispatchModesMap
+    clearDispatchModes?: string[]
     format?: string
   },
 ): Promise<void> {
@@ -175,6 +198,13 @@ export async function updateProjectSettings(
     }
   }
 
+  // Sent only when a dispatch flag was given: the server keeps the stored
+  // preference when the field is omitted, so an unrelated edit never races a
+  // change made elsewhere.
+  const touchesDispatch = Object.keys(opts.dispatchModes ?? {}).length > 0 || (opts.clearDispatchModes ?? []).length > 0
+  const providerDispatchModes: ProviderDispatchModesMap = { ...(project.providerDispatchModes ?? {}), ...(opts.dispatchModes ?? {}) }
+  for (const provider of opts.clearDispatchModes ?? []) delete providerDispatchModes[provider]
+
   const result: ProjectDto = await client.putProject(name, {
     displayName: nextDisplayName,
     canonicalDomain: opts.domain ?? project.canonicalDomain,
@@ -186,10 +216,14 @@ export async function updateProjectSettings(
     labels: project.labels,
     providers: opts.providers ?? project.providers,
     providerModels,
+    ...(touchesDispatch ? { providerDispatchModes } : {}),
     locations: project.locations,
     defaultLocation: project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
   })
+
+  // What the server was left holding: the map sent, else the stored one.
+  warnDroppedDispatchModes(touchesDispatch ? providerDispatchModes : (project.providerDispatchModes ?? {}), result)
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))

@@ -34,6 +34,10 @@ erDiagram
   projects ||--o{ health_snapshots : has
 
   runs ||--o{ query_snapshots : contains
+  runs ||--o{ run_fills : "completed by"
+  runs ||--o{ provider_batches : "dispatches"
+  provider_batches ||--o{ provider_batch_requests : "maps custom_id to slot"
+  provider_batches ||--o{ query_snapshots : "recorded"
   runs ||--o{ insights : "analyzed in"
   runs ||--o{ health_snapshots : "scored in"
   queries ||--o{ query_snapshots : "tracked in"
@@ -99,14 +103,17 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
-| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
-| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. | FK: runId → runs, queryId → queries |
+| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. `provider_dispatch_modes` freezes which providers go to a batch API (null = all sync); `pending_provider_errors` holds sync-provider errors while finalization waits on a batch. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
+| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
+| **run_fills** | One attempt to complete a partial plan run in place; its answers land in the parent run's own snapshot rows. | Composite FK `(projectId, runId)` → runs |
+| **provider_batches** | One batch submitted to a provider's asynchronous batch API for a run (see `docs/batch-mode.md`). Written as `submitting` before the submit call; carries the provider's batch id, status, counts, deadline, and the stored daily-quota reservation. | Composite FK `(projectId, runId)` → runs (CASCADE); indexes on `status`, `run_id` |
+| **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
 | **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring; `initiatedBy` records the account or API key that started new runs. Historical rows can be null. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
@@ -388,6 +395,11 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `projects.ownedDomains` | `string[]` |
 | `measurement_plan_versions.canonicalJson` | `MeasurementPlan` (native `mode: 'json'`) |
 | `runs.measurementManifest` | `MeasurementRunManifest` (native `mode: 'json'`) |
+| `runs.providerDispatchModes` | `Record<provider, 'batch'>` (native `mode: 'json'`; null = every provider sync) |
+| `runs.pendingProviderErrors` | `Record<provider, message>` (native `mode: 'json'`) |
+| `projects.providerDispatchModes` | `ProviderDispatchModesMap` (native `mode: 'json'`) |
+| `query_snapshots.usage` | `SnapshotUsage` (native `mode: 'json'`) |
+| `provider_batch_requests.requestedContext` | `LocationContext` (native `mode: 'json'`) |
 | `query_snapshots.citedDomains` | `string[]` |
 | `query_snapshots.groundingSources` | `GroundingSource[]` |
 | `query_snapshots.competitorOverlap` | `string[]` (legacy mixed mention/citation evidence; never a metric source by itself) |

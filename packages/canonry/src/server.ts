@@ -230,9 +230,11 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
+import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
+import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
 import { IntelligenceService } from "./intelligence-service.js";
@@ -903,17 +905,17 @@ export async function createServer(opts: {
           ? !!(entry.apiKey || entry.vertexProject)
           : !!entry.apiKey;
     if (isConfigured) {
-      registry.register(adapter, {
-        provider: adapter.name,
-        apiKey: entry.apiKey,
-        baseUrl: entry.baseUrl,
-        model: entry.model,
-        quotaPolicy: entry.quota ?? DEFAULT_QUOTA,
-        vertexProject: entry.vertexProject,
-        vertexRegion: entry.vertexRegion,
-        vertexCredentials: entry.vertexCredentials,
-      });
+      registry.register(adapter, providerConfigFromEntry(adapter.name, entry, entry.quota ?? DEFAULT_QUOTA));
     }
+  }
+
+  // Batch is opt-in per provider and only real where the adapter has a batch
+  // API. Say so once at boot rather than silently running sync forever.
+  for (const name of providersWithUnsupportedBatch(providers, (provider) => adapterMap[provider])) {
+    log.warn("provider.batch.unsupported", {
+      providerName: name,
+      message: `providers.${name}.batch.enabled is true, but the ${name} adapter has no batch API; its sweeps run sync.`,
+    });
   }
 
   // CDP browser provider — connects to user's Chrome via CDP
@@ -1699,6 +1701,7 @@ export async function createServer(opts: {
   };
 
   let stopSiteLiveness: (() => void) | null = null;
+  let stopProviderBatchPoller: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -1713,6 +1716,7 @@ export async function createServer(opts: {
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
+    getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
       // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
@@ -3072,15 +3076,22 @@ export async function createServer(opts: {
         app.log.error({ fillId, runId, err: describeError(err) }, "Run fill failed");
       });
     },
-    onRunCancelled: (runId: string) => {
+    onRunCancelled: (runId: string, projectId: string) => {
       const controller = siteAuditAbortControllers.get(runId);
       if (controller && !controller.signal.aborted) {
         controller.abort(new Error("Cancelled by user"));
       }
+      // Stop the run's provider batches (best effort) so nothing is ingested
+      // into it; a run already waiting on one has its cancellation reported
+      // here, since no sweep is left to report it.
+      jobRunner.cancelRunBatches(runId, projectId).catch((err: unknown) => {
+        app.log.error({ runId, err: describeError(err) }, "Provider batch cancellation failed");
+      });
     },
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
+    getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     onProviderUpdate: (
       providerName: string,
       apiKey: string,
@@ -3111,6 +3122,10 @@ export async function createServer(opts: {
         vertexProject: existing?.vertexProject,
         vertexRegion: existing?.vertexRegion,
         vertexCredentials: existing?.vertexCredentials,
+        // Batch and price settings are config-file only too; a key rotation
+        // from the dashboard must not switch batch off or drop overrides.
+        ...(existing?.batch ? { batch: existing.batch } : {}),
+        ...(existing?.pricing ? { pricing: existing.pricing } : {}),
       };
 
       try {
@@ -3122,16 +3137,7 @@ export async function createServer(opts: {
 
       // Re-register in the live registry (use preserved model if none was passed)
       const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA;
-      registry.register(adapterMap[name]!, {
-        provider: name,
-        apiKey: apiKey || existing?.apiKey,
-        baseUrl: baseUrl || existing?.baseUrl,
-        model: model || existing?.model,
-        quotaPolicy: quota,
-        vertexProject: existing?.vertexProject,
-        vertexRegion: existing?.vertexRegion,
-        vertexCredentials: existing?.vertexCredentials,
-      });
+      registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
       // Update the providerSummary array in-place
       const entry = providerSummary.find((p) => p.name === name);
@@ -3232,6 +3238,11 @@ export async function createServer(opts: {
       }
     },
     onProjectDeleting: prepareGoogleMarketingCredentialDelete,
+    // The delete cascades away the batch rows, so stop each outstanding batch
+    // at the provider first, as a run cancel does. Best effort: a provider
+    // refusal is logged inside and never blocks the delete.
+    cancelRunProviderBatches: (runId: string, projectId: string) =>
+      jobRunner.cancelRunBatches(runId, projectId),
     onProjectDeleted: (projectId: string) => {
       scheduler.removeAllForProject(projectId);
       const removedGoogleAds = removeGoogleAdsConnection(opts.config, projectId);
@@ -3701,6 +3712,9 @@ export async function createServer(opts: {
         },
         notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
       });
+      // Resumes every batch a previous process left outstanding, and finalizes
+      // the runs boot recovery handed to it.
+      stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -3727,6 +3741,8 @@ export async function createServer(opts: {
     stopLogCapture();
     stopSiteLiveness?.();
     stopSiteLiveness = null;
+    stopProviderBatchPoller?.();
+    stopProviderBatchPoller = null;
     scheduler.stop();
   });
 

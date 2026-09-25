@@ -3,6 +3,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
@@ -113,6 +114,15 @@ export const runTriggerRequestSchema = z.object({
   location: z.string().min(1).optional(),
   allLocations: z.boolean().optional(),
   noLocation: z.boolean().optional(),
+  /**
+   * How to dispatch this run's providers. Omitted or `sync` calls each
+   * provider once per slot, as always. `batch` sends every provider that can
+   * (a full plan sweep, a batch-capable adapter enabled in config.yaml, every
+   * slot's model frozen) to its asynchronous batch API; the rest run sync. A
+   * batch request that no provider can honour is refused rather than silently
+   * run sync.
+   */
+  dispatchMode: providerDispatchModeSchema.optional(),
 }).refine(
   (data) => Number(Boolean(data.location)) + Number(Boolean(data.allLocations)) + Number(Boolean(data.noLocation)) <= 1,
   { message: 'Only one of "location", "allLocations", or "noLocation" may be provided' },
@@ -137,6 +147,58 @@ export const runErrorSchema = z.object({
 })
 
 export type RunErrorDto = z.infer<typeof runErrorSchema>
+
+/**
+ * The providers a run sends to a provider batch API, frozen at queue time.
+ * Only `batch` entries appear; a provider that is not listed runs sync.
+ */
+export const runDispatchModesSchema = z.record(z.string(), z.literal(providerDispatchModeSchema.enum.batch))
+export type RunDispatchModes = z.infer<typeof runDispatchModesSchema>
+
+/**
+ * One provider batch of a run, as the run detail reports it. While any batch
+ * is `submitted` or `ended` the run stays `running`: it is waiting on the
+ * provider, not hung.
+ */
+export const providerBatchSummaryDtoSchema = z.object({
+  id: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  status: providerBatchStatusSchema,
+  /** Lines submitted in this batch. */
+  requestCount: z.number().int().nonnegative(),
+  /** Result lines mapped back to their slot so far. */
+  ingestedCount: z.number().int().nonnegative(),
+  /** Of those, the answers stored as snapshots. */
+  recordedCount: z.number().int().nonnegative(),
+  submittedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  /** When canonry cancels the batch if the provider has not finished it. */
+  deadlineAt: z.string(),
+  error: z.string().nullable(),
+})
+export type ProviderBatchSummaryDto = z.infer<typeof providerBatchSummaryDtoSchema>
+
+/**
+ * Billable usage of one run, per provider and price tier, summed server-side
+ * from the stored answers. Answers that predate usage capture are counted
+ * nowhere. `estimatedCostMicros` sums the priced answers only (integer
+ * micro-USD) and is null when none of them is priced; `unpricedAnswers`
+ * counts the answers whose model has no known price.
+ */
+export const runUsageSummaryRowSchema = z.object({
+  provider: z.string(),
+  pricingTier: pricingTierSchema,
+  answers: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  cachedInputTokens: z.number().int().nonnegative(),
+  cacheWriteTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  searchCount: z.number().int().nonnegative(),
+  estimatedCostMicros: z.number().int().nonnegative().nullable(),
+  unpricedAnswers: z.number().int().nonnegative(),
+})
+export type RunUsageSummaryRow = z.infer<typeof runUsageSummaryRowSchema>
 
 export const runDtoSchema = z.object({
   id: z.string(),
@@ -168,6 +230,12 @@ export const runDtoSchema = z.object({
    * neither of which measured a whole recorded set.
    */
   queryBasketRevision: z.number().int().nullable().optional(),
+  /**
+   * Providers this run dispatches to a provider batch API, frozen at queue
+   * time (`{}` when every provider runs sync). Present on every run that
+   * measured a published plan; planless runs, which never batch, omit it.
+   */
+  dispatchModes: runDispatchModesSchema.optional(),
   createdAt: z.string(),
 })
 
@@ -341,6 +409,12 @@ export const querySnapshotDtoSchema = z.object({
   requestedContext: locationContextSchema.nullable().optional(),
   /** Whether `requestedContext` was actually honoured — see the schema doc. */
   supportedContext: supportedLocationContextSchema.nullable().optional(),
+  /** How this answer was obtained. Null on rows that predate batch dispatch. */
+  dispatchMode: z.union([providerDispatchModeSchema, z.null()]).optional(),
+  /** Why the provider stopped generating, verbatim (e.g. Claude `pause_turn`). */
+  stopReason: z.string().nullable().optional(),
+  /** Billable usage and the price estimated when the answer was recorded. */
+  usage: snapshotUsageSchema.nullable().optional(),
   createdAt: z.string(),
 })
 
@@ -384,6 +458,10 @@ export type SnapshotDiffResponse = z.infer<typeof snapshotDiffResponseSchema>
 
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),
+  /** The run's provider batches, oldest first. Empty when nothing was batched. */
+  providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
+  /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */
+  usage: z.array(runUsageSummaryRowSchema).optional(),
 })
 
 export type RunDetailDto = z.infer<typeof runDetailDtoSchema>

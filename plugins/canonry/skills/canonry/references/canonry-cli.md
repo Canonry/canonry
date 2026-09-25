@@ -50,6 +50,8 @@ cnry project list                              # list all projects
 cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
+cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
+cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project delete <name>                     # delete a project
 cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
 cnry status <project>                          # mention + citation summary + domain info
@@ -99,11 +101,12 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --qu
 cnry run <project>                             # sweep all configured providers
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
-cnry run <project> --wait                      # block until complete
+cnry run <project> --wait                      # block until complete (a batch run: until batch-pending, then exit 0)
 cnry run <project> --location <label>          # run with specific location context
 cnry run <project> --all-locations             # run for every configured location
 cnry run <project> --no-location               # explicitly skip location context
 cnry run <project> --probe --provider openai --query "..."  # operator/agent test run — snapshot is inspectable but EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use for verification / "did this fix work?" / regression hypothesis testing.
+cnry run <project> --dispatch-mode batch       # send every eligible provider to its batch API (half-price tokens; answers can take up to the deadline)
 cnry run --all --wait                          # all projects
 cnry run cancel <project> [run-id]             # force-cancel stuck runs
 cnry run completeness <run-id>                 # answered vs missing answers per provider, and whether a fill is allowed
@@ -117,7 +120,39 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
 
-A partial run of a published measurement plan can be finished with `cnry run fill <run-id>`: it asks only the questions that have no answer yet, writes them into the same run, and marks the run `completed` once every expected answer exists. The run keeps its id, timestamps and place in history, so reports show one sweep, never two. It is refused (with a reason code) when the plan was republished since, the run started more than 24 hours ago, a newer sweep exists, or a missing answer has no frozen model. A provider that fails 3 times in a row is stopped for that fill; fill again once its limit lifts. Do not re-run the whole sweep to recover a few failed answers.
+A partial run of a published measurement plan can be finished with `cnry run fill <run-id>`: it asks only the questions that have no answer yet, writes them into the same run, and marks the run `completed` once every expected answer exists. The run keeps its id, timestamps and place in history, so reports show one sweep, never two. It is refused (with a reason code) when the plan was republished since, the run started more than 24 hours ago (for a run that used batch mode: finished more than 24 hours ago), a newer sweep exists, or a missing answer has no frozen model. A provider that fails 3 times in a row is stopped for that fill; fill again once its limit lifts. Do not re-run the whole sweep to recover a few failed answers.
+
+### Batch mode
+
+Scheduled sweeps can send a provider's answers to its asynchronous batch API
+(Claude today) at half the token price. It needs `providers.<name>.batch.enabled:
+true` in `config.yaml` and the project's `--dispatch-mode <provider>=batch`.
+Manual runs stay sync unless given `--dispatch-mode batch`, which is refused
+(exit 1, `details.ineligible` names each provider's reason) when no provider can
+batch. Only a full sweep of a published plan batches: planless runs, slices and
+probes always run sync. While a batch is outstanding the run stays `running`,
+`cnry run show <id>` prints `waiting on provider batch: ...`, and the project's
+next scheduled sweep is skipped. `--wait` (also with `--all` and
+`--all-locations`) never waits for a batch to end: once the run is
+batch-pending (a batch `submitted` or `ended`) it stops polling and exits 0.
+Text output adds `Waiting on provider batch(es): <provider> — N requests,
+submitted <t>, deadline <t>; check with canonry run show <id>` per
+batch-pending run. With `--format json`, `cnry run <project> --wait` prints the
+run detail unchanged (`status: running`, outstanding `providerBatches`), and
+`--all-locations --wait` prints each location's trigger row merged with its
+run detail. `cnry run --all --wait --format json` prints only
+`{ project, runId, status, location }` rows (plus `error`): a batch-pending
+run reads `status: running` with no `providerBatches`, so read those with
+`cnry run show <runId> --format json`. Treat that as success, not a timeout,
+and read the outcome later with `cnry run show <id>`; re-triggering gets
+`RUN_IN_PROGRESS`. Missing answers
+after the deadline make the run `partial`; fill them with `cnry run fill` (sync
+price, 24 hours after the run finalized). `cnry run show` also prints tokens,
+searches and estimated cost per provider and tier (a priced cost under $0.00005
+prints `<$0.0001`; only a real zero prints `$0.0000`); `--format json` is the
+API response (`dispatchModes`,
+`providerBatches`, `usage`). Batch mode is not zero-data-retention eligible on
+Anthropic, so keep it off on deployments that need ZDR.
 
 ### Probe vs real runs
 

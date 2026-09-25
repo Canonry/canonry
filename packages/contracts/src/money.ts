@@ -16,10 +16,30 @@ export function microsToDollars(micros: number): number {
   return micros / MICROS_PER_UNIT
 }
 
-/** Format integer micros as a currency string, e.g. 39_280_000 → "$39.28". */
-export function formatMicros(micros: number, currencyCode = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+/**
+ * Format integer micros as a currency string, e.g. 39_280_000 → "$39.28".
+ * `fractionDigits` fixes the decimals for sub-cent amounts (a single answer's
+ * estimated cost is often a fraction of a cent: 14_200 → "$0.0142" at 4).
+ * `showTinyAsLessThan` prints a positive amount that rounds to zero at the
+ * precision in use as below its smallest step (49 → "<$0.0001" at 4), so a
+ * real but tiny amount never reads as a real zero. Zero itself is unchanged.
+ */
+export function formatMicros(
+  micros: number,
+  currencyCode = 'USD',
+  options: { fractionDigits?: number; showTinyAsLessThan?: boolean } = {},
+): string {
+  const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currencyCode,
-  }).format(micros / MICROS_PER_UNIT)
+    ...(options.fractionDigits === undefined
+      ? {}
+      : { minimumFractionDigits: options.fractionDigits, maximumFractionDigits: options.fractionDigits }),
+  })
+  const formatted = formatter.format(micros / MICROS_PER_UNIT)
+  if (options.showTinyAsLessThan && micros > 0 && formatted === formatter.format(0)) {
+    const smallestStep = 10 ** -(formatter.resolvedOptions().maximumFractionDigits ?? 0)
+    return `<${formatter.format(smallestStep)}`
+  }
+  return formatted
 }

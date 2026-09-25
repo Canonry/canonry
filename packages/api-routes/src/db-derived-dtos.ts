@@ -58,7 +58,9 @@ import {
   measurementExecutionIdentitySchema,
   measurementRunScopeSchema,
   notificationEventSchema,
+  providerDispatchModesSchema,
   providerNameSchema,
+  runDispatchModesSchema,
   runKindSchema,
   runStatusSchema,
   runTriggerSchema,
@@ -78,6 +80,7 @@ export const projectRowSchema = createSelectSchema(projects, {
   labels: z.record(z.string(), z.string()),
   providers: z.array(z.string()),
   providerModels: z.record(z.string(), z.string()),
+  providerDispatchModes: providerDispatchModesSchema,
   measurement: measurementConfigSchema,
   locations: z.array(locationContextSchema),
   // text column → narrow to the configSource enum
@@ -101,6 +104,10 @@ export const runRowSchema = createSelectSchema(runs, {
   // Engines + models this run measured with, and the checksum that groups a
   // comparable series with it.
   measurementExecutionIdentity: measurementExecutionIdentitySchema.nullable(),
+  // Providers frozen to batch at queue time; null when every provider ran sync.
+  providerDispatchModes: runDispatchModesSchema.nullable(),
+  // Sync-provider errors held while finalization waits on a provider batch.
+  pendingProviderErrors: z.record(z.string(), z.string()).nullable(),
 })
 
 // --- schedules ---

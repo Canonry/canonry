@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages/messages.js";
+import type {
+  MessageCreateParamsNonStreaming,
+  WebSearchTool20250305,
+} from "@anthropic-ai/sdk/resources/messages/messages.js";
 import {
   AI_ENGINE_SELF_DOMAINS,
   hostMatchesAnyDomain,
@@ -7,7 +10,9 @@ import {
   normalizeServedModel,
   registrableDomain,
   describeError,
+  usageCount,
 } from "@ainyc/canonry-contracts";
+import type { ProviderUsage, TrackedQueryRequest } from "@ainyc/canonry-contracts";
 import { withRetry } from "./utils.js";
 import type {
   ClaudeConfig,
@@ -129,12 +134,17 @@ export async function healthcheck(
   }
 }
 
-export async function executeTrackedQuery(
-  input: ClaudeTrackedQueryInput,
-): Promise<ClaudeRawResult> {
-  const model = resolveModel(input.config);
-  const client = new Anthropic({ apiKey: input.config.apiKey });
+/** The Messages API path a tracked query is sent to, synchronously or as a batch line. */
+export const CLAUDE_MESSAGES_ENDPOINT = "/v1/messages";
 
+/**
+ * The first half of `executeTrackedQuery`: the exact Messages API request it
+ * sends. A batch line is built from the same body, so both dispatch modes ask
+ * Claude the identical question.
+ */
+export function buildTrackedQueryRequest(
+  input: ClaudeTrackedQueryInput,
+): TrackedQueryRequest {
   const webSearchTool: Record<string, unknown> = {
     type: "web_search_20250305",
     name: "web_search",
@@ -150,39 +160,67 @@ export async function executeTrackedQuery(
     };
   }
 
+  const body = {
+    model: resolveModel(input.config),
+    max_tokens: 4096,
+    tools: [webSearchTool as unknown as WebSearchTool20250305],
+    // search-required-v1: retrieval is guaranteed by the API control, so the
+    // query text and answer substance stay untouched. See the contract note.
+    tool_choice: { type: "tool", name: "web_search" },
+    messages: [{ role: "user", content: input.query }],
+  } satisfies MessageCreateParamsNonStreaming;
+
+  return { endpoint: CLAUDE_MESSAGES_ENDPOINT, body };
+}
+
+export async function executeTrackedQuery(
+  input: ClaudeTrackedQueryInput,
+): Promise<ClaudeRawResult> {
+  const params = buildTrackedQueryRequest(input)
+    .body as unknown as MessageCreateParamsNonStreaming;
+  const client = new Anthropic({ apiKey: input.config.apiKey });
+
+  let response: Anthropic.Message;
   try {
-    const response = await withRetry(() =>
-      client.messages.create({
-        model,
-        max_tokens: 4096,
-        tools: [webSearchTool as unknown as WebSearchTool20250305],
-        // search-required-v1: retrieval is guaranteed by the API control, so the
-        // query text and answer substance stay untouched. See the contract note.
-        tool_choice: { type: "tool", name: "web_search" },
-        messages: [{ role: "user", content: input.query }],
-      }),
-    );
-
-    const rawResponse = responseToRecord(response);
-    const parsed = reparseStoredResult(rawResponse);
-    if (parsed.providerError) {
-      throw new Error(parsed.providerError);
-    }
-
-    return {
-      provider: "claude",
-      rawResponse,
-      model,
-      servedModel: extractServedModel(rawResponse),
-      groundingSources: parsed.groundingSources,
-      searchQueries: parsed.searchQueries,
-      retrievalStatus: parsed.retrievalStatus,
-      retrievalContract: CLAUDE_RETRIEVAL_CONTRACT,
-    };
+    response = await withRetry(() => client.messages.create(params));
   } catch (err: unknown) {
     const msg = describeError(err);
     throw new Error(`[provider-claude] ${msg}`);
   }
+  return parseTrackedQueryResponse(response, params.model);
+}
+
+/**
+ * The second half of `executeTrackedQuery`: read one Messages API response
+ * into a result. `body` is the SDK's `Message` or the same message as JSON (a
+ * batch line's `result.message`); `model` is the model the request asked for.
+ *
+ * Anthropic can report a failed web search inside a successful response, as a
+ * `web_search_tool_result_error` block. That throws here, so a batch line
+ * fails exactly where the sync call always has.
+ */
+export function parseTrackedQueryResponse(
+  body: object,
+  model: string,
+): ClaudeRawResult {
+  const rawResponse = responseToRecord(body);
+  const parsed = reparseStoredResult(rawResponse);
+  if (parsed.providerError) {
+    throw new Error(`[provider-claude] ${parsed.providerError}`);
+  }
+
+  return {
+    provider: "claude",
+    rawResponse,
+    model,
+    servedModel: extractServedModel(rawResponse),
+    groundingSources: parsed.groundingSources,
+    searchQueries: parsed.searchQueries,
+    retrievalStatus: parsed.retrievalStatus,
+    retrievalContract: CLAUDE_RETRIEVAL_CONTRACT,
+    usage: extractUsageFromRaw(rawResponse),
+    stopReason: extractStopReasonFromRaw(rawResponse),
+  };
 }
 
 export function normalizeResult(raw: ClaudeRawResult): ClaudeNormalizedResult {
@@ -438,6 +476,47 @@ function extractWebSearchToolErrors(
   return [...errors];
 }
 
+/**
+ * Billable usage off a Messages API response. `input_tokens` already excludes
+ * cache reads and writes, which Anthropic reports separately, and
+ * `server_tool_use.web_search_requests` counts the searches billed per call.
+ * A response with no usage block yields undefined, never a zero-cost answer.
+ * Docs: https://platform.claude.com/docs/en/api/messages
+ */
+function extractUsageFromRaw(
+  rawResponse: Record<string, unknown>,
+): ProviderUsage | undefined {
+  const usage = rawResponse.usage as
+    | {
+        input_tokens?: unknown;
+        cache_read_input_tokens?: unknown;
+        cache_creation_input_tokens?: unknown;
+        output_tokens?: unknown;
+        server_tool_use?: { web_search_requests?: unknown } | null;
+      }
+    | null
+    | undefined;
+  if (usage === null || typeof usage !== "object") return undefined;
+
+  return {
+    inputTokens: usageCount(usage.input_tokens),
+    cachedInputTokens: usageCount(usage.cache_read_input_tokens),
+    cacheWriteTokens: usageCount(usage.cache_creation_input_tokens),
+    outputTokens: usageCount(usage.output_tokens),
+    searchCount: usageCount(usage.server_tool_use?.web_search_requests),
+  };
+}
+
+/** `stop_reason` verbatim (`end_turn`, `max_tokens`, `pause_turn`, …). */
+function extractStopReasonFromRaw(
+  rawResponse: Record<string, unknown>,
+): string | undefined {
+  const stopReason = rawResponse.stop_reason;
+  return typeof stopReason === "string" && stopReason.length > 0
+    ? stopReason
+    : undefined;
+}
+
 function extractCitedDomainsFromSources(
   groundingSources: GroundingSource[],
 ): string[] {
@@ -479,9 +558,12 @@ export async function generateText(
   return extractTextFromResponse(response);
 }
 
-function responseToRecord(
-  response: Anthropic.Message,
-): Record<string, unknown> {
+/**
+ * Detach a response into plain JSON, the shape stored as `apiResponse`. Both
+ * the SDK's `Message` and a batch line's `result.message` go through it, so a
+ * sync row and a batch row are stored identically.
+ */
+export function responseToRecord(response: object): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(response)) as Record<string, unknown>;
   } catch {
