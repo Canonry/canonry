@@ -16,7 +16,7 @@ import {
 const health = (over: Partial<HealthWebhookPayload['health']> = {}): HealthWebhookPayload => ({
   source: 'canonry',
   event: 'health.degraded',
-  project: { name: 'gjelina-hotel', canonicalDomain: 'gjelinahotel.com' },
+  project: { name: 'harborline-hotel', canonicalDomain: 'harborline.test' },
   health: {
     status: 'fail',
     code: 'traffic.sync-lag.discarding',
@@ -30,7 +30,7 @@ const health = (over: Partial<HealthWebhookPayload['health']> = {}): HealthWebho
     ],
     ...over,
   },
-  dashboardUrl: 'https://canonry.test/projects/gjelina-hotel',
+  dashboardUrl: 'https://canonry.test/projects/harborline-hotel',
 })
 
 test('the destination is resolved from the URL, and lookalikes fall back to first-party', () => {
@@ -78,7 +78,7 @@ test('every registered destination is reachable and terminates in first-party', 
 test('the neutral view decides content once, for every destination', () => {
   const view = toAlertView(health())
   expect(view.severity).toBe(AlertSeverities.critical)
-  expect(view.title).toContain('gjelina-hotel')
+  expect(view.title).toContain('harborline-hotel')
   expect(view.body).toContain('discarding')
 
   const labels = view.fields.map(f => f.label)
@@ -103,13 +103,13 @@ test('the same view renders into each receiver own envelope', () => {
   const discord = renderDiscord(view)
   expect(discord.embeds).toHaveLength(1)
   expect(discord.embeds[0]!.color).toBeTypeOf('number')
-  expect(discord.embeds[0]!.url).toBe('https://canonry.test/projects/gjelina-hotel')
+  expect(discord.embeds[0]!.url).toBe('https://canonry.test/projects/harborline-hotel')
   expect(discord.embeds[0]!.fields![0]).toHaveProperty('name')
 
   const slack = renderSlack(view)
   expect(slack.attachments).toHaveLength(1)
   expect(slack.attachments[0]!.color).toBeTypeOf('string')
-  expect(slack.attachments[0]!.title_link).toBe('https://canonry.test/projects/gjelina-hotel')
+  expect(slack.attachments[0]!.title_link).toBe('https://canonry.test/projects/harborline-hotel')
   expect(slack.attachments[0]!.fields![0]).toHaveProperty('title')
   // `text` is Slack's notification preview and accessible fallback.
   expect(slack.text.length).toBeGreaterThan(0)
@@ -136,16 +136,16 @@ test('run events render too, so this is not health-only', () => {
   const payload: WebhookPayload = {
     source: 'canonry',
     event: 'run.failed',
-    project: { name: 'azcoatings', canonicalDomain: 'azcoatingsllc.com' },
+    project: { name: 'acme-coatings', canonicalDomain: 'acmecoatings.test' },
     run: { id: 'run_1', status: 'failed', finishedAt: '2026-07-31T18:00:00.000Z' },
     transitions: [{ query: 'roof coating', from: 'cited', to: 'not-cited', provider: 'openai' }],
-    dashboardUrl: 'https://canonry.test/projects/azcoatings',
+    dashboardUrl: 'https://canonry.test/projects/acme-coatings',
   }
   const view = toAlertView(payload)
   expect(view.severity).toBe(AlertSeverities.critical)
   expect(view.fields.some(f => f.label.startsWith(AlertFieldLabels.changes))).toBe(true)
-  expect(renderDiscord(view).embeds[0]!.title).toContain('azcoatings')
-  expect(renderSlack(view).attachments[0]!.title).toContain('azcoatings')
+  expect(renderDiscord(view).embeds[0]!.title).toContain('acme-coatings')
+  expect(renderSlack(view).attachments[0]!.title).toContain('acme-coatings')
 })
 
 // The test route used to POST the payload verbatim regardless of destination,

@@ -55,17 +55,17 @@ type Context = ReturnType<typeof buildApp> & {
 async function seedProject(ctx: ReturnType<typeof buildApp>): Promise<Pick<Context, 'projectId' | 'runId'>> {
   const response = await ctx.app.inject({
     method: 'PUT',
-    url: '/api/v1/projects/demand-iq',
+    url: '/api/v1/projects/harbor-iq',
     payload: {
-      displayName: 'DemandIQ',
-      canonicalDomain: 'demand-iq.com',
-      ownedDomains: ['demandiq.com'],
-      aliases: ['Demand IQ'],
+      displayName: 'HarborIQ',
+      canonicalDomain: 'harbor-iq.test',
+      ownedDomains: ['harboriq.test'],
+      aliases: ['Harbor IQ'],
       country: 'US',
       language: 'en',
       measurement: {
         marketingHosts: ['offers.example.net'],
-        brandTerms: ['Demand Intelligence'],
+        brandTerms: ['Harbor Intelligence'],
         leadEventNames: ['generate_lead', 'book_demo'],
       },
     },
@@ -81,8 +81,8 @@ async function seedProject(ctx: ReturnType<typeof buildApp>): Promise<Pick<Conte
     trigger: RunTriggers.manual,
     createdAt: NOW,
   }).run()
-  ctx.credentials.set('demand-iq', {
-    projectName: 'demand-iq',
+  ctx.credentials.set('harbor-iq', {
+    projectName: 'harbor-iq',
     propertyId: '123456',
     clientEmail: 'measurement@test.iam.gserviceaccount.com',
     privateKey: 'fake-key',
@@ -227,7 +227,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Paid Search',
-      hostName: 'www.demand-iq.com',
+      hostName: 'www.harbor-iq.test',
       landingPage: '/quote?utm_campaign=summer',
       sessions: 40,
     })
@@ -241,28 +241,28 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 2,
       channelGroup: 'Display',
-      hostName: 'demand-iq.vercel.app',
+      hostName: 'harbor-iq.vercel.app',
       landingPage: '/preview',
       sessions: 100,
     })
     insertAcquisition(ctx, {
       daysAgo: 35,
       channelGroup: 'Organic Search',
-      hostName: 'demandiq.com',
+      hostName: 'harboriq.test',
       landingPage: '/blog/guide',
       sessions: 30,
     })
     insertAcquisition(ctx, {
       daysAgo: 65,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/blog/guide',
       sessions: 10,
     })
     insertAcquisition(ctx, {
       daysAgo: 95,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/outside-window',
       sessions: 999,
     })
@@ -276,7 +276,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=90d',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=90d',
     })
 
     expect(response.statusCode).toBe(200)
@@ -286,9 +286,9 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       bucketDays: 30,
       filters: {
         hostScope: 'marketing',
-        marketingHosts: ['demand-iq.com', 'demandiq.com', 'offers.example.net'],
+        marketingHosts: ['harbor-iq.test', 'harboriq.test', 'offers.example.net'],
         pathPrefix: null,
-        brandTerms: ['DemandIQ', 'Demand IQ', 'Demand Intelligence'],
+        brandTerms: ['HarborIQ', 'Harbor IQ', 'Harbor Intelligence'],
         queryMixScope: 'property',
       },
       acquisition: {
@@ -335,7 +335,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     ]))
     expect(body.acquisition.channels.map(row => row.channelGroup)).not.toContain('Other')
     expect(body.acquisition.pages).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ hostName: 'demand-iq.vercel.app' }),
+      expect.objectContaining({ hostName: 'harbor-iq.vercel.app' }),
     ]))
   })
 
@@ -343,28 +343,28 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.vercel.app',
+      hostName: 'harbor-iq.vercel.app',
       landingPage: '/blog/article?utm_source=test',
       sessions: 12,
     })
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'www.demand-iq.com',
+      hostName: 'www.harbor-iq.test',
       landingPage: '/blogger',
       sessions: 30,
     })
     insertAcquisition(ctx, {
       daysAgo: 1,
       channelGroup: 'Paid Search',
-      hostName: 'www.demand-iq.com',
+      hostName: 'www.harbor-iq.test',
       landingPage: '/blog',
       sessions: 4,
     })
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&hostScope=all&pathPrefix=%2Fblog',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&hostScope=all&pathPrefix=%2Fblog',
     })
 
     expect(response.statusCode).toBe(200)
@@ -378,11 +378,11 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     ])
     expect(body.acquisition.pages).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        hostName: 'demand-iq.vercel.app',
+        hostName: 'harbor-iq.vercel.app',
         landingPage: '/blog/article',
       }),
       expect.objectContaining({
-        hostName: 'www.demand-iq.com',
+        hostName: 'www.harbor-iq.test',
         landingPage: '/blog',
       }),
     ]))
@@ -395,21 +395,21 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'www.demand-iq.com',
+      hostName: 'www.harbor-iq.test',
       landingPage: '/blog/article',
       sessions: 10,
     })
     insertLead(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'www.demand-iq.com',
+      hostName: 'www.harbor-iq.test',
       landingPage: '/blog/article',
       eventCount: 3,
     })
     insertLead(ctx, {
       daysAgo: 0,
       channelGroup: 'Paid Search',
-      hostName: 'demand-iq.vercel.app',
+      hostName: 'harbor-iq.vercel.app',
       landingPage: '/preview',
       eventCount: 9,
     })
@@ -425,7 +425,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const filtered = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fblog',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fblog',
     })
     expect(filtered.statusCode).toBe(200)
     expect(JSON.parse(filtered.body)).toMatchObject({
@@ -453,7 +453,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const fallback = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fblog',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fblog',
     })
     expect(fallback.statusCode).toBe(200)
     expect(JSON.parse(fallback.body)).toMatchObject({
@@ -470,14 +470,14 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 10,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/guide',
       sessions: 4,
     })
     insertLead(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/guide',
       eventCount: 2,
     })
@@ -493,7 +493,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -516,21 +516,21 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 35,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/guide',
       sessions: 4,
     })
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Display',
-      hostName: 'demand-iq.vercel.app',
+      hostName: 'harbor-iq.vercel.app',
       landingPage: '/preview',
       sessions: 100,
     })
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -552,7 +552,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
         channelGroup: 'Organic Search',
         source: 'google',
         medium: 'organic',
-        hostName: 'www.demand-iq.com',
+        hostName: 'www.harbor-iq.test',
         landingPage: '/guides/legacy?utm_source=google',
         landingPageNormalized: null,
         sessions: 4,
@@ -566,7 +566,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
         channelGroup: 'Paid Search',
         source: 'google',
         medium: 'cpc',
-        hostName: 'www.demand-iq.com',
+        hostName: 'www.harbor-iq.test',
         landingPage: '/quote',
         landingPageNormalized: '/quote',
         sessions: 100,
@@ -577,7 +577,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -597,14 +597,14 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertLead(ctx, {
       daysAgo: 30,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/guides/organic',
       eventCount: 3,
     })
     insertLead(ctx, {
       daysAgo: 0,
       channelGroup: 'Paid Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/quote',
       eventCount: 9,
     })
@@ -619,7 +619,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -637,21 +637,21 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/',
       sessions: 2,
     })
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/pricing',
       sessions: 5,
     })
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2F',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d&pathPrefix=%2F',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -668,31 +668,31 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
   it('classifies reported GSC queries conservatively and exposes the anonymized residual', async () => {
     insertGscPropertyTotal(ctx, { daysAgo: 0, clicks: 20, impressions: 300 })
-    insertGscQuery(ctx, { daysAgo: 0, query: 'demand iq platform', clicks: 8, impressions: 80 })
-    insertGscQuery(ctx, { daysAgo: 0, query: 'demand-iq.com pricing', clicks: 2, impressions: 20 })
+    insertGscQuery(ctx, { daysAgo: 0, query: 'harbor iq platform', clicks: 8, impressions: 80 })
+    insertGscQuery(ctx, { daysAgo: 0, query: 'harbor-iq.test pricing', clicks: 2, impressions: 20 })
     insertGscQuery(ctx, { daysAgo: 0, query: 'solar sales software', clicks: 5, impressions: 90 })
-    insertGscQuery(ctx, { daysAgo: 0, query: 'demanding software buyers', clicks: 1, impressions: 10 })
+    insertGscQuery(ctx, { daysAgo: 0, query: 'harboring software buyers', clicks: 1, impressions: 10 })
     insertGscPropertyTotal(ctx, { daysAgo: 35, clicks: 12, impressions: 180 })
-    insertGscQuery(ctx, { daysAgo: 35, query: 'demand iq', clicks: 4, impressions: 40 })
+    insertGscQuery(ctx, { daysAgo: 35, query: 'harbor iq', clicks: 4, impressions: 40 })
     insertGscQuery(ctx, { daysAgo: 35, query: 'solar proposal tools', clicks: 5, impressions: 80 })
     insertGscPage(ctx, {
       daysAgo: 0,
       query: 'solar sales software',
-      page: 'https://www.demand-iq.com/blog/ai-marketing',
+      page: 'https://www.harbor-iq.test/blog/ai-marketing',
       clicks: 3,
       impressions: 120,
     })
     insertGscPage(ctx, {
       daysAgo: 0,
       query: 'preview',
-      page: 'https://demand-iq.vercel.app/blog/preview',
+      page: 'https://harbor-iq.vercel.app/blog/preview',
       clicks: 10,
       impressions: 500,
     })
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=60d&pathPrefix=%2Fblog',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=60d&pathPrefix=%2Fblog',
     })
 
     expect(response.statusCode).toBe(200)
@@ -734,14 +734,14 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       ],
     })
     expect(body.searchDemand.queries).toEqual(expect.arrayContaining([
-      expect.objectContaining({ query: 'demand iq platform', classification: 'branded' }),
-      expect.objectContaining({ query: 'demand-iq.com pricing', classification: 'branded' }),
-      expect.objectContaining({ query: 'demanding software buyers', classification: 'non-branded' }),
+      expect.objectContaining({ query: 'harbor iq platform', classification: 'branded' }),
+      expect.objectContaining({ query: 'harbor-iq.test pricing', classification: 'branded' }),
+      expect.objectContaining({ query: 'harboring software buyers', classification: 'non-branded' }),
       expect.objectContaining({ query: 'solar sales software', classification: 'non-branded' }),
     ]))
     expect(body.searchDemand.pages).toEqual([
       expect.objectContaining({
-        hostName: 'www.demand-iq.com',
+        hostName: 'www.harbor-iq.test',
         landingPage: '/blog/ai-marketing',
         periods: [
           expect.objectContaining({ label: 'previous', clicks: 0, impressions: 0 }),
@@ -755,7 +755,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     insertAcquisition(ctx, {
       daysAgo: 0,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/',
       sessions: 4,
     })
@@ -770,7 +770,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d',
+      url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d',
     })
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
@@ -796,7 +796,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     for (const query of ['window=45d', 'hostScope=canonical-only', 'limit=0', 'limit=101']) {
       const invalid = await ctx.app.inject({
         method: 'GET',
-        url: `/api/v1/projects/demand-iq/ga/measurement-analysis?${query}`,
+        url: `/api/v1/projects/harbor-iq/ga/measurement-analysis?${query}`,
       })
       expect(invalid.statusCode).toBe(400)
     }

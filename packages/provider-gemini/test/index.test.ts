@@ -314,18 +314,18 @@ test('normalizeResult prefers reparsed grounding metadata over stale extracted f
 // prove what Gemini reports.
 //
 // Constructed: everything else. The `candidates` / `groundingMetadata` block is a
-// hand-written minimal shape (Gjelina Hotel answer text, one grounding chunk, one
+// hand-written minimal shape (Harborline Hotel answer text, one grounding chunk, one
 // support span) and `usageMetadata` is invented — the live call's answer body was not
 // captured. It is shaped after the Gemini response schema so `reparseStoredResult` has
 // something to read, and it is NOT evidence of what Gemini returned for any query.
 const geminiResponseFixture = {
   candidates: [
     {
-      content: { role: 'model', parts: [{ text: 'Gjelina Hotel is a Venice Beach boutique hotel.' }] },
+      content: { role: 'model', parts: [{ text: 'Harborline Hotel is a harbor-side boutique inn.' }] },
       finishReason: 'STOP',
       groundingMetadata: {
-        webSearchQueries: ['"Gjelina Hotel" Venice Beach'],
-        groundingChunks: [{ web: { uri: 'https://gjelinahotel.com/', title: 'gjelinahotel.com' } }],
+        webSearchQueries: ['"Harborline Hotel" harbor-side'],
+        groundingChunks: [{ web: { uri: 'https://harborline.example.com/', title: 'harborline.example.com' } }],
         groundingSupports: [{ segment: { startIndex: 0, endIndex: 46 }, groundingChunkIndices: [0] }],
       },
     },
@@ -345,12 +345,12 @@ test('responseToRecord still carries candidates that reparseStoredResult can rea
   const record = responseToRecord(geminiResponseFixture)
   const parsed = reparseStoredResult(record)
   expect(parsed.provider).toBe('gemini')
-  expect(parsed.answerText).toBe('Gjelina Hotel is a Venice Beach boutique hotel.')
-  expect(parsed.searchQueries).toEqual(['"Gjelina Hotel" Venice Beach'])
+  expect(parsed.answerText).toBe('Harborline Hotel is a harbor-side boutique inn.')
+  expect(parsed.searchQueries).toEqual(['"Harborline Hotel" harbor-side'])
   expect(parsed.groundingSources).toEqual([
-    { uri: 'https://gjelinahotel.com/', title: 'gjelinahotel.com' },
+    { uri: 'https://harborline.example.com/', title: 'harborline.example.com' },
   ])
-  expect(parsed.citedDomains).toEqual(['gjelinahotel.com'])
+  expect(parsed.citedDomains).toEqual(['harborline.example.com'])
 })
 
 test('extractServedModel reads the modelVersion Gemini reported', () => {
