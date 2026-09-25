@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
-import { MODEL_POINTER_REGISTRY_CHECKED_THROUGH, SOURCE_BREAKDOWN_COUNT_UNITS } from '@ainyc/canonry-contracts'
+import { brandMetricsDtoSchema, MODEL_POINTER_REGISTRY_CHECKED_THROUGH, SOURCE_BREAKDOWN_COUNT_UNITS } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -1212,6 +1212,72 @@ describe('analytics routes', () => {
     })
   })
 
+  it('serves each series\' change across the window from its own first and latest bucket', async () => {
+    const wcProjectId = crypto.randomUUID()
+    const created = '2026-05-01T00:00:00.000Z'
+    db.insert(projects).values({
+      id: wcProjectId,
+      name: 'window-change-project',
+      displayName: 'Window Change',
+      canonicalDomain: 'windowchange.com',
+      ownedDomains: '[]',
+      country: 'US',
+      language: 'en',
+      tags: '[]',
+      labels: '{}',
+      providers: '["gemini"]',
+      locations: '[]',
+      defaultLocation: null,
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: created,
+      updatedAt: created,
+    }).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: wcProjectId, domain: 'rival.com', createdAt: created }).run()
+    const queryA = crypto.randomUUID()
+    const queryB = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: queryA, projectId: wcProjectId, query: 'best roof coating', createdAt: created },
+      { id: queryB, projectId: wcProjectId, query: 'roof coating cost', createdAt: created },
+    ]).run()
+    // Three sweeps, a day-sized bucket each. The middle one names nobody, so
+    // its mention share is undefined and it cannot be an end of that change.
+    const sweeps: Array<{ at: string; a: [boolean, string]; b: [boolean, string] }> = [
+      { at: '2026-06-01T12:00:00.000Z', a: [true, 'Windowchange.com leads the category.'], b: [false, 'Rival.com wins this one.'] },
+      { at: '2026-06-05T12:00:00.000Z', a: [false, 'Nobody stands out.'], b: [false, 'Nobody stands out here.'] },
+      { at: '2026-06-10T12:00:00.000Z', a: [true, 'Windowchange.com again.'], b: [true, 'Windowchange.com and Rival.com.'] },
+    ]
+    for (const sweep of sweeps) {
+      const sweepRunId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: sweepRunId, projectId: wcProjectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+        location: null, startedAt: sweep.at, finishedAt: sweep.at, error: null, createdAt: sweep.at,
+      }).run()
+      for (const [queryId, [cited, answerText]] of [[queryA, sweep.a], [queryB, sweep.b]] as const) {
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(), runId: sweepRunId, queryId, provider: 'gemini', model: 'gemini-2.5-flash',
+          citationState: cited ? 'cited' : 'not-cited', answerText,
+          citedDomains: cited ? ['windowchange.com'] : [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: sweep.at,
+        }).run()
+      }
+    }
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/window-change-project/analytics/metrics' })
+    expect(res.statusCode).toBe(200)
+    const body = brandMetricsDtoSchema.parse(JSON.parse(res.payload))
+    expect(body.buckets.map(b => [b.citationRate, b.mentionRate, b.mentionShare.rate])).toEqual([
+      [0.5, 0.5, 0.5],
+      [0, 0, null],
+      [1, 1, 0.6667],
+    ])
+    expect(body.windowChange).toEqual({
+      citationRate: { first: 0.5, latest: 1, delta: 0.5 },
+      mentionRate: { first: 0.5, latest: 1, delta: 0.5 },
+      // 2 of 3 namings minus 1 of 2, from the two buckets that had a share.
+      mentionShare: { first: 0.5, latest: 0.6667, delta: 0.1667 },
+    })
+  })
+
   it('returns empty data when no runs exist', async () => {
     // Create a project with no runs
     const emptyProjectId = crypto.randomUUID()
@@ -1242,6 +1308,8 @@ describe('analytics routes', () => {
     expect(metricsBody.overall.mentionedCount).toBe(0)
     expect(metricsBody.mentionTrend).toBe('stable')
     expect(metricsBody.modelAttribution).toEqual({})
+    // No bucket, so no change to report on any series.
+    expect(metricsBody.windowChange).toEqual({ citationRate: null, mentionRate: null, mentionShare: null })
 
     const gapsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/gaps' })
     expect(gapsRes.statusCode).toBe(200)

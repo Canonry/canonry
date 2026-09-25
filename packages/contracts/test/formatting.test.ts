@@ -15,6 +15,7 @@ import {
   formatNumber,
   formatPointDelta,
   formatPercent,
+  formatSignedPointDelta,
   formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
   parseInclusiveEndMs,
@@ -711,6 +712,40 @@ describe('formatPointDelta', () => {
   test('keeps a trailing .0, matching formatPercent', () => {
     expect(formatPointDelta(0.1)).toEqual({ direction: 'up', magnitude: '10.0' })
     expect(formatPointDelta(-1)).toEqual({ direction: 'down', magnitude: '100.0' })
+  })
+})
+
+describe('formatSignedPointDelta', () => {
+  test('signs a fraction-point change and names the unit', () => {
+    expect(formatSignedPointDelta(0.15)).toBe('+15.0 pts')
+    expect(formatSignedPointDelta(-0.035)).toBe('-3.5 pts')
+  })
+
+  test('a zero change carries no sign, and negative zero is zero', () => {
+    expect(formatSignedPointDelta(0)).toBe('0 pts')
+    expect(formatSignedPointDelta(-0)).toBe('0 pts')
+  })
+
+  test('a real change under a twentieth of a point keeps its sign and reads <0.1', () => {
+    expect(formatSignedPointDelta(0.0001)).toBe('+<0.1 pts')
+    expect(formatSignedPointDelta(-0.0004)).toBe('-<0.1 pts')
+  })
+
+  test('rounds exactly like formatPointDelta, float error included', () => {
+    // 0.35 - 0.2 is 0.14999999999999997; it is still fifteen points.
+    expect(formatSignedPointDelta(0.35 - 0.2)).toBe('+15.0 pts')
+    expect(formatSignedPointDelta(0.0045)).toBe('+0.5 pts')
+  })
+
+  test('reads a change already in 0..100 points with unit percent', () => {
+    expect(formatSignedPointDelta(15, 'percent')).toBe('+15.0 pts')
+    expect(formatSignedPointDelta(-3.5, 'percent')).toBe('-3.5 pts')
+    expect(formatSignedPointDelta(0, 'percent')).toBe('0 pts')
+  })
+
+  test('spans the whole scale', () => {
+    expect(formatSignedPointDelta(1)).toBe('+100.0 pts')
+    expect(formatSignedPointDelta(-1)).toBe('-100.0 pts')
   })
 })
 
