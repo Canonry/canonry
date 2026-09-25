@@ -25,9 +25,9 @@ import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-perio
 import { buildGbpSummary } from './gbp-summary.js'
 import {
   mergeGscDailyTotalsWithFallback, readGscDailyTotals,
-  mergeGscQueryTotalsWithFallback, readGscQueryDailyRows, readGscQueryDailyFallbackRows,
+  readGscQueryTotalsPage,
   readEarliestGscDataDate, readLatestGscDataDate,
-  resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
+  resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -1237,10 +1237,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // GET /projects/:name/google/gsc/query-totals
   //
   // One row per query over the window, read from stored rows only: no call to
-  // Google and no writes. The fold is `mergeGscQueryTotalsWithFallback`, the
-  // same one the report, suggested queries and content data use, so the numbers
-  // agree across surfaces: the accurate `['date','query']` table wins per day
-  // and the legacy page-dimensioned table fills days it does not cover.
+  // Google and no writes. The fold is `readGscQueryTotalsPage`, the SQL form of
+  // `mergeGscQueryTotalsWithFallback` (which the report, suggested queries and
+  // content data use), held to identical numbers by a parity test: the accurate
+  // `['date','query']` table wins per day and the legacy page-dimensioned table
+  // fills days it does not cover.
   //
   // The rows are the queries Google NAMES. Their sum is not the property total
   // (Google leaves rare queries out); `performance/daily` carries that.
@@ -1251,33 +1252,28 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate, limit, offset } = request.query
     assertForwardRange(startDate, endDate)
-    const resolvedWindow = resolveGscWindowRange(
+    // One range for the read AND the report: a label paired with an explicit
+    // end is anchored on that end, so the SQL never applies a bound the
+    // response leaves out. See `resolveGscRequestWindow`.
+    const window = resolveGscRequestWindow(
       parseWindow(request.query.window),
       readLatestGscDataDate(app.db, project.id),
       gscToday(),
+      startDate,
+      endDate,
     )
-    const reportedWindow = resolveReportedWindow(resolvedWindow, startDate, endDate)
-    const windowStart = startDate ?? resolvedWindow.startDate ?? ''
-    const windowEnd = endDate ?? resolvedWindow.endDate ?? '9999-12-31'
-
-    const merged = mergeGscQueryTotalsWithFallback(
-      readGscQueryDailyRows(app.db, project.id, windowStart, windowEnd),
-      readGscQueryDailyFallbackRows(app.db, project.id, windowStart, windowEnd),
-    )
-    // Fully determined so a page boundary never moves between calls. The final
-    // tiebreak compares code points, not `localeCompare`, so the order does not
-    // depend on the server's locale.
-    merged.sort((a, b) =>
-      b.clicks - a.clicks
-      || b.impressions - a.impressions
-      || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0))
 
     const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
     const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)
-    const page = merged.slice(offsetVal, offsetVal + limitVal)
+    // Merged, aggregated, ordered and paged in SQLite, so a page reads only its
+    // own rows. Ties break on the query by code point, so a page boundary never
+    // moves between calls and never depends on the server's locale.
+    const { rows, totalMatching } = readGscQueryTotalsPage(
+      app.db, project.id, window.startDate, window.endDate, limitVal, offsetVal,
+    )
 
     return {
-      rows: page.map((r) => ({
+      rows: rows.map((r) => ({
         query: r.query,
         clicks: r.clicks,
         impressions: r.impressions,
@@ -1286,11 +1282,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         days: r.days,
         source: r.source,
       })),
-      totalMatching: merged.length,
+      totalMatching,
       // Measured from where this page ends, so a page past the end is not
       // reported as truncated.
-      truncated: offsetVal + page.length < merged.length,
-      window: reportedWindow,
+      truncated: offsetVal + rows.length < totalMatching,
+      window,
     }
   })
 

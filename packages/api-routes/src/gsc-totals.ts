@@ -117,6 +117,50 @@ export function resolveGscWindowDays(
   }
 }
 
+/**
+ * The range a request reads when it may carry a labelled window AND explicit
+ * `startDate` / `endDate` bounds. The result is the range to query with and
+ * the range to report, so the two cannot drift apart.
+ *
+ * - Both dates: exactly those dates. The label is ignored.
+ * - `endDate` only: the label's span, anchored on that end date (the same
+ *   anchoring the report uses). Anchoring on the published frontier instead
+ *   would put a `30d` lower bound AFTER an earlier explicit end, and the range
+ *   would be empty although the stored rows exist. `all` stays open at the
+ *   start.
+ * - `startDate` only: from that date to the label's end, the last published
+ *   day. A start past that day leaves the end open (`null`) rather than
+ *   reporting a range that runs backwards.
+ * - Neither: `resolveGscWindowRange`.
+ *
+ * A `null` side means unbounded, both in the report and in the read. The
+ * caller refuses malformed or reversed explicit bounds first
+ * (`assertForwardRange`).
+ */
+export function resolveGscRequestWindow(
+  window: MetricsWindow,
+  latestDataDate: string | null,
+  today: string,
+  startDate: string | undefined,
+  endDate: string | undefined,
+): GscWindowRange {
+  const resolved = resolveGscWindowRange(window, latestDataDate, today)
+  if (endDate !== undefined && startDate === undefined) {
+    return {
+      ...resolved,
+      startDate: window === 'all' ? null : shiftIsoCalendarDate(endDate, -(WINDOW_DAYS[window] - 1)),
+      endDate,
+    }
+  }
+  const start = startDate ?? resolved.startDate
+  const end = endDate ?? resolved.endDate
+  return {
+    ...resolved,
+    startDate: start,
+    endDate: start !== null && end !== null && start > end ? null : end,
+  }
+}
+
 /** Calendar days between the last published date and today. Never negative. */
 function gscDaysSinceLatestData(latestDataDate: string | null, today: string): number | null {
   if (latestDataDate === null) return null
@@ -376,6 +420,143 @@ export function readGscQueryDailyFallbackRows(
     impressions: Number(r.impressions),
     position: Number(r.position),
   }))
+}
+
+export interface GscQueryTotalsPage {
+  /** This page, ordered clicks desc, impressions desc, query asc by code point. */
+  rows: GscQueryAggregate[]
+  /** Every query in the window, ignoring `limit` / `offset`. */
+  totalMatching: number
+}
+
+/**
+ * One page of `mergeGscQueryTotalsWithFallback`, computed in SQLite so a page
+ * reads only its own rows into the process.
+ *
+ * The merge in JS needs both sources' (date, query) rows for the WHOLE window
+ * in memory before it can aggregate, sort and slice, so `limit=1` on a busy
+ * property still built every row. Here the same steps run in the database:
+ *
+ * 1. Source per (date, query): the accurate `gsc_query_daily_totals` row when
+ *    one exists, otherwise the `gsc_search_data` rows under the same filters
+ *    as `readGscQueryDailyFallbackRows` (text position cast to REAL and
+ *    impression-weighted, empty queries and zero-impression rows left out).
+ * 2. Per query: summed clicks and impressions, impression-weighted position
+ *    with the plain daily mean when the window has no impressions, the count of
+ *    merged days, and the `google` / `page-summed` / `mixed` tag.
+ * 3. Order, then `LIMIT` / `OFFSET`. `ORDER BY query` uses SQLite's BINARY
+ *    collation, a byte compare of UTF-8, which is code point order.
+ *
+ * `startDate` / `endDate` are inclusive; `null` leaves that side open. The
+ * figures must stay identical to `mergeGscQueryTotalsWithFallback` over the
+ * two readers; a parity test holds them together (position to 1e-12
+ * relative, since SQLite's SUM() compensates float rounding and the JS loop
+ * does not).
+ */
+export function readGscQueryTotalsPage(
+  db: DatabaseClient,
+  projectId: string,
+  startDate: string | null,
+  endDate: string | null,
+  limit: number,
+  offset: number,
+): GscQueryTotalsPage {
+  const from = startDate ?? ''
+  const to = endDate ?? '9999-12-31'
+  // SQLite refuses a LIMIT / OFFSET past 64-bit integers ("datatype mismatch"),
+  // and a caller may send any digits. Past 2^53 no page could hold rows anyway.
+  const bound = (n: number, floor: number) => Math.min(Math.max(Math.floor(n), floor), Number.MAX_SAFE_INTEGER)
+  const pageLimit = bound(limit, 1)
+  const pageOffset = bound(offset, 0)
+  // Source selection happens on the raw legacy rows: a `gsc_search_data` row
+  // counts only when the accurate table has no row for its (date, query). The
+  // legacy rows are then folded per query directly rather than per day first.
+  // That is the same sum, since every kept legacy day has impressions > 0 and
+  // (sum(p*i) / sum(i)) * sum(i) = sum(p*i), and it skips a (date, query) sort
+  // of the whole legacy window. Its days are the distinct dates left.
+  //
+  // A query's plain-mean fallback only applies when its window has no
+  // impressions, which means no legacy day at all, so the legacy side adds
+  // nothing to `position_sum`.
+  const perQuery = sql`
+    WITH accurate AS (
+      SELECT query, clicks, impressions,
+        COALESCE(CAST(position AS REAL), 0) AS position
+      FROM gsc_query_daily_totals
+      WHERE project_id = ${projectId} AND date >= ${from} AND date <= ${to}
+    ),
+    legacy AS (
+      SELECT l.query, l.date, l.clicks, l.impressions,
+        CAST(l.position AS REAL) * l.impressions AS weighted_position
+      FROM gsc_search_data l
+      WHERE l.project_id = ${projectId} AND l.date >= ${from} AND l.date <= ${to}
+        AND l.query <> '' AND l.impressions > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM gsc_query_daily_totals a
+          WHERE a.project_id = ${projectId} AND a.date = l.date AND a.query = l.query
+        )
+    ),
+    per_query AS (
+      SELECT query,
+        SUM(clicks) AS clicks,
+        SUM(impressions) AS impressions,
+        SUM(weighted_position) AS weighted_position_sum,
+        SUM(position) AS position_sum,
+        SUM(days) AS days,
+        MAX(accurate) AS saw_accurate,
+        MIN(accurate) AS all_accurate
+      FROM (
+        SELECT query, clicks, impressions, position * impressions AS weighted_position,
+          position, 1 AS days, 1 AS accurate
+        FROM accurate
+        UNION ALL
+        SELECT query, SUM(clicks), SUM(impressions), SUM(weighted_position),
+          0, COUNT(DISTINCT date), 0
+        FROM legacy
+        GROUP BY query
+      )
+      GROUP BY query
+    )`
+
+  const rows = db.all<{
+    query: string
+    clicks: number
+    impressions: number
+    position: number | null
+    days: number
+    source: GscQueryAggregate['source']
+    total_matching: number
+  }>(sql`${perQuery}
+    SELECT query, clicks, impressions,
+      CASE WHEN impressions > 0 THEN weighted_position_sum * 1.0 / impressions
+        ELSE position_sum * 1.0 / days END AS position,
+      days,
+      CASE WHEN saw_accurate = 1 AND all_accurate = 0 THEN 'mixed'
+        WHEN saw_accurate = 1 THEN 'google'
+        ELSE 'page-summed' END AS source,
+      COUNT(*) OVER () AS total_matching
+    FROM per_query
+    ORDER BY clicks DESC, impressions DESC, query ASC
+    LIMIT ${pageLimit} OFFSET ${pageOffset}`)
+
+  // The window count rides on every returned row; a page past the end returns
+  // none, so only then is the count read on its own.
+  const totalMatching = rows.length > 0
+    ? Number(rows[0]!.total_matching)
+    // COUNT(*) always yields one row.
+    : Number(db.get<{ total: number }>(sql`${perQuery} SELECT COUNT(*) AS total FROM per_query`).total)
+
+  return {
+    rows: rows.map((r) => ({
+      query: r.query,
+      clicks: Number(r.clicks),
+      impressions: Number(r.impressions),
+      position: Number(r.position ?? 0),
+      days: Number(r.days),
+      source: r.source,
+    })),
+    totalMatching,
+  }
 }
 
 interface QueryAccumulator {

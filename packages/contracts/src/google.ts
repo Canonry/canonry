@@ -348,7 +348,11 @@ export const gscQueryTotalsDtoSchema = z.object({
   rows: z.array(gscQueryTotalRowSchema),
   totalMatching: z.number(),
   truncated: z.boolean(),
-  /** The window actually read: explicit bounds win over the labelled window. */
+  /**
+   * The range the rows were read from, exactly. Explicit dates win; a labelled
+   * window paired with only `endDate` spans that many days ending on it. A
+   * `null` side is unbounded.
+   */
   window: gscWindowRangeSchema,
 })
 export type GscQueryTotalsDto = z.infer<typeof gscQueryTotalsDtoSchema>

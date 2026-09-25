@@ -20392,11 +20392,11 @@ export type GetApiV1ProjectsByNameGoogleGscQueryTotalsData = {
     };
     query?: {
         /**
-         * Inclusive start date (YYYY-MM-DD). Overrides the window's lower bound.
+         * Inclusive start date (YYYY-MM-DD). Replaces the window's lower bound; the window still ends on the last published day unless endDate is given.
          */
         startDate?: string;
         /**
-         * Inclusive end date (YYYY-MM-DD). Overrides the window's upper bound.
+         * Inclusive end date (YYYY-MM-DD). With a window and no startDate, the window's span ends on this date (window=30d&endDate=2026-06-30 reads 2026-06-01 to 2026-06-30). The response `window` is the range read.
          */
         endDate?: string;
         /**

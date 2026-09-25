@@ -217,6 +217,15 @@ describe('googleRoutes: GET /projects/:name/google/gsc/query-totals', () => {
     expect(clamped.truncated).toBe(true)
   })
 
+  it('accepts a limit or offset with more digits than a 64-bit integer', async () => {
+    seedSeven()
+    const wide = await body(`${JULY}&limit=100000000000000000000`)
+    expect(wide.rows).toHaveLength(7)
+    const far = await body(`${JULY}&offset=100000000000000000000`)
+    expect(far.rows).toEqual([])
+    expect(far.totalMatching).toBe(7)
+  })
+
   it('reports truncated false for a page past the end', async () => {
     seedSeven()
     const data = await body(`${JULY}&limit=3&offset=10`)
@@ -253,6 +262,110 @@ describe('googleRoutes: GET /projects/:name/google/gsc/query-totals', () => {
     expect(data.window.endDate).toBe('2026-07-31')
     expect(data.rows[0]!.clicks).toBe(3)
     expect(data.rows[0]!.days).toBe(2)
+  })
+
+  describe('the reported window is the range the rows were read from', () => {
+    /**
+     * One click on every day from 2026-05-01 to 2026-07-31 (data through July
+     * 31), so a row's clicks and days both equal the number of stored days
+     * inside the range the SQL read. Each case then checks that count against
+     * the window the response reports.
+     */
+    const FIRST_DAY = '2026-05-01'
+    const LAST_DAY = '2026-07-31'
+
+    function seedEveryDay() {
+      seedPropertyDaily(LAST_DAY)
+      for (let d = new Date(`${FIRST_DAY}T00:00:00Z`); d.toISOString().slice(0, 10) <= LAST_DAY; d.setUTCDate(d.getUTCDate() + 1)) {
+        seedAccurate(d.toISOString().slice(0, 10), 'blue widget', 1, 10, '2')
+      }
+    }
+
+    /** Stored days inside `[start, end]`, where `null` leaves that side open. */
+    function storedDaysIn(start: string | null, end: string | null): number {
+      const from = start === null || start < FIRST_DAY ? FIRST_DAY : start
+      const to = end === null || end > LAST_DAY ? LAST_DAY : end
+      if (from > to) return 0
+      return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+    }
+
+    async function expectWindow(query: string, startDate: string | null, endDate: string | null) {
+      const data = await body(query)
+      expect(data.window.startDate).toBe(startDate)
+      expect(data.window.endDate).toBe(endDate)
+      const clicks = data.rows[0]?.clicks ?? 0
+      expect(clicks).toBe(storedDaysIn(startDate, endDate))
+      expect(data.rows[0]?.days ?? 0).toBe(clicks)
+      return data
+    }
+
+    it('window only: thirty days ending on the last published day', async () => {
+      seedEveryDay()
+      await expectWindow('window=30d', '2026-07-02', '2026-07-31')
+    })
+
+    it('no window and no dates: everything through the last published day', async () => {
+      seedEveryDay()
+      await expectWindow('', null, '2026-07-31')
+    })
+
+    it('dates only: exactly the explicit range', async () => {
+      seedEveryDay()
+      await expectWindow('startDate=2026-06-01&endDate=2026-06-30', '2026-06-01', '2026-06-30')
+    })
+
+    it('window plus endDate: the window is anchored on the explicit end date', async () => {
+      // The reported bug: the label's own lower bound (2026-07-02) sat after
+      // the explicit end, the response dropped it, and the SQL still applied
+      // it, so June came back empty.
+      seedEveryDay()
+      const data = await expectWindow('window=30d&endDate=2026-06-30', '2026-06-01', '2026-06-30')
+      expect(data.rows).toHaveLength(1)
+      expect(data.rows[0]!.clicks).toBe(30)
+    })
+
+    it('window plus endDate after the last published day: still anchored on the explicit end', async () => {
+      seedEveryDay()
+      await expectWindow('window=7d&endDate=2026-08-03', '2026-07-28', '2026-08-03')
+    })
+
+    it('window=all plus endDate: open start, explicit end', async () => {
+      seedEveryDay()
+      await expectWindow('window=all&endDate=2026-06-30', null, '2026-06-30')
+    })
+
+    it('endDate only: the default window (all) is open at the start', async () => {
+      seedEveryDay()
+      await expectWindow('endDate=2026-05-10', null, '2026-05-10')
+    })
+
+    it('window plus startDate: explicit start, the window keeps its last published day', async () => {
+      seedEveryDay()
+      await expectWindow('window=30d&startDate=2026-06-15', '2026-06-15', '2026-07-31')
+    })
+
+    it('window plus a startDate past the last published day: open end, and the SQL reads it open too', async () => {
+      seedEveryDay()
+      // A per-query row newer than every table the frontier reads. An open
+      // reported end must not hide it behind the frontier.
+      seedAccurate('2026-08-05', 'red widget', 1, 10, '2')
+      const data = await body('window=30d&startDate=2026-08-01')
+      expect(data.window.startDate).toBe('2026-08-01')
+      expect(data.window.endDate).toBeNull()
+      expect(data.rows.map(r => r.query)).toEqual(['red widget'])
+    })
+
+    it('both dates plus a window: the explicit dates win outright', async () => {
+      seedEveryDay()
+      await expectWindow('window=7d&startDate=2026-05-01&endDate=2026-06-30', '2026-05-01', '2026-06-30')
+    })
+
+    it('window plus endDate with no data at all: anchored on the explicit end', async () => {
+      const data = await body('window=7d&endDate=2026-06-30')
+      expect(data.window.startDate).toBe('2026-06-24')
+      expect(data.window.endDate).toBe('2026-06-30')
+      expect(data.rows).toEqual([])
+    })
   })
 
   it('prefers accurate rows over the page table for the same day and fills unbackfilled days (source google, page-summed, mixed)', async () => {
