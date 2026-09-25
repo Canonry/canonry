@@ -88,18 +88,18 @@ test('normalizeProjectDomain strips scheme and www prefix', () => {
 
 describe('registrableDomain', () => {
   it('returns the eTLD+1 for a subdomained host', () => {
-    expect(registrableDomain('offers.roofle.com')).toBe('roofle.com')
+    expect(registrableDomain('offers.roofquill.test')).toBe('roofquill.test')
     expect(registrableDomain('app.example.io')).toBe('example.io')
     expect(registrableDomain('blog.news.example.org')).toBe('example.org')
   })
 
   it('returns the input unchanged when there is no subdomain', () => {
-    expect(registrableDomain('roofle.com')).toBe('roofle.com')
+    expect(registrableDomain('roofquill.test')).toBe('roofquill.test')
     expect(registrableDomain('example.ai')).toBe('example.ai')
   })
 
   it('strips scheme, port, path, and www prefix before parsing', () => {
-    expect(registrableDomain('https://www.offers.Roofle.com/foo?x=1')).toBe('roofle.com')
+    expect(registrableDomain('https://www.offers.Roofquill.test/foo?x=1')).toBe('roofquill.test')
     expect(registrableDomain('http://api.example.com:8080/v1')).toBe('example.com')
   })
 
@@ -117,15 +117,15 @@ describe('registrableDomain', () => {
   })
 
   it('is idempotent', () => {
-    expect(registrableDomain(registrableDomain('offers.roofle.com'))).toBe('roofle.com')
+    expect(registrableDomain(registrableDomain('offers.roofquill.test'))).toBe('roofquill.test')
     expect(registrableDomain(registrableDomain('news.bbc.co.uk'))).toBe('bbc.co.uk')
   })
 })
 
 describe('brandLabelFromDomain', () => {
   it('returns the leftmost label of the registrable domain', () => {
-    expect(brandLabelFromDomain('offers.roofle.com')).toBe('roofle')
-    expect(brandLabelFromDomain('roofle.com')).toBe('roofle')
+    expect(brandLabelFromDomain('offers.roofquill.test')).toBe('roofquill')
+    expect(brandLabelFromDomain('roofquill.test')).toBe('roofquill')
     expect(brandLabelFromDomain('app.acme.io')).toBe('acme')
   })
 
@@ -931,25 +931,25 @@ describe('extractAnswerMentions', () => {
   })
 
   it('matches when display name has no spaces but the answer spaces it out', () => {
-    // Real-world case: project registered as "azcoatings" with domain
-    // azcoatingsllc.com; answer says "AZ Coatings (Michigan/Detroit Area)".
+    // Real-world shape: project registered as "zyloqcoatings" with domain
+    // zyloqcoatingsllc.test; answer says "Zyloq Coatings (Springfield Area)".
     const result = extractAnswerMentions(
-      'Local contractors include AZ Coatings (Michigan/Detroit Area), specializing in polyurea roof restoration.',
-      ['azcoatings'],
-      ['azcoatingsllc.com'],
+      'Local contractors include Zyloq Coatings (Springfield Area), specializing in polyurea roof restoration.',
+      ['zyloqcoatings'],
+      ['zyloqcoatingsllc.test'],
     )
     expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('azcoatings')
+    expect(result.matchedTerms).toContain('zyloqcoatings')
   })
 
   it('matches when display name has spaces but the answer concatenates it', () => {
     const result = extractAnswerMentions(
-      'Visit AZCoatings for industrial polyurea systems.',
-      ['AZ Coatings'],
-      ['azcoatingsllc.com'],
+      'Visit ZyloqCoatings for industrial polyurea systems.',
+      ['Zyloq Coatings'],
+      ['zyloqcoatingsllc.test'],
     )
     expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('AZ Coatings')
+    expect(result.matchedTerms).toContain('Zyloq Coatings')
   })
 
   it('does not concatenate across unrelated words to manufacture a match', () => {
@@ -982,22 +982,22 @@ describe('extractAnswerMentions', () => {
 
   it('requires a configured alias when an answer drops a legal classifier', () => {
     expect(extractAnswerMentions(
-      'Local contractors include AZ Coatings (Michigan/Detroit Area).',
-      ['AZ Coatings LLC'],
-      ['azcoatingsllc.com'],
+      'Local contractors include Zyloq Coatings (Springfield Area).',
+      ['Zyloq Coatings LLC'],
+      ['zyloqcoatingsllc.test'],
     ).mentioned).toBe(false)
 
     expect(extractAnswerMentions(
-      'Local contractors include AZ Coatings (Michigan/Detroit Area).',
-      ['AZ Coatings LLC', 'AZ Coatings'],
-      ['azcoatingsllc.com'],
+      'Local contractors include Zyloq Coatings (Springfield Area).',
+      ['Zyloq Coatings LLC', 'Zyloq Coatings'],
+      ['zyloqcoatingsllc.test'],
     ).mentioned).toBe(true)
 
     // A domain-derived identity can still provide the exact shorter name.
     expect(extractAnswerMentions(
-      'According to Sherwin Williams paints are the best.',
-      ['Sherwin Williams Inc'],
-      ['sherwinwilliams.com'],
+      'According to Kestrelmoor Paints the finish is the best.',
+      ['Kestrelmoor Paints Inc'],
+      ['kestrelmoorpaints.test'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
@@ -1009,21 +1009,21 @@ describe('extractAnswerMentions', () => {
 
   it('requires a configured alias when an answer drops a category word', () => {
     expect(extractAnswerMentions(
-      'Gjelina is a popular Venice restaurant.',
-      ['Gjelina Hotel'],
-      ['gjelinahotel.com'],
+      'Vantrell is a popular Harborview restaurant.',
+      ['Vantrell Hotel'],
+      ['vantrellhotel.test'],
     ).mentioned).toBe(false)
 
     expect(extractAnswerMentions(
-      'Gjelina is a popular Venice restaurant.',
-      ['Gjelina Hotel', 'Gjelina'],
-      ['gjelinahotel.com'],
+      'Vantrell is a popular Harborview restaurant.',
+      ['Vantrell Hotel', 'Vantrell'],
+      ['vantrellhotel.test'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
-      'Gelina is a different spelling.',
-      ['Gjelina Hotel', 'Gjelina'],
-      ['gjelinahotel.com'],
+      'Vantell is a different spelling.',
+      ['Vantrell Hotel', 'Vantrell'],
+      ['vantrellhotel.test'],
     ).mentioned).toBe(false)
   })
 
@@ -1032,8 +1032,8 @@ describe('extractAnswerMentions', () => {
     // word-boundary match the literal word "offers" in the answer prose. Only
     // the registrable domain's brand label (`example`) is a valid token.
     const result = extractAnswerMentions(
-      'Energy Design Systems offers a white-label lead generation tool.',
-      ['Demand IQ'],
+      'Harborline Energy Systems offers a white-label lead generation tool.',
+      ['Vexlo IQ'],
       ['offers.example.com'],
     )
     expect(result.mentioned).toBe(false)
@@ -1042,9 +1042,9 @@ describe('extractAnswerMentions', () => {
 
   it('still matches the registrable brand of a subdomained own domain', () => {
     const result = extractAnswerMentions(
-      'Brokers turn to Roofle when they need quick install quotes.',
-      ['Roofle'],
-      ['offers.roofle.com'],
+      'Brokers turn to Roofquill when they need quick install quotes.',
+      ['Roofquill'],
+      ['offers.roofquill.test'],
     )
     expect(result.mentioned).toBe(true)
   })

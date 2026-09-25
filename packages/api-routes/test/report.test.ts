@@ -455,10 +455,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(topByDomain['youtube.com']).toBe(1)
   })
 
-  test('builds audience action plan and diagnostics from azcoatings-style signals', async () => {
-    const projectId = insertProject(ctx.db, 'az-actions', {
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.com',
+  test('builds audience action plan and diagnostics from acme-coatings-style signals', async () => {
+    const projectId = insertProject(ctx.db, 'acme-actions', {
+      displayName: 'Acme Coatings',
+      canonicalDomain: 'acmecoatings.test',
     })
     const coatingQuery = insertQuery(ctx.db, projectId, 'best industrial coatings')
     const guideQuery = insertQuery(ctx.db, projectId, 'commercial floor coating guide')
@@ -498,7 +498,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         syncRunId,
         date: '2026-04-01',
         query: 'best industrial coatings',
-        page: 'https://azcoatings.com/blog/best-industrial-coatings',
+        page: 'https://acmecoatings.test/blog/best-industrial-coatings',
         clicks: 12,
         impressions: 1200,
         ctr: '0.01',
@@ -511,7 +511,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         syncRunId,
         date: '2026-04-30',
         query: 'epoxy floor coatings contractors',
-        page: 'https://azcoatings.com/blog/epoxy-floor-coatings',
+        page: 'https://acmecoatings.test/blog/epoxy-floor-coatings',
         clicks: 9,
         impressions: 900,
         ctr: '0.01',
@@ -531,7 +531,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     }).run()
 
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/az-actions/report' })
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme-actions/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
     expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'agency')).toBe(true)
@@ -1930,7 +1930,7 @@ describe('GET /api/v1/projects/:name/report', () => {
   })
 
   test('history-derived sections (trend, insights) scope to the latest run\'s location', async () => {
-    // azcoatings-style: same project sweeps both florida and michigan. The
+    // acme-coatings-style: same project sweeps both florida and michigan. The
     // report headline says "michigan", so the trend, insights, and content
     // orchestrator must NOT mix in the florida runs — otherwise a Detroit
     // analyst reading the report sees a Miami citation as part of "their"
@@ -1981,7 +1981,7 @@ describe('GET /api/v1/projects/:name/report', () => {
   })
 
   test('meta surfaces the latest run location and per-provider location handling', async () => {
-    // azcoatings-style: project has two locations configured; a sweep ran
+    // acme-coatings-style: project has two locations configured; a sweep ran
     // against the default (michigan). Report must say which location powered
     // the data and explain how each provider in the run consumed it.
     const projectId = insertProject(ctx.db, 'loc-meta', {

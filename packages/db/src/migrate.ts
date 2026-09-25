@@ -1535,7 +1535,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       // through the LEFT JOIN forces every value to be either a valid `q.id`
       // or NULL — pre-existing orphans land with NULL `query_id` / NULL
       // `query_text`, preserving the snapshot row instead of failing the
-      // migration. The May 2026 azcoatings DB had 459 such pre-existing
+      // migration. A May 2026 production DB had 459 such pre-existing
       // orphans; without this guard, migrate() throws SQLITE_CONSTRAINT_FOREIGNKEY.
       `INSERT INTO query_snapshots_v58 (
          id, run_id, query_id, query_text, provider, model, citation_state,
@@ -1662,7 +1662,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     version: 63,
     name: 'audit-log-attribution-columns',
     // Adds `user_agent` and `actor_session` to `audit_log` so post-mortems
-    // can attribute destructive events (like the 2026-05-15 azcoatings
+    // can attribute destructive events (like the 2026-05-15
     // queries.replaced incident — see PR #593) to a specific caller.
     // Without these columns, every mutation rides as `actor='api'` with no
     // narrower identity, so it's impossible to tell whether a destructive

@@ -70,9 +70,9 @@ describe('discover CLI commands', () => {
     close = () => app.close()
 
     const client = new ApiClient(config.apiUrl, apiKeyPlain)
-    await client.putProject('demand-iq', {
-      displayName: 'Demand IQ',
-      canonicalDomain: 'demand-iq.com',
+    await client.putProject('acme-iq', {
+      displayName: 'Acme IQ',
+      canonicalDomain: 'acme-iq.example.com',
       country: 'US',
       language: 'en',
       locations: [
@@ -139,7 +139,7 @@ describe('discover CLI commands', () => {
       ],
     })
 
-    const result = await invokeCli(['discover', 'show', 'demand-iq', sessionId])
+    const result = await invokeCli(['discover', 'show', 'acme-iq', sessionId])
     expect(result.exitCode).toBeUndefined()
     // legend present so the reader knows which glyph is which
     expect(result.stdout).toContain('[citation][mention]')
@@ -192,7 +192,7 @@ describe('discover CLI commands', () => {
     ]).run()
 
     const result = await invokeCli([
-      'discover', 'harvest', 'demand-iq', sessionId, '--no-anchor', '--format', 'json',
+      'discover', 'harvest', 'acme-iq', sessionId, '--no-anchor', '--format', 'json',
     ])
     expect(result.exitCode).toBeUndefined()
     const harvest = parseJsonOutput(result.stdout) as DiscoveryHarvestDto
@@ -210,15 +210,15 @@ describe('discover CLI commands', () => {
       probes: [
         { query: 'best solar quoting tool', bucket: 'cited' },
         { query: 'solar crm for installers', bucket: 'aspirational' },
-        { query: 'aurora alternatives', bucket: 'wasted-surface' },
+        { query: 'sunplanner alternatives', bucket: 'wasted-surface' },
       ],
       competitorMap: [
-        { domain: 'helioscope.com', hits: 2 },
+        { domain: 'raydesign.test', hits: 2 },
         { domain: 'oneoff.example', hits: 1 },
       ],
     })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId])
     expect(result.exitCode).toBeUndefined()
     expect(result.stdout).toMatch(/Queries:\s+2 added/)
     expect(result.stdout).toMatch(/Competitors:\s+1 added/)
@@ -229,7 +229,7 @@ describe('discover CLI commands', () => {
       'solar crm for installers',
     ])
     expect(new Set(queryRows.map(r => r.provenance))).toEqual(new Set([`discovery:${sessionId}`]))
-    expect(db.select().from(competitors).all().map(c => c.domain)).toEqual(['helioscope.com'])
+    expect(db.select().from(competitors).all().map(c => c.domain)).toEqual(['raydesign.test'])
   })
 
   it('scopes promotion to --bucket (comma-separated) and skips other buckets', async () => {
@@ -242,7 +242,7 @@ describe('discover CLI commands', () => {
     })
 
     const result = await invokeCli([
-      'discover', 'promote', 'demand-iq', sessionId,
+      'discover', 'promote', 'acme-iq', sessionId,
       '--bucket', 'cited,aspirational', '--no-competitors',
     ])
     expect(result.exitCode).toBeUndefined()
@@ -255,10 +255,10 @@ describe('discover CLI commands', () => {
   it('--no-competitors leaves competitor domains untracked', async () => {
     const sessionId = seedSession({
       probes: [{ query: 'q', bucket: 'cited' }],
-      competitorMap: [{ domain: 'helioscope.com', hits: 1 }],
+      competitorMap: [{ domain: 'raydesign.test', hits: 1 }],
     })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId, '--no-competitors'])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId, '--no-competitors'])
     expect(result.exitCode).toBeUndefined()
     expect(db.select().from(competitors).all()).toHaveLength(0)
     expect(db.select().from(queries).all()).toHaveLength(1)
@@ -274,7 +274,7 @@ describe('discover CLI commands', () => {
       ],
     })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId])
     expect(result.exitCode).toBeUndefined()
     expect(db.select().from(competitors).all().map(c => c.domain)).toEqual(['rival.com'])
   })
@@ -290,7 +290,7 @@ describe('discover CLI commands', () => {
     })
 
     const result = await invokeCli([
-      'discover', 'promote', 'demand-iq', sessionId,
+      'discover', 'promote', 'acme-iq', sessionId,
       '--competitor-types', 'direct-competitor,editorial-media',
     ])
     expect(result.exitCode).toBeUndefined()
@@ -304,7 +304,7 @@ describe('discover CLI commands', () => {
     const sessionId = seedSession({ probes: [{ query: 'q', bucket: 'cited' }] })
 
     const result = await invokeCli([
-      'discover', 'promote', 'demand-iq', sessionId, '--competitor-types', 'frenemy',
+      'discover', 'promote', 'acme-iq', sessionId, '--competitor-types', 'frenemy',
     ])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toMatch(/invalid --competitor-types value/i)
@@ -316,7 +316,7 @@ describe('discover CLI commands', () => {
   it('--format json emits the DiscoveryPromoteResult contract', async () => {
     const sessionId = seedSession({ probes: [{ query: 'q1', bucket: 'cited' }] })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId, '--format', 'json'])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId, '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
     const json = parseJsonOutput(result.stdout) as DiscoveryPromoteResult
     expect(json.sessionId).toBe(sessionId)
@@ -328,7 +328,7 @@ describe('discover CLI commands', () => {
   it('rejects an invalid --bucket value before touching the API', async () => {
     const sessionId = seedSession({ probes: [{ query: 'q', bucket: 'cited' }] })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId, '--bucket', 'bogus'])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId, '--bucket', 'bogus'])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toMatch(/invalid --bucket value/i)
     // The bad flag short-circuits — nothing is promoted.
@@ -338,7 +338,7 @@ describe('discover CLI commands', () => {
   it('rejects an empty --bucket value before touching the API', async () => {
     const sessionId = seedSession({ probes: [{ query: 'q', bucket: 'cited' }] })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId, '--bucket', ','])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId, '--bucket', ','])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toMatch(/--bucket must include at least one value/i)
     expect(db.select().from(queries).all()).toHaveLength(0)
@@ -350,14 +350,14 @@ describe('discover CLI commands', () => {
       probes: [{ query: 'q', bucket: 'cited' }],
     })
 
-    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
+    const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId])
     expect(result.exitCode).toBe(1)
     expect(db.select().from(queries).all()).toHaveLength(0)
   })
 
   it('discover run --icp-angle starts one session per angle and emits a JSON array', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp-angle', 'angle one',
       '--icp-angle', 'angle two',
       '--format', 'json',
@@ -377,7 +377,7 @@ describe('discover CLI commands', () => {
 
   it('discover run with a single --icp emits a bare object (legacy shape preserved)', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp', 'just one icp',
       '--format', 'json',
     ])
@@ -394,7 +394,7 @@ describe('discover CLI commands', () => {
 
   it('discover run accepts a comma-separated --locations override matching project locations', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp', 'spray foam installers',
       '--locations', 'michigan,florida',
       '--format', 'json',
@@ -409,7 +409,7 @@ describe('discover CLI commands', () => {
 
   it('discover run exits non-zero when --locations names a label not configured on the project', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp', 'spray foam installers',
       '--locations', 'california',
     ])
@@ -441,7 +441,7 @@ describe('discover CLI commands', () => {
     }).run()
 
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp', 'in-flight icp',
       '--format', 'json',
     ])
@@ -477,7 +477,7 @@ describe('discover CLI commands', () => {
     }).run()
 
     const result = await invokeCli([
-      'discover', 'run', 'demand-iq',
+      'discover', 'run', 'acme-iq',
       '--icp', 'in-flight icp',
     ])
     expect(result.exitCode).toBeUndefined()

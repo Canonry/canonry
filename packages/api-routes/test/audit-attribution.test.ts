@@ -12,7 +12,7 @@ import { auditFromRequest } from '../src/helpers.js'
 
 /**
  * Regression coverage for the audit-log attribution columns added with
- * PR #593 (azcoatings post-mortem follow-up). Without these columns,
+ * PR #593 (client post-mortem follow-up). Without these columns,
  * destructive events like the 2026-05-15 `queries.replaced` ride as
  * `actor='api'` with no narrower identity, so post-mortems can't tell
  * which client called the destructive endpoint. The `user_agent` and

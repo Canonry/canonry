@@ -19,9 +19,9 @@ describe('GA measurement analysis contract', () => {
       bucketDays: 30,
       filters: {
         hostScope: 'marketing',
-        marketingHosts: ['demand-iq.com', 'offers.example.net'],
+        marketingHosts: ['vexlo-iq.example.com', 'offers.example.net'],
         pathPrefix: '/blog',
-        brandTerms: ['DemandIQ', 'Demand IQ'],
+        brandTerms: ['VexloIQ', 'Vexlo IQ'],
         queryMixScope: 'property',
       },
       acquisition: {
@@ -34,7 +34,7 @@ describe('GA measurement analysis contract', () => {
           periods: [{ ...period, sessions: 42 }],
         }],
         pages: [{
-          hostName: 'www.demand-iq.com',
+          hostName: 'www.vexlo-iq.example.com',
           landingPage: '/blog/example',
           periods: [{ ...period, sessions: 42 }],
         }],
@@ -83,12 +83,12 @@ describe('GA measurement analysis contract', () => {
           unreportedImpressions: 100,
         }],
         queries: [{
-          query: 'demand iq platform',
+          query: 'vexlo iq platform',
           classification: 'branded',
           periods: [{ ...period, clicks: 8, impressions: 80 }],
         }],
         pages: [{
-          hostName: 'www.demand-iq.com',
+          hostName: 'www.vexlo-iq.example.com',
           landingPage: '/blog/example',
           periods: [{ ...period, clicks: 3, impressions: 120 }],
         }],

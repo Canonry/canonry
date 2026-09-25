@@ -99,9 +99,9 @@ describe('normalizeUrlPath', () => {
       expect(normalizeUrlPath('/?gtm_latency=1')).toBe('/')
     })
 
-    it('strips a Facebook click ID on root (real azcoatings example)', () => {
+    it('strips a Facebook click ID on root (long real-world-shaped value)', () => {
       const input =
-        '/?fbclid=IwZXh0bgNhZW0CMTEAc3J0YwZhcHBfaWQMMjU2MjgxMDQwNTU4AAEey9S720D1P8KJV5mX2nE1Z9xi23YGZZ-1a10I1V1bIbn7gI1lcPrOWNewfn4_aem_77m07xNOnFPs22S6hX3i_A'
+        '/?fbclid=IwY2xjawSyntheticExampleClickIdv8iXGhBK8VYQNpKFzf9Hq5as1avpNMRSoDLZah3mGqWKAum6o0oS1BWF5Cbe_aem_lK6tKx62Ur3ZU-gepvfpTN'
       expect(normalizeUrlPath(input)).toBe('/')
     })
 
@@ -145,11 +145,11 @@ describe('normalizeUrlPath', () => {
   describe('strip-list policy', () => {
     it('strips the v= cache-buster and versioning noise', () => {
       // trailing slash collapses regardless of query; v= now stripped
-      expect(normalizeUrlPath('/michigan/?v=3')).toBe('/michigan')
+      expect(normalizeUrlPath('/service-area/?v=3')).toBe('/service-area')
     })
 
     it('strips the click ID and the v= param', () => {
-      expect(normalizeUrlPath('/michigan/?fbclid=foo&v=3')).toBe('/michigan')
+      expect(normalizeUrlPath('/service-area/?fbclid=foo&v=3')).toBe('/service-area')
     })
 
     it('strips all utm_* keys', () => {
@@ -198,7 +198,7 @@ describe('normalizeUrlPath', () => {
     })
 
     it('preserves case across deep paths', () => {
-      expect(normalizeUrlPath('/Michigan/SubPage/')).toBe('/Michigan/SubPage')
+      expect(normalizeUrlPath('/Service-Area/SubPage/')).toBe('/Service-Area/SubPage')
     })
   })
 
@@ -251,9 +251,9 @@ describe('normalizeUrlPath', () => {
       expect(normalizeUrlPath('/path...')).toBe('/path')
     })
 
-    it('strips CMS and versioning noise (azcoatings examples)', () => {
-      expect(normalizeUrlPath('/polyurea-roofing?preview=true&preview_id=1394&preview_nonce=abc')).toBe('/polyurea-roofing')
-      expect(normalizeUrlPath('/michigan?v=3')).toBe('/michigan')
+    it('strips CMS and versioning noise (WordPress-style examples)', () => {
+      expect(normalizeUrlPath('/roof-coatings?preview=true&preview_id=1234&preview_nonce=abc')).toBe('/roof-coatings')
+      expect(normalizeUrlPath('/service-area?v=3')).toBe('/service-area')
       expect(normalizeUrlPath('/path?ver=1.2.3')).toBe('/path')
     })
   })
