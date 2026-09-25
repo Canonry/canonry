@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { summarizeRunError } from '../../lib/format-helpers.js'
 import { HelpCircle, Link2, Play, Download, Loader2, CheckCircle2 } from 'lucide-react'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { formatPercent, RunKinds } from '@ainyc/canonry-contracts'
 import {
   Area,
   ComposedChart,
@@ -117,12 +117,6 @@ function publicPath(path: string): string {
 
 function formatNumber(n: number): string {
   return n.toLocaleString()
-}
-
-function formatPct(share: string): string {
-  const value = Number(share)
-  if (!Number.isFinite(value)) return '—'
-  return `${(value * 100).toFixed(1)}%`
 }
 
 function relativeTime(iso: string): string {
@@ -515,7 +509,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <div className="metric-card">
             <p className="metric-card-eyebrow">Top-10 concentration</p>
             <p className="metric-card-big-value">
-              <span className="text-primary">{formatPct(summary.top10HostsShare)}</span>
+              {/* The share travels as a decimal string (0..1); a malformed one reads as a dash. */}
+              <span className="text-primary">{formatPercent(Number(summary.top10HostsShare))}</span>
             </p>
             <p className="metric-card-sub">share of {countNoun} from the 10 largest linking domains</p>
           </div>

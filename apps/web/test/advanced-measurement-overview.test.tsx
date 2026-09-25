@@ -162,6 +162,9 @@ describe('AdvancedMeasurementOverview', () => {
 
     expect(screen.getByText('Aug 2, 2026')).toBeTruthy()
     expect(screen.queryByLabelText('Coverage')).toBeNull()
+    // Neither aggregate rate, in the shared one-decimal format or the whole-percent one before it.
+    expect(screen.queryByText('25.0%')).toBeNull()
+    expect(screen.queryByText('75.0%')).toBeNull()
     expect(screen.queryByText('25%')).toBeNull()
     expect(screen.queryByText('75%')).toBeNull()
   })
@@ -438,6 +441,7 @@ describe('AdvancedMeasurementOverview', () => {
       },
     })
 
+    expect(screen.queryByText('2 of 1 (200.0%)')).toBeNull()
     expect(screen.queryByText('2 of 1 (200%)')).toBeNull()
     expect(screen.getAllByText('N/A').length).toBeGreaterThan(0)
   })
@@ -503,7 +507,7 @@ describe('AdvancedMeasurementOverview', () => {
   it('keeps the report visible to viewers without mutation buttons', () => {
     renderOverview({ canEdit: false })
 
-    expect(screen.getAllByText('3 of 4 (75%)').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('3 of 4 (75.0%)').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Run measurement' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Republish setup' })).toBeNull()
   })

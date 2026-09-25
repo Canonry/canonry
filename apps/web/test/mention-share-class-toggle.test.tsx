@@ -89,6 +89,10 @@ describe('MentionShare class control', () => {
     // 100 is the branded score. It must not be on screen while non-brand is.
     expect(block().textContent).not.toContain('100%')
     expect(block().textContent).not.toContain('Branded ·')
+    // Each row is its share of the 10 brand mentions, most mentioned first.
+    const shares = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+      .map(row => row.querySelector('.mention-share-share')?.textContent)
+    expect(shares).toEqual(['90.0%', '10.0%'])
   })
 
   it('switching to Branded swaps the denominator, the caption word, and the rows together', () => {
@@ -106,7 +110,9 @@ describe('MentionShare class control', () => {
     const rows = block().querySelectorAll('.mention-share-rows .mention-share-row')
     expect(rows).toHaveLength(2)
     expect(rows[1]!.textContent).toContain('rival-one.example')
-    expect(rows[1]!.textContent).toContain('0.0%')
+    // An exact zero and an exact whole read without a decimal in the shared format.
+    expect(rows[1]!.querySelector('.mention-share-share')?.textContent).toBe('0%')
+    expect(rows[0]!.querySelector('.mention-share-share')?.textContent).toBe('100%')
   })
 
   it('never tone-colours a branded figure, because the band is calibrated for placement', () => {

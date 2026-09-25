@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -612,7 +612,7 @@ function BingSection({
               <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
               <BingSummaryMetric label="Not in index" value={coverage.summary.notIndexed + (coverage.summary.unknown ?? 0)} tone="negative" />
               <BingSummaryMetric label="Status unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
-              <BingSummaryMetric label="Coverage" value={`${coverage.summary.percentage}%`} tone="neutral" />
+              <BingSummaryMetric label="Coverage" value={formatPercent(coverage.summary.percentage, RatioUnits.percent)} tone="neutral" />
             </div>
 
             {coverage.notIndexed.length > 0 && (
@@ -813,7 +813,7 @@ function BingSection({
                         <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.query}</td>
                         <td className="py-1.5 px-3 text-right text-strong">{row.clicks}</td>
                         <td className="py-1.5 px-3 text-right text-secondary">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                        <td className="py-1.5 px-3 text-right text-secondary">{formatPercent(row.ctr)}</td>
                         <td className="py-1.5 px-3 text-right text-secondary">{row.averagePosition.toFixed(1)}</td>
                       </tr>
                     ))}

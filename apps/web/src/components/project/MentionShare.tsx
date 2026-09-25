@@ -1,4 +1,5 @@
 import React, { useId, useState } from 'react'
+import { formatPercent } from '@ainyc/canonry-contracts'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
@@ -139,7 +140,7 @@ function MentionShareRows({
       </thead>
       <tbody className="mention-share-rows">
         {rows.map(row => {
-          const share = (row.mentions / total) * 100
+          const share = row.mentions / total
           return (
             <tr key={row.label} className="mention-share-row">
               <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
@@ -149,12 +150,12 @@ function MentionShareRows({
                 <div className="mention-share-bar">
                   <div
                     className={`mention-share-bar-fill ${row.isYou ? 'bg-positive-500/70' : 'bg-mono-500/60'}`}
-                    style={{ width: `${share > 0 ? Math.max(share, 1.5) : 0}%` }}
+                    style={{ width: `${share > 0 ? Math.max(share * 100, 1.5) : 0}%` }}
                   />
                 </div>
               </td>
               <td className="mention-share-count">{row.mentions}</td>
-              <td className="mention-share-share">{share.toFixed(1)}%</td>
+              <td className="mention-share-share">{formatPercent(share)}</td>
             </tr>
           )
         })}

@@ -138,15 +138,19 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(allEngines.getAttribute('aria-pressed')).toBe('false')
   expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
 
-  // The headline is the blended average across engines, tagged "avg".
+  // The headline is the blended average across engines, tagged "avg". Mentioned
+  // sits at 0.5 in both buckets, so its change reads as none.
   expect(screen.getByText('avg')).toBeTruthy()
+  expect(screen.getByText('0 pts')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%, no change over the period.')).toBeTruthy()
 
   // The legend lists each engine with its latest value (a direct read of the
-  // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone).
+  // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone),
+  // in the shared one-decimal percent format.
   expect(within(legend).getByText('Gemini')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
-  expect(within(legend).getByText('50%')).toBeTruthy()
-  expect(within(legend).getByText('25%')).toBeTruthy()
+  expect(within(legend).getByText('50.0%')).toBeTruthy()
+  expect(within(legend).getByText('25.0%')).toBeTruthy()
 
   // Switching to All engines presses it (no refetch) and drops the per-engine
   // legend + "avg" tag — the headline now matches the single plotted line.
@@ -259,10 +263,41 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(mentionShare.getAttribute('aria-pressed')).toBe('true')
   expect(screen.queryByRole('group', { name: 'Series' })).toBeNull()
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
-  expect(screen.getByText('75%')).toBeTruthy()
+  expect(screen.getByText('75.0%')).toBeTruthy()
+  // 0.25 to 0.75 across the two plotted points.
+  expect(screen.getByText('+50.0 pts')).toBeTruthy()
+  expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
   expect(screen.getByRole('img', { name: /Mention share.*non-brand queries.*trend chart/i })).toBeTruthy()
-  expect(screen.getByText(/75% mention share for non-brand queries, 3 of 4 brand mentions were you/)).toBeTruthy()
+  expect(screen.getByText(/75\.0% mention share for non-brand queries, 3 of 4 brand mentions were you/)).toBeTruthy()
   expect(screen.getAllByText('Mention share · non-brand queries').length).toBeGreaterThan(0)
+})
+
+test('reads the head and legend from the API rates, so a rate near either end never prints as 0% or 100%', async () => {
+  // The chart rows round 0.0004 to 0 and 0.9996 to 100 for the axis.
+  const edgeBuckets = [
+    { ...TWO_BUCKETS[0]!, mentionRate: 0.9996, byProvider: { gemini: provider(0.25, 0.5) } },
+    { ...TWO_BUCKETS[1]!, mentionRate: 0.0004, byProvider: { gemini: provider(0.75, 0.9996) } },
+  ]
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(edgeBuckets))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  const legend = await screen.findByRole('list', { name: 'Engines' })
+  // Head: the blended mentioned rate, 0.9996 then 0.0004.
+  expect(screen.getByText('<0.1%')).toBeTruthy()
+  expect(screen.getByText('-99.9 pts')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
+  // Legend: gemini's latest mentioned rate.
+  expect(within(legend).getByText('>99.9%')).toBeTruthy()
+  expect(screen.queryByText('0%')).toBeNull()
+  expect(screen.queryByText('100%')).toBeNull()
 })
 
 test('labels a pooled mention-share trend as classification unavailable', async () => {

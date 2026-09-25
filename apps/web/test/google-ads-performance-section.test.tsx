@@ -190,9 +190,11 @@ describe('GoogleAdsPerformanceSection', () => {
     // Deltas come from `comparison.change`, never recomputed here. Only the
     // four KPI tiles carry them; clicks and impressions live in the rate strip,
     // which is a definition list and shows values without change.
-    expect(screen.getByText('↑ 40% vs prior 14d')).toBeTruthy()
+    expect(screen.getByText('↑ 40.0% vs prior 14d')).toBeTruthy()
     // Impressions (+25%) and clicks (-10%) moved into the rate strip, which
     // carries values only, so their deltas are no longer rendered.
+    expect(screen.queryByText('↑ 25.0% vs prior 14d')).toBeNull()
+    expect(screen.queryByText('↓ 10.0% vs prior 14d')).toBeNull()
     expect(screen.queryByText('↑ 25% vs prior 14d')).toBeNull()
     expect(screen.queryByText('↓ 10% vs prior 14d')).toBeNull()
 
@@ -440,12 +442,16 @@ describe('google ads ratio formatting', () => {
     expect(formatGoogleAdsRatio(null)).toBe(GOOGLE_ADS_NOT_AVAILABLE)
     expect(formatGoogleAdsRatio(0)).toBe('0%')
     expect(formatGoogleAdsRatio(0.0875)).toBe('8.8%')
+    // Short of 100% never prints as 100%, and conversions can outnumber clicks,
+    // so a conversion rate past 100% is shown as it is.
+    expect(formatGoogleAdsRatio(0.9996)).toBe('>99.9%')
+    expect(formatGoogleAdsRatio(1.25)).toBe('125.0%')
   })
 
   test('a change of exactly zero is a measured no-change, unlike an absent one', () => {
     expect(formatGoogleAdsChange(0, 7)).toBe('no change vs prior 7d')
     expect(formatGoogleAdsChange(null, 7)).toBe(`${GOOGLE_ADS_NOT_AVAILABLE} vs prior 7d`)
     expect(formatGoogleAdsChange(0.0004, 7)).toBe('↑ <0.1% vs prior 7d')
-    expect(formatGoogleAdsChange(-0.25, 30)).toBe('↓ 25% vs prior 30d')
+    expect(formatGoogleAdsChange(-0.25, 30)).toBe('↓ 25.0% vs prior 30d')
   })
 })

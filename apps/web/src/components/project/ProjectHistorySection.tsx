@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { formatPercent } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameHealthHistoryOptions,
   getApiV1ProjectsByNameRunsOptions,
@@ -13,10 +14,6 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 
 type HistoryView = 'changes' | 'health' | 'compare'
-
-function percent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`
-}
 
 export function ProjectHistorySection({ projectName }: { projectName: string }) {
   const [view, setView] = useState<HistoryView>('changes')
@@ -106,9 +103,9 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
                     <tr key={snapshot.id}>
                       <td className="whitespace-nowrap tabular-nums text-secondary">{new Date(snapshot.createdAt).toLocaleString()}</td>
                       <td className="text-right tabular-nums text-secondary">{snapshot.mentionedPairs}/{snapshot.totalPairs}</td>
-                      <td className="text-right tabular-nums text-strong">{percent(snapshot.overallMentionRate)}</td>
+                      <td className="text-right tabular-nums text-strong">{formatPercent(snapshot.overallMentionRate)}</td>
                       <td className="text-right tabular-nums text-secondary">{snapshot.citedPairs}/{snapshot.totalPairs}</td>
-                      <td className="text-right tabular-nums text-strong">{percent(snapshot.overallCitedRate)}</td>
+                      <td className="text-right tabular-nums text-strong">{formatPercent(snapshot.overallCitedRate)}</td>
                     </tr>
                   ))}
                 </tbody>

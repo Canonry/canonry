@@ -19,6 +19,8 @@ import {
   Settings2,
 } from 'lucide-react'
 import {
+  formatPercent,
+  RatioUnits,
   RunKinds,
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_DEFAULT_MAX_DEPTH,
@@ -193,10 +195,16 @@ function crawlStatus(page: InspectableCrawlPage): { label: string; tone: MetricT
   }
 }
 
+/**
+ * `linkScoreNormalized` reaches this view in two units: a site audit writes it
+ * 0-100 against the crawl's top page, while the demo seed writes a 0-1
+ * fraction. The unit is still resolved from the value as before, so a real
+ * score at or below 1 reads as a fraction; only the display goes through the
+ * shared percent format.
+ */
 function formatImportance(value: number | null): string {
   if (value == null) return 'Not scored'
-  const percent = value <= 1 ? value * 100 : value
-  return `${Math.round(percent)}%`
+  return formatPercent(value, value <= 1 ? RatioUnits.fraction : RatioUnits.percent)
 }
 
 function formatHealth(page: InspectableCrawlPage): string {
