@@ -4534,8 +4534,11 @@ export class ApiClient {
     )
   }
 
-  async runDoctor(opts: { project?: string; checkIds?: string[] } = {}): Promise<DoctorReportDto> {
-    const checkQuery = opts.checkIds && opts.checkIds.length > 0 ? { check: opts.checkIds.join(',') } : undefined
+  async runDoctor(opts: { project?: string; checkIds?: string[]; reportMonth?: string } = {}): Promise<DoctorReportDto> {
+    const checkQuery = {
+      ...(opts.checkIds?.length ? { check: opts.checkIds.join(',') } : {}),
+      ...(opts.reportMonth ? { reportMonth: opts.reportMonth } : {}),
+    }
     if (opts.project) {
       return this.invoke<DoctorReportDto>(() =>
         getApiV1ProjectsByNameDoctor({

@@ -1,4 +1,4 @@
-import { visibilityCompareSelectionSchema } from '@ainyc/canonry-contracts'
+import { visibilityCompareSelectionSchema, reportMonthSchema } from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -785,6 +785,7 @@ const agentWebhookAttachInputSchema = z.object({
 })
 
 const doctorInputSchema = z.object({
+  reportMonth: reportMonthSchema.optional().describe('Report month (YYYY-MM). Defaults to this month, also retaining the prior month through UTC day 3.'),
   project: projectNameSchema.optional().describe('Project name to scope project-level checks. Omit to run global checks (provider keys, config, etc.).'),
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
 })
@@ -1342,7 +1343,7 @@ export const canonryMcpTools = [
     inputSchema: doctorInputSchema,
     annotations: readAnnotations(true),
     openApiOperations: ['GET /api/v1/doctor', 'GET /api/v1/projects/{name}/doctor'],
-    handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks }),
+    handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks, ...(input.reportMonth ? { reportMonth: input.reportMonth } : {}) }),
   }),
   defineTool({
     name: 'canonry_project_export',

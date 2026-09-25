@@ -415,3 +415,19 @@ including its model-continuity exclusions and monthly run counts. Explicitly
 scoped responses use the top-level frame. All reads use stored evidence.
 The CLI exposes the same selectors as `--scope`, `--scope-key`, `--market-key`,
 `--provider`, and `--location`, and `--format json` returns the same response.
+
+### Monthly report readiness
+
+`canonry_doctor` accepts `reportMonth: "YYYY-MM"` with `project` and optional
+`checks: ["report.*"]`. The equivalent CLI is
+`canonry doctor --project example --report-month 2026-09 --check 'report.*' --format json`.
+The project doctor API accepts `?reportMonth=2026-09&check=report.*`.
+Omitting the month retains the previous closed month through UTC day 3, alongside
+the current month. Future months are rejected.
+
+The checks read stored sweeps, snapshot model continuity and daily GA/GSC totals.
+They return explicit unknown coverage where absent daily rows could mean either
+zero activity or missing collection. Pending reporting dates and dates before
+connection are separate. `notificationPolicy: "silent"` leaves these advisories
+visible in doctor without sending client health alerts. The checks never run a
+sweep, sync data, create schedules or call providers.
