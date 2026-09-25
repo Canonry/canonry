@@ -58,7 +58,7 @@ vi.mock('@ainyc/canonry-integration-google-places', async () => {
   return { ...actual, getPlaceDetails: (...a: unknown[]) => getPlaceDetailsMock(...a) }
 })
 
-const DOMAIN = 'gjelina.example.com'
+const DOMAIN = 'harborline.example.com'
 const LOCATION = 'locations/12345'
 
 /** YYYY-MM string for `n` calendar months before now (mirrors the sync's monthMinus + monthKey). */
@@ -79,7 +79,7 @@ function createTempDb() {
 function listedLocation(opts: { placeId?: string | null; description?: string | null } = {}): GbpLocation {
   return {
     name: LOCATION,
-    title: 'Gjelina Venice',
+    title: 'Harborline Bayport',
     profile: opts.description === undefined || opts.description === null
       ? undefined
       : { description: opts.description },
@@ -91,8 +91,8 @@ function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: stri
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: 'proj_gbp',
-    name: 'gjelina',
-    displayName: 'Gjelina',
+    name: 'harborline',
+    displayName: 'Harborline',
     canonicalDomain: DOMAIN,
     country: 'US',
     language: 'en',
@@ -104,7 +104,7 @@ function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: stri
     projectId: 'proj_gbp',
     accountName: 'accounts/1',
     locationName: LOCATION,
-    displayName: 'Gjelina Venice',
+    displayName: 'Harborline Bayport',
     placeId: opts.placeId ?? null,
     description: opts.description ?? null,
     selected: true,
@@ -165,9 +165,9 @@ beforeEach(() => {
     (_token: string, _loc: string, opts: { startMonth: { year: number; month: number }; endMonth: { year: number; month: number } }) => {
       const single = opts.startMonth.year === opts.endMonth.year && opts.startMonth.month === opts.endMonth.month
       if (single) {
-        return Promise.resolve([{ keyword: 'venice beach hotel', valueCount: opts.startMonth.month * 10, valueThreshold: null }])
+        return Promise.resolve([{ keyword: 'bayport hotel', valueCount: opts.startMonth.month * 10, valueThreshold: null }])
       }
-      return Promise.resolve([{ keyword: 'venice beach hotel', valueCount: 999, valueThreshold: null }])
+      return Promise.resolve([{ keyword: 'bayport hotel', valueCount: 999, valueThreshold: null }])
     },
   )
 })
@@ -184,15 +184,15 @@ describe('executeGbpSync — selected location profile refresh', () => {
           additionalCategories: [{ displayName: 'Hotel' }],
         },
         storefrontAddress: {
-          addressLines: ['1429 Abbot Kinney Blvd'],
-          locality: 'Venice',
+          addressLines: ['100 Harbor St'],
+          locality: 'Bayport',
           administrativeArea: 'CA',
-          postalCode: '90291',
+          postalCode: '90000',
           regionCode: 'US',
         },
-        websiteUri: 'https://gjelina.example.com',
+        websiteUri: 'https://harborline.example.com',
         phoneNumbers: { primaryPhone: '+1 310-555-1212' },
-        openInfo: { status: 'OPEN', openingDate: { year: 2008 } },
+        openInfo: { status: 'OPEN', openingDate: { year: 2012 } },
       }])
       seedRun(db, 'run_1')
 
@@ -203,11 +203,11 @@ describe('executeGbpSync — selected location profile refresh', () => {
       expect(row!.description).toBe('Fresh owner description.')
       expect(row!.primaryCategoryDisplayName).toBe('Restaurant')
       expect(row!.additionalCategories).toEqual(['Hotel'])
-      expect(row!.storefrontAddress).toBe('1429 Abbot Kinney Blvd, Venice, CA, 90291, US')
-      expect(row!.websiteUri).toBe('https://gjelina.example.com')
+      expect(row!.storefrontAddress).toBe('100 Harbor St, Bayport, CA, 90000, US')
+      expect(row!.websiteUri).toBe('https://harborline.example.com')
       expect(row!.primaryPhone).toBe('+1 310-555-1212')
       expect(row!.openStatus).toBe('OPEN')
-      expect(row!.openingDate).toBe('2008')
+      expect(row!.openingDate).toBe('2012')
       expect(row!.syncedAt).toBeTruthy()
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -232,7 +232,7 @@ describe('executeGbpSync — keyword monthly accumulate', () => {
       expect(monthly.map((r) => r.month).sort()).toEqual(expectedMonths)
       // Each row carries the run id and the month-derived count.
       for (const row of monthly) {
-        expect(row.keyword).toBe('venice beach hotel')
+        expect(row.keyword).toBe('bayport hotel')
         expect(row.syncRunId).toBe('run_1')
         const monthNum = Number(row.month.split('-')[1])
         expect(row.valueCount).toBe(monthNum * 10)
@@ -299,7 +299,7 @@ describe('executeGbpSync — keyword monthly accumulate', () => {
 })
 
 describe('executeGbpSync — Places enrichment (#648)', () => {
-  const PLACE_ID = 'ChIJgjelina'
+  const PLACE_ID = 'ChIJharborline'
   const LODGING = { name: `${LOCATION}/lodging`, pools: { pool: true } }
 
   function placesConfig(places: NonNullable<CanonryConfig['places']>): CanonryConfig {
