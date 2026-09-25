@@ -102,14 +102,14 @@ describe('getPlaceDetails', () => {
       allowsDogs: false,
       parkingOptions: { freeParkingLot: true },
       accessibilityOptions: { wheelchairAccessibleEntrance: true },
-      editorialSummary: { text: 'A boutique hotel in Venice.', languageCode: 'en' },
+      editorialSummary: { text: 'A boutique hotel by the bay.', languageCode: 'en' },
     })
     const place = await getPlaceDetails('ChIJabc', 'KEY')
     expect(place.servesBreakfast).toBe(true)
     expect(place.allowsDogs).toBe(false)
     expect(place.parkingOptions?.freeParkingLot).toBe(true)
     expect(place.accessibilityOptions?.wheelchairAccessibleEntrance).toBe(true)
-    expect(place.editorialSummary?.text).toBe('A boutique hotel in Venice.')
+    expect(place.editorialSummary?.text).toBe('A boutique hotel by the bay.')
     expect(place.types).toEqual(['lodging', 'hotel'])
   })
 

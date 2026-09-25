@@ -5,8 +5,8 @@ import { aggregateGscByQuery, windowEndingOn } from '../src/content-data.js'
  * gsc_search_data is keyed (date, query, page, country, device), so a query
  * ranking on several pages produces several rows for ONE SERP impression.
  * Summing them over-counts. Measured on a live property before this fix, the
- * query "gjelina hotel" summed to 151,571 impressions where the accurate
- * all-time figure was 26,477 and its 30-day window was 1,519.
+ * query "harborline hotel" summed to 120,400 impressions where the accurate
+ * all-time figure was 21,300 and its 30-day window was 1,240.
  */
 const PAGE_ROWS = [
   { query: 'boutique hotel', page: 'https://x.test/rooms', impressions: 100, clicks: 4, ctr: '0.04', position: '3' },
@@ -53,8 +53,8 @@ describe('aggregateGscByQuery', () => {
 /**
  * The window half of the fix. Before it, the read had no date bound at all and
  * reported lifetime demand under the report's window heading: on a live
- * property one query showed 151,571 impressions where its 30-day figure was
- * 1,519.
+ * property one query showed 120,400 impressions where its 30-day figure was
+ * 1,240.
  */
 describe('resolveContentGscWindow', () => {
   it('spans exactly windowDays days, inclusive of both ends', () => {

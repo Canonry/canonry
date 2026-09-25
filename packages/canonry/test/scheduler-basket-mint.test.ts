@@ -55,7 +55,7 @@ function revisions(db: ReturnType<typeof createClient>, projectId: string) {
 
 test('start() records revision 1 for every project with queries', () => {
   const db = harness()
-  const withQueries = seedProject(db, 'swept-manually', ['best roof coating', 'az coatings reviews'])
+  const withQueries = seedProject(db, 'swept-manually', ['best roof coating', 'acme coatings reviews'])
   const alsoQueries = seedProject(db, 'another', ['some question'])
 
   startScheduler(db)
@@ -63,7 +63,7 @@ test('start() records revision 1 for every project with queries', () => {
   expect(revisions(db, withQueries)).toHaveLength(1)
   expect(revisions(db, alsoQueries)).toHaveLength(1)
   const members = JSON.parse(revisions(db, withQueries)[0]!.membersJson) as string[]
-  expect(members).toEqual(['az coatings reviews', 'best roof coating'])
+  expect(members).toEqual(['acme coatings reviews', 'best roof coating'])
 })
 
 test('a restart mints nothing new, so revision numbers keep counting real changes', () => {

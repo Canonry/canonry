@@ -59,7 +59,7 @@ function renderGbpSection() {
 
 const gbpConnection = {
   id: 'conn-1',
-  domain: 'gjelina.com',
+  domain: 'harborline.example.com',
   connectionType: 'gbp',
   scopes: ['https://www.googleapis.com/auth/business.manage'],
   createdAt: '2026-05-01T00:00:00.000Z',
@@ -69,11 +69,11 @@ const gbpConnection = {
 function makeLocation(over: Record<string, unknown>) {
   return {
     id: 'loc-1', projectId: 'p1', accountName: 'accounts/1', locationName: 'locations/123',
-    displayName: 'Gjelina Venice', primaryCategoryDisplayName: 'Hotel',
-    storefrontAddress: '1429 Abbot Kinney Blvd', websiteUri: 'https://gjelina.com',
+    displayName: 'Harborline Bayside', primaryCategoryDisplayName: 'Hotel',
+    storefrontAddress: '100 Example Ave', websiteUri: 'https://harborline.example.com',
     placeId: 'ChIJ-place-123', mapsUri: 'https://maps.google.com/?cid=123',
     additionalCategories: ['Boutique hotel'],
-    description: 'A small hotel in Venice.',
+    description: 'A small hotel by the bay.',
     serviceArea: null,
     regularHours: { periods: [] },
     primaryPhone: '+13105550100',
@@ -137,7 +137,7 @@ test('GBP source-state helpers keep owner-only API absences neutral', () => {
     locationName: 'locations/123',
     placeActionLinkName: 'locations/123/placeActionLinks/1',
     placeActionType: 'BOOK',
-    uri: 'https://booking.example/gjelina',
+    uri: 'https://booking.example/harborline',
     isPreferred: false,
     providerType: 'AGGREGATOR',
   }])).toMatchObject({
@@ -201,7 +201,7 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
       return jsonResponse({
         keywords: [{
           locationName: 'locations/123', periodStart: '2026-04', periodEnd: '2026-04',
-          keyword: 'venice beach hotel', valueCount: 50, valueThreshold: null,
+          keyword: 'bayside boutique hotel', valueCount: 50, valueThreshold: null,
         }],
         total: 1,
         thresholdedPct: 0,
@@ -224,7 +224,7 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
           locationName: 'locations/123',
           placeActionLinkName: 'locations/123/placeActionLinks/1',
           placeActionType: 'BOOK',
-          uri: 'https://booking.example/gjelina',
+          uri: 'https://booking.example/harborline',
           isPreferred: false,
           providerType: 'AGGREGATOR',
         }],
@@ -261,7 +261,7 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
   // All-zero series (bookings) collapse to a footnote instead of occupying a tile.
   expect(screen.getByText(/Not active:/)).toBeTruthy()
   // Keyword row.
-  expect(screen.getByText('venice beach hotel')).toBeTruthy()
+  expect(screen.getByText('bayside boutique hotel')).toBeTruthy()
   // Owner-only surfaces are back in the dashboard, but source-labeled and
   // neutral when the API simply returned no owner-controlled value.
   expect(screen.getByText('Owner profile · Business Information')).toBeTruthy()
@@ -273,7 +273,7 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
   // Expanded public-listing details preserve the Places signals without making
   // them owner-controlled truth.
   expect(screen.getByText('Pool, Free Wi-Fi, Spa')).toBeTruthy()
-  expect(screen.getByText('Gjelina Venice')).toBeTruthy()
+  expect(screen.getByText('Harborline Bayside')).toBeTruthy()
   // Single tracked location → no scope selector.
   expect(screen.queryByText('All locations')).toBeNull()
 })
@@ -303,7 +303,7 @@ test('renders the owner-vs-public amenity gap insight (server-computed)', async 
     if (urlPath.endsWith('/projects/test-project/insights')) {
       return jsonResponse([{
         id: 'ins-1', projectId: 'p1', runId: 'r1', type: 'gbp-listing-discrepancy',
-        severity: 'high', title: 'Gjelina Venice: public listing shows 2 amenities your GBP profile doesn’t',
+        severity: 'high', title: 'Harborline Bayside: public listing shows 2 amenities your GBP profile doesn’t',
         query: 'locations/123', provider: 'gbp',
         recommendation: { action: 'Populate amenities', reason: 'Google’s rendered listing advertises Pool, Spa but your GBP profile has none.' },
         dismissed: false, createdAt: '2026-05-21T00:00:00.000Z',
@@ -316,7 +316,7 @@ test('renders the owner-vs-public amenity gap insight (server-computed)', async 
   renderGbpSection()
 
   await waitFor(() => expect(
-    screen.getByText('Gjelina Venice: public listing shows 2 amenities your GBP profile doesn’t'),
+    screen.getByText('Harborline Bayside: public listing shows 2 amenities your GBP profile doesn’t'),
   ).toBeTruthy())
   // The reason is heavy explanatory text, so it lives in an InfoTooltip rather
   // than inline — exposed to assistive tech (and tests) via the trigger
@@ -335,7 +335,7 @@ test('shows a location scope selector when multiple locations are tracked', asyn
       return jsonResponse({
         locations: [
           makeLocation({}),
-          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', placeId: null, mapsUri: null }),
+          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'Blue Kettle', placeId: null, mapsUri: null }),
         ],
         totalDiscovered: 2,
         totalSelected: 2,
@@ -356,8 +356,8 @@ test('shows a location scope selector when multiple locations are tracked', asyn
   await waitFor(() => expect(screen.getByText('All locations')).toBeTruthy())
   const selector = screen.getByRole('combobox', { name: 'Location' })
   expect(selector).toBeTruthy()
-  expect(screen.getByRole('option', { name: 'Gjelina Venice' })).toBeTruthy()
-  expect(screen.getByRole('option', { name: 'AZ Coatings' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Harborline Bayside' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Blue Kettle' })).toBeTruthy()
 })
 
 test('falls back to the aggregate scope when the scoped location is untracked', async () => {
@@ -376,7 +376,7 @@ test('falls back to the aggregate scope when the scoped location is untracked', 
       return jsonResponse({
         locations: [
           makeLocation({}),
-          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', placeId: null, mapsUri: null, selected: bTracked }),
+          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'Blue Kettle', placeId: null, mapsUri: null, selected: bTracked }),
         ],
         totalDiscovered: 2,
         totalSelected: bTracked ? 2 : 1,
@@ -384,7 +384,7 @@ test('falls back to the aggregate scope when the scoped location is untracked', 
     }
     if (urlPath.includes('/gbp/locations/') && urlPath.endsWith('/selection') && init?.method === 'PUT') {
       bTracked = false
-      return jsonResponse(makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', selected: false }))
+      return jsonResponse(makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'Blue Kettle', selected: false }))
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
     if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })

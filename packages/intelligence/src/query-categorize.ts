@@ -29,7 +29,7 @@ const MIN_BRAND_TOKEN_LENGTH = 3
  * into `categorizeQueryByIntent` to drive brand matching.
  *
  * Sources:
- *   1. The canonical domain with its TLD stripped — e.g. `demand-iq.com` → `demandiq`.
+ *   1. The canonical domain with its TLD stripped — e.g. `vexlo-iq.test` → `vexloiq`.
  *   2. Each approved brand name (displayName plus aliases) — only when its normalized
  *      form is at least `MIN_BRAND_TOKEN_LENGTH` and not already covered.
  *
