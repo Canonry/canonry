@@ -1,22 +1,34 @@
-export function formatRatio(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return '0%'
-  return `${(value * 100).toFixed(1)}%`
-}
+import { RatioUnits, type RatioUnit } from './ratio-unit.js'
 
 /**
- * A ratio as a whole percent: `0.575` → `58%`.
+ * The one way a ratio is shown: a percent with one decimal, `0.0207` → `2.1%`.
  *
- * `Math.round(ratio * 100)` alone loses every half-percent boundary that binary
- * floating point puts a hair below it — `0.575 * 100` is `57.49999999999999`,
- * so a content gap missed on 23 of 40 snapshots printed `57%`. Callers hand in
- * an unrounded `cited / total`, which lands on those boundaries constantly, so
- * the error is removed before the rounding decision rather than after it. Six
- * decimals is far finer than any ratio these reports carry and cannot lift a
- * value that is genuinely under the boundary over it.
+ * `unit` is what the number is on the wire (declared on its schema, see
+ * `ratio-unit.ts`): a 0..1 `fraction` (the default) or a 0..100 `percent`.
+ *
+ * Neither end ever shows a value that is not exact: only a true 0 reads `0%`
+ * and only a true 100% reads `100%`. A non-zero value that rounds to 0.0 reads
+ * `<0.1%`, and one short of 100% that rounds to 100.0 reads `>99.9%`, so a
+ * branded rate moving from 99.6% to 99.8% stays visible. A missing or
+ * non-finite value reads `—`, never `0%`. A value past 100% is shown as it is.
+ *
+ * Rounding is half up on the tenth. Neither `fraction * 100` nor a half tenth
+ * is exact in binary (`0.0045 * 100` is `0.44999999999999996`), so both
+ * products are cut to a few decimals before the rounding decision; that
+ * removes the float error without lifting a value that is genuinely under
+ * the boundary.
  */
-export function formatWholePercent(ratio: number): string {
-  if (!Number.isFinite(ratio)) return '0%'
-  return `${Math.round(Number((ratio * 100).toFixed(6)))}%`
+export function formatPercent(value: number | null | undefined, unit: RatioUnit = RatioUnits.fraction): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  const percent = Number((unit === RatioUnits.percent ? value : value * 100).toFixed(6))
+  if (percent === 0) return '0%'
+  const sign = percent < 0 ? '-' : ''
+  const size = Math.abs(percent)
+  if (size === 100) return `${sign}100%`
+  const tenths = Math.round(Number((size * 10).toFixed(4))) / 10
+  if (tenths === 0) return `${sign}<0.1%`
+  if (tenths === 100 && size < 100) return `${sign}>99.9%`
+  return `${sign}${tenths.toFixed(1)}%`
 }
 
 export function formatNumber(value: number): string {
@@ -497,7 +509,7 @@ export type PointDeltaDirection = 'up' | 'down' | 'none'
  *
  * A non-zero change below 0.05 points reads `<0.1`, so a real movement never
  * rounds to a misleading `0.0`. One decimal keeps its trailing `.0`, matching
- * `formatRatio`.
+ * `formatPercent`.
  */
 export function formatPointDelta(delta: number): { direction: PointDeltaDirection; magnitude: string } {
   if (delta === 0) return { direction: 'none', magnitude: '0' }

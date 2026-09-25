@@ -23,7 +23,7 @@
  */
 import { z } from 'zod'
 import { actionConfidenceLabel, contentActionLabel, type ContentTargetRowDto } from './content.js'
-import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatRatio, formatWholePercent, type DeltaTone } from './formatting.js'
+import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, type DeltaTone } from './formatting.js'
 import { dedupeReportActions, dedupeReportOpportunities } from './report-dedup.js'
 import {
   reportActionAudienceSchema,
@@ -580,7 +580,7 @@ export function reportExecutiveHeadline(report: ProjectReportDto): ReportExecuti
     providerCountLabel: `${summary.providerCount} provider${summary.providerCount === 1 ? '' : 's'}`,
     competitorCountLabel: `${summary.competitorCount} competitor${summary.competitorCount === 1 ? '' : 's'} tracked`,
     gscDelta: summary.gsc
-      ? `${formatNumber(summary.gsc.impressions)} imp · ${formatRatio(summary.gsc.ctr)} CTR${gscDateRange ? ` · ${gscDateRange}` : ''}`
+      ? `${formatNumber(summary.gsc.impressions)} imp · ${formatPercent(summary.gsc.ctr)} CTR${gscDateRange ? ` · ${gscDateRange}` : ''}`
       : null,
     gaDelta: summary.ga
       ? `${formatNumber(summary.ga.users)} users · ${formatDate(summary.ga.periodStart)} → ${formatDate(summary.ga.periodEnd)}`
@@ -1050,7 +1050,7 @@ export function reportOpportunityActionLine(opportunity: Pick<ContentTargetRowDt
 
 /** A content gap's miss rate, rounded to a whole percent: `50%`. */
 export function reportMissRateLabel(missRate: number): string {
-  return formatWholePercent(missRate)
+  return formatPercent(missRate)
 }
 // ── end report slice S5 ──
 

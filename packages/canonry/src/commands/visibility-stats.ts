@@ -1,5 +1,5 @@
 import {
-  formatRatio,
+  formatPercent,
   shareOfVoiceLabel,
   shareOfVoiceReason,
   type VisibilityStatsDto,
@@ -51,9 +51,6 @@ export async function showVisibilityStats(project: string, opts: VisibilityStats
   printVisibilityStats(data)
 }
 
-function pct(rate: number | null): string {
-  return rate === null ? '—' : formatRatio(rate)
-}
 
 // ── visibility-compare (month over month) ────────────────────────────────────
 
@@ -82,8 +79,7 @@ function periodCell(p: VisibilityCompareMetricPeriod): string {
     return `unavailable: no competitive frame (${p.numerator} observed)`
   }
   if (p.point === null || p.ciLow === null || p.ciHigh === null) return 'no data'
-  const p1 = (v: number) => formatRatio(v)
-  return `${p1(p.point)} [${p1(p.ciLow)}, ${p1(p.ciHigh)}]`
+  return `${formatPercent(p.point)} [${formatPercent(p.ciLow)}, ${formatPercent(p.ciHigh)}]`
 }
 
 function verdictCell(m: VisibilityCompareMetric): string {
@@ -182,9 +178,9 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
   const rows = data.queries.map((q) => ({
     label: q.query,
     cited: citedCell(q),
-    citedPct: pct(q.citedRate),
+    citedPct: formatPercent(q.citedRate),
     ment: mentionedCell(q),
-    mentPct: pct(q.mentionRate),
+    mentPct: formatPercent(q.mentionRate),
   }))
 
   const queryWidth = Math.max(7, ...rows.map((r) => r.label.length))
@@ -216,9 +212,9 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
     [
       'TOTAL'.padEnd(queryWidth),
       citedCell(data.totals).padEnd(citedWidth),
-      pct(data.totals.citedRate).padStart(7),
+      formatPercent(data.totals.citedRate).padStart(7),
       mentionedCell(data.totals).padEnd(mentWidth),
-      pct(data.totals.mentionRate).padStart(7),
+      formatPercent(data.totals.mentionRate).padStart(7),
     ].join('  '),
   )
 
@@ -231,9 +227,9 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
         [
           `  ${p.provider}`.padEnd(provWidth + 2),
           citedCell(p).padEnd(citedWidth),
-          pct(p.citedRate).padStart(7),
+          formatPercent(p.citedRate).padStart(7),
           mentionedCell(p).padEnd(mentWidth),
-          pct(p.mentionRate).padStart(7),
+          formatPercent(p.mentionRate).padStart(7),
         ].join('  '),
       )
     }

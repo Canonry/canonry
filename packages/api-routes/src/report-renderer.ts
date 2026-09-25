@@ -23,7 +23,7 @@ import {
   formatDeltaCopy,
   formatIsoDate,
   formatNumber,
-  formatRatio,
+  formatPercent,
   formatWindowCountDelta,
   reportActionCategoryLabel,
   reportActionTone,
@@ -1575,7 +1575,7 @@ function renderGsc(report: ProjectReportDto): string {
       <td>${escapeHtml(q.query)}</td>
       <td class="numeric">${formatNumber(q.clicks)}</td>
       <td class="numeric">${formatNumber(q.impressions)}</td>
-      <td class="numeric">${formatRatio(q.ctr)}</td>
+      <td class="numeric">${formatPercent(q.ctr)}</td>
       <td class="numeric">${q.avgPosition.toFixed(1)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(q.category)}</span></td>
     </tr>`).join('')
@@ -1618,7 +1618,7 @@ function renderGsc(report: ProjectReportDto): string {
     `<div class="metric-grid">
       <div class="metric"><div class="label">${copy.tiles.clicks}</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
       <div class="metric"><div class="label">${copy.tiles.impressions}</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
-      <div class="metric"><div class="label">${copy.tiles.ctr}</div><div class="value">${formatRatio(gsc.ctr)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.ctr}</div><div class="value">${formatPercent(gsc.ctr)}</div></div>
       <div class="metric"><div class="label">${copy.tiles.position}</div><div class="value">${gsc.avgPosition.toFixed(1)}</div></div>
     </div>
     ${trendChart}

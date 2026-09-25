@@ -14,8 +14,7 @@ import {
   inclusiveDayCount,
   formatNumber,
   formatPointDelta,
-  formatRatio,
-  formatWholePercent,
+  formatPercent,
   formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
   parseInclusiveEndMs,
@@ -24,47 +23,72 @@ import {
   startOfNextDayHourInTimeZone,
 } from '../src/formatting.js'
 
-describe('formatRatio', () => {
-  test('zero and non-finite values render as 0%', () => {
-    expect(formatRatio(0)).toBe('0%')
-    expect(formatRatio(Number.NaN)).toBe('0%')
-    expect(formatRatio(Number.POSITIVE_INFINITY)).toBe('0%')
+describe('formatPercent', () => {
+  test('a fraction renders as a percent with one decimal', () => {
+    // The Aero eval's misread: a 0.0207 share is 2.1%, never "0.02%".
+    expect(formatPercent(0.0207)).toBe('2.1%')
+    expect(formatPercent(0.5)).toBe('50.0%')
+    expect(formatPercent(0.123)).toBe('12.3%')
+    expect(formatPercent(0.998)).toBe('99.8%')
   })
 
-  test('fractions render as percent with one decimal', () => {
-    expect(formatRatio(0.5)).toBe('50.0%')
-    expect(formatRatio(0.123)).toBe('12.3%')
-    expect(formatRatio(1)).toBe('100.0%')
-  })
-})
-
-describe('formatWholePercent', () => {
-  test('rounds to a whole percent, half away from zero', () => {
-    expect(formatWholePercent(0)).toBe('0%')
-    expect(formatWholePercent(0.334)).toBe('33%')
-    expect(formatWholePercent(0.125)).toBe('13%')
-    expect(formatWholePercent(1)).toBe('100%')
+  test('a value already in percent units renders the same way', () => {
+    expect(formatPercent(2.07, 'percent')).toBe('2.1%')
+    expect(formatPercent(57.5, 'percent')).toBe('57.5%')
+    expect(formatPercent(0, 'percent')).toBe('0%')
+    expect(formatPercent(100, 'percent')).toBe('100%')
   })
 
-  // `ratio * 100` is not exact in binary: 0.575 * 100 is 57.49999999999999, so
-  // rounding the product directly loses the half-percent boundary and reports
-  // one percent too few.
-  test('a ratio whose percent is exactly a half still rounds up', () => {
-    expect(formatWholePercent(0.575)).toBe('58%')
-    expect(formatWholePercent(1 - 17 / 40)).toBe('58%')
-    expect(formatWholePercent(1 - 27 / 40)).toBe('33%')
-    expect(formatWholePercent(0.225)).toBe('23%')
-    expect(formatWholePercent(0.075)).toBe('8%')
+  test('only an exact 0% or 100% drops the decimal', () => {
+    expect(formatPercent(0)).toBe('0%')
+    expect(formatPercent(-0)).toBe('0%')
+    expect(formatPercent(1)).toBe('100%')
   })
 
-  test('a ratio a hair under the boundary is not lifted over it', () => {
-    expect(formatWholePercent(0.5749)).toBe('57%')
-    expect(formatWholePercent(0.57499)).toBe('57%')
+  test('a non-zero value too small to show reads <0.1%, never 0%', () => {
+    expect(formatPercent(0.0004)).toBe('<0.1%')
+    expect(formatPercent(0.000001)).toBe('<0.1%')
+    // Exactly 0.05 points is on the boundary and rounds up to a real 0.1%.
+    expect(formatPercent(0.0005)).toBe('0.1%')
   })
 
-  test('non-finite values render as 0%, matching formatRatio', () => {
-    expect(formatWholePercent(Number.NaN)).toBe('0%')
-    expect(formatWholePercent(Number.POSITIVE_INFINITY)).toBe('0%')
+  test('a value short of 100% that would round to it reads >99.9%, never 100%', () => {
+    // Keeps a branded change like 99.6% -> 99.8% readable at the top of the range.
+    expect(formatPercent(0.9996)).toBe('>99.9%')
+    expect(formatPercent(0.99949)).toBe('99.9%')
+    expect(formatPercent(99.96, 'percent')).toBe('>99.9%')
+  })
+
+  // `fraction * 100` is not exact in binary, and neither is a half tenth:
+  // 0.0045 * 100 is 0.44999999999999996 and 0.15 is stored a hair under 0.15,
+  // so `(x * 100).toFixed(1)` rounds 410 of every 1,000 half-tenth percents down.
+  test('a percent exactly on a half-tenth boundary rounds up', () => {
+    expect(formatPercent(0.0015)).toBe('0.2%')
+    expect(formatPercent(0.0045)).toBe('0.5%')
+    expect(formatPercent(0.0115)).toBe('1.2%')
+    expect(formatPercent(0.0215)).toBe('2.2%')
+    expect(formatPercent(1 - 17 / 40)).toBe('57.5%')
+  })
+
+  test('a percent a hair under the boundary is not lifted over it', () => {
+    expect(formatPercent(0.01249)).toBe('1.2%')
+    expect(formatPercent(0.12345)).toBe('12.3%')
+  })
+
+  test('a missing or non-finite value renders as a dash, not 0%', () => {
+    expect(formatPercent(null)).toBe('—')
+    expect(formatPercent(undefined)).toBe('—')
+    expect(formatPercent(Number.NaN)).toBe('—')
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe('—')
+  })
+
+  test('a share past 100% is shown as it is, not clamped into range', () => {
+    expect(formatPercent(1.2)).toBe('120.0%')
+  })
+
+  test('a negative value keeps its sign and the same edges', () => {
+    expect(formatPercent(-0.025)).toBe('-2.5%')
+    expect(formatPercent(-0.0004)).toBe('-<0.1%')
   })
 })
 
@@ -670,7 +694,7 @@ describe('formatPointDelta', () => {
     expect(formatPointDelta(24 / 36 - 0.5)).toEqual({ direction: 'up', magnitude: '16.7' })
   })
 
-  test('keeps a trailing .0, matching formatRatio', () => {
+  test('keeps a trailing .0, matching formatPercent', () => {
     expect(formatPointDelta(0.1)).toEqual({ direction: 'up', magnitude: '10.0' })
     expect(formatPointDelta(-1)).toEqual({ direction: 'down', magnitude: '100.0' })
   })

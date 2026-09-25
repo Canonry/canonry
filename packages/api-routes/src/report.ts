@@ -38,7 +38,7 @@ import {
   VerificationStatuses,
   deltaPercent,
   effectiveBrandNames,
-  formatWholePercent,
+  formatPercent,
   getProviderLocationHandling,
   parseReportPeriodDays,
   reportCompactList,
@@ -1832,7 +1832,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
         'They are stronger evidence than a generic topic list because the model is already retrieving competing content.',
       ],
       evidence: [
-        `"${topGap.query}" missed at ${formatWholePercent(topGap.missRate)} with ${topGap.competitorCount} competitor${topGap.competitorCount === 1 ? '' : 's'} cited`,
+        `"${topGap.query}" missed at ${formatPercent(topGap.missRate)} with ${topGap.competitorCount} competitor${topGap.competitorCount === 1 ? '' : 's'} cited`,
         `Cited competitors: ${reportCompactList(topGap.competitorDomains)}`,
       ],
       successMetric: 'The top content-gap query moves from missed to cited or mentioned after the recommended content work ships.',

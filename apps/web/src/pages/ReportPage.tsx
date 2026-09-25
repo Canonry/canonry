@@ -119,7 +119,7 @@ import {
 // ── end report slice S2 imports ──
 
 // ── report slice S3 imports: search and traffic ──
-import { formatRatio, reportGaIntro, reportGscIntro, reportShareBarShareLabel } from '@ainyc/canonry-contracts'
+import { formatPercent, reportGaIntro, reportGscIntro, reportShareBarShareLabel } from '@ainyc/canonry-contracts'
 // ── end report slice S3 imports ──
 
 // ── report slice S4 imports: server-side, indexing and trend ──
@@ -1550,7 +1550,7 @@ function AgencyGscPerformance({ report }: { report: ProjectReportDto }) {
         tiles={[
           { label: copy.tiles.clicks, value: formatNumber(gsc.totalClicks) },
           { label: copy.tiles.impressions, value: formatNumber(gsc.totalImpressions) },
-          { label: copy.tiles.ctr, value: formatRatio(gsc.ctr) },
+          { label: copy.tiles.ctr, value: formatPercent(gsc.ctr) },
           { label: copy.tiles.position, value: gsc.avgPosition.toFixed(1) },
         ]}
       />
@@ -1579,7 +1579,7 @@ function AgencyGscPerformance({ report }: { report: ProjectReportDto }) {
             <td className="evidence-query-cell">{row.query}</td>
             <td className="text-right tabular-nums">{formatNumber(row.clicks)}</td>
             <td className="text-right tabular-nums">{formatNumber(row.impressions)}</td>
-            <td className="text-right tabular-nums">{formatRatio(row.ctr)}</td>
+            <td className="text-right tabular-nums">{formatPercent(row.ctr)}</td>
             <td className="text-right tabular-nums">{row.avgPosition.toFixed(1)}</td>
             <td><ToneBadge tone="neutral">{row.category}</ToneBadge></td>
           </tr>
