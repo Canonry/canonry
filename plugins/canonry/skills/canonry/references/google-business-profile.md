@@ -262,7 +262,7 @@ Every GBP number belongs to one of three planes. **Tag each figure by plane befo
 
 ## Real-World Data Shapes & Signal Patterns
 
-Validated against three live businesses of different types (a computer-support shop, a roofing contractor, and a beachfront boutique hotel). Bake these into any parsing or analysis code.
+Validated against three live businesses of different types (a computer-support shop, a roofing contractor, and a beachfront boutique hotel). Bake these into any parsing or analysis code. Counts marked illustrative below are stand-ins for the observed values; the patterns are what was observed.
 
 ### Response-shape quirks (the parser MUST handle these)
 
@@ -272,10 +272,10 @@ Validated against three live businesses of different types (a computer-support s
 
 ### Signal patterns (what the data actually looks like)
 
-- **`BUSINESS_DIRECTION_REQUESTS` is the most reliably-populated conversion signal** across every business type — even a tiny roofing contractor logged 58/30d while its website-clicks (2) and call-clicks (1) were near-zero. For local/service businesses it's the headline AEO-conversion proxy, not website clicks.
+- **`BUSINESS_DIRECTION_REQUESTS` is the most reliably-populated conversion signal** across every business type — even a tiny roofing contractor logged 58/30d (illustrative) while its website-clicks (2) and call-clicks (1) were near-zero. For local/service businesses it's the headline AEO-conversion proxy, not website clicks.
 - **Most of the 11 daily metrics are all-zero** for non-retail businesses (`BUSINESS_CONVERSATIONS`, `BUSINESS_BOOKINGS`, `BUSINESS_FOOD_*` were 0 for all three). Syncing all 11 is fine (zeros are cheap) but the dashboard should hide all-zero series.
-- **Impressions skew to Maps for physical-destination businesses.** The hotel pulled 7,150 desktop-maps impressions vs 2,180 desktop-search in 30 days — people find it on Maps.
-- **Keyword thresholding scales with volume.** A busy hotel was ~89% thresholded (its head terms like `hotels`→10,412 had exact values); both small businesses were **100% thresholded** (every keyword redacted). For the typical SMB location, expect zero exact keyword values — design the UI to lead with the `<N` floor, not exact counts.
+- **Impressions skew to Maps for physical-destination businesses.** The hotel pulled about three times as many desktop-maps impressions as desktop-search in 30 days (illustrative: 7,150 vs 2,180) — people find it on Maps.
+- **Keyword thresholding scales with volume.** A busy hotel was ~89% thresholded (its head terms like `hotels`, at an illustrative 10,412, had exact values); both small businesses were **100% thresholded** (every keyword redacted). For the typical SMB location, expect zero exact keyword values — design the UI to lead with the `<N` floor, not exact counts.
 - **An empty Lodging resource is the norm, but it does NOT prove the owner set no amenities.** A real operating hotel returned a lodging resource with only `{ "name": ... }` and zero place-action links, yet its GBP "Hotel details" panel had amenities filled in (breakfast, wifi, parking, accessibility). So `populatedGroupCount === 0` means "canonry can't read structured attributes via this API response", not "the hotel has none". Surface the lodging signal as a **verify** (check the "Hotel details" panel), not a confirmed gap. The place-action emptiness is a separate, genuinely owner-readable signal.
 - **The Places cross-reference is a thin slice for hotels, not the full rendered listing.** Run live against the beachfront hotel at the Atmosphere tier, Place Details surfaced exactly one structured amenity, `wheelchair accessibility`, even though the rendered Google hotel module advertises far more (wifi, pool, room service, room rates). Those richer fields come from **Hotel Center**, which the Places API does not expose. So a thin or empty `gbp places` amenity list is NOT evidence the public listing is sparse; Places only carries a narrow, schema-bound subset (breakfast, dining, parking, pet-friendly, accessibility, restroom, family-friendly, outdoor seating, reservations). Read `gbp-listing-discrepancy` as a **floor** on the public-vs-owner gap (proof the listing advertises *at least* the named amenities), never a complete inventory. The owner-control point still stands at any size: even one amenity the profile fails to assert is a structured-data gap the operator can close.
 

@@ -108,8 +108,8 @@ describe('one segmentation for the whole alias set', () => {
 describe('accent folding', () => {
   // An accented brand used to be invisible to every mention metric: the alias
   // derived from its domain carries no accents, so `elvane` never matched
-  // `Élvane`. Measured on a real run, one competitor scored 0 against 2 real
-  // mentions and another was undercounted by one.
+  // `Élvane` (illustrative names). Measured on a real run, one competitor
+  // scored 0 against 2 real mentions and another was undercounted by one.
   it('matches an accented brand from its unaccented domain alias', () => {
     expect(textContainsBrandAlias('Élvane Ribbed Knit Top', 'elvane')).toBe(true)
     expect(textContainsBrandAlias('Solême is minimal', 'soleme')).toBe(true)
