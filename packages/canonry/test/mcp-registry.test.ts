@@ -1811,3 +1811,16 @@ test('the run-trigger tool tells an agent it can measure one slice of a plan', (
   expect(tool.description).not.toMatch(/measurementScope=\{groups:\[\],\s*targets:\[\]\}/)
   expect(tool.description).toMatch(/omit the field/i)
 })
+
+describe('monthly comparison scope parity', () => {
+  it('forwards the exact Property, market, provider and location selection through the existing read tool', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_compare')!
+    const getVisibilityCompare = vi.fn().mockResolvedValue({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    const client = { getVisibilityCompare } as unknown as ApiClient
+    const selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'openai', location: 'Harbor' }
+    const result = await tool.handler(client, tool.inputSchema.parse({ project: 'acme', from: '2026-08', to: '2026-09', ...selection }))
+    expect(getVisibilityCompare).toHaveBeenCalledWith('acme', '2026-08', '2026-09', selection)
+    expect(result).toEqual({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    expect(tool.access).toBe('read')
+  })
+})

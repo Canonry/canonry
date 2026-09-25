@@ -12,12 +12,11 @@ import {
   type VisibilityCompareMetricKey,
   type VisibilityCompareMetricPeriod,
   type VisibilityCompareContinuityStatus,
-  type VisibilityCompareProviderContinuityStatus,
   type VisibilityCompareProviderRow,
   type VisibilityStatsShareCompetitor,
 } from '@ainyc/canonry-contracts'
 import { buildQueryAttribution, resolveCurrentQuery } from './visibility-stats.js'
-import { classifyModelEvidence } from './model-evidence.js'
+import { classifyModelEvidence, compareModelContinuity } from './model-evidence.js'
 
 /** Runs below this many sweeps in a month make every interval too wide to resolve a move. */
 export const VISIBILITY_COMPARE_MIN_RUNS = 5
@@ -32,6 +31,14 @@ export interface VisibilityCompareSnapshotInput {
   answerMentioned: boolean | null
   answerText: string | null
   citedDomains: string[]
+  /** Frozen Advanced scope identity; absent for the legacy simple basket. */
+  cohortKey?: string
+  queryClass?: QueryClass | null
+  /** Advanced source capture can be incomplete independently of mentions. */
+  citationChecked?: boolean
+  competitorDomains?: string[]
+  competitorMentions?: string[]
+  competitorCitations?: string[]
 }
 
 export interface VisibilityCompareCompetitorInput {
@@ -45,6 +52,8 @@ export interface VisibilityComparePeriodInput {
   until: string
   runCount: number
   snapshots: VisibilityCompareSnapshotInput[]
+  /** Advanced class populations reuse an answer once per class, with scoped Target attribution. */
+  classSnapshots?: VisibilityCompareSnapshotInput[]
 }
 
 export interface ComputeVisibilityCompareInput {
@@ -61,6 +70,7 @@ export interface ComputeVisibilityCompareInput {
    * Empty means no split was possible and the figure stays pooled.
    */
   brandNames?: readonly string[]
+  frozenClassification?: boolean
 }
 
 interface Attributed extends VisibilityCompareSnapshotInput {
@@ -70,10 +80,11 @@ interface Attributed extends VisibilityCompareSnapshotInput {
 interface BasketPair {
   queryId: string
   provider: string
+  cohortKey?: string
 }
 
-function basketPairKey(queryId: string, provider: string): string {
-  return JSON.stringify([queryId, provider])
+function basketPairKey(queryId: string, provider: string, cohortKey?: string): string {
+  return JSON.stringify([queryId, provider, cohortKey ?? null])
 }
 
 /** Attribute snapshots to currently-tracked queries (drop the rest), restricted to the common query/provider-pair basket. */
@@ -86,7 +97,7 @@ function restrict(
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved) continue
-    if (!pairs.has(basketPairKey(resolved.id, snap.provider))) continue
+    if (!pairs.has(basketPairKey(resolved.id, snap.provider, snap.cohortKey))) continue
     out.push({ ...snap, queryId: resolved.id })
   }
   return out
@@ -118,8 +129,8 @@ function observedPairs(
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved || !queryIds.has(resolved.id)) continue
-    const pair = { queryId: resolved.id, provider: snap.provider }
-    pairs.set(basketPairKey(pair.queryId, pair.provider), pair)
+    const pair = { queryId: resolved.id, provider: snap.provider, cohortKey: snap.cohortKey }
+    pairs.set(basketPairKey(pair.queryId, pair.provider, pair.cohortKey), pair)
   }
   return pairs
 }
@@ -197,7 +208,7 @@ interface PeriodCounts {
   perProvider: Map<string, { checked: number; mentioned: number; cited: number }>
   /** Raw provider evidence; classification stays shared with analytics trends. */
   modelEvidence: Map<string, Array<string | null>>
-  mentionShare: ReturnType<typeof buildMentionShare>
+  mentionShare: { breakdown: { projectMentionSnapshots: number; competitorMentionSnapshots: number; perCompetitor: Array<{ domain: string; mentionSnapshots: number }> } }
   competitors: VisibilityStatsShareCompetitor[]
 }
 
@@ -244,7 +255,8 @@ function countPeriod(
 
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
     // competitor counting: a snapshot citing two competitors adds two).
-    if (competitorHosts.length > 0 && snap.citedDomains.length > 0) {
+    if (snap.competitorCitations !== undefined) competitorCited += snap.competitorCitations.length
+    else if (competitorHosts.length > 0 && snap.citedDomains.length > 0) {
       const citedHosts = snap.citedDomains
         .map((d) => hostOf(d))
         .filter((h): h is string => h !== null && h.length > 0)
@@ -254,7 +266,7 @@ function countPeriod(
     }
   }
 
-  const mentionShare = buildMentionShare(
+  let mentionShare: PeriodCounts['mentionShare'] = buildMentionShare(
     snaps.map((s) => ({
       // Share uses current identity; named-rate counts above deliberately keep
       // their historical persisted-boolean semantics.
@@ -266,6 +278,19 @@ function countPeriod(
     })),
     { competitors, classificationAvailable },
   )
+
+  if (snaps.some(snapshot => snapshot.competitorMentions !== undefined)) {
+    const selected = snaps.filter(snapshot => queryClassOf(snapshot) === 'non-brand' && snapshot.answerMentioned !== null)
+    const perCompetitor = competitors.map(competitor => ({
+      domain: competitor.domain,
+      mentionSnapshots: selected.filter(snapshot => snapshot.competitorMentions?.includes(competitor.domain)).length,
+    }))
+    mentionShare = { ...mentionShare, breakdown: { ...mentionShare.breakdown,
+      projectMentionSnapshots: selected.filter(snapshot => snapshot.answerMentioned === true).length,
+      competitorMentionSnapshots: perCompetitor.reduce((total, competitor) => total + competitor.mentionSnapshots, 0),
+      perCompetitor,
+    } }
+  }
 
   return {
     checked,
@@ -288,11 +313,6 @@ function modelIds(evidence: ReturnType<typeof classifyModelEvidence>): string[] 
   return []
 }
 
-/** Unknown or partially legacy evidence cannot support a continuity verdict. */
-function isUnknownModelEvidence(evidence: ReturnType<typeof classifyModelEvidence>): boolean {
-  return evidence.status === 'unknown' || (evidence.status === 'mixed' && evidence.includesUnknown)
-}
-
 /**
  * Month-over-month AEO comparison — pure, deterministic, no I/O (mirrors the
  * `gbp-summary.ts` precedent). See `visibility-stats.ts` DTO comments for the
@@ -307,10 +327,10 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   // snapshots would let a rename move a query between classes mid-comparison,
   // which is exactly the kind of basket churn this function exists to exclude.
   const classifier = compileQueryClassifier(input.brandNames ?? [])
-  const classificationAvailable = classifier !== null
+  const classificationAvailable = input.frozenClassification === true || classifier !== null
   const queryTextById = new Map(input.queries.map((q) => [q.id, q.query]))
   const queryClassOf = (snap: Attributed): QueryClass | null =>
-    classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
+    input.frozenClassification ? snap.queryClass ?? null : classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
 
   const fromObs = observed(input.from.snapshots, attribution)
   const toObs = observed(input.to.snapshots, attribution)
@@ -331,17 +351,10 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const continuityProviders = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromEvidence = classifyModelEvidence(fromCandidateCounts.modelEvidence.get(provider) ?? [])
-      const toEvidence = classifyModelEvidence(toCandidateCounts.modelEvidence.get(provider) ?? [])
-      const fromModels = modelIds(fromEvidence)
-      const toModels = modelIds(toEvidence)
-      const status: VisibilityCompareProviderContinuityStatus =
-        isUnknownModelEvidence(fromEvidence) || isUnknownModelEvidence(toEvidence)
-          ? 'model-unknown'
-          : fromEvidence.status === 'known' && toEvidence.status === 'known' && fromEvidence.model === toEvidence.model
-            ? 'included'
-            : 'model-discontinuous'
-      return { provider, status, fromModels, toModels }
+      return { provider, ...compareModelContinuity(
+        fromCandidateCounts.modelEvidence.get(provider) ?? [],
+        toCandidateCounts.modelEvidence.get(provider) ?? [],
+      ) }
     })
   const providersBoth = new Set(
     continuityProviders.filter((provider) => provider.status === 'included').map((provider) => provider.provider),
@@ -370,12 +383,17 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromCounts = countPeriod(fromSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
   const toCounts = countPeriod(toSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
 
+  const fromClassSnaps = input.from.classSnapshots === undefined ? fromSnaps : restrict(input.from.classSnapshots, attribution, comparedPairs)
+  const toClassSnaps = input.to.classSnapshots === undefined ? toSnaps : restrict(input.to.classSnapshots, attribution, comparedPairs)
+  const fromShareCounts = input.frozenClassification ? countPeriod(fromClassSnaps, input.competitors, queryClassOf, true, []) : fromCounts
+  const toShareCounts = input.frozenClassification ? countPeriod(toClassSnaps, input.competitors, queryClassOf, true, []) : toCounts
+
   const shareCounts = (c: PeriodCounts): { proj: number; comp: number } => ({
     proj: c.mentionShare.breakdown.projectMentionSnapshots,
     comp: c.mentionShare.breakdown.competitorMentionSnapshots,
   })
-  const fromShare = shareCounts(fromCounts)
-  const toShare = shareCounts(toCounts)
+  const fromShare = shareCounts(fromShareCounts)
+  const toShare = shareCounts(toShareCounts)
 
   const metrics: VisibilityCompareMetric[] = [
     metric(
@@ -428,6 +446,31 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       continuityBlock,
     ),
   ]
+
+  const classPeriod = (snapshots: Attributed[], queryClass: QueryClass, signal: 'mention' | 'cited'): VisibilityCompareMetricPeriod => {
+    if (!classificationAvailable) return { ...period(0, 0), availability: 'classification-unavailable' }
+    const selected = snapshots.filter(snapshot => queryClassOf(snapshot) === queryClass)
+    const checked = selected.filter(snapshot => signal === 'mention'
+      ? typeof snapshot.answerMentioned === 'boolean'
+      : snapshot.citationChecked !== false)
+    const numerator = checked.filter(snapshot => signal === 'mention'
+      ? snapshot.answerMentioned === true
+      : snapshot.citationState === CitationStates.cited).length
+    return { ...period(numerator, checked.length), excludedUnknown: selected.length - checked.length }
+  }
+  for (const queryClass of ['branded', 'non-brand'] as const) {
+    for (const signal of ['mention', 'cited'] as const) {
+      metrics.push(metric(
+        `${signal}-rate-${queryClass}`,
+        signal === 'mention' ? 'Mention rate' : 'Cited rate',
+        queryClass,
+        false,
+        classPeriod(fromClassSnaps, queryClass, signal),
+        classPeriod(toClassSnaps, queryClass, signal),
+        continuityBlock,
+      ))
+    }
+  }
 
   // Model changes are reported over the pre-continuity pair basket so a
   // discontinuous provider remains visible even though it is excluded from the
@@ -489,6 +532,6 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       comparedProviders: [...providersBoth].sort((a, b) => a.localeCompare(b)),
       providers: continuityProviders,
     },
-    competitors: { from: fromCounts.competitors, to: toCounts.competitors },
+    competitors: { from: fromShareCounts.competitors, to: toShareCounts.competitors },
   }
 }

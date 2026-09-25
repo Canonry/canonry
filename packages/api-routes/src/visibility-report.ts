@@ -939,3 +939,28 @@ export async function visibilityReportRoutes(app: FastifyInstance) {
     async request => readVisibilityReport(app.db, resolveProject(app.db, request.params.name), request.query),
   )
 }
+
+/** Reconstruct complete monthly Advanced history without the report trend's 100-run presentation limit. */
+export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: string, since: string, until: string) {
+  const sourceRuns = db.select().from(runs).where(and(
+    eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]), notProbeRun(),
+    isNotNull(runs.measurementPlanVersionId), isNull(runs.measurementScope),
+    gte(runs.createdAt, since), lte(runs.createdAt, until),
+  )).all()
+  const versionRows = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.projectId, projectId)).all()
+  const rowsById = new Map(versionRows.map(version => [version.id, version]))
+  const versions = parseV2Versions(versionRows)
+  const byRun = loadVisibilitySnapshots(db, sourceRuns.map(run => run.id))
+  let unavailable = false
+  const selected: VisibilityReportRunInput[] = sourceRuns.flatMap(run => {
+    const source = versions.get(run.measurementPlanVersionId!)
+    if (!source) { unavailable = true; return [] }
+    const snapshots = byRun.get(run.id) ?? []
+    const models = new Map(snapshots.map(snapshot => [snapshot.id, snapshot.model]))
+    const materialized = advancedRun(run, source.row, source.plan, snapshots, comparableVersionIds(rowsById, source.row.id))
+    // The established monthly gate compares requested model IDs, not served IDs.
+    return [{ ...materialized, observations: materialized.observations.map(observation => ({ ...observation, model: models.get(observation.answerId) ?? null })) }]
+  })
+  return { runs: selected, unavailable }
+}

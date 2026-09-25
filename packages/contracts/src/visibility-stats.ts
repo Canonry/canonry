@@ -194,7 +194,7 @@ export type VisibilityCompareDirection = z.infer<typeof visibilityCompareDirecti
 /** One period's value for one metric: a proportion `[0,1]` with its Wilson interval and the raw counts it came from. */
 export const visibilityCompareMetricPeriodSchema = z.object({
   /** Why this period can or cannot produce a proportion. Raw numerator counts remain visible when the frame is missing. */
-  availability: z.enum(['available', 'no-observations', 'no-competitive-frame']),
+  availability: z.enum(['available', 'no-observations', 'no-competitive-frame', 'classification-unavailable']),
   /** The proportion in `[0,1]`, rounded to 4 dp; `null` when `denominator === 0` (undefined over no data). */
   point: z.number().nullable(),
   /** Wilson 95% lower bound `[0,1]`; `null` when `denominator === 0`. */
@@ -205,6 +205,8 @@ export const visibilityCompareMetricPeriodSchema = z.object({
   numerator: z.number().int(),
   /** Sample size the proportion is over (checked snapshots / total / project+competitor brand mentions). */
   denominator: z.number().int(),
+  /** Class-rate observations missing the independent signal, excluded from its denominator. */
+  excludedUnknown: z.number().int().nonnegative().optional(),
 })
 export type VisibilityCompareMetricPeriod = z.infer<typeof visibilityCompareMetricPeriodSchema>
 
@@ -213,6 +215,10 @@ export const visibilityCompareMetricKeySchema = z.enum([
   'cited-share-of-voice',
   'mention-rate',
   'cited-rate',
+  'mention-rate-branded',
+  'cited-rate-branded',
+  'mention-rate-non-brand',
+  'cited-rate-non-brand',
 ])
 export type VisibilityCompareMetricKey = z.infer<typeof visibilityCompareMetricKeySchema>
 
@@ -225,7 +231,7 @@ export const visibilityCompareMetricSchema = z.object({
    * Query class behind this metric. `all` is an intentional all-query rate;
    * `pooled` means no usable project identity existed for the requested split.
    */
-  queryClass: z.enum(['all', 'non-brand', 'pooled']),
+  queryClass: z.enum(['all', 'branded', 'non-brand', 'pooled']),
   /**
    * `true` for share of voice, which is less exposed to broad model-wide naming
    * propensity than an absolute rate. It does not bypass model continuity: no
@@ -352,8 +358,29 @@ export const visibilityCompareQueriesMentionedSchema = z.object({
 })
 export type VisibilityCompareQueriesMentioned = z.infer<typeof visibilityCompareQueriesMentionedSchema>
 
+/** All class metrics remain independent; these selectors narrow the common measurement population. */
+export const visibilityCompareSelectionSchema = z.object({
+  scope: z.enum(['project', 'group', 'market', 'property']).optional(),
+  scopeKey: z.string().min(1).optional(),
+  marketKey: z.string().min(1).optional(),
+  provider: z.string().min(1).optional(),
+  location: z.string().min(1).optional(),
+})
+export type VisibilityCompareSelection = z.infer<typeof visibilityCompareSelectionSchema>
+
+export const visibilityCompareClassComparisonSchema = z.object({
+  from: visibilityComparePeriodWindowSchema,
+  to: visibilityComparePeriodWindowSchema,
+  basket: visibilityCompareBasketSchema,
+  continuity: visibilityCompareContinuitySchema,
+  modelChanges: z.array(visibilityCompareModelChangeSchema),
+})
+
 export const visibilityCompareDtoSchema = z.object({
   project: z.string(),
+  selection: visibilityCompareSelectionSchema.optional(),
+  /** Frozen Advanced cohort used by the additive class metrics; legacy project metrics retain their original frame. */
+  classComparison: visibilityCompareClassComparisonSchema.optional(),
   from: visibilityComparePeriodWindowSchema,
   to: visibilityComparePeriodWindowSchema,
   basket: visibilityCompareBasketSchema,

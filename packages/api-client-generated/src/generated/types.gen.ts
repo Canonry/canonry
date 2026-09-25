@@ -12120,6 +12120,51 @@ export type LoginRequest = {
 
 export type VisibilityCompareDto = {
     project: string;
+    selection?: {
+        scope?: 'project' | 'group' | 'market' | 'property';
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        location?: string;
+    };
+    classComparison?: {
+        from: {
+            month: string;
+            since: string;
+            until: string;
+            runCount: number;
+            lowRunCount: boolean;
+        };
+        to: {
+            month: string;
+            since: string;
+            until: string;
+            runCount: number;
+            lowRunCount: boolean;
+        };
+        basket: {
+            queryCount: number;
+            excludedFromOnly: number;
+            excludedToOnly: number;
+            providers: Array<string>;
+            excludedProviders: Array<string>;
+        };
+        continuity: {
+            status: 'comparable' | 'model-discontinuous' | 'model-unknown' | 'insufficient-data';
+            comparedProviders: Array<string>;
+            providers: Array<{
+                provider: string;
+                status: 'included' | 'model-discontinuous' | 'model-unknown';
+                fromModels: Array<string>;
+                toModels: Array<string>;
+            }>;
+        };
+        modelChanges: Array<{
+            provider: string;
+            fromModels: Array<string>;
+            toModels: Array<string>;
+        }>;
+    };
     from: {
         month: string;
         since: string;
@@ -12142,25 +12187,27 @@ export type VisibilityCompareDto = {
         excludedProviders: Array<string>;
     };
     metrics: Array<{
-        key: 'mention-share-of-voice' | 'cited-share-of-voice' | 'mention-rate' | 'cited-rate';
+        key: 'mention-share-of-voice' | 'cited-share-of-voice' | 'mention-rate' | 'cited-rate' | 'mention-rate-branded' | 'cited-rate-branded' | 'mention-rate-non-brand' | 'cited-rate-non-brand';
         label: string;
-        queryClass: 'all' | 'non-brand' | 'pooled';
+        queryClass: 'all' | 'branded' | 'non-brand' | 'pooled';
         driftRobust: boolean;
         from: {
-            availability: 'available' | 'no-observations' | 'no-competitive-frame';
+            availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
             point: number | null;
             ciLow: number | null;
             ciHigh: number | null;
             numerator: number;
             denominator: number;
+            excludedUnknown?: number;
         };
         to: {
-            availability: 'available' | 'no-observations' | 'no-competitive-frame';
+            availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
             point: number | null;
             ciLow: number | null;
             ciHigh: number | null;
             numerator: number;
             denominator: number;
+            excludedUnknown?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
@@ -17586,6 +17633,26 @@ export type GetApiV1ProjectsByNameVisibilityCompareData = {
          * Later calendar month (YYYY-MM) — the reporting period compared against "from".
          */
         to: string;
+        /**
+         * Advanced frozen population scope; default project.
+         */
+        scope?: 'project' | 'group' | 'market' | 'property';
+        /**
+         * Stable Property Target, group, or market key; required for non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Intersect project/group/property selection with exact frozen market edges.
+         */
+        marketKey?: string;
+        /**
+         * Restrict the compared population to one provider.
+         */
+        provider?: string;
+        /**
+         * Execution location label, or none for no location.
+         */
+        location?: string;
     };
     url: '/api/v1/projects/{name}/visibility-compare';
 };

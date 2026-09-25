@@ -373,6 +373,8 @@ One row per (project, kind), where kind ∈ {answer-visibility, traffic-sync, gb
   - It attaches Wilson intervals (`wilsonInterval` from contracts) and a CI-overlap `verdict` (`within-noise`/`moved`/`insufficient-data`).
   - It diffs the configured `model` id per provider into `modelChanges` (a config change is visible; a silent upstream version bump is not).
   - It reuses the exported `buildQueryAttribution`/`resolveCurrentQuery` from `visibility-stats.ts`.
+  - `readVisibilityCompare(db, project, query)` is the shared monthly reader for REST and readiness. The four legacy unfiltered project metrics and their frame remain unchanged. Additive class rates use tri-state signal denominators and explicit `classification-unavailable` periods.
+  - Advanced class rates use frozen report definitions, exact Property/group/market edges, execution location, provider, and assignment classes. Deduplicate shared answers per class. Match only comparable definition chains; material revisions cannot share a cohort. `classComparison` carries this cohort separately on unfiltered requests; scoped requests use the top-level frame. Schema-v1 history preserves legacy output and makes class metrics unavailable.
 - `src/visibility-attribution.ts`: `buildQueryAttribution` + `resolveCurrentQuery` — historical query attribution by stable `queryId` then snapshot `queryText` fallback.
 
 ### Report bundle

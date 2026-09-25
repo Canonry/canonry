@@ -408,3 +408,39 @@ describe('computeVisibilityCompare — low run count', () => {
     expect(dto.to.lowRunCount).toBe(true) // June: 2 sweeps
   })
 })
+
+describe('computeVisibilityCompare — independent query classes', () => {
+  const queries = [{ id: 'brand', query: 'Demo pricing' }, { id: 'category', query: 'best services' }]
+  it('adds exact class rates without changing pooled metrics and excludes unknown mentions only from mention denominators', () => {
+    const from = [
+      snap({ queryId: 'brand', provider: 'openai', answerMentioned: true, citationState: 'cited' }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: null }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: false }),
+    ]
+    const to = [
+      snap({ queryId: 'brand', provider: 'openai', answerMentioned: true }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: true, citationState: 'cited' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to, { queries, brandNames: ['Demo'] }))
+    expect(metricOf(dto, 'mention-rate')).toMatchObject({ from: { numerator: 1, denominator: 2, point: 0.5 }, to: { numerator: 2, denominator: 2, point: 1 } })
+    expect(metricOf(dto, 'mention-rate-branded')).toMatchObject({ queryClass: 'branded', from: { numerator: 1, denominator: 1, point: 1 }, to: { numerator: 1, denominator: 1, point: 1 }, verdict: 'within-noise' })
+    expect(metricOf(dto, 'mention-rate-non-brand')).toMatchObject({ queryClass: 'non-brand', from: { numerator: 0, denominator: 1, point: 0 }, to: { numerator: 1, denominator: 1, point: 1 } })
+    expect(metricOf(dto, 'cited-rate-branded')).toMatchObject({ from: { numerator: 1, denominator: 1 }, to: { numerator: 0, denominator: 1 } })
+    expect(metricOf(dto, 'cited-rate-non-brand')).toMatchObject({ from: { numerator: 0, denominator: 2 }, to: { numerator: 1, denominator: 1 } })
+  })
+  it('returns classification-unavailable instead of pooling when aliases are absent', () => {
+    const snapshots = [snap({ queryId: 'category', provider: 'openai', answerMentioned: true })]
+    const dto = computeVisibilityCompare(build(snapshots, snapshots, { queries }))
+    for (const key of ['mention-rate-branded', 'cited-rate-branded', 'mention-rate-non-brand', 'cited-rate-non-brand']) {
+      expect(metricOf(dto, key)).toMatchObject({ from: { availability: 'classification-unavailable', point: null, ciLow: null, ciHigh: null, numerator: 0, denominator: 0 }, to: { availability: 'classification-unavailable' }, verdict: 'insufficient-data' })
+    }
+  })
+  it('keeps the common basket and model gate for every class', () => {
+    const from = [snap({ queryId: 'brand', provider: 'openai' }), snap({ queryId: 'category', provider: 'claude', model: 'old' })]
+    const to = [snap({ queryId: 'brand', provider: 'openai', answerMentioned: true }), snap({ queryId: 'category', provider: 'claude', model: 'new', answerMentioned: true })]
+    const dto = computeVisibilityCompare(build(from, to, { queries, brandNames: ['Demo'] }))
+    expect(metricOf(dto, 'mention-rate-branded').from.denominator).toBe(1)
+    expect(metricOf(dto, 'mention-rate-non-brand')).toMatchObject({ from: { denominator: 0, point: null }, to: { denominator: 0, point: null } })
+    expect(dto.continuity.comparedProviders).toEqual(['openai'])
+  })
+})
