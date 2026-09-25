@@ -275,7 +275,7 @@ Constraints:
   `operator`; MCP discovery fails closed when it is missing/false. Ordinary audit
   history excludes internal telemetry state. Do not add an API that self-grants this
   host authority.
-- `src/operational-logs.ts`: `GET /operations/logs` is the host-provided bounded runtime log reader, guarded by instance-wide `logs.read` and user admin role. Project-scoped keys are refused. A strict shared DTO prevents accidental payload widening; unwired hosts return 501.
+- `src/operational-logs.ts`: `GET /operations/logs` is the host-provided bounded runtime log reader, guarded by instance-wide `logs.read` and user admin role. Project-scoped keys are refused. A strict shared DTO prevents accidental payload widening; unwired hosts return 501. Opt-in context fields (`provider`) are stripped from every entry unless the request names them in `x-canonry-log-fields` (comma list, unknown names ignored): an older stdio adapter validates the page with its strict schema and would reject the whole page on an unrecognized key. A new context field added to the strict DTO must join that opt-in list. The response sends `Vary: x-canonry-log-fields`, since the page depends on that header.
 
 #### Auth plugin gates (`src/auth.ts`)
 

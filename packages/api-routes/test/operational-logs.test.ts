@@ -88,6 +88,28 @@ describe('GET /operations/logs', () => {
     }])
     expect(response.json()).toMatchObject({ retention: 'process', truncated: 4, dropped: 9 })
   })
+
+  test('returns the provider only to a caller that asks for it, so an older strict reader keeps its page', async () => {
+    const context = { runId: 'run_1', provider: 'claude', errorCode: 'OVERLOADED' }
+    const app = await build(() => ({
+      ...emptyResult(),
+      entries: [1, 2].map(n => ({ cursor: `buffer.${n}`, ts: '2026-09-11T00:00:02.000Z', level: 'error' as const, module: 'JobRunner', action: 'query.failed', runId: 'run_1', context })),
+    }))
+    apps.push(app)
+    const contexts = async (fields?: string) => {
+      const response = await app.inject({ method: 'GET', url: '/operations/logs', headers: { ...wildcard, ...(fields === undefined ? {} : { 'x-canonry-log-fields': fields }) } })
+      expect(response.statusCode).toBe(200)
+      // A cache keyed without the header would hand the provider to an older reader.
+      expect(response.headers.vary).toBe('x-canonry-log-fields')
+      return (response.json() as { entries: Array<{ context: Record<string, unknown> }> }).entries.map(entry => entry.context)
+    }
+    const withoutProvider = { runId: 'run_1', errorCode: 'OVERLOADED' }
+    expect(await contexts()).toEqual([withoutProvider, withoutProvider])
+    expect(await contexts('provider')).toEqual([context, context])
+    // A comma list lets later fields reuse the header; unknown names are ignored.
+    expect(await contexts(' region , provider ')).toEqual([context, context])
+    expect(await contexts('region')).toEqual([withoutProvider, withoutProvider])
+  })
 })
 
 function emptyResult() {
