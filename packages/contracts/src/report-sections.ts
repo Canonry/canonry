@@ -23,7 +23,7 @@
  */
 import { z } from 'zod'
 import { actionConfidenceLabel, contentActionLabel, type ContentTargetRowDto } from './content.js'
-import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, formatPointDelta, formatSignedPointDelta, type DeltaTone } from './formatting.js'
+import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, formatPointDelta, formatSignedPercent, formatSignedPointDelta, type DeltaTone } from './formatting.js'
 import { RatioUnits } from './ratio-unit.js'
 import { dedupeReportActions, dedupeReportOpportunities } from './report-dedup.js'
 import {
@@ -989,12 +989,13 @@ export function reportServerActivityCrawledPathsNote(windowDays: number): string
 }
 
 /**
- * An operator's prior-window change, signed as the API sent it: `+75%`,
- * `-30%`, `0%`. With no prior window to compare against it is a dash.
+ * An operator's prior-window change, signed, from the API's percent-unit
+ * `deltaPct`: `+75.0%`, `-33.3%`, `0%`. With no prior window to compare
+ * against it is a dash.
  */
 export function reportServerActivityOperatorDelta(deltaPct: number | null): string {
   if (deltaPct === null) return SERVER_TRENDS_COPY['server-activity'].agency.noDelta
-  return `${deltaPct > 0 ? '+' : ''}${deltaPct}%`
+  return formatSignedPercent(deltaPct, RatioUnits.percent)
 }
 
 /**
