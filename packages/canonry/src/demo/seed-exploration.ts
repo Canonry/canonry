@@ -1,10 +1,11 @@
 import { and, eq } from 'drizzle-orm'
-import { factorStatusFromScore, siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
+import { siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly,
   discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots, siteCrawlPages,
   trafficSources, type DatabaseClient,
 } from '@ainyc/canonry-db'
+import { computeFactorAverages } from '../site-audit-factors.js'
 import type { DemoSeedContext } from './types.js'
 
 /** Browsable stored examples, with no ingestion or research execution. */
@@ -45,18 +46,8 @@ function seedPageAudits(db: DatabaseClient, projectId: string, runId: string, ro
     const factors = siteAuditPageFactorSchema.array().parse(page.auditFields.factors)
     return { id: `${projectId}-audit-page-${index}`, projectId, runId, url: page.url, overallScore: page.auditScore!, status: 'success', factors, createdAt }
   })
-  const factors = pages.flatMap(page => page.factors)
-  const factorAverages = [...new Set(factors.map(factor => factor.id))].map(id => {
-    const matching = factors.filter(factor => factor.id === id)
-    const first = matching[0]!
-    const avgScore = Math.round(matching.reduce((sum, factor) => sum + factor.score, 0) / matching.length)
-    return {
-      id, name: first.name, weight: first.weight, avgScore, status: factorStatusFromScore(avgScore),
-      pagesPassing: matching.filter(factor => factorStatusFromScore(factor.score) === 'pass').length,
-      pagesPartial: matching.filter(factor => factorStatusFromScore(factor.score) === 'partial').length,
-      pagesFailing: matching.filter(factor => factorStatusFromScore(factor.score) === 'fail').length,
-    }
-  })
+  // The same rollup a real scan publishes, so the example scorecard's shares and bands are computed, not copied.
+  const factorAverages = computeFactorAverages(pages.map(page => ({ audit: { factors: page.factors } })))
   const crossCuttingIssues = factorAverages.filter(factor => factor.pagesPartial + factor.pagesFailing > 0).map(factor => ({
     factorId: factor.id, factorName: factor.name, avgScore: factor.avgScore,
     affectedPages: factor.pagesPartial + factor.pagesFailing, totalPages: pages.length,

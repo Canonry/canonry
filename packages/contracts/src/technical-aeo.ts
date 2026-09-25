@@ -51,7 +51,23 @@ export const SiteAuditTrendDirections = siteAuditTrendDirectionSchema.enum
 export const siteAuditFactorSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  /**
+   * The engine's RELATIVE weight. Weights do not add up to 100 (the sixteen
+   * core factors sum to 111), so this is never a percentage: `sharePct` is.
+   */
   weight: z.number(),
+  /**
+   * This factor's share of the site score, 0–100 to one decimal: the mean of
+   * its per-page `sharePct` over the successfully audited pages, counting 0 on
+   * a page where it did not apply. The site score is the mean of those pages'
+   * scores, so this is how many of its 100 points the factor controls. Rounded
+   * by largest remainder (`roundPreservingTotal`), so the rollup's shares add
+   * up to exactly 100.
+   *
+   * `null` when the scan did not record every page's shares, which is every
+   * scan stored before this field existed. Never derived from `weight`.
+   */
+  sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
   avgScore: z.number(),
   /** Canonry's own pass/partial/fail banding of `avgScore` (aeo-audit v3 is gradeless). */
   status: siteAuditFactorStatusSchema,
@@ -115,8 +131,23 @@ export type SiteAuditScoreDto = z.infer<typeof siteAuditScoreSchema>
 export const siteAuditPageFactorSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /**
+   * The engine's RELATIVE weight. Weights do not add up to 100 (the sixteen
+   * core factors sum to 111), so this is never a percentage: `sharePct` is.
+   */
   weight: z.number(),
   score: z.number(),
+  /**
+   * This factor's share of the page score, 0–100 to one decimal, exactly as
+   * `@canonry/aeo-audit` recorded it. The page score divides by the weight of
+   * the factors that applied, and the engine splits 100 across them by largest
+   * remainder, so one page's shares add up to exactly 100; a factor that did
+   * not apply to the page reports 0.
+   *
+   * `null` when the scan did not record it, which is every row stored before
+   * this field existed. Never derived from `weight`.
+   */
+  sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
 })
 export type SiteAuditPageFactorDto = z.infer<typeof siteAuditPageFactorSchema>
 

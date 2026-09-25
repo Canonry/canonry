@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { scoreFactors } from '@canonry/aeo-audit/scoring'
 import { and, eq } from 'drizzle-orm'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { createClient, migrate, projects, runs, siteCrawlGraphLayouts, siteCrawlGraphNodes, type DatabaseClient } from '@ainyc/canonry-db'
@@ -140,6 +141,28 @@ describe('demo site crawl inventories', () => {
       const factors = page.auditFields!.factors as { id: string; score: number; weight: number }[]
       expect(factors.map(factor => factor.id)).toEqual(DEMO_AUDIT_FACTORS.map(factor => factor.id))
       expect(page.auditScore).toBe(Math.round(factors.reduce((sum, factor) => sum + factor.score * factor.weight, 0) / totalWeight))
+    }
+  })
+})
+
+describe('demo site audit factor shares', () => {
+  it.each(SITES)('$name records the share of the page score the installed engine gives each factor', site => {
+    // Every example factor applies on every example page, so the engine splits
+    // each page's 100 points over all nineteen weights (which sum to 132).
+    const engine = scoreFactors(DEMO_AUDIT_FACTORS.map(factor => ({
+      id: factor.id, name: factor.name, weight: factor.weight, score: 80, applicable: true, findings: [], recommendations: [],
+    })))
+    const engineShares = Object.fromEntries(engine.factors.map(factor => [factor.id, factor.sharePct]))
+    expect(engineShares['structured-data']).toBe(9.1)
+    expect(engineShares['ai-crawler-access']).toBe(3)
+
+    const crawl = buildDemoSiteCrawl(site.input())
+    const audited = crawl.pages.filter(candidate => candidate.auditState === 'success')
+    expect(audited.length).toBeGreaterThan(0)
+    for (const page of audited) {
+      const factors = page.auditFields!.factors as { id: string; weight: number; sharePct: number | null }[]
+      expect(Object.fromEntries(factors.map(factor => [factor.id, factor.sharePct]))).toEqual(engineShares)
+      expect(Number(factors.reduce((sum, factor) => sum + (factor.sharePct ?? 0), 0).toFixed(6))).toBe(100)
     }
   })
 })

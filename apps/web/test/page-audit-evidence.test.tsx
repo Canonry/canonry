@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
-import { PageAuditEvidence } from '../src/components/project/PageAuditEvidence.js'
+import { PageAuditEvidence, factorShareOfScoreLabel } from '../src/components/project/PageAuditEvidence.js'
 
 afterEach(cleanup)
 
@@ -256,4 +256,45 @@ test('renders repeated finding codes as distinct occurrences without duplicate R
   expect(screen.getByText('ClaudeBot is blocked.')).not.toBeNull()
   expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key')
   consoleError.mockRestore()
+})
+
+test('says what share of the page score a check is worth, never its weight as a percent', () => {
+  // Engine shares on a page with no FAQ: content depth has weight 10 but is
+  // worth 9.7% of this page's score, and a check that did not record a share
+  // shows no share at all.
+  render(
+    <PageAuditEvidence
+      audit={{
+        state: 'ready', project: 'citypoint', runId: 'run_1', complete: true, termination: null,
+        nodeKey: 'page_services', url: 'https://citypoint.example/services',
+        auditState: 'complete', auditScore: 42, evidenceState: 'complete', criticalDefects: [],
+        factors: [
+          {
+            id: 'content-depth', name: 'Content depth', weight: 10, score: 20, sharePct: 9.7,
+            status: 'fail', applicable: true, findings: [], recommendations: ['Answer the key questions.'],
+          },
+          {
+            id: 'ai-crawler-access', name: 'AI crawler access', weight: 4, score: 55, sharePct: null,
+            status: 'partial', applicable: true, findings: [], recommendations: ['Allow GPTBot.'],
+          },
+        ],
+      }}
+      isLoading={false}
+      error={null}
+      onRetry={vi.fn()}
+    />,
+  )
+
+  const recorded = screen.getByText('Content depth').closest('details')!
+  fireEvent.click(within(recorded).getByText('Content depth'))
+  expect(within(recorded).getByText('Worth 9.7% of the page score')).not.toBeNull()
+  expect(factorShareOfScoreLabel(9.7, 'page')).toBe('Worth 9.7% of the page score')
+
+  const notRecorded = screen.getByText('AI crawler access').closest('details')!
+  fireEvent.click(within(notRecorded).getByText('AI crawler access'))
+  expect(within(notRecorded).getByText('Allow GPTBot.')).not.toBeNull()
+  expect(within(notRecorded).queryByText(/of the page score/)).toBeNull()
+
+  // Neither weight (10, 4) is printed as a percent anywhere.
+  expect(document.body.textContent).not.toMatch(/(?<![\d.])(?:10|4)%/)
 })
