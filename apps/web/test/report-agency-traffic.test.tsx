@@ -259,8 +259,8 @@ describe('GA4 Traffic', () => {
   test('channel mix draws each channel at its share of sessions', () => {
     renderAgency(fullReport())
     expect(readShareBars(getReportSection(ReportSectionIds.ga), 'Channel mix')).toEqual([
-      { label: 'Organic Search', value: '8.0K sessions · 67.0%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
-      { label: 'Direct', value: '4.0K sessions · 33.0%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'Organic Search', value: '8.0K sessions · 66.7%', width: '66.67%', color: REPORT_CHART_COLORS.series[0] },
+      { label: 'Direct', value: '4.0K sessions · 33.3%', width: '33.33%', color: REPORT_CHART_COLORS.series[1] },
     ])
   })
 })
@@ -276,8 +276,8 @@ describe('Social Referrals', () => {
       ['Paid social', '500'],
     ])
     expect(readShareBars(section, 'Social channel mix')).toEqual([
-      { label: 'Organic Social', value: '1.0K sessions · 67.0%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
-      { label: 'Paid Social', value: '500 sessions · 33.0%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'Organic Social', value: '1.0K sessions · 66.7%', width: '66.67%', color: REPORT_CHART_COLORS.series[0] },
+      { label: 'Paid Social', value: '500 sessions · 33.3%', width: '33.33%', color: REPORT_CHART_COLORS.series[1] },
     ])
     expect(bodyRows(tableAfter(section, 'Top campaigns'))).toEqual([['linkedin.com', 'referral', '700']])
   })

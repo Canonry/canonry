@@ -60,7 +60,7 @@ import {
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { ReportPage } from './ReportPage.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
@@ -1123,7 +1123,9 @@ function OverviewMetricRow({
   displayValue?: React.ReactNode
   tooltip?: string
 }) {
-  const numeric = summary.value.trim() !== '' && Number.isFinite(Number(summary.value))
+  // A ratio gauge's value arrives already formatted ("66.7%"); the sign is
+  // set apart, never appended, so a count or a label ("No data") shows as sent.
+  const { figure, sign } = splitPercentSign(summary.value)
   const progress = summary.progress !== undefined
     ? Math.min(Math.max(summary.progress, 0), 100)
     : 0
@@ -1137,8 +1139,8 @@ function OverviewMetricRow({
       <p className={`aeo-hero-row-value ${METRIC_TONE_TEXT_CLASS[summary.tone]}`}>
         {displayValue ?? (
           <>
-            {summary.value}
-            {numeric ? <span className="text-faint">%</span> : null}
+            {figure}
+            {sign ? <span className="text-faint">{sign}</span> : null}
           </>
         )}
       </p>
@@ -3158,7 +3160,7 @@ function ProjectPageContent({
                               {ps.model && <span className="text-[11px] font-mono text-muted">{ps.model}</span>}
                             </div>
                           </td>
-                          <td><span className="font-semibold text-strong">{ps.score}%</span></td>
+                          <td><span className="font-semibold text-strong">{formatPercent(ps.score, RatioUnits.percent)}</span></td>
                           <td className="text-muted">{ps.cited} of {ps.total}</td>
                         </tr>
                       ))}

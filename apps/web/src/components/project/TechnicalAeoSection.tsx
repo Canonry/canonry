@@ -810,7 +810,7 @@ export function TechnicalAeoSection({
                     <span className="text-sm font-medium text-heading">{issue.factorName}</span>
                     <ToneBadge tone={scoreTone(issue.avgScore)}>{statusLabel(issue.avgScore)}</ToneBadge>
                     <span className="text-xs tabular-nums text-muted">
-                      avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({issue.affectedPct}%)
+                      avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({formatPercent(issue.affectedPct, RatioUnits.percent)})
                     </span>
                   </div>
                   {issue.topRecommendations.length > 0 ? (

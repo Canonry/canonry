@@ -244,6 +244,21 @@ test('loads the scorecard and pages for a selected historical audit', async () =
   expect(fetchedUrls.filter((url) => url.includes('runId=audit_old'))).toHaveLength(2)
 })
 
+test('shows a cross-cutting issue share as the API sent it, through formatPercent', () => {
+  const queryClient = makeClient()
+  // 1 of 3 audited pages is 33.33% on the wire.
+  const issue = { ...scoreWithFinding().crossCuttingIssues[0]!, affectedPages: 1, totalPages: 3, affectedPct: 33.33 }
+  queryClient.setQueryData(scoreKey, { ...scoreWithFinding(), crossCuttingIssues: [issue] })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByText('avg 30 · affects 1 of 3 pages (33.3%)')).not.toBeNull()
+})
+
 test('preserves the crawl error as the tooltip on a truncated page URL', () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scoreKey, { ...score('audit_old'), pagesErrored: 1 })

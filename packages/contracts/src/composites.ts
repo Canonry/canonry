@@ -45,10 +45,12 @@ export interface ProjectOverviewTransitionsDto {
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 
 // One score gauge — used for visibility, gap queries, index coverage,
-// competitor pressure, and run status. `value` is presentational (e.g. "67",
-// "No data") so the same string renders in CLI, dashboard gauges, and report
-// HTML. `progress` is the 0–100 numeric used by progress rings; absent for
-// gauges that aren't ratio-based.
+// competitor pressure, and run status. `value` is presentational so the same
+// string renders in CLI, dashboard gauges, and report HTML: a ratio gauge
+// sends its share already formatted with `formatPercent` ("66.7%"), a count
+// gauge sends the count ("3"), and a gauge with nothing to measure sends a
+// label ("No data"). `progress` is the 0–100 numeric used by progress rings,
+// to two decimals; absent for gauges that aren't ratio-based.
 export interface ScoreSummaryDto {
   label: string
   value: string
@@ -90,7 +92,7 @@ export interface ProjectOverviewScoresDto {
 export interface MentionShareCompetitorRowDto {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total — rounded to one decimal. Sums to ~100 across rows. */
+  /** % of competitive total, 0..100 to two decimals. Sums to ~100 across rows. */
   shareOfCompetitiveTotal: number
 }
 
@@ -100,7 +102,7 @@ export interface MentionShareBreakdownDto {
   perCompetitor: MentionShareCompetitorRowDto[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
-  /** `project / (project + competitor)` as 0..100, or null when nothing in this class was named. */
+  /** `project / (project + competitor)` as 0..100 to two decimals, or null when nothing in this class was named. */
   score: number | null
 }
 
@@ -174,10 +176,11 @@ export interface ProjectOverviewCompetitorDto {
 export interface ProjectOverviewProviderScoreDto {
   provider: string
   model: string | null
+  /** `cited / total` snapshots in the latest run as 0..100, to two decimals. */
   score: number
   cited: number
   total: number
-  /** Per-recent-run citation rate (0-100) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
+  /** Per-recent-run citation rate (0-100, two decimals) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
 
@@ -318,7 +321,7 @@ const mentionShareBreakdownSchema = z.object({
   })),
   snapshotsWithAnswerText: z.number().int().nonnegative(),
   snapshotsTotal: z.number().int().nonnegative(),
-  score: percent(z.number().int().min(0).max(100)).nullable(),
+  score: percent(z.number().min(0).max(100)).nullable(),
 })
 
 const mentionShareSchema = scoreSummarySchema.extend({
