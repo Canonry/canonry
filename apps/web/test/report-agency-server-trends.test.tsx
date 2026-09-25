@@ -368,7 +368,7 @@ describe('agency indexing health', () => {
     const section = getReportSection(INDEXING_HEALTH)
     expect(sectionIntro(section)).toBe('Pages absent from Google are harder for AI engines to retrieve.')
     expect(tileLabels(section)).toEqual(['Indexed', 'Total inspected', 'Indexed share'])
-    expect(['Indexed', 'Total inspected', 'Indexed share'].map(label => tile(section, label).value.textContent)).toEqual(['80', '100', '80%'])
+    expect(['Indexed', 'Total inspected', 'Indexed share'].map(label => tile(section, label).value.textContent)).toEqual(['80', '100', '80.0%'])
     expect(tile(section, 'Indexed').value.className).toContain('text-positive-400')
     expect(tile(section, 'Total inspected').value.className).not.toMatch(TONED)
     expect(within(section).getByRole('img', { name: 'Coverage stacked bar' })).toBeTruthy()
@@ -404,10 +404,10 @@ describe('agency citations trend', () => {
     // Check dates are run timestamps: the label is built the way the page builds it, in the viewer's timezone.
     const checks = report.citationsTrend.map(point => formatDate(point.date))
     expect(bodyRows(breakdown!)).toEqual([
-      [checks[0], '50% (2/4)', 'gemini: 50% · openai: 25%'],
-      [checks[1], '55% (2/4)', 'gemini: 55% · openai: 30%'],
-      [checks[2], '60% (3/5)', 'gemini: 60% · openai: 40%'],
-      [checks[3], '65% (3/5)', 'gemini: 65% · openai: 50%'],
+      [checks[0], '50.0% (2/4)', 'gemini: 50.0% · openai: 25.0%'],
+      [checks[1], '55.0% (2/4)', 'gemini: 55.0% · openai: 30.0%'],
+      [checks[2], '60.0% (3/5)', 'gemini: 60.0% · openai: 40.0%'],
+      [checks[3], '65.0% (3/5)', 'gemini: 65.0% · openai: 50.0%'],
     ])
   })
 

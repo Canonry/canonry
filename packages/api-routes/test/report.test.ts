@@ -275,7 +275,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     const diag = body.agencyDiagnostics.diagnostics.find((d) => d.title === 'Indexing health')
     expect(diag).toBeDefined()
     expect(diag!.severity).toBe('negative')
-    expect(diag!.detail).toMatch(/0% of inspected URLs are indexed/)
+    expect(diag!.detail).toBe('0% of inspected URLs are indexed in google.')
     expect(diag!.evidence.join(' ')).toContain('0/12 indexed')
   })
 
@@ -536,7 +536,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'agency')).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'content' && a.title.includes('best industrial coatings'))).toBe(true)
-    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.some(e => e.includes('20% indexed')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.includes('20.0% indexed (2/10)'))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'provider' && a.evidence.some(e => e.includes('openai: 0/2')))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'search-demand' && a.evidence.some(e => e.includes('epoxy floor coatings contractors')))).toBe(true)
     expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
@@ -1665,7 +1665,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.whatsChanged.providerMovements[0]!.provider).toBe('gemini')
     expect(body.whatsChanged.providerMovements[0]!.direction).toBe('up')
     // Headline reports the smoothed numbers, not run-3-vs-run-4.
-    expect(body.whatsChanged.headline).toMatch(/Citation rate rose 0% .* 25%/)
+    expect(body.whatsChanged.headline).toMatch(/^Citation rate rose 0% ↑ 25\.0% \(avg of last 2 checks\)/)
     expect(body.whatsChanged.headline).toMatch(/avg of last 2 checks/)
   })
 
@@ -1760,8 +1760,33 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     const trendFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
     expect(trendFinding).toBeDefined()
+    // An exact 100 keeps no decimal under the shared percent rule.
+    expect(trendFinding!.title).toBe('Citation rate at 100% (1 of 1 query cited)')
     expect(trendFinding!.detail).toMatch(/Building baseline/i)
     expect(trendFinding!.tone).toBe('neutral')
+  })
+
+  test('server-built sentences print the 0..100 rates through the shared percent rule', async () => {
+    const projectId = insertProject(ctx.db, 'rate-copy')
+    const [citedMentioned, citedOnly, neitherA, neitherB] = ['q1', 'q2', 'q3', 'q4'].map(text => insertQuery(ctx.db, projectId, text))
+    const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    insertSnapshot(ctx.db, runId, citedMentioned!, { citationState: 'cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, citedOnly!, { citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, neitherA!, { citationState: 'not-cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, neitherB!, { citationState: 'not-cited', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/rate-copy/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // 2 of 4 cited and 1 of 4 mentioned: the wire rates stay 50 and 25.
+    expect(body.executiveSummary.citationRate).toBe(50)
+    expect(body.executiveSummary.mentionRate).toBe(25)
+    expect(body.executiveSummary.findings.map(f => f.title)).toContain('Citation rate at 50.0% (2 of 4 queries cited)')
+    expect(body.clientSummary.overview).toBe(
+      'rate-copy.example.com is mentioned on 25.0% of tracked queries and cited on 50.0% of tracked queries. '
+      + 'There is not enough comparable run history yet to call a mention trend.',
+    )
   })
 
   test('partial runs power the scorecard but are excluded from the trend line', async () => {

@@ -187,7 +187,7 @@ describe('shared report shell', () => {
 
   test('visibility history rates are emphasized like the summary rates, as in the HTML report', () => {
     renderReportPage({ ...richReport(), visibility: simpleVisibility() })
-    const rates = within(getReportSection(ReportSectionIds['client-summary'])).getAllByText('50%')
+    const rates = within(getReportSection(ReportSectionIds['client-summary'])).getAllByText('50.0%')
     expect(rates.map(rate => rate.tagName)).toEqual(['STRONG', 'STRONG', 'STRONG', 'STRONG'])
   })
 
@@ -314,8 +314,8 @@ describe("what's changed", () => {
   test('the agency tiles read the citation and mention deltas the HTML report binds', () => {
     renderReportPage(fullReport(), { audience: 'agency' })
     const section = getReportSection(ReportSectionIds['whats-changed'])
-    expect(tile(section, agency.tiles.citationRate)).toEqual({ value: '65% ↑', subtitle: '+15.0% vs 50%' })
-    expect(tile(section, agency.tiles.mentionRate)).toEqual({ value: '40% ↓', subtitle: '-5.0% vs 45%' })
+    expect(tile(section, agency.tiles.citationRate)).toEqual({ value: '65.0% ↑', subtitle: '+15.0 pts vs 50.0%' })
+    expect(tile(section, agency.tiles.mentionRate)).toEqual({ value: '40.0% ↓', subtitle: '-5.0 pts vs 45.0%' })
     expect(tile(section, agency.tiles.citedQueryCount)).toEqual({ value: '3.3 ↑', subtitle: '+0.6 vs 2.7' })
     expect(tile(section, agency.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
     expect(tile(section, agency.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
@@ -324,8 +324,8 @@ describe("what's changed", () => {
   test('the client tiles lead with the mention delta, in the client audience’s words', () => {
     renderReportPage(fullReport())
     const section = getReportSection(ReportSectionIds['whats-changed'])
-    expect(tile(section, client.tiles.mentionRate)).toEqual({ value: '40% ↓', subtitle: '-5.0% vs 45%' })
-    expect(tile(section, client.tiles.citationRate)).toEqual({ value: '65% ↑', subtitle: '+15.0% vs 50%' })
+    expect(tile(section, client.tiles.mentionRate)).toEqual({ value: '40.0% ↓', subtitle: '-5.0 pts vs 45.0%' })
+    expect(tile(section, client.tiles.citationRate)).toEqual({ value: '65.0% ↑', subtitle: '+15.0 pts vs 50.0%' })
     expect(tile(section, client.tiles.mentionedQueryCount)).toEqual({ value: '2 →', subtitle: '0 vs 2' })
     expect(tile(section, client.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8% vs prior 14 days' })
     expect(tile(section, client.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22% vs prior 14 days' })
@@ -335,7 +335,7 @@ describe("what's changed", () => {
     renderReportPage(fullReport(), { audience: 'agency' })
     const [movements, wins, regressions] = tables(getReportSection(ReportSectionIds['whats-changed']))
     // openai moved one point and counts as flat; the HTML drops flat rows.
-    expect(rows(movements!)).toEqual([['gemini', '50%', '65%', '+15.0% ↑']])
+    expect(rows(movements!)).toEqual([['gemini', '50.0%', '65.0%', '+15.0 pts ↑']])
     expect(rows(wins!)).toEqual([['High', 'Gained citation on answer engine× 2', 'answer engine', 'gemini']])
     expect(rows(regressions!)).toEqual([['Critical', 'Lost citation on aeo platform', 'aeo platform', 'gemini']])
 
@@ -343,7 +343,7 @@ describe("what's changed", () => {
     renderReportPage(fullReport())
     const [clientMovements, clientWins, clientRegressions] = tables(getReportSection(ReportSectionIds['whats-changed']))
     // The client view names the engine and drops the severity column.
-    expect(rows(clientMovements!)).toEqual([['Gemini', '50%', '65%', '+15.0% ↑']])
+    expect(rows(clientMovements!)).toEqual([['Gemini', '50.0%', '65.0%', '+15.0 pts ↑']])
     expect(rows(clientWins!)).toEqual([['Gained citation on answer engine× 2', 'answer engine', 'Gemini']])
     expect(rows(clientRegressions!)).toEqual([['Lost citation on aeo platform', 'aeo platform', 'Gemini']])
   })

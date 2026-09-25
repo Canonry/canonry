@@ -851,8 +851,8 @@ describe('renderReportHtml', () => {
     const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
     expect(landscape).toContain('Citation share')
     expect(landscape).not.toContain('>SOV<')
-    expect(landscape).toContain('75%')
-    expect(landscape).toContain('25%')
+    expect(landscape).toContain('<td class="numeric">75.0%</td>')
+    expect(landscape).toContain('<td class="numeric">25.0%</td>')
   })
 
   test('renders cited URLs from theirCitedPages as a disclosure', () => {
@@ -1128,7 +1128,9 @@ test.each(['client', 'agency'] as const)('shows share of voice basis and the unm
   expect(html).toContain('Share of voice · non-brand queries: 25.0% · observed competitors')
   expect(html).toContain('Share of voice · branded queries: Not measured')
   expect(html).toContain('No competitors configured.')
-  expect(html).not.toContain('100.0%')
+  // 34 branded mentions against no competitor must never read as a share, in
+  // either the one-decimal form or the exact-100 form the shared rule prints.
+  expect(html).not.toMatch(/Share of voice · branded queries: 100(\.0)?%/)
 })
 
 test('does not call an observed comparison below the floor a zero denominator', () => {

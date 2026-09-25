@@ -40,6 +40,7 @@ import {
   effectiveBrandNames,
   formatPercent,
   getProviderLocationHandling,
+  RatioUnits,
   parseReportPeriodDays,
   reportCompactList,
   reportComparisonWindowDays,
@@ -1558,7 +1559,7 @@ function buildExecutiveFindings(
       ? ` (${citedQueryCount} of ${totalQueryCount} ${queryNoun} cited)`
       : ''
     findings.push({
-      title: `Citation rate at ${citationRate}%${ratioFragment}`,
+      title: `Citation rate at ${formatPercent(citationRate, RatioUnits.percent)}${ratioFragment}`,
       detail,
       tone,
     })
@@ -1753,7 +1754,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
   if (input.indexingHealth && input.indexingHealth.total > 0 && input.indexingHealth.indexedPct < 70) {
     const ih = input.indexingHealth
     const evidence = [
-      `${ih.indexedPct}% indexed (${ih.indexed}/${ih.total})`,
+      `${formatPercent(ih.indexedPct, RatioUnits.percent)} indexed (${ih.indexed}/${ih.total})`,
       `${ih.notIndexed} not indexed${ih.deindexed > 0 ? `, ${ih.deindexed} deindexed` : ''}`,
     ]
     actions.push({
@@ -1937,7 +1938,7 @@ function buildClientSummary(
     ? `${s.mentionedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} mention the brand in AI answers`
     : 'No tracked queries have completed a check yet'
   const overview = (s.totalQueryCount ?? 0) > 0
-    ? `${reportLike.canonicalDomain} is mentioned on ${s.mentionRate}% of tracked queries and cited on ${s.citationRate}% of tracked queries. ${mentionTrendSentence(reportLike.whatsChanged.mentionRate)}`
+    ? `${reportLike.canonicalDomain} is mentioned on ${formatPercent(s.mentionRate, RatioUnits.percent)} of tracked queries and cited on ${formatPercent(s.citationRate, RatioUnits.percent)} of tracked queries. ${mentionTrendSentence(reportLike.whatsChanged.mentionRate)}`
     : 'At least one completed check is needed before this can summarize how the brand appears in AI answers.'
 
   const confidenceNotes: string[] = []
@@ -2017,7 +2018,7 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
     diagnostics.push({
       title: 'Indexing health',
       detail: inspected
-        ? `${input.indexingHealth.indexedPct}% of inspected URLs are indexed in ${provider}.`
+        ? `${formatPercent(input.indexingHealth.indexedPct, RatioUnits.percent)} of inspected URLs are indexed in ${provider}.`
         : `No URLs have been inspected in ${provider} yet, so indexing coverage is not measured.`,
       // Not measured is not a finding, so it must not carry a finding's tone.
       severity: !inspected
@@ -2109,13 +2110,13 @@ function buildWhatsChangedHeadline(
   if (citation) {
     const arrow = citation.direction === 'up' ? '↑' : citation.direction === 'down' ? '↓' : '→'
     const verb = citation.direction === 'up' ? 'rose' : citation.direction === 'down' ? 'fell' : 'held'
-    // Window=1 → "rose 50% ↑ 60%" (point-to-point legacy phrasing);
-    // window≥2 → "rose 50% ↑ 60% (avg of last 3 checks)" so readers know
+    // Window=1 → "rose 50.0% ↑ 60.0%" (point-to-point legacy phrasing);
+    // window≥2 → "rose 50.0% ↑ 60.0% (avg of last 3 checks)" so readers know
     // the number isn't a single-run snapshot.
     const smoothingHint = citation.window && citation.window >= 2
       ? ` (avg of last ${citation.window} checks)`
       : ''
-    parts.push(`Citation rate ${verb} ${citation.prior}% ${arrow} ${citation.current}%${smoothingHint}`)
+    parts.push(`Citation rate ${verb} ${formatPercent(citation.prior, RatioUnits.percent)} ${arrow} ${formatPercent(citation.current, RatioUnits.percent)}${smoothingHint}`)
   }
   if (aiReferrals && aiReferrals.direction !== 'flat') {
     const arrow = aiReferrals.direction === 'up' ? '↑' : '↓'

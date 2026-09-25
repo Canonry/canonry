@@ -190,8 +190,8 @@ describe('citation scorecard', () => {
     renderReportPage(fullReport(), { audience: 'agency' })
     const chart = barChart(getReportSection(ReportSectionIds['citation-scorecard']), 'Provider citation rate')
     expect(chart.rows).toEqual([
-      { label: 'gemini', value: 50, color: CHART_SERIES_COLORS[0], valueLabel: '50% (1/2)' },
-      { label: 'openai', value: 50, color: CHART_SERIES_COLORS[1], valueLabel: '50% (1/2)' },
+      { label: 'gemini', value: 50, color: CHART_SERIES_COLORS[0], valueLabel: '50.0% (1/2)' },
+      { label: 'openai', value: 50, color: CHART_SERIES_COLORS[1], valueLabel: '50.0% (1/2)' },
     ])
     expect(chart.domain).toEqual([0, 100])
     expect(chart.track).toEqual({ fill: CHART_NEUTRAL.surface })
@@ -211,7 +211,7 @@ describe('citation scorecard', () => {
     const chart = barChart(getReportSection(ReportSectionIds['citation-scorecard']), 'Provider citation rate')
     expect(chart.domain).toEqual([0, 120])
     expect(chart.rows.map(row => row.color)).toEqual([...CHART_SERIES_COLORS, CHART_SERIES_COLORS[0]])
-    expect(chart.rows[8]).toEqual({ label: 'p9', value: 120, color: CHART_SERIES_COLORS[0], valueLabel: '120% (8/8)' })
+    expect(chart.rows[8]).toEqual({ label: 'p9', value: 120, color: CHART_SERIES_COLORS[0], valueLabel: '120.0% (8/8)' })
   })
 
   test.each<[string, (report: ProjectReportDto) => void]>([
@@ -434,7 +434,7 @@ describe('competitor landscape', () => {
 describe('AI citation sources', () => {
   test('the headline emphasizes the tracked-competitor share, and only a competitor bucket brings it', () => {
     renderReportPage(fullReport(), { audience: 'agency' })
-    expect(within(getReportSection(ReportSectionIds['ai-source-origin'])).getByText('20%').tagName).toBe('STRONG')
+    expect(within(getReportSection(ReportSectionIds['ai-source-origin'])).getByText('20.0%').tagName).toBe('STRONG')
     cleanupReportPage()
     expect(agencyOutlineSection(richReport(), ReportSectionIds['ai-source-origin'])?.items).toEqual([
       { heading: 'Top sources' },
@@ -460,7 +460,7 @@ describe('AI citation sources', () => {
     const bars = Array.from(section.querySelectorAll<HTMLElement>('[data-share-bar]'))
     expect(bars.map(bar => bar.style.width)).toEqual(['100%', '60%', '40%'])
     expect(bars.map(bar => bar.style.background)).toEqual([CHART_TONE.caution, CHART_SERIES_COLORS[1], CHART_TONE.negative])
-    for (const [label, value] of [['Forums & Q&A', '5 (50%)'], ['News & Media', '3 (30%)'], ['Tracked competitors', '2 (20%)']] as const) {
+    for (const [label, value] of [['Forums & Q&A', '5 (50.0%)'], ['News & Media', '3 (30.0%)'], ['Tracked competitors', '2 (20.0%)']] as const) {
       expect(within(section).getByText(label)).toBeTruthy()
       expect(within(section).getByText(value)).toBeTruthy()
     }
