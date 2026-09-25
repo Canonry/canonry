@@ -40,6 +40,30 @@ function roundSignificant(value: number, sig = 6): number {
 }
 
 /**
+ * `part` as a 0..1 share of `total`, for a share published on the wire so no
+ * surface divides counts itself.
+ *
+ * 0 when there is no part (including no total either: a 0% share of nothing).
+ * Null when there is a part but no total to divide it by, which is a share that
+ * cannot be known (for example referral rows synced before the totals behind
+ * them), never a zero and never `Infinity`.
+ */
+export function shareOf(part: number, total: number): number | null {
+  if (!Number.isFinite(part) || !Number.isFinite(total)) return null
+  if (part <= 0) return 0
+  return total > 0 ? part / total : null
+}
+
+/**
+ * Each part's 0..1 share of the parts' own sum, in input order, so the shares
+ * of one breakdown add up to 1. All zeros when the parts sum to zero.
+ */
+export function breakdownShares(parts: readonly number[]): number[] {
+  const total = parts.reduce((sum, part) => sum + Math.max(0, part), 0)
+  return parts.map(part => shareOf(part, total) ?? 0)
+}
+
+/**
  * Wilson score interval for a binomial proportion — the display default for
  * mention / cited / share-of-voice rates.
  *

@@ -1,7 +1,7 @@
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -1866,137 +1866,18 @@ export interface ApiGaStatus {
   updatedAt: string | null
 }
 
-export interface ApiGaTrafficPage {
-  landingPage: string
-  sessions: number
-  organicSessions: number
-  /** Direct-channel sessions for this landing page (sessions with no source). 0 for legacy rows. */
-  directSessions: number
-  users: number
-}
-
 /**
- * `users` is absent by design. GA reports it as a COUNT DISTINCT at the grain
- * requested, so /ga/traffic withdrew it from these rows in 4.135.0 rather than
- * keep summing one visitor once per landing page and per date in the window.
+ * `/ga/traffic` and its rows, typed from the response's registered schema.
+ * Every share on it (the channel shares, each referral row's `share`, each top
+ * page's `organicShare`) is computed by the API; the dashboard only formats it.
  */
-export interface ApiGaTrafficReferral {
-  source: string
-  medium: string
-  trafficClass: 'organic' | 'paid'
-  sourceDimension: 'session' | 'first_user' | 'manual_utm'
-  sessions: number
-}
-
-export interface ApiGaTrafficAiLandingPage {
-  source: string
-  medium: string
-  trafficClass: 'organic' | 'paid'
-  sourceDimension: 'session' | 'first_user' | 'manual_utm'
-  landingPage: string
-  sessions: number
-}
-
-export interface ApiGaSocialReferral {
-  source: string
-  medium: string
-  channelGroup: string
-  sessions: number
-  users: number
-}
-
-export interface ApiGaChannelBucket {
-  sessions: number
-  sharePct: number
-  sharePctDisplay: string
-}
-
-export interface ApiGaChannelBreakdown {
-  organic: ApiGaChannelBucket
-  social: ApiGaChannelBucket
-  direct: ApiGaChannelBucket
-  ai: ApiGaChannelBucket
-  other: ApiGaChannelBucket
-}
-
-export interface ApiGaTraffic {
-  totalSessions: number
-  totalOrganicSessions: number
-  /** Total Direct-channel sessions across the selected range. */
-  totalDirectSessions: number
-  /** Deduplicated users, unavailable when no stored aggregate covers the complete range. */
-  totalUsers: number | null
-  topPages: ApiGaTrafficPage[]
-  aiReferrals: ApiGaTrafficReferral[]
-  aiReferralLandingPages: ApiGaTrafficAiLandingPage[]
-  /** Deduped AI session total (MAX per date+source+medium across attribution dimensions). Cross-cutting: can overlap with Direct/Organic/Social. */
-  aiSessionsDeduped: number
-  /** Deduped paid AI sessions. */
-  paidAiSessionsDeduped: number
-  /** Deduped organic/non-paid AI sessions. */
-  organicAiSessionsDeduped: number
-  /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; channelBreakdown removes those overlaps for display. */
-  aiSessionsBySession: number
-  /** Session-source paid AI sessions. */
-  paidAiSessionsBySession: number
-  /** Session-source organic/non-paid AI sessions. */
-  organicAiSessionsBySession: number
-  socialReferrals: ApiGaSocialReferral[]
-  /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
-  socialSessions: number
-  /** Total social users (session-scoped via sessionDefaultChannelGroup). */
-  socialUsers: number
-  /** Five disjoint buckets used for the channel breakdown cards. */
-  channelBreakdown: ApiGaChannelBreakdown
-  /** Organic sessions as a percentage of total sessions (0–100, to two decimals). */
-  organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, to two decimals). Cross-cutting: can overlap with Direct/Organic/Social. */
-  aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, to two decimals). Can overlap with raw Organic/Social/Direct totals. */
-  aiSharePctBySession: number
-  paidAiSharePct: number
-  paidAiSharePctBySession: number
-  organicAiSharePct: number
-  organicAiSharePctBySession: number
-  /** Social sessions as a percentage of total sessions (0–100, to two decimals). */
-  socialSharePct: number
-  /** Direct sessions as a percentage of total sessions (0–100, to two decimals). */
-  directSharePct: number
-  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  organicSharePctDisplay: string
-  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  aiSharePctDisplay: string
-  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  aiSharePctBySessionDisplay: string
-  paidAiSharePctDisplay: string
-  paidAiSharePctBySessionDisplay: string
-  organicAiSharePctDisplay: string
-  organicAiSharePctBySessionDisplay: string
-  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  socialSharePctDisplay: string
-  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  directSharePctDisplay: string
-  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. */
-  otherSessions: number
-  /** Other sessions as a percentage of total sessions (0–100, to two decimals). */
-  otherSharePct: number
-  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  otherSharePctDisplay: string
-  lastSyncedAt: string | null
-  /**
-   * Inclusive start (YYYY-MM-DD) of the window EVERY figure above was measured
-   * over, shares included. `null` when open-ended on that side.
-   */
-  windowStart: string | null
-  /** Inclusive end (YYYY-MM-DD) of the measured window. `null` when open-ended. */
-  windowEnd: string | null
-  /** Calendar days the measured window covers, both ends counted. `null` when either bound is open. */
-  windowDays: number | null
-  /** Alias of `windowStart`, retained for callers that predate it. */
-  periodStart: string | null
-  /** Alias of `windowEnd`, retained for callers that predate it. */
-  periodEnd: string | null
-}
+export type ApiGaTraffic = GaTrafficResponse
+export type ApiGaTrafficPage = GaTrafficResponse['topPages'][number]
+export type ApiGaTrafficReferral = GaTrafficResponse['aiReferrals'][number]
+export type ApiGaTrafficAiLandingPage = GaTrafficResponse['aiReferralLandingPages'][number]
+export type ApiGaSocialReferral = GaTrafficResponse['socialReferrals'][number]
+export type ApiGaChannelBucket = GA4ChannelBucketDto
+export type ApiGaChannelBreakdown = GA4ChannelBreakdownDto
 
 export interface ApiGaSyncResult {
   synced: boolean
