@@ -6,7 +6,7 @@ import { competitorBatchRequestSchema, normalizeProjectDomain, notFound, registr
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 
 // Reduce a competitor domain to its registrable form (eTLD+1) so that
-// arbitrary subdomain labels like `offers` in `offers.roofle.com` cannot
+// arbitrary subdomain labels like `offers` in `offers.quotebird.test` cannot
 // leak into brand-token matching against answer text. Falls back to the
 // normalized hostname when the input has no recognizable TLD (e.g. invalid
 // domains or single-label hostnames) — let downstream matching handle those.
@@ -140,8 +140,8 @@ export async function competitorRoutes(app: FastifyInstance) {
     const body = parseCompetitorBatch(request.body)
 
     // Normalize delete targets so callers can pass either the original or the
-    // subdomain form (e.g. `offers.roofle.com`) and still hit the stored
-    // registrable form (`roofle.com`).
+    // subdomain form (e.g. `offers.quotebird.test`) and still hit the stored
+    // registrable form (`quotebird.test`).
     const requested = new Set(normalizeCompetitorList(body.competitors))
 
     app.db.transaction((tx) => {

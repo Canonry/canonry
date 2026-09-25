@@ -54,7 +54,7 @@ describe('canonry ga sync — clamped window reporting', () => {
   it('warns on stderr when the requested window was truncated', async () => {
     mockGaSync.mockResolvedValue(syncResponse({ days: 90, requestedDays: 500, clamped: true }))
 
-    const cap = captureStreams(() => gaSync('tankair', { days: 500 }))
+    const cap = captureStreams(() => gaSync('acme-air', { days: 500 }))
     await cap.run
 
     // The operator asked for 500 and must be told they got 90.
@@ -67,7 +67,7 @@ describe('canonry ga sync — clamped window reporting', () => {
   it('stays silent on stderr when the window was honoured', async () => {
     mockGaSync.mockResolvedValue(syncResponse({ days: 30, requestedDays: 30, clamped: false }))
 
-    const cap = captureStreams(() => gaSync('tankair', { days: 30 }))
+    const cap = captureStreams(() => gaSync('acme-air', { days: 30 }))
     await cap.run
 
     expect(cap.stderr()).toBe('')
@@ -79,7 +79,7 @@ describe('canonry ga sync — clamped window reporting', () => {
   it('warns in --format json without corrupting the stdout payload', async () => {
     mockGaSync.mockResolvedValue(syncResponse({ days: 90, requestedDays: 500, clamped: true }))
 
-    const cap = captureStreams(() => gaSync('tankair', { days: 500, format: 'json' }))
+    const cap = captureStreams(() => gaSync('acme-air', { days: 500, format: 'json' }))
     await cap.run
 
     expect(cap.stderr()).toMatch(/requested 500 days but synced 90/)
@@ -95,9 +95,9 @@ describe('canonry ga sync — clamped window reporting', () => {
     // from every other API consumer and make `requestedDays` a lie.
     mockGaSync.mockResolvedValue(syncResponse({ days: 90, requestedDays: 500, clamped: true }))
 
-    const cap = captureStreams(() => gaSync('tankair', { days: 500 }))
+    const cap = captureStreams(() => gaSync('acme-air', { days: 500 }))
     await cap.run
 
-    expect(mockGaSync).toHaveBeenCalledWith('tankair', { days: 500 })
+    expect(mockGaSync).toHaveBeenCalledWith('acme-air', { days: 500 })
   })
 })

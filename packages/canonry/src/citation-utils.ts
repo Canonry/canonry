@@ -19,7 +19,7 @@ import {
  * competitors, and third-party references intermingled in provider order. A
  * project citation gain/regression must be labeled with the project's OWN
  * cited URL, not `citedDomains[0]`, which is frequently a co-cited competitor
- * (e.g. a regression on the project's page mislabeled "audit winntile.com").
+ * (e.g. a regression on the project's page mislabeled "audit tilerival.test").
  * Returns `undefined` when the citation was established via a grounding-source
  * match with no project domain present in `citedDomains` — better an empty
  * target than a competitor's.
@@ -82,8 +82,8 @@ export function computeCompetitorOverlap(
         overlapSet.add(cd)
       }
       // Use the registrable domain's brand label (eTLD+1's leftmost label) so
-      // a stored competitor like `offers.roofle.com` is matched against the
-      // brand `roofle`, not the subdomain `offers` — otherwise the literal
+      // a stored competitor like `offers.quotebird.test` is matched against the
+      // brand `quotebird`, not the subdomain `offers` — otherwise the literal
       // word "offers" in the answer prose would falsely flag the competitor.
       const brand = brandLabelFromDomain(cd)
       if (brandKeyFromText(brand).length >= 4 && textContainsBrandAlias(normalized.answerText, brand)) {
@@ -222,7 +222,7 @@ function cleanCandidateName(candidate: string): string {
 
 function collectBrandAliasesFromDomain(domain: string): string[] {
   // Source aliases from the registrable domain only — never from
-  // subdomain labels — so a competitor `offers.roofle.com` does not contribute
+  // subdomain labels — so a competitor `offers.quotebird.test` does not contribute
   // `offers` as a brand alias (which would let the answer-text word "offers"
   // false-match in extractRecommendedCompetitors).
   const reg = registrableDomain(domain)

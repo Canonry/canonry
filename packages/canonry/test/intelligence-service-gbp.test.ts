@@ -35,16 +35,16 @@ const STALE = '2026-05-20T00:00:00.000Z'
  */
 function seed(db: ReturnType<typeof createClient>) {
   db.insert(projects).values({
-    id: 'proj_gbp', name: 'gjelina', displayName: 'Gjelina', canonicalDomain: 'gjelina.example.com',
+    id: 'proj_gbp', name: 'harborline', displayName: 'Harborline', canonicalDomain: 'harborline.example.com',
     country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW,
   }).run()
 
   // Locations carry a description so the description-missing insight does not
   // fire by default — the other insight tests assert their own target gaps.
   db.insert(gbpLocations).values([
-    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Gjelina Venice', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
-    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Gjelina Marina', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
-    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Gjelina Closed', description: 'A real description.', selected: false, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Harborline Bayport', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Harborline Marina', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Harborline Closed', description: 'A real description.', selected: false, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
   ]).run()
 
   // Daily metrics: A drops 100 → 20 week-over-week (refDate = max date 2026-05-20);
@@ -63,7 +63,7 @@ function seed(db: ReturnType<typeof createClient>) {
   // Place actions: A has only an aggregator link; B has a direct merchant link.
   db.insert(gbpPlaceActions).values([
     { id: 'pa1', projectId: 'proj_gbp', locationName: 'locations/A', placeActionLinkName: 'x/1', placeActionType: 'BOOK', uri: 'https://ota.com', isPreferred: false, providerType: 'AGGREGATOR', syncRunId: null },
-    { id: 'pa2', projectId: 'proj_gbp', locationName: 'locations/B', placeActionLinkName: 'x/2', placeActionType: 'BOOK', uri: 'https://gjelina.com', isPreferred: true, providerType: 'MERCHANT', syncRunId: null },
+    { id: 'pa2', projectId: 'proj_gbp', locationName: 'locations/B', placeActionLinkName: 'x/2', placeActionType: 'BOOK', uri: 'https://harborline.example.com', isPreferred: true, providerType: 'MERCHANT', syncRunId: null },
   ]).run()
 
   // Lodging: A returned zero readable groups (verify); B is populated.
@@ -74,8 +74,8 @@ function seed(db: ReturnType<typeof createClient>) {
 
   // Keyword monthly: A's head term fell 100 → 30 month-over-month (70% → high).
   db.insert(gbpKeywordMonthly).values([
-    { id: 'kw1', projectId: 'proj_gbp', locationName: 'locations/A', month: '2026-03', keyword: 'venice beach hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: NOW },
-    { id: 'kw2', projectId: 'proj_gbp', locationName: 'locations/A', month: '2026-04', keyword: 'venice beach hotel', valueCount: 30, valueThreshold: null, syncRunId: null, syncedAt: NOW },
+    { id: 'kw1', projectId: 'proj_gbp', locationName: 'locations/A', month: '2026-03', keyword: 'bayport hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: NOW },
+    { id: 'kw2', projectId: 'proj_gbp', locationName: 'locations/A', month: '2026-04', keyword: 'bayport hotel', valueCount: 30, valueThreshold: null, syncRunId: null, syncedAt: NOW },
   ]).run()
 }
 
@@ -101,7 +101,7 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       expect(types).toEqual(['gbp-cta-gap', 'gbp-keyword-drop', 'gbp-lodging-gap', 'gbp-metric-drop'])
       for (const i of result) {
         expect(i.provider).toBe('gbp')
-        expect(i.query).toBe('Gjelina Venice')
+        expect(i.query).toBe('Harborline Bayport')
         expect(i.id.startsWith('proj_gbp::gbp::locations/A::')).toBe(true)
       }
 
@@ -135,11 +135,11 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
 
       const result = new IntelligenceService(db).analyzeAndPersistGbp('run_gbp', 'proj_gbp')
       // GBP insights carry the location's displayName in `query` (no locationName field).
-      const aDesc = result.find((i) => i.query === 'Gjelina Venice' && i.type === 'gbp-description-missing')
+      const aDesc = result.find((i) => i.query === 'Harborline Bayport' && i.type === 'gbp-description-missing')
       expect(aDesc).toBeDefined()
       expect(aDesc!.severity).toBe('low')
-      // B (Gjelina Marina) has a description, so no description-missing for it.
-      expect(result.some((i) => i.query === 'Gjelina Marina' && i.type === 'gbp-description-missing')).toBe(false)
+      // B (Harborline Marina) has a description, so no description-missing for it.
+      expect(result.some((i) => i.query === 'Harborline Marina' && i.type === 'gbp-description-missing')).toBe(false)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -167,7 +167,7 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       expect(types).not.toContain('gbp-lodging-gap')
       const disc = result.find((i) => i.type === 'gbp-listing-discrepancy')!
       expect(disc.severity).toBe('medium')
-      expect(disc.query).toBe('Gjelina Venice')
+      expect(disc.query).toBe('Harborline Bayport')
       // The reason names the specific amenities extracted from the Places snapshot.
       expect(disc.recommendation?.reason).toContain('breakfast')
       expect(disc.recommendation?.reason).toContain('parking')

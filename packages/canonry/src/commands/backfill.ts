@@ -909,7 +909,7 @@ function tokenizeForMatch(s: string): string[] {
  * representing the fraction of the query's meaningful tokens that
  * appear in the answer head.
  *
- * "Distinguishing" matters because the azcoatings query set shares
+ * "Distinguishing" matters because a roof-coating project's query set shares
  * heavy vocabulary ("commercial", "roof", "coating" appear in nearly
  * every query). A pure raw-count metric would tie multiple queries
  * for the same answer. We instead require coverage of EVERY query

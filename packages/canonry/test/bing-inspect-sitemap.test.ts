@@ -64,9 +64,9 @@ describe('executeBingInspectSitemap', () => {
     const now = new Date().toISOString()
     db.insert(projects).values({
       id: projectId,
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatingsllc.com',
+      name: 'harborline-coatings',
+      displayName: 'Harborline Coatings',
+      canonicalDomain: 'harborline-coatings.example.com',
       ownedDomains: '[]',
       country: 'US',
       language: 'en',
@@ -125,7 +125,7 @@ describe('executeBingInspectSitemap', () => {
     db.insert(bingUrlInspections).values([
       {
         id: crypto.randomUUID(), projectId,
-        url: 'https://azcoatingsllc.com/',
+        url: 'https://harborline-coatings.example.com/',
         httpCode: 200, inIndex: true,
         lastCrawledDate: '2026-04-19T10:00:00Z', inIndexDate: null,
         inspectedAt: seededAt, syncRunId: null, createdAt: seededAt,
@@ -133,7 +133,7 @@ describe('executeBingInspectSitemap', () => {
       },
       {
         id: crypto.randomUUID(), projectId,
-        url: 'https://azcoatingsllc.com/about/',
+        url: 'https://harborline-coatings.example.com/about/',
         httpCode: 200, inIndex: true,
         lastCrawledDate: '2026-04-19T10:00:00Z', inIndexDate: null,
         inspectedAt: seededAt, syncRunId: null, createdAt: seededAt,
@@ -143,10 +143,10 @@ describe('executeBingInspectSitemap', () => {
 
     const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://azcoatingsllc.com/</loc></url>
-  <url><loc>https://azcoatingsllc.com/about/</loc></url>
-  <url><loc>https://azcoatingsllc.com/michigan/</loc></url>
-  <url><loc>https://azcoatingsllc.com/southeast-florida/</loc></url>
+  <url><loc>https://harborline-coatings.example.com/</loc></url>
+  <url><loc>https://harborline-coatings.example.com/about/</loc></url>
+  <url><loc>https://harborline-coatings.example.com/michigan/</loc></url>
+  <url><loc>https://harborline-coatings.example.com/southeast-florida/</loc></url>
 </urlset>`
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
@@ -163,7 +163,7 @@ describe('executeBingInspectSitemap', () => {
     const runId = await queueRun()
     await executeBingInspectSitemap(db, runId, projectId, {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-      config: buildConfig('azcoatingsllc.com'),
+      config: buildConfig('harborline-coatings.example.com'),
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
@@ -180,10 +180,10 @@ describe('executeBingInspectSitemap', () => {
     expect(newInspections).toHaveLength(4)
     const newUrls = newInspections.map((r) => r.url).sort()
     expect(newUrls).toEqual([
-      'https://azcoatingsllc.com/',
-      'https://azcoatingsllc.com/about/',
-      'https://azcoatingsllc.com/michigan/',
-      'https://azcoatingsllc.com/southeast-florida/',
+      'https://harborline-coatings.example.com/',
+      'https://harborline-coatings.example.com/about/',
+      'https://harborline-coatings.example.com/michigan/',
+      'https://harborline-coatings.example.com/southeast-florida/',
     ])
     // Newly discovered URLs are now tracked + indexed
     for (const row of newInspections) {
@@ -204,8 +204,8 @@ describe('executeBingInspectSitemap', () => {
   it('marks the run partial when some URLs fail to inspect', async () => {
     const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset>
-  <url><loc>https://azcoatingsllc.com/ok</loc></url>
-  <url><loc>https://azcoatingsllc.com/fail</loc></url>
+  <url><loc>https://harborline-coatings.example.com/ok</loc></url>
+  <url><loc>https://harborline-coatings.example.com/fail</loc></url>
 </urlset>`
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
@@ -219,7 +219,7 @@ describe('executeBingInspectSitemap', () => {
     const runId = await queueRun()
     await executeBingInspectSitemap(db, runId, projectId, {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-      config: buildConfig('azcoatingsllc.com'),
+      config: buildConfig('harborline-coatings.example.com'),
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
@@ -231,7 +231,7 @@ describe('executeBingInspectSitemap', () => {
     const inspections = db.select().from(bingUrlInspections)
       .where(eq(bingUrlInspections.syncRunId, runId)).all()
     expect(inspections).toHaveLength(1)
-    expect(inspections[0]!.url).toBe('https://azcoatingsllc.com/ok')
+    expect(inspections[0]!.url).toBe('https://harborline-coatings.example.com/ok')
   })
 
   /**
@@ -247,7 +247,7 @@ describe('executeBingInspectSitemap', () => {
    * from a healthy refresh.
    */
   it('fails the run and leaves coverage untouched when every URL is throttled', async () => {
-    const urls = Array.from({ length: 12 }, (_, i) => `  <url><loc>https://azcoatingsllc.com/p${i}</loc></url>`).join('\n')
+    const urls = Array.from({ length: 12 }, (_, i) => `  <url><loc>https://harborline-coatings.example.com/p${i}</loc></url>`).join('\n')
     const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset>\n${urls}\n</urlset>`
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
@@ -277,7 +277,7 @@ describe('executeBingInspectSitemap', () => {
     await expect(
       executeBingInspectSitemap(db, runId, projectId, {
         sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-        config: buildConfig('azcoatingsllc.com'),
+        config: buildConfig('harborline-coatings.example.com'),
         pacedDeps: { sleep: async () => {}, jitter: () => 0 },
       }),
     ).rejects.toThrow(/failed for every URL/i)
@@ -298,8 +298,8 @@ describe('executeBingInspectSitemap', () => {
   it('records WHY a degraded run was degraded', async () => {
     const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset>
-  <url><loc>https://azcoatingsllc.com/ok</loc></url>
-  <url><loc>https://azcoatingsllc.com/fail</loc></url>
+  <url><loc>https://harborline-coatings.example.com/ok</loc></url>
+  <url><loc>https://harborline-coatings.example.com/fail</loc></url>
 </urlset>`
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
@@ -313,7 +313,7 @@ describe('executeBingInspectSitemap', () => {
     const runId = await queueRun()
     await executeBingInspectSitemap(db, runId, projectId, {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-      config: buildConfig('azcoatingsllc.com'),
+      config: buildConfig('harborline-coatings.example.com'),
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
     })
 
@@ -331,7 +331,7 @@ describe('executeBingInspectSitemap', () => {
     const runId = await queueRun()
     await expect(() => executeBingInspectSitemap(db, runId, projectId, {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-      config: buildConfig('azcoatingsllc.com'),
+      config: buildConfig('harborline-coatings.example.com'),
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
@@ -345,7 +345,7 @@ describe('executeBingInspectSitemap', () => {
   it('marks the run failed when no Bing connection exists for the project', async () => {
     const runId = await queueRun()
     await expect(() => executeBingInspectSitemap(db, runId, projectId, {
-      sitemapUrl: 'https://azcoatingsllc.com/sitemap.xml',
+      sitemapUrl: 'https://harborline-coatings.example.com/sitemap.xml',
       config: { apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test' },
       // Instant pacing: the sweep now goes through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff would otherwise outrun the
@@ -362,12 +362,12 @@ describe('executeBingInspectSitemap', () => {
     const noSite: CanonryConfig = {
       apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test',
       bing: { connections: [{
-        domain: 'azcoatingsllc.com', apiKey: 'k', siteUrl: null,
+        domain: 'harborline-coatings.example.com', apiKey: 'k', siteUrl: null,
         createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
       }] },
     }
     await expect(() => executeBingInspectSitemap(db, runId, projectId, {
-      sitemapUrl: 'https://azcoatingsllc.com/sitemap.xml',
+      sitemapUrl: 'https://harborline-coatings.example.com/sitemap.xml',
       config: noSite,
     })).rejects.toThrow('No Bing site configured')
 
@@ -378,8 +378,8 @@ describe('executeBingInspectSitemap', () => {
   it('downgrades indexed URLs that GetCrawlIssues flags with a blocking issue', async () => {
     const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset>
-  <url><loc>https://azcoatingsllc.com/blocked</loc></url>
-  <url><loc>https://azcoatingsllc.com/ok</loc></url>
+  <url><loc>https://harborline-coatings.example.com/blocked</loc></url>
+  <url><loc>https://harborline-coatings.example.com/ok</loc></url>
 </urlset>`
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
@@ -389,13 +389,13 @@ describe('executeBingInspectSitemap', () => {
       Url: url, HttpStatus: 200, DocumentSize: 1234,
     }))
     vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([
-      { Url: 'https://azcoatingsllc.com/blocked', HttpCode: 403, Date: '2026-04-25', IssueType: 'BlockedByRobotsTxt' },
+      { Url: 'https://harborline-coatings.example.com/blocked', HttpCode: 403, Date: '2026-04-25', IssueType: 'BlockedByRobotsTxt' },
     ])
 
     const runId = await queueRun()
     await executeBingInspectSitemap(db, runId, projectId, {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
-      config: buildConfig('azcoatingsllc.com'),
+      config: buildConfig('harborline-coatings.example.com'),
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
