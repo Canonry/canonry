@@ -1076,39 +1076,39 @@ describe('extractAnswerMentions', () => {
     expect(extractAnswerMentions(
       'We install ceramic tile, vinyl, and polished concrete in commercial buildings.',
       ['LI'],
-      ['larrysinteriors.com'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(false)
 
     expect(extractAnswerMentions(
       'The compliance review is scheduled for next week.',
       ['LI'],
-      ['larrysinteriors.com'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(false)
 
     // --- Positive cases (legitimate matches the fix preserves) ---
     expect(extractAnswerMentions(
       'LI is great for commercial flooring projects.',
       ['LI'],
-      ['larrysinteriors.com'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
       'According to LI, their new line ships in Q3.',
       ['LI'],
-      ['larrysinteriors.com'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(true)
 
     // --- Domain and full-brand paths still work for short names ---
     expect(extractAnswerMentions(
-      'Visit larrysinteriors.com for commercial flooring quotes.',
+      'Visit lorvaneinteriors.example.com for commercial flooring quotes.',
       ['LI'],
-      ['larrysinteriors.com'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
-      "Larry's Interiors has installed flooring across East Texas since 1978.",
-      ["Larry's Interiors"],
-      ['larrysinteriors.com'],
+      'Lorvane Interiors has installed flooring across the tri-county area since 1978.',
+      ['Lorvane Interiors'],
+      ['lorvaneinteriors.example.com'],
     ).mentioned).toBe(true)
   })
 
@@ -1150,15 +1150,15 @@ describe('extractAnswerMentions', () => {
   })
 
   it('does not flag a multi-word brand on the trailing descriptor word alone', () => {
-    // Regression: a project "Cenco Roofing" must not be considered mentioned
+    // Regression: a project "Quillmere Roofing" must not be considered mentioned
     // when the answer only contains the generic word "roofing" — even when
     // it appears many times. Standalone descriptor words like "Roofing",
     // "Plumbing", "Construction" are too common in industry prose to be a
     // reliable signal of brand presence on their own.
     const result = extractAnswerMentions(
       'Roofing repair work requires permits and trained inspectors. Most homeowners pay $300 for a basic roofing inspection.',
-      ['Cenco Roofing'],
-      ['cencoroofing.com'],
+      ['Quillmere Roofing'],
+      ['quillmereroofing.test'],
     )
     expect(result.mentioned).toBe(false)
     expect(result.matchedTerms).toEqual([])
@@ -1172,13 +1172,13 @@ describe('extractAnswerMentions', () => {
     // misleading. Only the configured displayName and exact domain-derived
     // identity should be exposed as evidence.
     const result = extractAnswerMentions(
-      'Denver-area picks: Precision Exteriors (commercial roofing), ESS Roofing & Exteriors (storm damage), and Cenco Roofing for residential work. Budget around $11,000 for a full roofing replacement.',
-      ['Cenco Roofing'],
-      ['cencoroofing.com'],
+      'Metro-area picks: Brightcrest Exteriors (commercial roofing), Stonevale Roofing & Exteriors (storm damage), and Quillmere Roofing for residential work. Budget around $11,000 for a full roofing replacement.',
+      ['Quillmere Roofing'],
+      ['quillmereroofing.test'],
     )
     expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('Cenco Roofing')
-    expect(result.matchedTerms).toContain('cencoroofing')
+    expect(result.matchedTerms).toContain('Quillmere Roofing')
+    expect(result.matchedTerms).toContain('quillmereroofing')
     expect(result.matchedTerms).not.toContain('roofing')
   })
 
@@ -1198,12 +1198,12 @@ describe('extractAnswerMentions', () => {
   })
 
   it('multi-word names do not match on a trailing descriptor alone', () => {
-    // The exact approved identity "Cenco Roofing" is not present when only
+    // The exact approved identity "Quillmere Roofing" is not present when only
     // the generic descriptor "roofing" appears.
     const result = extractAnswerMentions(
       'Most homeowners pay $300 for a basic roofing inspection.',
-      ['Cenco Roofing'],
-      ['cencoroofing.com'],
+      ['Quillmere Roofing'],
+      ['quillmereroofing.test'],
     )
     expect(result.mentioned).toBe(false)
   })

@@ -2550,7 +2550,7 @@ describe('executeDiscovery seed hygiene', () => {
         return {
           candidates: [
             'harbor iq reviews', // branded: phrase match on brand name
-            'is harbor-iq.test legit', // branded: canonical domain
+            'is harbor-iq.example.com legit', // branded: canonical domain
             'best solar quoting tool',
             'compare solar quoting tools',
           ],
@@ -2578,7 +2578,7 @@ describe('executeDiscovery seed hygiene', () => {
         id: projectId,
         name: 'harbor-iq',
         brandNames: ['Harbor IQ'],
-        canonicalDomains: ['harbor-iq.test'],
+        canonicalDomains: ['harbor-iq.example.com'],
         competitorDomains: [],
       },
       icpDescription: 'solar contractors',
@@ -2599,7 +2599,7 @@ describe('executeDiscovery seed hygiene', () => {
     expect(probes.length).toBeGreaterThan(0)
     for (const probe of probes) {
       expect(probe.query.toLowerCase()).not.toContain('harbor iq')
-      expect(probe.query.toLowerCase()).not.toContain('harbor-iq.test')
+      expect(probe.query.toLowerCase()).not.toContain('harbor-iq.example.com')
     }
   })
 })

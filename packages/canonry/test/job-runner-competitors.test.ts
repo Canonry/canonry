@@ -72,9 +72,9 @@ test('computeCompetitorOverlap still flags the registrable brand of a subdomaine
 })
 
 test('computeCompetitorOverlap matches the full registrable domain in the answer', () => {
-  const answer = 'See pricing at quotebird.test for details.'
+  const answer = 'See pricing at quotebird.example.com for details.'
   const result = buildResult(answer)
-  expect(computeCompetitorOverlap(result, ['quotebird.test'])).toEqual(['quotebird.test'])
+  expect(computeCompetitorOverlap(result, ['quotebird.example.com'])).toEqual(['quotebird.example.com'])
 })
 
 test('domain identity matching rejects hostname and prose substrings', () => {
