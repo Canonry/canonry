@@ -78,6 +78,11 @@ export const logQuerySchema = z.object({
 })
 export type LogQuery = z.infer<typeof logQuerySchema>
 
+const retentionPolicySchema = z.object({
+  maxEntries: z.number().int().positive(),
+  maxAgeSeconds: z.number().int().positive(),
+}).strict()
+
 export const operationalLogListDtoSchema = z.object({
   entries: z.array(operationalLogEntryDtoSchema),
   nextCursor: z.string().min(1).max(512).nullable(),
@@ -86,12 +91,40 @@ export const operationalLogListDtoSchema = z.object({
   /** Entries evicted by the active retention policy. */
   dropped: z.number().int().nonnegative(),
   retention: z.enum(['process', 'durable']),
-  retentionPolicy: z.object({
-    maxEntries: z.number().int().positive(),
-    maxAgeSeconds: z.number().int().positive(),
-  }).strict().optional(),
+  retentionPolicy: retentionPolicySchema.optional(),
   /** Best-effort persistence failures observed by this store. */
   captureErrors: z.number().int().nonnegative().optional(),
   observedAt: z.string().datetime(),
 }).strict()
 export type OperationalLogListDto = z.infer<typeof operationalLogListDtoSchema>
+
+/**
+ * Request header naming the opt-in context fields a caller can read, as a
+ * comma-separated list. Unknown names are ignored.
+ *
+ * A reader built before a context field existed validates pages with the
+ * strict schemas above, so one unrecognized key costs it the whole page. The
+ * server therefore returns a field added after that contract only to a caller
+ * that asks for it by name. Older servers ignore the header, so sending it is
+ * always safe. It is a header rather than a query parameter because
+ * `logQuerySchema` is strict too: a new parameter would get a 400 from them.
+ */
+export const OPERATIONAL_LOG_FIELDS_HEADER = 'x-canonry-log-fields'
+/** Context fields returned only when named in `OPERATIONAL_LOG_FIELDS_HEADER`. */
+export const OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS = ['provider'] as const
+export type OperationalLogOptInContextField = typeof OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS[number]
+
+/**
+ * Client-side reader for a log page. The DTO schemas above stay strict because
+ * they are the server's redaction boundary: only known context keys may be
+ * saved or returned. A client reading a response instead drops keys it does not
+ * know, so a field added by a newer server never rejects a page again. Known
+ * fields keep their bounds.
+ */
+const diagnosticContextReadSchema = z.object(diagnosticContextSchema.shape)
+const operationalLogEntryReadSchema = z.object({ ...operationalLogEntryDtoSchema.shape, context: diagnosticContextReadSchema })
+export const operationalLogListReadSchema = z.object({
+  ...operationalLogListDtoSchema.shape,
+  entries: z.array(operationalLogEntryReadSchema),
+  retentionPolicy: z.object(retentionPolicySchema.shape).optional(),
+})

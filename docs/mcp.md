@@ -83,6 +83,11 @@ role for user sessions. It returns redacted application and HTTP runtime events
 with identity/time filters, retention limits, and loss counters. File-backed
 hosts retain up to 10,000 events for seven days across restarts; in-memory hosts
 report process retention. This is separate from durable audit history.
+Entries include `context.provider`, the answer engine a sweep failure came from.
+The tool asks for it with the `x-canonry-log-fields: provider` request header;
+the API leaves it out for callers that do not ask, so an older `canonry-mcp`
+keeps reading pages. The tool drops context keys it does not know instead of
+rejecting the page.
 Project-scoped keys cannot access it, even with a project filter. See the
 [operations guide](agent-operations/v1.md#agent-operations).
 
