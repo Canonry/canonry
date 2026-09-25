@@ -176,7 +176,7 @@ export function richReport(): ProjectReportDto {
       gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       ga: { sessions: 12000, users: 9000, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       findings: [
-        { title: 'Citation rate at 65%', detail: 'Up from previous run.', tone: 'positive' },
+        { title: 'Citation rate at 65.0%', detail: 'Up from previous run.', tone: 'positive' },
         { title: '1 critical regression', detail: 'Lost citation', tone: 'negative' },
       ],
     },
@@ -390,7 +390,7 @@ export function richReport(): ProjectReportDto {
     actionPlan: [clientAction, agencyAction],
     clientSummary: {
       headline: '2 of 5 tracked queries mention the brand in AI answers',
-      overview: 'Rich Project is mentioned on 40% of tracked queries and cited on 65%. There is not enough comparable run history yet to call a mention trend.',
+      overview: 'Rich Project is mentioned on 40.0% of tracked queries and cited on 65.0%. There is not enough comparable run history yet to call a mention trend.',
       actionItems: [clientAction],
       confidenceNotes: ['This summary is scoped to the michigan run location.'],
     },

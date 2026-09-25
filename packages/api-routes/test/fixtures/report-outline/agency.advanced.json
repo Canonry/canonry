@@ -161,7 +161,7 @@
           "text": "By source type"
         },
         {
-          "text": "Forums & Q&A 5 (50%) News & Media 3 (30%)"
+          "text": "Forums & Q&A 5 (50.0%) News & Media 3 (30.0%)"
         }
       ]
     },
@@ -246,7 +246,7 @@
           "text": "Search demand by intent"
         },
         {
-          "text": "brand 800 clicks · 80% industry 200 clicks · 20%"
+          "text": "brand 800 clicks · 80.0% industry 200 clicks · 20.0%"
         }
       ]
     },
@@ -303,7 +303,7 @@
           "text": "Channel mix"
         },
         {
-          "text": "Organic Search 8.0K sessions · 67% Direct 4.0K sessions · 33%"
+          "text": "Organic Search 8.0K sessions · 67.0% Direct 4.0K sessions · 33.0%"
         }
       ]
     },
@@ -350,7 +350,7 @@
           "text": "Social channel mix"
         },
         {
-          "text": "Organic Social 1.0K sessions · 67% Paid Social 500 sessions · 33%"
+          "text": "Organic Social 1.0K sessions · 67.0% Paid Social 500 sessions · 33.0%"
         },
         {
           "text": "Top campaigns"
@@ -400,7 +400,7 @@
           "text": "AI sessions by source"
         },
         {
-          "text": "chatgpt.com 150 sessions · 75% gemini.google.com 50 sessions · 25%"
+          "text": "chatgpt.com 150 sessions · 75.0% gemini.google.com 50 sessions · 25.0%"
         },
         {
           "text": "Top AI landing pages"
@@ -631,7 +631,7 @@
           "tile": "Total inspected 100"
         },
         {
-          "tile": "Indexed share 80%"
+          "tile": "Indexed share 80.0%"
         },
         {
           "text": "Coverage breakdown"

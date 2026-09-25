@@ -238,6 +238,24 @@ describe('scoreContentTarget', () => {
       })
       expect(result.drivers.some((d) => /miss/i.test(d))).toBe(true)
     })
+
+    it('states the recent miss rate through the shared percent rule', () => {
+      const drivers = (recentMissRate: number) => scoreContentTarget({
+        ...baseInput,
+        competitorCount: 3,
+        recentMissRate,
+        citationCount: 5,
+      }).drivers
+      expect(drivers(0.8)).toContain('missed in 80.0% of recent runs')
+      expect(drivers(2 / 3)).toContain('missed in 66.7% of recent runs')
+      // 23 of 40 missed is 57.49999999999999 once multiplied; it still reads its exact tenth.
+      expect(drivers(1 - 17 / 40)).toContain('missed in 57.5% of recent runs')
+      expect(drivers(1)).toContain('missed in 100% of recent runs')
+      // An out-of-range rate is clamped before it is shown.
+      expect(drivers(1.4)).toContain('missed in 100% of recent runs')
+      // Below the 50% floor the driver is not stated at all.
+      expect(drivers(0.49).some((d) => d.startsWith('missed in'))).toBe(false)
+    })
   })
 
   describe('snapshot: deterministic output for fixture inputs', () => {

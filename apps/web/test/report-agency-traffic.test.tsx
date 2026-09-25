@@ -185,8 +185,8 @@ describe('GSC Performance', () => {
   test('search demand by intent draws each category at its share of clicks, in series color order', () => {
     renderAgency(fullReport())
     expect(readShareBars(getReportSection(ReportSectionIds.gsc), 'Search demand by intent')).toEqual([
-      { label: 'brand', value: '800 clicks · 80%', width: '80%', color: REPORT_CHART_COLORS.series[0] },
-      { label: 'industry', value: '200 clicks · 20%', width: '20%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'brand', value: '800 clicks · 80.0%', width: '80%', color: REPORT_CHART_COLORS.series[0] },
+      { label: 'industry', value: '200 clicks · 20.0%', width: '20%', color: REPORT_CHART_COLORS.series[1] },
     ])
   })
 
@@ -196,7 +196,7 @@ describe('GSC Performance', () => {
     gsc.categoryBreakdown = gsc.categoryBreakdown.map((row, index) => index === 0 ? { ...row, clicks: 0, sharePct: 0 } : row)
     renderAgency(report)
     expect(readShareBars(getReportSection(ReportSectionIds.gsc), 'Search demand by intent')).toEqual([
-      { label: 'industry', value: '200 clicks · 20%', width: '20%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'industry', value: '200 clicks · 20.0%', width: '20%', color: REPORT_CHART_COLORS.series[1] },
     ])
 
     cleanupReportPage()
@@ -259,8 +259,8 @@ describe('GA4 Traffic', () => {
   test('channel mix draws each channel at its share of sessions', () => {
     renderAgency(fullReport())
     expect(readShareBars(getReportSection(ReportSectionIds.ga), 'Channel mix')).toEqual([
-      { label: 'Organic Search', value: '8.0K sessions · 67%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
-      { label: 'Direct', value: '4.0K sessions · 33%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'Organic Search', value: '8.0K sessions · 67.0%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
+      { label: 'Direct', value: '4.0K sessions · 33.0%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
     ])
   })
 })
@@ -276,8 +276,8 @@ describe('Social Referrals', () => {
       ['Paid social', '500'],
     ])
     expect(readShareBars(section, 'Social channel mix')).toEqual([
-      { label: 'Organic Social', value: '1.0K sessions · 67%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
-      { label: 'Paid Social', value: '500 sessions · 33%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
+      { label: 'Organic Social', value: '1.0K sessions · 67.0%', width: '67%', color: REPORT_CHART_COLORS.series[0] },
+      { label: 'Paid Social', value: '500 sessions · 33.0%', width: '33%', color: REPORT_CHART_COLORS.series[1] },
     ])
     expect(bodyRows(tableAfter(section, 'Top campaigns'))).toEqual([['linkedin.com', 'referral', '700']])
   })
@@ -300,8 +300,8 @@ describe('AI Referral Traffic', () => {
     expect(readTiles(section)).toEqual([['Total sessions', '200']])
     expect(within(section).getByRole('application', { name: 'AI referral sessions over time line chart' })).toBeTruthy()
     expect(readShareBars(section, 'AI sessions by source')).toEqual([
-      { label: 'chatgpt.com', value: '150 sessions · 75%', width: '75%', color: REPORT_CHART_COLORS.series[2] },
-      { label: 'gemini.google.com', value: '50 sessions · 25%', width: '25%', color: REPORT_CHART_COLORS.series[3] },
+      { label: 'chatgpt.com', value: '150 sessions · 75.0%', width: '75%', color: REPORT_CHART_COLORS.series[2] },
+      { label: 'gemini.google.com', value: '50 sessions · 25.0%', width: '25%', color: REPORT_CHART_COLORS.series[3] },
     ])
   })
 

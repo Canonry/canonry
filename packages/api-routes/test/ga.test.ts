@@ -556,9 +556,9 @@ describe('GA4 routes', () => {
         url: '/api/v1/projects/only-social-foundation/ga/traffic?window=30d',
       })
       const traffic = JSON.parse(trafficRes.payload)
-      // 1273 / 30000 = 4.24% → 4%
+      // 1273 / 30000 = 4.24%: 4 on the wire, one decimal on display.
       expect(traffic.socialSharePct).toBe(4)
-      expect(traffic.socialSharePctDisplay).toBe('4%')
+      expect(traffic.socialSharePctDisplay).toBe('4.2%')
     } finally {
       getAccessTokenSpy.mockRestore()
       fetchTrafficSpy.mockRestore()
@@ -715,13 +715,16 @@ describe('GA4 routes', () => {
     expect(body.organicSharePct).toBe(50)
     expect(body.aiSharePct).toBe(5)
     expect(body.socialSharePct).toBe(0)
-    expect(body.organicSharePctDisplay).toBe('50%')
-    expect(body.aiSharePctDisplay).toBe('5%')
-    expect(body.aiSharePctBySessionDisplay).toBe('5%')
+    // Displays read the unrounded share: 175/350 = 50%, 17/350 = 4.86%
+    // (5 on the wire), and the 158 uncovered sessions are 45.14%.
+    expect(body.organicSharePctDisplay).toBe('50.0%')
+    expect(body.aiSharePctDisplay).toBe('4.9%')
+    expect(body.aiSharePctBySessionDisplay).toBe('4.9%')
     expect(body.socialSharePctDisplay).toBe('0%')
     expect(body.directSharePctDisplay).toBe('0%')
-    expect(body.otherSessions).toBeGreaterThanOrEqual(0)
-    expect(body.otherSharePctDisplay).toBe('45%')
+    expect(body.otherSessions).toBe(158)
+    expect(body.otherSharePct).toBe(45)
+    expect(body.otherSharePctDisplay).toBe('45.1%')
     expect(body.lastSyncedAt).toBe(now)
     expect(body.periodStart).toBe('2026-02-19')
     expect(body.periodEnd).toBe('2026-03-20')
@@ -822,7 +825,7 @@ describe('GA4 routes', () => {
       expect(body.aiSessionsBySession).toBe(40)
       expect(body.paidAiSessionsBySession).toBe(30)
       expect(body.organicAiSessionsBySession).toBe(10)
-      expect(body.paidAiSharePctBySessionDisplay).toBe('30%')
+      expect(body.paidAiSharePctBySessionDisplay).toBe('30.0%')
 
       const byClass = Object.fromEntries(
         body.aiReferrals.map((row: { trafficClass: string; sessions: number }) => [row.trafficClass, row.sessions]),
@@ -831,11 +834,11 @@ describe('GA4 routes', () => {
       expect(byClass.organic).toBe(10)
 
       expect(body.channelBreakdown).toEqual({
-        organic: { sessions: 40, sharePct: 40, sharePctDisplay: '40%' },
+        organic: { sessions: 40, sharePct: 40, sharePctDisplay: '40.0%' },
         social: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
-        direct: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
-        ai: { sessions: 40, sharePct: 40, sharePctDisplay: '40%' },
-        other: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
+        direct: { sessions: 10, sharePct: 10, sharePctDisplay: '10.0%' },
+        ai: { sessions: 40, sharePct: 40, sharePctDisplay: '40.0%' },
+        other: { sessions: 10, sharePct: 10, sharePctDisplay: '10.0%' },
       })
     } finally {
       credentials.delete('paid-ai-split')
@@ -1045,14 +1048,14 @@ describe('GA4 routes', () => {
       expect(body.socialSessions).toBe(15)
       expect(body.aiSessionsBySession).toBe(15)
       expect(body.channelBreakdown).toEqual({
-        organic: { sessions: 30, sharePct: 30, sharePctDisplay: '30%' },
-        social: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
-        direct: { sessions: 20, sharePct: 20, sharePctDisplay: '20%' },
-        ai: { sessions: 15, sharePct: 15, sharePctDisplay: '15%' },
-        other: { sessions: 25, sharePct: 25, sharePctDisplay: '25%' },
+        organic: { sessions: 30, sharePct: 30, sharePctDisplay: '30.0%' },
+        social: { sessions: 10, sharePct: 10, sharePctDisplay: '10.0%' },
+        direct: { sessions: 20, sharePct: 20, sharePctDisplay: '20.0%' },
+        ai: { sessions: 15, sharePct: 15, sharePctDisplay: '15.0%' },
+        other: { sessions: 25, sharePct: 25, sharePctDisplay: '25.0%' },
       })
       expect(body.otherSessions).toBe(25)
-      expect(body.otherSharePctDisplay).toBe('25%')
+      expect(body.otherSharePctDisplay).toBe('25.0%')
       const totalBreakdownSessions = Object.values(body.channelBreakdown as Record<string, { sessions: number }>)
         .reduce((sum, bucket) => sum + bucket.sessions, 0)
       expect(totalBreakdownSessions).toBe(100)
@@ -1065,24 +1068,29 @@ describe('GA4 routes', () => {
     }
   })
 
-  it('GET /ga/traffic returns "<1%" display when AI sessions are present but rounded pct is 0', async () => {
+  it.each([
+    // 18 of 6,000 is 0.3%, which Math.round flattens to 0 on the wire.
+    { project: 'sub-one-pct', aiSessions: 18, display: '0.3%' },
+    // 2 of 6,000 is 0.03%, too small for one decimal, and still never "0%".
+    { project: 'sub-tenth-pct', aiSessions: 2, display: '<0.1%' },
+  ])('GET /ga/traffic displays $aiSessions AI sessions of 6,000 as $display although the rounded pct is 0', async ({ project, aiSessions, display }) => {
     // Seed a fresh project so we don't pollute the shared row counts.
     const now = new Date().toISOString()
     const today = now.slice(0, 10)
     const projRes = await app.inject({
       method: 'PUT',
-      url: '/api/v1/projects/sub-one-pct',
+      url: `/api/v1/projects/${project}`,
       payload: {
-        displayName: 'Sub One Pct',
-        canonicalDomain: 'sub-one.example',
+        displayName: project,
+        canonicalDomain: `${project}.example`,
         country: 'US',
         language: 'en',
       },
     })
     const subProjectId = JSON.parse(projRes.payload).id
 
-    credentials.set('sub-one-pct', {
-      projectName: 'sub-one-pct',
+    credentials.set(project, {
+      projectName: project,
       propertyId: '111222',
       clientEmail: 'sa@test.iam.gserviceaccount.com',
       privateKey: 'fake-key',
@@ -1090,7 +1098,6 @@ describe('GA4 routes', () => {
       updatedAt: now,
     })
 
-    // 6,000 total sessions, 18 AI referrals → 0.3%, which Math.round flattens to 0%.
     const snapshotId = crypto.randomUUID()
     db.insert(gaTrafficSnapshots).values({
       id: snapshotId,
@@ -1121,34 +1128,34 @@ describe('GA4 routes', () => {
       source: 'chatgpt.com',
       medium: 'referral',
       landingPage: '/sub-one-page',
-      sessions: 18,
-      users: 13,
+      sessions: aiSessions,
+      users: aiSessions,
       syncedAt: now,
     }).run()
 
     try {
       const res = await app.inject({
         method: 'GET',
-        url: '/api/v1/projects/sub-one-pct/ga/traffic',
+        url: `/api/v1/projects/${project}/ga/traffic`,
       })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
-      expect(body.aiSessionsBySession).toBe(18)
+      expect(body.aiSessionsBySession).toBe(aiSessions)
       // The integer pct still rounds to 0, preserved for back-compat...
       expect(body.aiSharePctBySession).toBe(0)
-      // ...but the display string surfaces the non-zero share as "<1%".
-      expect(body.aiSharePctBySessionDisplay).toBe('<1%')
-      expect(body.aiSharePctDisplay).toBe('<1%')
-      // Channels with truly zero sessions still render "0%" (no false "<1%").
+      // ...but the display string surfaces the non-zero share.
+      expect(body.aiSharePctBySessionDisplay).toBe(display)
+      expect(body.aiSharePctDisplay).toBe(display)
+      // Channels with truly zero sessions still render "0%" (no false "<0.1%").
       expect(body.socialSharePctDisplay).toBe('0%')
       // 600 / 6000 = 10%
-      expect(body.organicSharePctDisplay).toBe('10%')
+      expect(body.organicSharePctDisplay).toBe('10.0%')
       expect(body.otherSessions).toBeGreaterThanOrEqual(0)
       expect(typeof body.otherSharePctDisplay).toBe('string')
     } finally {
       db.delete(gaAiReferrals).where(eq(gaAiReferrals.id, aiId)).run()
       db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, snapshotId)).run()
-      credentials.delete('sub-one-pct')
+      credentials.delete(project)
     }
   })
 
@@ -1445,11 +1452,11 @@ describe('GA4 routes', () => {
 
       // 200/1000 = 20%, 100/1000 = 10%, 50/1000 = 5%. Pre-fix: 70%, 50%, 30%.
       expect(body.directSharePct).toBe(20)
-      expect(body.directSharePctDisplay).toBe('20%')
+      expect(body.directSharePctDisplay).toBe('20.0%')
       expect(body.socialSharePct).toBe(10)
-      expect(body.socialSharePctDisplay).toBe('10%')
+      expect(body.socialSharePctDisplay).toBe('10.0%')
       expect(body.aiSharePct).toBe(5)
-      expect(body.aiSharePctDisplay).toBe('5%')
+      expect(body.aiSharePctDisplay).toBe('5.0%')
 
       // The invariant itself, stated once: each share is its own reported
       // numerator over its own reported denominator. A share sourced from a
@@ -1481,11 +1488,12 @@ describe('GA4 routes', () => {
       expect(wideBody.socialSessions).toBe(500)
       expect(wideBody.aiSessionsDeduped).toBe(300)
 
-      // 700/3000 = 23.33 → 23. 500/3000 = 16.67 → 17. 300/3000 = 10.
+      // 700/3000 = 23.33 → 23. 500/3000 = 16.67 → 17. 300/3000 = 10. The
+      // displays keep the unrounded share's tenth.
       expect(wideBody.directSharePct).toBe(23)
-      expect(wideBody.directSharePctDisplay).toBe('23%')
+      expect(wideBody.directSharePctDisplay).toBe('23.3%')
       expect(wideBody.socialSharePct).toBe(17)
-      expect(wideBody.socialSharePctDisplay).toBe('17%')
+      expect(wideBody.socialSharePctDisplay).toBe('16.7%')
       expect(wideBody.aiSharePct).toBe(10)
 
       // The two windows disagree on every figure. That is what makes this
@@ -2158,18 +2166,20 @@ describe('GA4 routes', () => {
       expect(body.paidAiSessionsBySession + body.organicAiSessionsBySession).toBe(body.aiSessionsBySession)
 
       // Shares over the 200-session denominator, values and display strings.
+      // 23/200 = 11.5% and 15/200 = 7.5% round to 12 and 8 on the wire, while
+      // the displays keep the exact tenth.
       expect(body.aiSharePct).toBe(12)
       expect(body.aiSharePctBySession).toBe(12)
       expect(body.paidAiSharePct).toBe(4)
       expect(body.paidAiSharePctBySession).toBe(4)
       expect(body.organicAiSharePct).toBe(8)
       expect(body.organicAiSharePctBySession).toBe(8)
-      expect(body.aiSharePctDisplay).toBe('12%')
-      expect(body.aiSharePctBySessionDisplay).toBe('12%')
-      expect(body.paidAiSharePctDisplay).toBe('4%')
-      expect(body.paidAiSharePctBySessionDisplay).toBe('4%')
-      expect(body.organicAiSharePctDisplay).toBe('8%')
-      expect(body.organicAiSharePctBySessionDisplay).toBe('8%')
+      expect(body.aiSharePctDisplay).toBe('11.5%')
+      expect(body.aiSharePctBySessionDisplay).toBe('11.5%')
+      expect(body.paidAiSharePctDisplay).toBe('4.0%')
+      expect(body.paidAiSharePctBySessionDisplay).toBe('4.0%')
+      expect(body.organicAiSharePctDisplay).toBe('7.5%')
+      expect(body.organicAiSharePctBySessionDisplay).toBe('7.5%')
       expect(body.channelBreakdown.ai.sessions).toBe(23)
 
       // Per-row sessions still sum landing pages and dates inside one lens,

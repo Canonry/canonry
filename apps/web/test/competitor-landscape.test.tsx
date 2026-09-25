@@ -211,7 +211,8 @@ describe('CompetitorLandscape', () => {
     expect(within(table).getByText('Observed in this window')).not.toBeNull()
     expect(within(table).getByRole('rowheader', { name: 'Pinned zero' })).not.toBeNull()
     expect(within(table).getByRole('rowheader', { name: 'Observed rival' })).not.toBeNull()
-    expect(within(table).getByText('0.0%')).not.toBeNull()
+    // A measured zero share is exact, so it reads 0% with no decimal.
+    expect(within(table).getByText('0%')).not.toBeNull()
 
     const text = container.querySelector('table')?.textContent ?? ''
     expect(text.indexOf('Pinned zero')).toBeLessThan(text.indexOf('Observed rival'))
@@ -235,7 +236,7 @@ describe('CompetitorLandscape', () => {
 
     const brandRow = screen.getByRole('rowheader', { name: /Canonry/ }).closest('tr')!
     expect(within(brandRow).getAllByText('Not measured')).toHaveLength(3)
-    expect(brandRow.textContent).not.toContain('0.0%')
+    expect(brandRow.textContent).not.toMatch(/(^|[^\d.])0(\.0)?%/)
 
     rerender(<CompetitorLandscape {...props} landscape={landscape({
       scope,
@@ -243,7 +244,7 @@ describe('CompetitorLandscape', () => {
       evidence: { ...emptyEvidence, answeredResults: 1 },
     })} />)
     const measuredZeroRow = screen.getByRole('rowheader', { name: /Canonry/ }).closest('tr')!
-    expect(within(measuredZeroRow).getByText('0.0%')).toBeTruthy()
+    expect(within(measuredZeroRow).getByText('0%')).toBeTruthy()
     expect(within(measuredZeroRow).getAllByText('0')).toHaveLength(2)
   })
 
@@ -410,7 +411,8 @@ test('renders the server basis and explains unmeasured share without hiding coun
   expect(screen.getByText('No competitors configured.')).toBeTruthy()
   expect(screen.getByText('Not measured')).toBeTruthy()
   expect(screen.getByText('34')).toBeTruthy()
-  expect(screen.queryByText('100.0%')).toBeNull()
+  // Neither the one-decimal nor the exact-100 form of a share may appear.
+  expect(screen.queryByText(/100(\.0)?%/)).toBeNull()
 })
 test('renders the observed basis beside the supplied value', () => {
   renderLandscape({ landscape: landscape({ basis: 'observed', availability: 'measured', reason: null }) })

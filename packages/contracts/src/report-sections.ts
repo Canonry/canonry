@@ -23,7 +23,8 @@
  */
 import { z } from 'zod'
 import { actionConfidenceLabel, contentActionLabel, type ContentTargetRowDto } from './content.js'
-import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, type DeltaTone } from './formatting.js'
+import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, formatPointDelta, type DeltaTone } from './formatting.js'
+import { RatioUnits } from './ratio-unit.js'
 import { dedupeReportActions, dedupeReportOpportunities } from './report-dedup.js'
 import {
   reportActionAudienceSchema,
@@ -239,16 +240,37 @@ export function reportDirectionTone(direction: ReportRateDelta['direction']): De
   return 'neutral'
 }
 
-/** A what's-changed tile subtitle: `+15.0% vs 50%` for a rate, the shared smart-% copy for a count. */
+/**
+ * The magnitude of a report rate's change, in percentage points: `15.0`,
+ * `<0.1`, or `0`. The report's rates are 0..100 on the wire, so the change is
+ * scaled to the 0..1 delta `formatPointDelta` reads.
+ */
+function reportPointChangeMagnitude(deltaPoints: number): string {
+  return formatPointDelta(deltaPoints / 100).magnitude
+}
+
+/** A report rate's change, signed, in percentage points: `+15.0 pts`, `-3.5 pts`, `0 pts`. */
+function reportPointChange(deltaPoints: number): string {
+  const { direction, magnitude } = formatPointDelta(deltaPoints / 100)
+  const sign = direction === 'up' ? '+' : direction === 'down' ? '-' : ''
+  return `${sign}${magnitude} pts`
+}
+
+/** A what's-changed tile value: `65.0%` for a rate, the raw average for a count. */
+export function reportRateDeltaValue(delta: Pick<ReportRateDelta, 'current'>, unit: '%' | 'count'): string {
+  return unit === '%' ? formatPercent(delta.current, RatioUnits.percent) : String(delta.current)
+}
+
+/** A what's-changed tile subtitle: `+15.0 pts vs 50.0%` for a rate, the shared smart-% copy for a count. */
 export function reportRateDeltaCopy(delta: Pick<ReportRateDelta, 'deltaAbs' | 'prior' | 'deltaPct'>, unit: '%' | 'count'): string {
   return unit === '%'
-    ? `${delta.deltaAbs > 0 ? '+' : ''}${delta.deltaAbs.toFixed(1)}% vs ${delta.prior}%`
+    ? `${reportPointChange(delta.deltaAbs)} vs ${formatPercent(delta.prior, RatioUnits.percent)}`
     : formatAverageDelta(delta)
 }
 
-/** A provider movement's change cell: `+15.0% ↑`. */
+/** A provider movement's change cell: `+15.0 pts ↑`. */
 export function reportMovementChangeCopy(movement: Pick<ReportProviderMovement, 'deltaAbs' | 'direction'>): string {
-  return `${movement.deltaAbs > 0 ? '+' : ''}${movement.deltaAbs.toFixed(1)}% ${reportDeltaArrow(movement.direction)}`
+  return `${reportPointChange(movement.deltaAbs)} ${reportDeltaArrow(movement.direction)}`
 }
 
 /** `vs prior 14 days`: the window a traffic or server-activity delta compares against. */
@@ -269,10 +291,11 @@ export interface ReportClientTrendCopy {
 export function reportClientTrendCopy(delta: ReportRateDelta | null): ReportClientTrendCopy | null {
   if (!delta) return null
   const checks = delta.window ?? 1
-  const compare = checks >= 2 ? `vs prior ${checks} checks (avg ${delta.prior}%)` : `since last check (was ${delta.prior}%)`
+  const prior = formatPercent(delta.prior, RatioUnits.percent)
+  const compare = checks >= 2 ? `vs prior ${checks} checks (avg ${prior})` : `since last check (was ${prior})`
   const arrow = reportDeltaArrow(delta.direction)
-  if (delta.direction === 'up') return { text: `Up ${delta.deltaAbs.toFixed(1)} points ${compare}`, tone: 'positive', arrow }
-  if (delta.direction === 'down') return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points ${compare}`, tone: 'negative', arrow }
+  if (delta.direction === 'up') return { text: `Up ${reportPointChangeMagnitude(delta.deltaAbs)} points ${compare}`, tone: 'positive', arrow }
+  if (delta.direction === 'down') return { text: `Down ${reportPointChangeMagnitude(delta.deltaAbs)} points ${compare}`, tone: 'negative', arrow }
   return { text: `Holding steady ${compare}`, tone: 'neutral', arrow }
 }
 
@@ -572,7 +595,7 @@ export function reportExecutiveHeadline(report: ProjectReportDto): ReportExecuti
       ? `${summary.citedQueryCount} of ${summary.totalQueryCount} tracked ${queryNoun} cite ${report.meta.project.displayName}`
       : copy.emptyTitle,
     subtitle: hasQueries
-      ? `${summary.citationRate}% citation coverage and ${summary.mentionRate}% mention coverage across ${summary.providerCount} ${pluralize(summary.providerCount, 'provider')}.`
+      ? `${formatPercent(summary.citationRate, RatioUnits.percent)} citation coverage and ${formatPercent(summary.mentionRate, RatioUnits.percent)} mention coverage across ${summary.providerCount} ${pluralize(summary.providerCount, 'provider')}.`
       : copy.emptySubtitle,
     citedFragment: hasQueries ? `${summary.citedQueryCount}/${summary.totalQueryCount} ${queryNoun} cited` : copy.noQueries,
     mentionedFragment: hasQueries ? `${summary.mentionedQueryCount}/${summary.totalQueryCount} ${queryNoun} mentioned` : copy.noQueries,
@@ -678,9 +701,9 @@ const COMPETITIVE_EVIDENCE_COPY = {
   },
 } as const
 
-/** A provider bar's value: `50% (1/2)`. */
+/** A provider bar's value: `50.0% (1/2)`. */
 export function reportProviderRateLabel(rate: { citationRate: number; citedCount: number; totalCount: number }): string {
-  return `${rate.citationRate}% (${rate.citedCount}/${rate.totalCount})`
+  return `${formatPercent(rate.citationRate, RatioUnits.percent)} (${rate.citedCount}/${rate.totalCount})`
 }
 
 const MENTION_SCOPE_LABELS: Readonly<Partial<Record<string, string>>> = {
@@ -728,7 +751,7 @@ export function reportCitedUrlCount(count: number): string {
 }
 
 export interface ReportSourceOriginHeadline {
-  /** `20%`, shown emphasized. */
+  /** `20.0%`, shown emphasized. */
   share: string
   /** `of citations went to tracked competitors (2 of 10).` */
   detail: string
@@ -739,12 +762,12 @@ export function reportSourceOriginHeadline(categories: readonly AiSourceCategory
   const competitor = categories.find(category => category.category === SourceCategories.competitor)
   if (!competitor) return null
   const total = categories.reduce((sum, category) => sum + category.count, 0)
-  return { share: `${competitor.sharePct}%`, detail: `of citations went to tracked competitors (${competitor.count} of ${total}).` }
+  return { share: formatPercent(competitor.sharePct, RatioUnits.percent), detail: `of citations went to tracked competitors (${competitor.count} of ${total}).` }
 }
 
-/** A source-type bar's share: `(20%)`. */
+/** A source-type bar's share: `(20.0%)`. */
 export function reportSourceCategoryShareLabel(sharePct: number): string {
-  return `(${sharePct}%)`
+  return `(${formatPercent(sharePct, RatioUnits.percent)})`
 }
 // ── end report slice S2 ──
 
@@ -837,9 +860,9 @@ export function reportGaIntro(ga: Pick<GaTrafficSection, 'periodStart' | 'period
   return `Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.`
 }
 
-/** A share bar's detail after the count: `clicks · 80%`. */
+/** A share bar's detail after the count: `clicks · 80.0%`. */
 export function reportShareBarShareLabel(countLabel: string, sharePct: number): string {
-  return `${countLabel} · ${sharePct}%`
+  return `${countLabel} · ${formatPercent(sharePct, RatioUnits.percent)}`
 }
 // ── end report slice S3 ──
 
@@ -1007,9 +1030,9 @@ export function reportCitationsTrendBaseline(pointCount: number): string {
   return `Building baseline (${pointCount} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`
 }
 
-/** A trend row's per-engine rates: `gemini: 65% · openai: 50%`. */
+/** A trend row's per-engine rates: `gemini: 65.0% · openai: 50.0%`. */
 export function reportTrendProviderRates(rates: readonly { provider: string; citationRate: number }[]): string {
-  return rates.map(rate => `${rate.provider}: ${rate.citationRate}%`).join(' · ')
+  return rates.map(rate => `${rate.provider}: ${formatPercent(rate.citationRate, RatioUnits.percent)}`).join(' · ')
 }
 // ── end report slice S4 ──
 
@@ -1048,7 +1071,7 @@ export function reportOpportunityActionLine(opportunity: Pick<ContentTargetRowDt
   return `${contentActionLabel(opportunity.action)} · ${actionConfidenceLabel(opportunity.actionConfidence)} confidence`
 }
 
-/** A content gap's miss rate, rounded to a whole percent: `50%`. */
+/** A content gap's miss rate, a 0..1 fraction, as a percent: `50.0%`. */
 export function reportMissRateLabel(missRate: number): string {
   return formatPercent(missRate)
 }

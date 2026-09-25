@@ -36,13 +36,13 @@
       ],
       "content": [
         {
-          "text": "Overview 40% When customers asked AI 5 queries about your industry, AI mentioned you in 2 of those queries. «positive|↑ Up 7.0 points vs prior 3 checks (avg 33%)»"
+          "text": "Overview 40.0% When customers asked AI 5 queries about your industry, AI mentioned you in 2 of those queries. «positive|↑ Up 7.0 points vs prior 3 checks (avg 33.0%)»"
         },
         {
-          "tile": "AI mentions your name 40% Says your name in 2 of 5 queries"
+          "tile": "AI mentions your name 40.0% Says your name in 2 of 5 queries"
         },
         {
-          "tile": "AI links to your website 65% Cites your site as a source in 3 of 5 queries"
+          "tile": "AI links to your website 65.0% Cites your site as a source in 3 of 5 queries"
         },
         {
           "tile": "AI tools tested 2 Gemini, ChatGPT"
@@ -72,7 +72,7 @@
           "text": "Higher is better. Each bar shows the share of customer queries where the AI named you in the answer."
         },
         {
-          "text": "Gemini 50% (1/2) ChatGPT 50% (1/2)"
+          "text": "Gemini 50.0% (1/2) ChatGPT 50.0% (1/2)"
         },
         {
           "text": "This summary is scoped to the michigan run location."
@@ -146,10 +146,10 @@
       ],
       "content": [
         {
-          "tile": "AI mentions your name «positive|40% ↑» +7.0% vs 33%"
+          "tile": "AI mentions your name «positive|40.0% ↑» +7.0 pts vs 33.0%"
         },
         {
-          "tile": "AI links to your website «positive|65% ↑» +15.0% vs 50%"
+          "tile": "AI links to your website «positive|65.0% ↑» +15.0 pts vs 50.0%"
         },
         {
           "tile": "Queries AI mentioned you in 2 → 0 vs 2"
@@ -166,9 +166,9 @@
         {
           "row": [
             "Gemini",
-            "50%",
-            "65%",
-            "«positive|+15.0% ↑»"
+            "50.0%",
+            "65.0%",
+            "«positive|+15.0 pts ↑»"
           ]
         },
         {
@@ -375,7 +375,7 @@
           "text": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
         },
         {
-          "text": "«caution|80%» 80 of 100 pages indexed 20 pages are not indexed yet."
+          "text": "«caution|80.0%» 80 of 100 pages indexed 20 pages are not indexed yet."
         },
         {
           "text": "What people search Google for"

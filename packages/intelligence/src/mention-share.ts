@@ -1,7 +1,9 @@
 import {
   brandKeyFromText,
   compileBrandAliases,
+  formatPercent,
   matcherMatchesText,
+  RatioUnits,
   type BrandAliasMatcher,
   type MetricTone,
   type QueryClass,
@@ -375,7 +377,7 @@ function describe(parts: {
   const top = perCompetitor[0]
   const total = projectMentionSnapshots + competitorMentionSnapshots
   if (!top) {
-    return `${score}% of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
+    return `${formatPercent(score, RatioUnits.percent)} of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
   }
-  return `${score}% of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
+  return `${formatPercent(score, RatioUnits.percent)} of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
 }

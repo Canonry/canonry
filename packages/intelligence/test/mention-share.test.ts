@@ -375,6 +375,8 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
     const result = buildMentionShare(lopsidedBasket(), { competitors: RIVALS })
     expect(result.delta).toBe('1 of 25 brand mentions · non-brand queries')
     expect(result.description).toContain('on non-brand queries')
+    // 1 of 25 is 4 on the wire; the sentence prints it through the shared percent rule.
+    expect(result.description).toMatch(/^4\.0% of brand mentions on non-brand queries are you\. Top competitor: /)
     expect(result.description).toContain('20 of 20 answers to queries that contain your name')
   })
 

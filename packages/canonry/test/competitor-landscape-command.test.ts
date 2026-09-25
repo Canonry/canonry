@@ -92,7 +92,8 @@ describe('showCompetitorLandscape', () => {
     output = await captureLog(() => showCompetitorLandscape('acme', {}))
     expect(output).toContain('SOV Not measured · non-brand queries')
     expect(output).toContain('No competitors configured.')
-    expect(output).not.toContain('100.0%')
+    // Neither the one-decimal nor the exact-100 form of a share may appear.
+    expect(output).not.toMatch(/\b100(\.0)?%/)
   })
 
   beforeEach(() => vi.clearAllMocks())
