@@ -446,6 +446,7 @@ Direct and reviewed requests submit final query text: a scope only records a mar
 - `ga ai-referral-daily` (AI sessions per day and per source, landing pages summed inside ONE attribution dimension so the totals match `ga traffic`; sessions only, since GA counts users distinct per grain and no un-dimensioned AI-referral fetch exists)
 - `ga ai-referral-history` (raw per-landing-page detail rows, never a total)
 - `ga social-referral-history`, `ga social-referral-summary`, `ga attribution`
+- `ga traffic` prints each referral row's `share` and each top page's `organicShare` as the API sent them (the dashboard's Share and Organic % columns).
 
 Date windows and headers:
 

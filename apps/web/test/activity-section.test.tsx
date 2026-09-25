@@ -333,6 +333,110 @@ test('renders five-channel breakdown with disjoint Organic, Social, Direct, Know
   expect(within(row).getByText('12')).toBeTruthy()
 })
 
+test('renders each referral and landing-page share the API sent, never one divided from counts', async () => {
+  // Every share disagrees with its counts on purpose. Dividing counts would read
+  // chatgpt.com 12/42 = 28.6%, claude.ai 30/42 = 71.4%, facebook.com 8/8 = 100%
+  // and /pricing 50/80 = 62.5%. The tables must show the API's values instead.
+  const restoreFetch = mockFetch((url) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/ga/status')) {
+      return jsonResponse({
+        connected: true,
+        propertyId: '999888',
+        clientEmail: 'sa@test.iam.gserviceaccount.com',
+        authMethod: 'service-account',
+        lastSyncedAt: '2026-03-31T12:00:00.000Z',
+        createdAt: '2026-03-31T12:00:00.000Z',
+        updatedAt: '2026-03-31T12:00:00.000Z',
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
+      return jsonResponse({
+        totalSessions: 120,
+        totalOrganicSessions: 70,
+        totalDirectSessions: 30,
+        totalUsers: 95,
+        topPages: [
+          { landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 20, users: 60, organicShare: 0.25 },
+        ],
+        aiReferrals: [
+          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 12, share: 0.375 },
+          { source: 'claude.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', sessions: 30, share: 0.625 },
+        ],
+        aiReferralLandingPages: [],
+        aiSessionsDeduped: 42,
+        paidAiSessionsDeduped: 0,
+        organicAiSessionsDeduped: 42,
+        aiSessionsBySession: 12,
+        paidAiSessionsBySession: 0,
+        organicAiSessionsBySession: 12,
+        socialReferrals: [
+          { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 8, share: 0.0004 },
+        ],
+        socialSessions: 8,
+        channelBreakdown: {
+          organic: { sessions: 70, sharePct: 58, sharePctDisplay: '58.3%' },
+          social: { sessions: 8, sharePct: 7, sharePctDisplay: '6.7%' },
+          direct: { sessions: 30, sharePct: 25, sharePctDisplay: '25.0%' },
+          ai: { sessions: 12, sharePct: 10, sharePctDisplay: '10.0%' },
+          other: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
+        },
+        organicSharePct: 58,
+        aiSharePct: 35,
+        aiSharePctBySession: 10,
+        paidAiSharePct: 0,
+        paidAiSharePctBySession: 0,
+        organicAiSharePct: 35,
+        organicAiSharePctBySession: 10,
+        directSharePct: 25,
+        socialSharePct: 7,
+        organicSharePctDisplay: '58.3%',
+        aiSharePctDisplay: '35.0%',
+        aiSharePctBySessionDisplay: '10.0%',
+        paidAiSharePctDisplay: '0%',
+        paidAiSharePctBySessionDisplay: '0%',
+        organicAiSharePctDisplay: '35.0%',
+        organicAiSharePctBySessionDisplay: '10.0%',
+        directSharePctDisplay: '25.0%',
+        socialSharePctDisplay: '6.7%',
+        otherSessions: 0,
+        otherSharePct: 0,
+        otherSharePctDisplay: '0%',
+        lastSyncedAt: '2026-03-31T12:00:00.000Z',
+        windowStart: '2026-03-02',
+        windowEnd: '2026-03-31',
+        windowDays: 30,
+        periodStart: '2026-03-02',
+        periodEnd: '2026-03-31',
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
+    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) return jsonResponse([])
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderActivitySection()
+
+  await waitFor(() => {
+    expect(screen.getByText('Where AI visitors came from')).toBeTruthy()
+  })
+
+  const shareCell = (row: HTMLElement) => within(row).getAllByRole('cell').at(-1)?.textContent
+  const rowOf = (scope: HTMLElement, text: string) => within(scope).getByText(text).closest('tr') as HTMLElement
+
+  const aiCard = screen.getByText('Where AI visitors came from').closest('div.surface-card') as HTMLElement
+  expect(shareCell(rowOf(aiCard, 'chatgpt.com'))).toBe('37.5%')
+  expect(shareCell(rowOf(aiCard, 'claude.ai'))).toBe('62.5%')
+
+  const socialCard = screen.getByText('Social sources').closest('div.surface-card') as HTMLElement
+  expect(shareCell(rowOf(socialCard, 'facebook.com'))).toBe('<0.1%')
+
+  const pagesSection = screen.getByRole('heading', { name: /Top Landing Pages/ }).closest('section') as HTMLElement
+  expect(shareCell(rowOf(pagesSection, '/pricing'))).toBe('25.0%')
+})
+
 test('social table collapses to top 25 with show-all toggle and surfaces Other-source rollup', async () => {
   // 30 sources keeps the table over the 25-row default cap and forces top-N + Other in the chart
   const longCampaignName = (i: number) =>

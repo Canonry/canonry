@@ -76,6 +76,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
 | Statistics over a series | `packages/contracts/src/statistics.ts` (`wilsonInterval` for a proportion; `linearTrend` for the least-squares fit of any evenly-spaced series, returning slope-per-step plus the two endpoints a chart draws between). Fit trends server-side and put them in the DTO — a regression computed in a chart component is invisible to the CLI and breaks UI/CLI parity. |
+| Shares of a total or a breakdown | `packages/contracts/src/statistics.ts` (`shareOf`: a part of an independent total, null when there is a part but no total; `breakdownShares`: rows whose shares add up to 1). Compute shares in the API and publish them; a component formats them and never divides counts. |
 | Bounded async concurrency | `packages/contracts/src/concurrency.ts` (`mapWithConcurrency` — order-preserving worker pool, fail-fast with clean settle) |
 | Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
