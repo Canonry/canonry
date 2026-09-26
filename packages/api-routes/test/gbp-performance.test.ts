@@ -139,9 +139,9 @@ describe('GBP performance routes (Phase 2)', () => {
       expect(body.keywords[0]!.valueCount).toBe(10939)
     })
 
-    it('sends thresholdedPct to two decimals, not a whole percent', async () => {
+    it('sends thresholdedPct at wire precision, not a whole percent', async () => {
       const projectId = ctx.seedProject('thirds', 'thirds.example.com')
-      // 2 exact + 1 thresholded → 33.33%, which used to arrive as 33.
+      // 2 exact + 1 thresholded → 33.333333%, which used to arrive as 33.
       const rows = [
         { keyword: 'x', valueCount: 40, valueThreshold: null },
         { keyword: 'y', valueCount: 20, valueThreshold: null },
@@ -156,7 +156,7 @@ describe('GBP performance routes (Phase 2)', () => {
       const res = await ctx.app.inject({ method: 'GET', url: '/projects/thirds/gbp/keywords' })
       expect(res.statusCode).toBe(200)
       const body = res.json() as { total: number; thresholdedPct: number }
-      expect(body).toMatchObject({ total: 3, thresholdedPct: 33.33 })
+      expect(body).toMatchObject({ total: 3, thresholdedPct: 33.333333 })
     })
 
     it('returns thresholdedPct=0 for an empty project', async () => {

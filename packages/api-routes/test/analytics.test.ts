@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
-import { brandMetricsDtoSchema, MODEL_POINTER_REGISTRY_CHECKED_THROUGH, SOURCE_BREAKDOWN_COUNT_UNITS } from '@ainyc/canonry-contracts'
+import { brandMetricsDtoSchema, MODEL_POINTER_REGISTRY_CHECKED_THROUGH, RatioUnits, SOURCE_BREAKDOWN_COUNT_UNITS, roundRatio } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -341,9 +341,9 @@ describe('analytics routes', () => {
         for (const metric of Object.values(bucket.byProvider) as Array<{
           citationRate: number; mentionRate: number; cited: number; total: number; mentionedCount: number
         }>) {
-          // 4dp rounding invariant — same rounding computeProviderMetric applies to `overall`
-          expect(metric.citationRate).toBe(Math.round(metric.citationRate * 10000) / 10000)
-          expect(metric.mentionRate).toBe(Math.round(metric.mentionRate * 10000) / 10000)
+          // Wire rounding invariant — same rounding computeProviderMetric applies to `overall`
+          expect(metric.citationRate).toBe(roundRatio(metric.citationRate, RatioUnits.fraction))
+          expect(metric.mentionRate).toBe(roundRatio(metric.mentionRate, RatioUnits.fraction))
           // a provider can't cite/mention more than its own snapshot total
           expect(metric.cited).toBeLessThanOrEqual(metric.total)
           expect(metric.mentionedCount).toBeLessThanOrEqual(metric.total)
@@ -1268,13 +1268,13 @@ describe('analytics routes', () => {
     expect(body.buckets.map(b => [b.citationRate, b.mentionRate, b.mentionShare.rate])).toEqual([
       [0.5, 0.5, 0.5],
       [0, 0, null],
-      [1, 1, 0.6667],
+      [1, 1, 0.66666667],
     ])
     expect(body.windowChange).toEqual({
       citationRate: { first: 0.5, latest: 1, delta: 0.5 },
       mentionRate: { first: 0.5, latest: 1, delta: 0.5 },
       // 2 of 3 namings minus 1 of 2, from the two buckets that had a share.
-      mentionShare: { first: 0.5, latest: 0.6667, delta: 0.1667 },
+      mentionShare: { first: 0.5, latest: 0.66666667, delta: 0.16666667 },
     })
   })
 
@@ -1356,7 +1356,7 @@ describe('analytics fan-out (#480)', () => {
       id: projectId,
       name: 'fanout-analytics',
       displayName: 'Fan-out Analytics',
-      canonicalDomain: 'azcoatings.example',
+      canonicalDomain: 'acmecoatings.test',
       country: 'US',
       language: 'en',
       ownedDomains: '[]',
@@ -1387,7 +1387,7 @@ describe('analytics fan-out (#480)', () => {
     // the query is "cited" project-wide but the not-cited michigan snapshot
     // should still surface providers in the cited/gap classification logic.
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: ['acmecoatings.test'], competitorOverlap: [], recommendedCompetitors: [], location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
       { id: crypto.randomUUID(), runId: miLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'michigan answer', citedDomains: [],                       competitorOverlap: [], recommendedCompetitors: [], location: 'michigan', rawResponse: '{}', createdAt: latestCreatedAt },
     ]).run()
   })
@@ -1610,16 +1610,16 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(byDomain['reddit.com']).toMatchObject({ surfaceClass: 'other', category: 'forum' })
   })
 
-  it('computes each ranked entry percentage as count / totalCitedSlots (4dp)', async () => {
+  it('computes each ranked entry percentage as count / totalCitedSlots (wire precision)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
     const body = JSON.parse(res.payload)
     const byDomain: Record<string, { count: number; percentage: number }> = {}
     for (const e of body.ranked.entries) byDomain[e.domain] = e
     // denominator is totalCitedSlots (17), NOT domainTotal — pins numerator,
-    // denominator, and the round4 rounding in one assertion.
-    expect(byDomain['acme.com']!.percentage).toBe(0.1765) // 3/17 → round4
-    expect(byDomain['rival.com']!.percentage).toBe(0.1176) // 2/17
-    expect(byDomain['forbes.com']!.percentage).toBe(0.0588) // 1/17
+    // denominator, and the wire rounding in one assertion.
+    expect(byDomain['acme.com']!.percentage).toBe(0.17647059) // 3/17 at eight decimals
+    expect(byDomain['rival.com']!.percentage).toBe(0.11764706) // 2/17
+    expect(byDomain['forbes.com']!.percentage).toBe(0.05882353) // 1/17
   })
 
   it('rolls up cited slots by surface class over the FULL scope, summing to the total', async () => {
@@ -1634,17 +1634,17 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(roll['editorial-media']).toMatchObject({ count: 1, domainCount: 1 })
     expect(roll['other']).toMatchObject({ count: 8, domainCount: 8 })
 
-    // exact rollup percentages = class count / totalCitedSlots (17), 4dp
-    expect(roll['own']!.percentage).toBe(0.2353) // 4/17
-    expect(roll['other']!.percentage).toBe(0.4706) // 8/17
+    // exact rollup percentages = class count / totalCitedSlots (17), at wire precision
+    expect(roll['own']!.percentage).toBe(0.23529412) // 4/17
+    expect(roll['other']!.percentage).toBe(0.47058824) // 8/17
 
     const countSum = body.ranked.bySurfaceClass.reduce((s: number, r: { count: number }) => s + r.count, 0)
     const domainSum = body.ranked.bySurfaceClass.reduce((s: number, r: { domainCount: number }) => s + r.domainCount, 0)
     const pctSum = body.ranked.bySurfaceClass.reduce((s: number, r: { percentage: number }) => s + r.percentage, 0)
     expect(countSum).toBe(17)
     expect(domainSum).toBe(14)
-    // 4dp per-class rounding can leave the sum a hair off 1 (here 0.9999).
-    expect(pctSum).toBeCloseTo(1, 2)
+    // Per-class rounding can leave the sum a hair off 1 (at most half a unit of the last place per class).
+    expect(pctSum).toBeCloseTo(1, 6)
   })
 
   it('excludes AI provider infrastructure domains from the ranked list', async () => {

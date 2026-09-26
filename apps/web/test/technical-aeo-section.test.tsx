@@ -245,8 +245,8 @@ test('loads the scorecard and pages for a selected historical audit', async () =
 
 test('shows a cross-cutting issue share as the API sent it, through formatPercent', () => {
   const queryClient = makeClient()
-  // 1 of 3 audited pages is 33.33% on the wire.
-  const issue = { ...scoreWithFinding().crossCuttingIssues[0]!, affectedPages: 1, totalPages: 3, affectedPct: 33.33 }
+  // 1 of 3 audited pages is 33.333333% on the wire.
+  const issue = { ...scoreWithFinding().crossCuttingIssues[0]!, affectedPages: 1, totalPages: 3, affectedPct: 33.333333 }
   queryClient.setQueryData(scoreKey, { ...scoreWithFinding(), crossCuttingIssues: [issue] })
 
   render(

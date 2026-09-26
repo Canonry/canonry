@@ -399,7 +399,7 @@ describe('renderReportHtml', () => {
   // Locks in the "smart %" rule for the What's-changed count + traffic tiles.
   // Both surfaces call the SAME shared contracts helpers (formatAverageDelta /
   // formatWindowCountDelta), so the HTML asserted here is byte-identical to the
-	  // SPA subtitle. The gjelina-shaped values: mentioned-query count averages ~3.3
+	  // SPA subtitle. The hotel-fixture-shaped values: mentioned-query count averages ~3.3
 	  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
   // window (large base → percentage).
   test('whatsChanged count + traffic tiles use the smart-% rule', () => {
@@ -412,8 +412,8 @@ describe('renderReportHtml', () => {
 	      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
 	      mentionedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
       // Large base (>= MIN_PCT_BASE): signed percentage, no "visits" word.
-      // 382 → 328 is -14.14%, the two-decimal deltaPct the report now sends.
-      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14.14, direction: 'down' },
+      // 382 → 328 is -14.136126%, the deltaPct the report sends at wire precision.
+      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14.136126, direction: 'down' },
     }
 
     const clientHtml = renderReportHtml(report, { audience: 'client' })

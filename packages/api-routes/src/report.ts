@@ -2184,8 +2184,8 @@ function buildWhatsChanged(input: {
     for (const cur of latest!.providerRates) {
       const priorRate = priorByProvider.get(cur.provider)
       if (priorRate === undefined) continue
-      // Points between two two-decimal rates, kept at that precision so the
-      // wire carries 16.67 rather than 16.670000000000002.
+      // Points between two rates at wire precision, kept at that precision so
+      // the wire carries 16.666667 rather than 16.666667000000004.
       const deltaAbs = roundRatio(cur.citationRate - priorRate, RatioUnits.percent)
       providerMovements.push({
         provider: cur.provider,

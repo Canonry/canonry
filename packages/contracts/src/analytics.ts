@@ -270,7 +270,7 @@ export const windowRateChangeSchema = z.object({
   first: fraction(z.number().min(0).max(1)),
   /** The rate of the latest bucket that carries this series. */
   latest: fraction(z.number().min(0).max(1)),
-  /** `latest - first` in fraction points, rounded to four decimals like the rates it subtracts. */
+  /** `latest - first` in fraction points, rounded to wire precision like the rates it subtracts. */
   delta: fraction(z.number().min(-1).max(1)),
 })
 export type WindowRateChange = z.infer<typeof windowRateChangeSchema>
@@ -434,7 +434,7 @@ export const sourceCategoryCountSchema = z.object({
   category: sourceCategorySchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of all cited slots in scope, 0..1 (4dp). */
+  /** Share of all cited slots in scope, 0..1 (at wire precision). */
   percentage: fraction(),
   topDomains: z.array(z.object({ domain: z.string(), count: z.number().int() })),
 })
@@ -450,11 +450,11 @@ export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
   percentage: fraction(),
   /**
    * Share of the list's `answerTotal` (every answer in scope, including answers
-   * that cited nothing) that cite this domain, 0..1 (4dp). Optional only so an
+   * that cited nothing) that cite this domain, 0..1 (at wire precision). Optional only so an
    * older server's response still parses.
    */
   answerShare: fraction().optional(),
@@ -469,7 +469,7 @@ export const surfaceClassCountSchema = z.object({
   surfaceClass: surfaceClassSchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
   percentage: fraction(),
   domainCount: z.number().int(),
 })

@@ -76,13 +76,13 @@ describe('buildAiSourceOrigin', () => {
     expect(result.topDomains).toHaveLength(20)
   })
 
-  it('keeps category sharePct to two decimals, not a whole percent', () => {
+  it('keeps category sharePct at wire precision, not a whole percent', () => {
     const snapshots = [
       snap(['wikipedia.org', 'wikipedia.org', 'reddit.com']),
     ]
     const result = buildAiSourceOrigin(snapshots, PROJECT_DOMAINS, COMPETITOR_DOMAINS)
-    // The exact category names are owned by categorizeSource; 2 of 3 and 1 of 3 citations are 66.67 and 33.33.
-    expect(result.categories.map(c => [c.count, c.sharePct])).toEqual([[2, 66.67], [1, 33.33]])
+    // The exact category names are owned by categorizeSource; 2 of 3 and 1 of 3 citations are 66.666667 and 33.333333.
+    expect(result.categories.map(c => [c.count, c.sharePct])).toEqual([[2, 66.666667], [1, 33.333333]])
     const totalShare = result.categories.reduce((s, c) => s + c.sharePct, 0)
     expect(totalShare).toBeCloseTo(100, 10)
   })

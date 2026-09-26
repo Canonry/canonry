@@ -40,7 +40,7 @@ export interface GetOptions {
  *   competitors[2].pressureLabel
  *
  * Designed so an agent can compose with shell: `count=$(canonry get
- * demand-iq summary.fail --from doctor)` — scalar leaves print without
+ * acme-iq summary.fail --from doctor)` — scalar leaves print without
  * quotes for one-liners; object/array leaves print as JSON so structured
  * results stay parseable.
  */

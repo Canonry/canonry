@@ -74,7 +74,7 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
   affectedPages: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
   /**
-   * `affectedPages / totalPages * 100` to two decimals, `0` when `totalPages`
+   * `affectedPages / totalPages * 100` at wire precision, `0` when `totalPages`
    * is `0`. Computed by canonry, not aeo-audit. Audits stored by earlier
    * versions carry a whole number.
    */

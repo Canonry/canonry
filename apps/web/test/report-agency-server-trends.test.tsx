@@ -165,8 +165,8 @@ describe('agency server activity', () => {
     const report = fullReport()
     report.serverActivity = {
       ...report.serverActivity!,
-      // 117 → 90 is -23.08%, the two-decimal deltaPct the report sends.
-      verifiedCrawlerHits: { current: 90, prior: 117, deltaPct: -23.08 },
+      // 117 → 90 is -23.076923%, the deltaPct the report sends at wire precision.
+      verifiedCrawlerHits: { current: 90, prior: 117, deltaPct: -23.076923 },
       unverifiedCrawlerHits: { current: 5, prior: 5, deltaPct: 0 },
       aiUserFetchHits: { current: 42, prior: 0, deltaPct: null },
       referralArrivals: { current: 12, prior: 6, deltaPct: null },
@@ -290,8 +290,8 @@ describe('agency server activity', () => {
     report.serverActivity = {
       ...report.serverActivity!,
       byOperator: [
-        // -33.33 is the two-decimal deltaPct the report sends for a third fewer hits.
-        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: -33.33 },
+        // -33.333333 is the deltaPct the report sends, at wire precision, for a third fewer hits.
+        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: -33.333333 },
         { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 3, deltaPct: 0 },
         { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, userFetchHits: 0, referralArrivals: 1, deltaPct: null },
       ],

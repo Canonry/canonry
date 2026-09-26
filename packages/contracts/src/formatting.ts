@@ -434,8 +434,8 @@ export function relativeChangeRatio(current: number, baseline: number): number |
 
 /**
  * Signed relative change from `prior` to `current` in percent units (50 is
- * +50%), at the percent wire precision of two decimals: 150 against 100 is
- * `50`, 4 against 3 is `33.33`. Null when the change is undefined (see
+ * +50%), at the percent wire precision: 150 against 100 is
+ * `50`, 4 against 3 is `33.333333`. Null when the change is undefined (see
  * `relativeChangeRatio`). Show it with `formatSignedPercent` or
  * `formatPercent(value, 'percent')`.
  */

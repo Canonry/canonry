@@ -65,9 +65,9 @@ function seedFanOutScenario(opts: { currentSiblingStatus?: RunSpec['status'] } =
 
   db.insert(projects).values({
     id: projectId,
-    name: 'azcoatings',
-    displayName: 'AZ Coatings',
-    canonicalDomain: 'azcoatings.example',
+    name: 'harborline-coatings',
+    displayName: 'Harborline Coatings',
+    canonicalDomain: 'harborline-coatings.example',
     country: 'US',
     language: 'en',
     ownedDomains: '[]',
@@ -120,7 +120,7 @@ function seedFanOutScenario(opts: { currentSiblingStatus?: RunSpec['status'] } =
     citationState: s.citationState,
     answerMentioned: s.citationState === 'cited',
     location: s.location,
-    citedDomains: s.citationState === 'cited' ? ['azcoatings.example'] : [],
+    citedDomains: s.citationState === 'cited' ? ['harborline-coatings.example'] : [],
     competitorOverlap: [],
     recommendedCompetitors: [],
     rawResponse: '{}',

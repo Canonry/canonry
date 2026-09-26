@@ -186,7 +186,7 @@ describe('drainVercelTrafficEvents', () => {
   })
 
   test('drains a dense minute via one-second slicing without hitting the floor budget', async () => {
-    // The gjelina-hotel regression: a single minute holds more than the normal
+    // The dense-minute regression: a single minute holds more than the normal
     // page budget at the minute level, but each one-second slice drains
     // cleanly. The previous one-minute floor would have escalated to the
     // floor-budget re-pull (or failed loudly) on every dense minute; the
@@ -400,7 +400,7 @@ describe('drainVercelTrafficEvents', () => {
   })
 
   test('start-small makes forward progress on a dense backlog instead of wedging', async () => {
-    // The gjelina wedge: a dense multi-hour backlog where every span wider than a
+    // The dense-backlog wedge: a dense multi-hour backlog where every span wider than a
     // minute overflows the page budget. Opening at the full window would spend the
     // whole deadline halving a 24h span without ever completing a sub-window (zero
     // progress, permanent wedge). Starting at the 5-min initial span, the drain
@@ -429,7 +429,7 @@ describe('drainVercelTrafficEvents', () => {
   })
 
   test('skips past an un-narrowable head slice when the deadline trips mid-narrowing, instead of wedging', async () => {
-    // The gjelina wedge that start-small alone did NOT fix: a head slice that is
+    // The dense-backlog wedge that start-small alone did NOT fix: a head slice that is
     // both dense AND slow. Every span overflows (hasMore always true), so the
     // drain only ever halves — it never completes a sub-window — and the budget
     // elapses while still narrowing, before it can reach the drainable floor.
