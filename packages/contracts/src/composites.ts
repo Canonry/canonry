@@ -96,10 +96,28 @@ export interface MentionShareCompetitorRowDto {
   shareOfCompetitiveTotal: number
 }
 
+/** One brand in the head-to-head: the project's row or one tracked competitor. */
+export interface MentionShareRankingRowDto {
+  kind: 'project' | 'competitor'
+  /** The tracked competitor's domain. Null on the project's row. */
+  domain: string | null
+  mentionSnapshots: number
+  /** `mentionSnapshots / combinedMentionSnapshots` as a 0..1 fraction. Sums to 1 across a ranking. */
+  share: number
+}
+
 export interface MentionShareBreakdownDto {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  /** `project + competitor` mention snapshots: the denominator of `score` and of every `ranking` share. */
+  combinedMentionSnapshots: number
   perCompetitor: MentionShareCompetitorRowDto[]
+  /**
+   * The project and every tracked competitor (zero-mention ones included),
+   * most mentioned first, ties listing the project first. Empty when there is
+   * no head-to-head: no tracked competitors, or no brand named in this class.
+   */
+  ranking: MentionShareRankingRowDto[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
   /** `project / (project + competitor)` as 0..100 to two decimals, or null when nothing in this class was named. */
@@ -314,10 +332,26 @@ const scoreSummarySchema = z.object({
 const mentionShareBreakdownSchema = z.object({
   projectMentionSnapshots: z.number().int().nonnegative(),
   competitorMentionSnapshots: z.number().int().nonnegative(),
+  /** `projectMentionSnapshots + competitorMentionSnapshots`, the denominator of `score` and every `ranking` share. */
+  combinedMentionSnapshots: z.number().int().nonnegative(),
   perCompetitor: z.array(z.object({
     domain: z.string(),
     mentionSnapshots: z.number().int().nonnegative(),
     shareOfCompetitiveTotal: percent(),
+  })),
+  /**
+   * The project and every tracked competitor, zero-mention ones included,
+   * most mentioned first (ties list the project first). Each share is the
+   * row's mentions over `combinedMentionSnapshots`, so the shares sum to 1.
+   * Empty when there is no head-to-head: no tracked competitors, or no brand
+   * named in this class.
+   */
+  ranking: z.array(z.object({
+    kind: z.enum(['project', 'competitor']),
+    /** The tracked competitor's domain. Null on the project's row. */
+    domain: z.string().nullable(),
+    mentionSnapshots: z.number().int().nonnegative(),
+    share: fraction(z.number().min(0).max(1)),
   })),
   snapshotsWithAnswerText: z.number().int().nonnegative(),
   snapshotsTotal: z.number().int().nonnegative(),

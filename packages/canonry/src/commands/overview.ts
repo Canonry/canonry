@@ -226,19 +226,22 @@ function printScore(prefix: string, score: ScoreSummaryDto): void {
   console.log(`  ${prefix} ${tone} ${value} ${score.delta}`)
 }
 
-/** Per-competitor split of Mention Share — the same data the dashboard
- *  hero renders inline beneath the gauge. Top 3 competitors keeps the CLI
- *  output tight; the full breakdown is in the `--format json` payload. */
+/** The Mention Share head-to-head — the same server `ranking` the dashboard
+ *  table renders beneath the figure, each share as the server computed it.
+ *  The project's row always prints; the top 3 competitors keep the CLI output
+ *  tight, and the full ranking is in the `--format json` payload. */
 function printMentionShareBreakdown(mentionShare: MentionShareDto): void {
-  const { breakdown } = mentionShare
-  if (breakdown.perCompetitor.length === 0) return
-  const total = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
-  if (total === 0) return
-  console.log(`      you${' '.repeat(28)} ${breakdown.projectMentionSnapshots} mentions (${formatPercent(breakdown.projectMentionSnapshots / total)} of combined)`)
-  for (const row of breakdown.perCompetitor.slice(0, 3)) {
-    console.log(`      ${row.domain.padEnd(30)} ${row.mentionSnapshots} mentions (${formatPercent(row.mentionSnapshots / total)} of combined)`)
+  // A newer CLI can be pointed at an older server that predates `ranking`.
+  const legacyCompatible = mentionShare.breakdown as { ranking?: MentionShareDto['breakdown']['ranking'] }
+  const ranking = legacyCompatible.ranking ?? []
+  const project = ranking.find(row => row.kind === 'project')
+  if (!project) return
+  const competitors = ranking.filter(row => row.kind === 'competitor')
+  console.log(`      you${' '.repeat(28)} ${project.mentionSnapshots} mentions (${formatPercent(project.share)} of combined)`)
+  for (const row of competitors.slice(0, 3)) {
+    console.log(`      ${(row.domain ?? '').padEnd(30)} ${row.mentionSnapshots} mentions (${formatPercent(row.share)} of combined)`)
   }
-  if (breakdown.perCompetitor.length > 3) {
-    console.log(`      + ${breakdown.perCompetitor.length - 3} more competitor${breakdown.perCompetitor.length - 3 === 1 ? '' : 's'} (--format json for full breakdown)`)
+  if (competitors.length > 3) {
+    console.log(`      + ${competitors.length - 3} more competitor${competitors.length - 3 === 1 ? '' : 's'} (--format json for full breakdown)`)
   }
 }

@@ -415,9 +415,16 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 8,
         competitorMentionSnapshots: 13,
+        combinedMentionSnapshots: 21,
         perCompetitor: [
           { domain: 'downtownsmiles.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 69.23 },
           { domain: 'harbordental.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 30.77 },
+        ],
+        ranking: [
+          { kind: 'competitor', domain: 'downtownsmiles.com', mentionSnapshots: 9, share: 9 / 21 },
+          { kind: 'project', domain: null, mentionSnapshots: 8, share: 8 / 21 },
+          { kind: 'competitor', domain: 'harbordental.com', mentionSnapshots: 4, share: 4 / 21 },
+          { kind: 'competitor', domain: 'clearlineortho.com', mentionSnapshots: 0, share: 0 },
         ],
         snapshotsWithAnswerText: 24,
         snapshotsTotal: 32,
@@ -426,7 +433,14 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       branded: {
         projectMentionSnapshots: 6,
         competitorMentionSnapshots: 0,
+        combinedMentionSnapshots: 6,
         perCompetitor: [],
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 6, share: 1 },
+          { kind: 'competitor', domain: 'clearlineortho.com', mentionSnapshots: 0, share: 0 },
+          { kind: 'competitor', domain: 'downtownsmiles.com', mentionSnapshots: 0, share: 0 },
+          { kind: 'competitor', domain: 'harbordental.com', mentionSnapshots: 0, share: 0 },
+        ],
         snapshotsWithAnswerText: 6,
         snapshotsTotal: 8,
         score: 100,
@@ -631,8 +645,13 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 11,
         competitorMentionSnapshots: 6,
+        combinedMentionSnapshots: 17,
         perCompetitor: [
           { domain: 'shorelineinjury.com', mentionSnapshots: 6, shareOfCompetitiveTotal: 100 },
+        ],
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 11, share: 11 / 17 },
+          { kind: 'competitor', domain: 'shorelineinjury.com', mentionSnapshots: 6, share: 6 / 17 },
         ],
         snapshotsWithAnswerText: 19,
         snapshotsTotal: 24,
@@ -641,7 +660,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       branded: {
         projectMentionSnapshots: 5,
         competitorMentionSnapshots: 0,
+        combinedMentionSnapshots: 5,
         perCompetitor: [],
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 5, share: 1 },
+          { kind: 'competitor', domain: 'shorelineinjury.com', mentionSnapshots: 0, share: 0 },
+        ],
         snapshotsWithAnswerText: 5,
         snapshotsTotal: 5,
         score: 100,
@@ -809,8 +833,13 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 4,
         competitorMentionSnapshots: 15,
+        combinedMentionSnapshots: 19,
         perCompetitor: [
           { domain: 'regionaljointcare.com', mentionSnapshots: 15, shareOfCompetitiveTotal: 100 },
+        ],
+        ranking: [
+          { kind: 'competitor', domain: 'regionaljointcare.com', mentionSnapshots: 15, share: 15 / 19 },
+          { kind: 'project', domain: null, mentionSnapshots: 4, share: 4 / 19 },
         ],
         snapshotsWithAnswerText: 21,
         snapshotsTotal: 28,
@@ -819,7 +848,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       branded: {
         projectMentionSnapshots: 7,
         competitorMentionSnapshots: 0,
+        combinedMentionSnapshots: 7,
         perCompetitor: [],
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 7, share: 1 },
+          { kind: 'competitor', domain: 'regionaljointcare.com', mentionSnapshots: 0, share: 0 },
+        ],
         snapshotsWithAnswerText: 7,
         snapshotsTotal: 8,
         score: 100,

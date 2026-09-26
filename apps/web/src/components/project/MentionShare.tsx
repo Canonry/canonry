@@ -75,8 +75,7 @@ export function mentionClassFigures(
       showRows: false,
     }
   }
-  const named = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
-  if (named === 0 || breakdown.score === null) {
+  if (breakdown.combinedMentionSnapshots === 0 || breakdown.score === null) {
     return {
       headline: 'No mentions',
       numeric: false,
@@ -88,38 +87,33 @@ export function mentionClassFigures(
     // The API's 0..100 share, shown through the one percent format.
     headline: formatPercent(breakdown.score, RatioUnits.percent),
     numeric: true,
-    detail: `${breakdown.projectMentionSnapshots} of ${named} brand mentions`,
+    detail: `${breakdown.projectMentionSnapshots} of ${breakdown.combinedMentionSnapshots} brand mentions`,
     showRows: true,
   }
 }
 
 /**
- * One class's ranked list. Every tracked competitor gets a row, including the
- * ones at zero, so "no competitor was named in this class" is visible instead of
- * being an absent row. Bar width is the share itself, so the bar and the printed
- * number can never disagree.
+ * One class's ranked list, exactly as the server ranked it: every tracked
+ * competitor gets a row, including the ones at zero, so "no competitor was named
+ * in this class" is visible instead of being an absent row. Each share is the
+ * server's own, never recomputed here, and the bar width is that share, so the
+ * bar and the printed number can never disagree.
  */
 function MentionShareRows({
   breakdown,
   projectLabel,
-  competitorDomains,
 }: {
   breakdown: MentionShareBreakdownVm
   projectLabel: string
-  competitorDomains: string[]
 }) {
-  const total = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
-  if (total === 0) return null
+  if (breakdown.ranking.length === 0) return null
 
-  const byDomain = new Map(breakdown.perCompetitor.map(c => [c.domain, c.mentionSnapshots]))
-  const rows = [
-    { label: `${projectLabel} (you)`, mentions: breakdown.projectMentionSnapshots, isYou: true },
-    ...competitorDomains.map(domain => ({
-      label: domain,
-      mentions: byDomain.get(domain) ?? 0,
-      isYou: false,
-    })),
-  ].sort((a, b) => b.mentions - a.mentions || (a.label < b.label ? -1 : 1))
+  const rows = breakdown.ranking.map(row => ({
+    label: row.kind === 'project' ? `${projectLabel} (you)` : row.domain ?? '',
+    mentions: row.mentionSnapshots,
+    share: row.share,
+    isYou: row.kind === 'project',
+  }))
 
   // A real table, not a header div over an unlabelled list. The columns carry
   // meaning that only the visual arrangement was expressing, so a screen reader
@@ -141,26 +135,23 @@ function MentionShareRows({
         </tr>
       </thead>
       <tbody className="mention-share-rows">
-        {rows.map(row => {
-          const share = row.mentions / total
-          return (
-            <tr key={row.label} className="mention-share-row">
-              <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
-                {row.label}
-              </th>
-              <td aria-hidden="true">
-                <div className="mention-share-bar">
-                  <div
-                    className={`mention-share-bar-fill ${row.isYou ? 'bg-positive-500/70' : 'bg-mono-500/60'}`}
-                    style={{ width: `${share > 0 ? Math.max(share * 100, 1.5) : 0}%` }}
-                  />
-                </div>
-              </td>
-              <td className="mention-share-count">{row.mentions}</td>
-              <td className="mention-share-share">{formatPercent(share)}</td>
-            </tr>
-          )
-        })}
+        {rows.map(row => (
+          <tr key={row.label} className="mention-share-row">
+            <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
+              {row.label}
+            </th>
+            <td aria-hidden="true">
+              <div className="mention-share-bar">
+                <div
+                  className={`mention-share-bar-fill ${row.isYou ? 'bg-positive-500/70' : 'bg-mono-500/60'}`}
+                  style={{ width: `${row.share > 0 ? Math.max(row.share * 100, 1.5) : 0}%` }}
+                />
+              </div>
+            </td>
+            <td className="mention-share-count">{row.mentions}</td>
+            <td className="mention-share-share">{formatPercent(row.share)}</td>
+          </tr>
+        ))}
       </tbody>
     </table>
   )
@@ -283,7 +274,6 @@ export function MentionShare({
         <MentionShareRows
           breakdown={active}
           projectLabel={projectLabel}
-          competitorDomains={competitorDomains}
         />
       )}
     </div>
