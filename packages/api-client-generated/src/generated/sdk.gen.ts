@@ -5350,6 +5350,8 @@ export const getApiV1ProjectsByNameGaSocialReferralHistory = <ThrowOnError exten
 
 /**
  * Get social referral trend (7d/30d) with biggest mover
+ *
+ * A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. Below 30 prior sessions changeBasis is small-base and changeSessions is the figure to state.
  */
 export const getApiV1ProjectsByNameGaSocialReferralTrend = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameGaSocialReferralTrendData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameGaSocialReferralTrendResponses, GetApiV1ProjectsByNameGaSocialReferralTrendErrors, ThrowOnError>({
@@ -5366,6 +5368,8 @@ export const getApiV1ProjectsByNameGaSocialReferralTrend = <ThrowOnError extends
 
 /**
  * Get per-channel attribution trends (7d/30d) for organic, AI, and social
+ *
+ * A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. Below 30 prior sessions changeBasis is small-base and changeSessions is the figure to state.
  */
 export const getApiV1ProjectsByNameGaAttributionTrend = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameGaAttributionTrendData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameGaAttributionTrendResponses, GetApiV1ProjectsByNameGaAttributionTrendErrors, ThrowOnError>({
