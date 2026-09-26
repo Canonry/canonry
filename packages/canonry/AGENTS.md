@@ -687,4 +687,6 @@ output and fail unexpected SSE EOF. See `src/agent/AGENTS.md` and
 client and MCP. It also works with `--all`. Project JSON carries `reportMonths`;
 JSONL records keep their check's `details.months`. Report advisories have
 `notificationPolicy: silent` and cannot change operational health signatures or
-produce degraded/recovered notifications. See `api-routes/src/doctor/AGENTS.md`.
+produce degraded/recovered notifications; the scheduled health pass does not run
+them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
+so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.

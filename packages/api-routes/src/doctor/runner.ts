@@ -1,4 +1,5 @@
 import {
+  CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
   summarizeCheckResults,
@@ -48,7 +49,9 @@ export async function runChecks(
     } catch (err) {
       const message = describeError(err)
       output = {
-        status: CheckStatuses.fail,
+        // An advisory that cannot run is still only an advisory: it must not
+        // fail the doctor (and its exit code) the way a broken health check does.
+        status: definition.notificationPolicy === CheckNotificationPolicies.silent ? CheckStatuses.warn : CheckStatuses.fail,
         code: `${definition.id}.runtime-error`,
         summary: `Check threw an unexpected error: ${message}`,
         remediation: null,
