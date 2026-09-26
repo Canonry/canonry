@@ -50,7 +50,7 @@ export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 // sends its share already formatted with `formatPercent` ("66.7%"), a count
 // gauge sends the count ("3"), and a gauge with nothing to measure sends a
 // label ("No data"). `progress` is the 0–100 numeric used by progress rings,
-// to two decimals; absent for gauges that aren't ratio-based.
+// at wire precision; absent for gauges that aren't ratio-based.
 export interface ScoreSummaryDto {
   label: string
   value: string
@@ -92,7 +92,7 @@ export interface ProjectOverviewScoresDto {
 export interface MentionShareCompetitorRowDto {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total, 0..100 to two decimals. Sums to ~100 across rows. */
+  /** % of competitive total, 0..100 at wire precision. Sums to ~100 across rows. */
   shareOfCompetitiveTotal: number
 }
 
@@ -102,7 +102,7 @@ export interface MentionShareBreakdownDto {
   perCompetitor: MentionShareCompetitorRowDto[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
-  /** `project / (project + competitor)` as 0..100 to two decimals, or null when nothing in this class was named. */
+  /** `project / (project + competitor)` as 0..100 at wire precision, or null when nothing in this class was named. */
   score: number | null
 }
 
@@ -176,11 +176,11 @@ export interface ProjectOverviewCompetitorDto {
 export interface ProjectOverviewProviderScoreDto {
   provider: string
   model: string | null
-  /** `cited / total` snapshots in the latest run as 0..100, to two decimals. */
+  /** `cited / total` snapshots in the latest run as 0..100 at wire precision. */
   score: number
   cited: number
   total: number
-  /** Per-recent-run citation rate (0-100, two decimals) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
+  /** Per-recent-run citation rate (0-100, at wire precision) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
 

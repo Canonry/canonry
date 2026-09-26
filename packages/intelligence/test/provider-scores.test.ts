@@ -34,14 +34,14 @@ describe('buildProviderScores', () => {
     expect(pro.total).toBe(1)
   })
 
-  it('keeps the score to two decimals, not a whole percent', () => {
+  it('keeps the score at wire precision, not a whole percent', () => {
     const snapshots = [
       snap({ citationState: 'cited' }),
       snap({ citationState: 'cited' }),
       snap({ citationState: 'not-cited' }),
     ]
     const result = buildProviderScores(snapshots)
-    expect(result[0]).toMatchObject({ cited: 2, total: 3, score: 66.67 }) // 2/3, not 67
+    expect(result[0]).toMatchObject({ cited: 2, total: 3, score: 66.666667 }) // 2/3, not 67
   })
 
   it('keeps the edges a whole percent used to invent', () => {

@@ -52,8 +52,8 @@ export interface MentionShareInputs {
 /**
  * Competitor aliases for answer-prose matching.
  *
- * A single brand token derived from the registrable domain (`offers.roofle.com`
- * → `roofle`), filtered by the SAME minimum length the metric uses everywhere.
+ * A single brand token derived from the registrable domain (`offers.quotebird.test`
+ * → `quotebird`), filtered by the SAME minimum length the metric uses everywhere.
  * A future column of operator-curated aliases layers on here.
  */
 export function mentionShareCompetitorsFromDomains(domains: readonly string[]): MentionShareCompetitor[] {

@@ -391,8 +391,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       delta: '6 of 9 queries mentioned',
       tone: 'positive',
       description: 'Brand named in answer text for most tracked queries.',
-      trend: [70, 72, 73, 74, 66.67],
-      progress: 66.67,
+      trend: [70, 72, 73, 74, 66.666667],
+      progress: 66.666667,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
@@ -439,7 +439,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
-      progress: 11.11,
+      progress: 11.111111,
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -460,7 +460,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     providerScores: [
       { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
-      { provider: 'openai', model: 'gpt-5.4', score: 66.67, cited: 6, total: 9 },
+      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9 },
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
     ],
     queryCounts: { cited: 6, total: 9 },
@@ -785,8 +785,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       delta: '10 of 15 queries mentioned',
       tone: 'caution',
       description: 'Brand named in the answer text for most queries; gaps on long-tail location prompts.',
-      trend: [60, 63, 65, 66, 66.67],
-      progress: 66.67,
+      trend: [60, 63, 65, 66, 66.666667],
+      progress: 66.666667,
     },
     visibilitySummary: {
       label: 'Citation Coverage',

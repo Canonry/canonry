@@ -544,14 +544,14 @@ describe('deltaPercent', () => {
     expect(deltaPercent(50, -1)).toBeNull()
   })
 
-  test('keeps the percent wire precision of two decimals', () => {
+  test('keeps the percent wire precision', () => {
     expect(deltaPercent(150, 100)).toBe(50)
     expect(deltaPercent(50, 100)).toBe(-50)
     expect(deltaPercent(100, 100)).toBe(0)
     expect(deltaPercent(101, 100)).toBe(1)
-    expect(deltaPercent(102, 99)).toBe(3.03) // (102-99)/99 = 0.030303 → 3.03, not 3
-    expect(deltaPercent(4, 3)).toBe(33.33) // 1/3 → 33.33, not 33
-    expect(deltaPercent(1, 3)).toBe(-66.67) // -2/3 → -66.67, not -67
+    expect(deltaPercent(102, 99)).toBe(3.030303) // (102-99)/99 = 0.0303030… → 3.030303, not 3
+    expect(deltaPercent(4, 3)).toBe(33.333333) // 1/3 → 33.333333, not 33
+    expect(deltaPercent(1, 3)).toBe(-66.666667) // -2/3 → -66.666667, not -67
     expect(deltaPercent(250, 100)).toBe(150)
   })
 
@@ -561,14 +561,14 @@ describe('deltaPercent', () => {
     expect(deltaPercent(996, 1000)).toBe(-0.4)
     expect(deltaTone(deltaPercent(1004, 1000))).toBe('positive')
     // Below the wire precision it is 0, with no negative zero.
-    expect(Object.is(deltaPercent(99_999, 100_000), 0)).toBe(true)
+    expect(Object.is(deltaPercent(999_999_999, 1_000_000_000), 0)).toBe(true)
   })
 })
 
 describe('formatSignedPercent', () => {
   test('signs a positive value, keeps the minus of a negative one, and leaves an exact zero unsigned', () => {
-    expect(formatSignedPercent(33.33, 'percent')).toBe('+33.3%')
-    expect(formatSignedPercent(-66.67, 'percent')).toBe('-66.7%')
+    expect(formatSignedPercent(33.333333, 'percent')).toBe('+33.3%')
+    expect(formatSignedPercent(-66.666667, 'percent')).toBe('-66.7%')
     expect(formatSignedPercent(0, 'percent')).toBe('0%')
     expect(formatSignedPercent(100, 'percent')).toBe('+100%')
     expect(formatSignedPercent(0.04, 'percent')).toBe('+<0.1%')
@@ -617,8 +617,8 @@ describe('formatDeltaCopy', () => {
       .toBe('Down 50.0% vs prior 7 days (100 arrivals)')
   })
 
-  test('the percentage is the two-decimal deltaPct through formatPercent', () => {
-    // 3 → 4 is +33.33%; 1,000 → 1,004 is +0.4%, which a whole-percent delta flattened to "Flat".
+  test('the percentage is the wire deltaPct through formatPercent', () => {
+    // 3 → 4 is +33.333333%; 1,000 → 1,004 is +0.4%, which a whole-percent delta flattened to "Flat".
     expect(formatDeltaCopy({ current: 4, prior: 3, deltaPct: deltaPercent(4, 3) }, 'crawls'))
       .toBe('Up 33.3% vs prior 7 days (3 crawls)')
     expect(formatDeltaCopy({ current: 2, prior: 3, deltaPct: deltaPercent(2, 3) }, 'crawls'))

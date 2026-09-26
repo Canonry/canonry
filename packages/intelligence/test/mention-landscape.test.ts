@@ -163,7 +163,7 @@ describe('buildMentionLandscape', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.projectMentionCount).toBe(1)
-    expect(result.competitors[0]?.sharePct).toBe(66.67) // 2 of 3 total, two decimals, not 67
+    expect(result.competitors[0]?.sharePct).toBe(66.666667) // 2 of 3 total, wire precision, not 67
   })
 
   it('keeps a share a whole percent used to round to 0', () => {

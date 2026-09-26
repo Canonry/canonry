@@ -13,7 +13,7 @@ export interface ProviderTrendSnapshot {
 }
 
 export interface ProviderTrendPoint {
-  /** Per-run citation rate as 0-100, to two decimals, for this (provider, model). */
+  /** Per-run citation rate as 0-100 at wire precision, for this (provider, model). */
   rate: number
   /** ISO timestamp of the run for tooltips / ordering. */
   createdAt: string

@@ -344,7 +344,7 @@ const gpt56SolResponse: Record<string, unknown> = {
       status: 'completed',
       action: {
         type: 'search',
-        query: 'best boutique hotels Venice Beach Los Angeles 2026',
+        query: 'best boutique hotels Example City 2026',
       },
     },
   ],
@@ -364,7 +364,7 @@ const chatLatestResponse: Record<string, unknown> = {
       status: 'completed',
       action: {
         type: 'search',
-        query: 'best boutique hotels Venice Beach Los Angeles recommendations',
+        query: 'best boutique hotels Example City recommendations',
       },
     },
   ],

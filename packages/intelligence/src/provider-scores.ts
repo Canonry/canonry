@@ -8,7 +8,7 @@ export interface ProviderScoreSnapshot {
 
 /**
  * Per-(provider, model) citation score for the latest run: `cited / total`
- * snapshots as 0..100, to two decimals. Distinct from
+ * snapshots as 0..100 at wire precision. Distinct from
  * `ProjectOverviewProviderEntryDto`, which collapses across models. The
  * dashboard shows one row per (provider, model) pair sorted by provider then
  * model name.

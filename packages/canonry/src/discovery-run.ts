@@ -386,7 +386,7 @@ const CLASSIFICATION_CATEGORIES: readonly DiscoveryCompetitorType[] = [
 /**
  * `CLASSIFICATION_CATEGORIES` paired with whole-token matchers. The
  * alphanumeric boundaries keep a category from matching inside a hostname —
- * without them `other` matches inside `brothersolar.com` on an arrow-less line.
+ * without them `other` matches inside `brotherpanels.example` on an arrow-less line.
  */
 const CLASSIFICATION_CATEGORY_MATCHERS: ReadonlyArray<{
   category: DiscoveryCompetitorType
@@ -451,7 +451,7 @@ export function parseClassificationResponse(
   for (const domain of domains) {
     const key = domain.toLowerCase()
     // Match the domain as a whole token so a shorter domain can't pick up a
-    // longer domain's line (`solar.com` inside `mysolar.com` / `solar.com.au`).
+    // longer domain's line (`panels.example` inside `mypanels.example` / `panels.example.au`).
     // Prefer a line that starts with the domain (the `domain => category`
     // shape the prompt asks for); fall back to a token match anywhere on the
     // line for output the model prefixed with numbering / bullets / markdown.
@@ -471,7 +471,7 @@ function isDomainChar(ch: string): boolean {
 
 /**
  * True if `line` begins with `domain` as a complete token — the next character
- * can't be a domain character, or `solar.com` would match a `solar.com.au` line.
+ * can't be a domain character, or `panels.example` would match a `panels.example.au` line.
  */
 function startsWithDomainToken(line: string, domain: string): boolean {
   return line.startsWith(domain) && !isDomainChar(line[domain.length] ?? '')
@@ -479,8 +479,8 @@ function startsWithDomainToken(line: string, domain: string): boolean {
 
 /**
  * True if `domain` appears anywhere in `line` as a complete token. The boundary
- * check stops a shorter domain from matching inside a longer one (`solar.com`
- * inside `mysolar.com`) once a numbering/bullet prefix has pushed the domain
+ * check stops a shorter domain from matching inside a longer one (`panels.example`
+ * inside `mypanels.example`) once a numbering/bullet prefix has pushed the domain
  * off the start of the line.
  */
 function containsDomainToken(line: string, domain: string): boolean {
@@ -498,7 +498,7 @@ function extractClassificationCategory(line: string): DiscoveryCompetitorType | 
   // Read the category from the right of `=>` (the shape the prompt asks for)
   // so a category word inside the hostname can't pollute the match. Without an
   // arrow, scan the whole line — but each category must match as a whole
-  // token, so `other` can't match inside a domain like `brothersolar.com`.
+  // token, so `other` can't match inside a domain like `brotherpanels.example`.
   const arrowIdx = line.indexOf('=>')
   const haystack = arrowIdx >= 0 ? line.slice(arrowIdx + 2) : line
   for (const { category, pattern } of CLASSIFICATION_CATEGORY_MATCHERS) {
@@ -641,7 +641,7 @@ function writeDiscoveryInsight(
   // run produces one. Without this dedup, every session leaves a fresh
   // insight in the active list AND keeps the older ones around, drowning
   // the analyst's view (12 stale entries after 12 sessions, as observed
-  // on azcoatings May 2026). The newest session's findings supersede the
+  // on one project in May 2026). The newest session's findings supersede the
   // older ones by definition, so auto-dismiss is the right semantic.
   db.transaction((tx) => {
     tx.update(insights)

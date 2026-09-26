@@ -66,7 +66,7 @@ export interface GbpLocationSignals {
   displayName: string
   metricRecent7d: Record<string, number>
   metricPrior7d: Record<string, number>
-  /** Per-metric % change recent-vs-prior in percent units (two decimals); null when the prior window was 0. */
+  /** Per-metric % change recent-vs-prior in percent units (at wire precision); null when the prior window was 0. */
   metricDeltaPct: Record<string, number | null>
   /** True when the location has a lodging profile at all (hotel/lodging category). */
   lodgingCapable: boolean

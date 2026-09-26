@@ -67,7 +67,7 @@ function daysBetween(from: string, to: string): number {
 export interface WindowDelta {
   recent7d: Record<string, number>
   prior7d: Record<string, number>
-  /** Per-metric % change recent-vs-prior in percent units, to two decimals; null when the prior window is 0. */
+  /** Per-metric % change recent-vs-prior in percent units, at wire precision; null when the prior window is 0. */
   deltaPct: Record<string, number | null>
 }
 
@@ -195,7 +195,7 @@ export function buildTimeseries(rows: DailyMetricInput[], freshness: GbpFreshnes
 export interface KeywordCoverage {
   total: number
   thresholdedCount: number
-  /** Share of keywords privacy-redacted by Google, 0–100 to two decimals; 0 with no keywords. */
+  /** Share of keywords privacy-redacted by Google, 0–100 at wire precision; 0 with no keywords. */
   thresholdedPct: number
 }
 
