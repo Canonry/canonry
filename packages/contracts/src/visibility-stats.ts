@@ -205,7 +205,12 @@ export const visibilityCompareMetricPeriodSchema = z.object({
   numerator: z.number().int(),
   /** Sample size the proportion is over (checked snapshots / total / project+competitor brand mentions). */
   denominator: z.number().int(),
-  /** Class-rate observations missing the independent signal, excluded from its denominator. */
+  /**
+   * Observations missing this metric's own signal, excluded from its
+   * denominator: an unknown mention for a class mention rate, incomplete
+   * source capture for a class cited rate, and, on frames that record capture
+   * completeness (Advanced), for the pooled cited rate and cited share of voice.
+   */
   excludedUnknown: z.number().int().nonnegative().optional(),
 })
 export type VisibilityCompareMetricPeriod = z.infer<typeof visibilityCompareMetricPeriodSchema>
@@ -221,6 +226,18 @@ export const visibilityCompareMetricKeySchema = z.enum([
   'cited-rate-non-brand',
 ])
 export type VisibilityCompareMetricKey = z.infer<typeof visibilityCompareMetricKeySchema>
+
+/** Branded and non-brand rates. Unfiltered Advanced responses frame them with `classComparison`. */
+const VISIBILITY_COMPARE_CLASS_METRIC_KEYS: readonly VisibilityCompareMetricKey[] = [
+  'mention-rate-branded',
+  'cited-rate-branded',
+  'mention-rate-non-brand',
+  'cited-rate-non-brand',
+]
+
+export function isVisibilityCompareClassMetric(key: VisibilityCompareMetricKey): boolean {
+  return VISIBILITY_COMPARE_CLASS_METRIC_KEYS.includes(key)
+}
 
 /** One metric compared across the two periods. */
 export const visibilityCompareMetricSchema = z.object({

@@ -941,7 +941,7 @@ export async function visibilityReportRoutes(app: FastifyInstance) {
 }
 
 /** Reconstruct complete monthly Advanced history without the report trend's 100-run presentation limit. */
-export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: string, since: string, until: string) {
+export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: string, since: string, until: string, includeEvidence = true) {
   const sourceRuns = db.select().from(runs).where(and(
     eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]), notProbeRun(),
@@ -958,7 +958,9 @@ export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: stri
     if (!source) { unavailable = true; return [] }
     const snapshots = byRun.get(run.id) ?? []
     const models = new Map(snapshots.map(snapshot => [snapshot.id, snapshot.model]))
-    const materialized = advancedRun(run, source.row, source.plan, snapshots, comparableVersionIds(rowsById, source.row.id))
+    // Without evidence, answers skip competitor matching and keep no bodies:
+    // enough for continuity, which reads models and frozen cohorts only.
+    const materialized = advancedRun(run, source.row, source.plan, snapshots, comparableVersionIds(rowsById, source.row.id), includeEvidence)
     // The established monthly gate compares requested model IDs, not served IDs.
     return [{ ...materialized, observations: materialized.observations.map(observation => ({ ...observation, model: models.get(observation.answerId) ?? null })) }]
   })

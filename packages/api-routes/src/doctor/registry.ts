@@ -1,3 +1,4 @@
+import { CheckNotificationPolicies, CheckScopes } from '@ainyc/canonry-contracts'
 import { reportSweepsCheck } from './checks/report-sweeps.js'
 import { reportModelsCheck } from './checks/report-models.js'
 import { reportDailyDataCheck } from './checks/report-daily-data.js'
@@ -47,3 +48,15 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   // Network probe last, so a slow or unreachable site never delays the local checks.
   ...SITE_REACHABILITY_CHECKS,
 ]
+
+/**
+ * The project checks the scheduled health pass runs: the ones whose results
+ * can page. Silent report advisories stay out, since the notifier would only
+ * discard them after paying for them, and so do opt-in checks, exactly as a
+ * default doctor run leaves them out.
+ */
+export function scheduledHealthCheckIds(): string[] {
+  return ALL_CHECKS
+    .filter(check => check.scope === CheckScopes.project && !check.optIn && check.notificationPolicy !== CheckNotificationPolicies.silent)
+    .map(check => check.id)
+}

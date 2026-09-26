@@ -119,4 +119,46 @@ describe('Advanced monthly comparison', () => {
     expect(dto.classComparison?.continuity.status).toBe('insufficient-data')
     expect(dto.metrics.find(metric => metric.key === 'mention-rate-non-brand')?.to.denominator).toBe(0)
   })
+  it('leaves answers with incomplete source capture out of every pooled citation figure', async () => {
+    const plan = frozenPlan(); const id = seedVersion(plan)
+    for (let day = 10; day < 15; day++) seedRun(plan, id, `2026-08-${day}T12:00:00.000Z`)
+    for (let day = 10; day < 15; day++) seedRun(plan, id, `2026-09-${day}T12:00:00.000Z`, true)
+    const dto = await compare('&scope=property&scopeKey=harbor')
+    // September captured no complete source list, so it has no citation
+    // evidence at all: never a measured 0% and never a "moved down" verdict.
+    const cited = dto.metrics.find(metric => metric.key === 'cited-rate')!
+    expect(cited.from).toMatchObject({ numerator: 20, denominator: 20, point: 1, excludedUnknown: 0 })
+    expect(cited.to).toMatchObject({ numerator: 0, denominator: 0, point: null, availability: 'no-observations', excludedUnknown: 20 })
+    expect(cited.verdict).toBe('insufficient-data')
+    const share = dto.metrics.find(metric => metric.key === 'cited-share-of-voice')!
+    expect(share.to).toMatchObject({ numerator: 0, denominator: 0, excludedUnknown: 20 })
+    expect(share.verdict).toBe('insufficient-data')
+  })
+  it('narrows the project frame by provider and location over schema-v1 history instead of reporting no sweeps', async () => {
+    const plan = frozenPlan(); const id = seedVersion(plan)
+    seedRun(plan, id, before); seedRun(plan, id, after)
+    const legacy = compileMeasurementPlan({ schemaVersion: 1, targets: [{ stableKey: 'harbor', label: 'Harbor Homes', urls: [{ kind: 'prefix', host: 'northstar.example', pathPrefix: '/locations/harbor', pathCase: 'insensitive' }], aliases: ['Harbor Homes'] }], groups: [], targetQuerySelections: [{ targetKey: 'harbor', queryIds: ['q-nearby'] }] }, { canonicalDomain: 'northstar.example', ownedDomains: [], brandNames: ['Northstar'], trackedQueries: [{ id: 'q-nearby', query: 'homes near harbor' }], locations: [], defaultContext: null, expectedSnapshots: 2 })
+    db.update(measurementPlanVersions).set({ schemaVersion: 1, canonicalJson: canonicalMeasurementPlanJson(legacy) }).where(eq(measurementPlanVersions.id, id)).run()
+    // Provider and location match case-insensitively, as the frozen reader does.
+    const dto = await compare('&provider=OpenAI&location=HARBOR')
+    expect([dto.from.runCount, dto.to.runCount]).toEqual([1, 1])
+    expect(dto.basket.providers).toEqual(['openai'])
+    expect(dto.metrics.find(metric => metric.key === 'mention-rate')?.from).toMatchObject({ numerator: 2, denominator: 2 })
+    expect(dto.metrics.find(metric => metric.key === 'mention-rate-non-brand')?.from).toMatchObject({ availability: 'classification-unavailable' })
+    expect(dto.selection).toEqual({ provider: 'OpenAI', location: 'HARBOR' })
+    // A Property scope has only the frozen frame, which cannot read these runs.
+    const scoped = await app.inject({ method: 'GET', url: '/api/v1/projects/monthly/visibility-compare?from=2026-08&to=2026-09&scope=property&scopeKey=harbor' })
+    expect(scoped.statusCode).toBe(400)
+    expect(scoped.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', details: { months: ['2026-08', '2026-09'] } } })
+  })
+  it('leaves mention-ineligible Targets out of class mention rates instead of counting them unknown', async () => {
+    const base = frozenPlan()
+    const plan = measurementPlanV2Fixture({ ...base, targets: base.targets.map(target => target.stableKey === 'bayside' ? { ...target, mentionNotApplicable: true } : target) })
+    const id = seedVersion(plan)
+    seedRun(plan, id, before); seedRun(plan, id, after)
+    const dto = await compare('&scope=property&scopeKey=bayside')
+    expect(dto.metrics.find(metric => metric.key === 'mention-rate-branded')?.from).toMatchObject({ numerator: 0, denominator: 0, excludedUnknown: 0 })
+    // The citation signal is still measured for the same answers.
+    expect(dto.metrics.find(metric => metric.key === 'cited-rate-branded')?.from).toMatchObject({ denominator: 2, excludedUnknown: 0 })
+  })
 })

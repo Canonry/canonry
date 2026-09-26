@@ -444,3 +444,15 @@ describe('computeVisibilityCompare — independent query classes', () => {
     expect(dto.continuity.comparedProviders).toEqual(['openai'])
   })
 })
+
+describe('computeVisibilityCompare — frozen share of voice without classification', () => {
+  it('counts and labels share of voice pooled rather than scoring an empty non-brand class', () => {
+    const competitors = [{ domain: 'rival.io', brandTokens: [] }]
+    const row = (answerMentioned: boolean, competitorMentions: string[]) =>
+      snap({ queryId: 'q1', provider: 'openai', answerMentioned, competitorMentions, competitorDomains: ['rival.io'], queryClass: null })
+    const snapshots = [row(true, ['rival.io']), row(false, ['rival.io']), row(true, [])]
+    const dto = computeVisibilityCompare(build(snapshots, snapshots, { competitors }))
+    // 2 project mentions against 2 Rival mentions across all three answers.
+    expect(metricOf(dto, 'mention-share-of-voice')).toMatchObject({ queryClass: 'pooled', from: { numerator: 2, denominator: 4, point: 0.5 } })
+  })
+})

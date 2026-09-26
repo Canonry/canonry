@@ -11,6 +11,7 @@ import {
   RunKinds,
   RunStatuses,
   validationError,
+  isVisibilityCompareClassMetric,
   visibilityCompareSelectionSchema,
   type VisibilityCompareSelection,
   type VisibilityCompareDto,
@@ -26,7 +27,7 @@ import { notProbeRun, resolveProject } from './helpers.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
-import { visibilityComparisonPopulation, VisibilityReportScopeError } from './visibility-report-reader.js'
+import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
 export interface VisibilityStatsSnapshotInput {
@@ -421,57 +422,23 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
   if (scope !== 'project' && filters.scopeKey === undefined) throw validationError('A non-project comparison scope requires scopeKey.')
   if (scope === 'project' && filters.scopeKey !== undefined) throw validationError('scopeKey is not valid for project scope.')
   if (scope === 'market' && filters.marketKey !== undefined) throw validationError('marketKey is not valid for market scope.')
-  const { from: fromRaw, to: toRaw } = query
-  if (fromRaw === undefined || fromRaw === '') throw validationError('"from" (YYYY-MM) is required')
-  if (toRaw === undefined || toRaw === '') throw validationError('"to" (YYYY-MM) is required')
+  const { fromRaw, toRaw, fromBounds, toBounds } = compareMonths(query.from, query.to)
 
-  let fromBounds: { since: string; until: string }
-  let toBounds: { since: string; until: string }
-  try {
-    fromBounds = calendarMonthBounds(fromRaw)
-  } catch (err) {
-    throw validationError(err instanceof RangeError ? `"from": ${err.message}` : '"from" must be in YYYY-MM format')
-  }
-  try {
-    toBounds = calendarMonthBounds(toRaw)
-  } catch (err) {
-    throw validationError(err instanceof RangeError ? `"to": ${err.message}` : '"to" must be in YYYY-MM format')
-  }
-  if (Date.parse(fromBounds.since) >= Date.parse(toBounds.since)) {
-    throw validationError('"from" must be a month strictly before "to"')
-  }
+  // Provider and location match the way the frozen Advanced reader matches
+  // them, so a selection means the same thing for Simple and Advanced frames.
+  const providerKey = filters.provider === undefined ? undefined : normalizeText(filters.provider)
+  const locationKey = filters.location === undefined ? undefined : normalizeText(filters.location)
+  const scoped = scope !== 'project' || filters.marketKey !== undefined
 
   let advancedComparison: VisibilityCompareDto | undefined
   if (activeMeasurementPlan(db, project.id) !== null) {
-    const loadAdvancedMonth = (bounds: { since: string; until: string }) => {
-      const selected = readVisibilityComparisonRuns(db, project.id, bounds.since, bounds.until)
-      const selectedRuns = selected.runs
-      const snapshots: VisibilityCompareSnapshotInput[] = []
-      const classSnapshots: VisibilityCompareSnapshotInput[] = []
-      for (const run of selectedRuns) {
-        try {
-          const population = visibilityComparisonPopulation(run, {
-            ...filters, scope, queryClass: 'all',
-            location: filters.location === undefined ? { kind: 'all' } : filters.location === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location },
-            limit: 100,
-          })
-          const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
-            ...snapshot,
-            citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
-            citationChecked: snapshot.citation !== null,
-            citedDomains: [],
-          })
-          snapshots.push(...population.snapshots.map(adapt))
-          classSnapshots.push(...population.classSnapshots.map(adapt))
-        } catch (error) {
-          if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)
-          throw error
-        }
-      }
-      return { runCount: selectedRuns.length, snapshots, classSnapshots, classificationAvailable: !selected.unavailable }
+    const readerSelection: VisibilityReportReaderSelection = {
+      ...filters, scope, queryClass: 'all',
+      location: locationKey === undefined ? { kind: 'all' } : locationKey === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location! },
+      limit: 100,
     }
-    const fromMonth = loadAdvancedMonth(fromBounds)
-    const toMonth = loadAdvancedMonth(toBounds)
+    const fromMonth = loadAdvancedCompareMonth(db, project.id, fromBounds, readerSelection)
+    const toMonth = loadAdvancedCompareMonth(db, project.id, toBounds, readerSelection)
     const queries = [...new Map([...fromMonth.snapshots, ...toMonth.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
     advancedComparison = { ...computeVisibilityCompare({
       project: project.name, queries,
@@ -480,9 +447,19 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
       from: { ...fromMonth, month: fromRaw, ...fromBounds },
       to: { ...toMonth, month: toRaw, ...toBounds },
     }), selection: filters }
-    if (scope !== 'project' || filters.marketKey !== undefined || filters.provider !== undefined || filters.location !== undefined) return advancedComparison
+    // Property, group and market exist only in the frozen frame, so a scoped
+    // request answers from it alone. It must not silently drop history that
+    // frame cannot read, which would report fewer sweeps than were measured.
+    if (scoped) {
+      const unreadable = [fromMonth.classificationAvailable ? null : fromRaw, toMonth.classificationAvailable ? null : toRaw]
+        .filter((month): month is string => month !== null)
+      if (unreadable.length > 0) {
+        throw validationError(`Property, group and market comparisons need frozen schema-v2 plan history; ${unreadable.join(' and ')} include runs whose plan cannot be reconstructed.`, { months: unreadable })
+      }
+      return advancedComparison
+    }
   }
-  if (advancedComparison === undefined && (scope !== 'project' || filters.marketKey !== undefined)) throw validationError('Property, group and market comparison scopes require an Advanced portfolio.')
+  if (advancedComparison === undefined && scoped) throw validationError('Property, group and market comparison scopes require an Advanced portfolio.')
   const projectQueries = db
     .select({ id: queries.id, query: queries.query })
     .from(queries)
@@ -496,21 +473,8 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
     .all()
   const competitorInputs = mentionShareCompetitorsFromDomains(competitorRows.map((c) => c.domain))
 
-  const loadMonth = (bounds: { since: string; until: string }) => {
-    const sinceMs = Date.parse(bounds.since)
-    const untilMs = Date.parse(bounds.until)
-    const monthRuns = db
-      .select({ id: runs.id, createdAt: runs.createdAt, status: runs.status })
-      .from(runs)
-      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
-      .all()
-      .filter(
-        (r) =>
-          (r.status === RunStatuses.completed || r.status === RunStatuses.partial) &&
-          Date.parse(r.createdAt) >= sinceMs &&
-          Date.parse(r.createdAt) <= untilMs,
-      )
-    const runIds = monthRuns.map((r) => r.id)
+  const loadMonth = (bounds: MonthBounds) => {
+    const runIds = legacyCompareRunIds(db, project.id, bounds)
     const snapshots =
       runIds.length > 0 && projectQueries.length > 0
         ? db
@@ -526,10 +490,17 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
               location: querySnapshots.location,
             })
             .from(querySnapshots)
-            .where(and(inArray(querySnapshots.runId, runIds), filters.provider === undefined ? undefined : eq(querySnapshots.provider, filters.provider)))
+            .where(inArray(querySnapshots.runId, runIds))
             .all()
         : []
-    return { runCount: monthRuns.length, snapshots: filters.location === undefined ? snapshots : snapshots.filter(snapshot => filters.location === 'none' ? snapshot.location === null : snapshot.location === filters.location) }
+    return {
+      runCount: runIds.length,
+      snapshots: snapshots.filter(snapshot =>
+        (providerKey === undefined || normalizeText(snapshot.provider) === providerKey)
+        && (locationKey === undefined || (locationKey === 'none'
+          ? snapshot.location === null
+          : snapshot.location !== null && normalizeText(snapshot.location) === locationKey))),
+    }
   }
 
   const fromMonth = loadMonth(fromBounds)
@@ -545,7 +516,145 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
   })
   if (advancedComparison !== undefined) {
     const { from, to, basket, continuity, modelChanges } = advancedComparison
-    return { ...dto, selection: filters, metrics: [...dto.metrics.slice(0, 4), ...advancedComparison.metrics.slice(4)], classComparison: { from, to, basket, continuity, modelChanges } }
+    return {
+      ...dto,
+      selection: filters,
+      metrics: [
+        ...dto.metrics.filter(metric => !isVisibilityCompareClassMetric(metric.key)),
+        ...advancedComparison.metrics.filter(metric => isVisibilityCompareClassMetric(metric.key)),
+      ],
+      classComparison: { from, to, basket, continuity, modelChanges },
+    }
   }
   return { ...dto, selection: filters }
+}
+
+type MonthBounds = { since: string; until: string }
+
+/** Validated calendar months for a comparison; `from` must be strictly before `to`. */
+function compareMonths(fromRaw: string | undefined, toRaw: string | undefined): { fromRaw: string; toRaw: string; fromBounds: MonthBounds; toBounds: MonthBounds } {
+  if (fromRaw === undefined || fromRaw === '') throw validationError('"from" (YYYY-MM) is required')
+  if (toRaw === undefined || toRaw === '') throw validationError('"to" (YYYY-MM) is required')
+
+  let fromBounds: MonthBounds
+  let toBounds: MonthBounds
+  try {
+    fromBounds = calendarMonthBounds(fromRaw)
+  } catch (err) {
+    throw validationError(err instanceof RangeError ? `"from": ${err.message}` : '"from" must be in YYYY-MM format')
+  }
+  try {
+    toBounds = calendarMonthBounds(toRaw)
+  } catch (err) {
+    throw validationError(err instanceof RangeError ? `"to": ${err.message}` : '"to" must be in YYYY-MM format')
+  }
+  if (Date.parse(fromBounds.since) >= Date.parse(toBounds.since)) {
+    throw validationError('"from" must be a month strictly before "to"')
+  }
+  return { fromRaw, toRaw, fromBounds, toBounds }
+}
+
+/** Completed/partial, non-probe answer-visibility runs created in the month: the project frame's sweeps. */
+function legacyCompareRunIds(db: DatabaseClient, projectId: string, bounds: MonthBounds): string[] {
+  const sinceMs = Date.parse(bounds.since)
+  const untilMs = Date.parse(bounds.until)
+  return db
+    .select({ id: runs.id, createdAt: runs.createdAt, status: runs.status })
+    .from(runs)
+    .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
+    .all()
+    .filter(
+      (r) =>
+        (r.status === RunStatuses.completed || r.status === RunStatuses.partial) &&
+        Date.parse(r.createdAt) >= sinceMs &&
+        Date.parse(r.createdAt) <= untilMs,
+    )
+    .map((r) => r.id)
+}
+
+/** One month of the frozen Advanced frame for a selection. */
+function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds: MonthBounds, selection: VisibilityReportReaderSelection, includeEvidence = true) {
+  const selected = readVisibilityComparisonRuns(db, projectId, bounds.since, bounds.until, includeEvidence)
+  const snapshots: VisibilityCompareSnapshotInput[] = []
+  const classSnapshots: VisibilityCompareSnapshotInput[] = []
+  for (const run of selected.runs) {
+    try {
+      const population = visibilityComparisonPopulation(run, selection)
+      const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
+        ...snapshot,
+        citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
+        citationChecked: snapshot.citation !== null,
+        citedDomains: [],
+      })
+      snapshots.push(...population.snapshots.map(adapt))
+      classSnapshots.push(...population.classSnapshots.map(adapt))
+    } catch (error) {
+      if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)
+      throw error
+    }
+  }
+  return { runCount: selected.runs.length, snapshots, classSnapshots, classificationAvailable: !selected.unavailable }
+}
+
+/**
+ * The model-continuity gate a monthly comparison applies, without computing
+ * its metrics: the frozen class frame on an Advanced project, the project
+ * frame otherwise, exactly as `readVisibilityCompare` gates them. Continuity
+ * reads query, provider, model and frozen cohort only, so no answer text is
+ * loaded or matched.
+ */
+export function readVisibilityContinuity(db: DatabaseClient, projectName: string, months: { from: string; to: string }): {
+  frame: 'class' | 'project'
+  continuity: VisibilityCompareDto['continuity']
+} {
+  const project = resolveProject(db, projectName)
+  const { fromRaw, toRaw, fromBounds, toBounds } = compareMonths(months.from, months.to)
+  const bare = (snapshot: Pick<VisibilityCompareSnapshotInput, 'queryId' | 'queryText' | 'provider' | 'model' | 'cohortKey'>): VisibilityCompareSnapshotInput => ({
+    queryId: snapshot.queryId,
+    queryText: snapshot.queryText,
+    provider: snapshot.provider,
+    model: snapshot.model,
+    ...(snapshot.cohortKey === undefined ? {} : { cohortKey: snapshot.cohortKey }),
+    citationState: CitationStates['not-cited'],
+    answerMentioned: null,
+    answerText: null,
+    citedDomains: [],
+  })
+
+  let frame: 'class' | 'project'
+  let trackedQueries: Array<{ id: string; query: string }>
+  let fromMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }
+  let toMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }
+  if (activeMeasurementPlan(db, project.id) !== null) {
+    frame = 'class'
+    const selection: VisibilityReportReaderSelection = { scope: 'project', queryClass: 'all', location: { kind: 'all' }, limit: 100 }
+    const load = (bounds: MonthBounds) => {
+      const month = loadAdvancedCompareMonth(db, project.id, bounds, selection, false)
+      return { runCount: month.runCount, snapshots: month.snapshots.map(bare) }
+    }
+    fromMonth = load(fromBounds)
+    toMonth = load(toBounds)
+    trackedQueries = [...new Map([...fromMonth.snapshots, ...toMonth.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
+  } else {
+    frame = 'project'
+    trackedQueries = db.select({ id: queries.id, query: queries.query }).from(queries).where(eq(queries.projectId, project.id)).all()
+    const load = (bounds: MonthBounds) => {
+      const runIds = legacyCompareRunIds(db, project.id, bounds)
+      const rows = runIds.length > 0 && trackedQueries.length > 0
+        ? db.select({ queryId: querySnapshots.queryId, queryText: querySnapshots.queryText, provider: querySnapshots.provider, model: querySnapshots.model })
+          .from(querySnapshots).where(inArray(querySnapshots.runId, runIds)).all()
+        : []
+      return { runCount: runIds.length, snapshots: rows.map(bare) }
+    }
+    fromMonth = load(fromBounds)
+    toMonth = load(toBounds)
+  }
+  const dto = computeVisibilityCompare({
+    project: project.name,
+    queries: trackedQueries,
+    competitors: [],
+    from: { month: fromRaw, ...fromBounds, ...fromMonth },
+    to: { month: toRaw, ...toBounds, ...toMonth },
+  })
+  return { frame, continuity: dto.continuity }
 }

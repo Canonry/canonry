@@ -383,7 +383,7 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 
 - `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--month <YYYY-MM>`/`--last-runs`/`--by-provider`/`--share-of-voice`); `--share-of-voice` adds pooled project-vs-competitor share of voice to the envelope; collection command → jsonl streams one record per query.
 - Also `visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` (`showVisibilityCompare`) — month-over-month AEO comparison rendered as the statistician-panel table (share-of-voice-led with `*` drift-robust marker, each cell `point [ci-lo, ci-hi]`, within-noise/moved verdict, basket + low-sweep caveat + model-change note); object command, `--format json` (jsonl degrades to json).
-- Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket; JSON retains the complete API response.
+- Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
 
 `src/commands/report.ts`: `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes`.
@@ -691,4 +691,6 @@ output and fail unexpected SSE EOF. See `src/agent/AGENTS.md` and
 client and MCP. It also works with `--all`. Project JSON carries `reportMonths`;
 JSONL records keep their check's `details.months`. Report advisories have
 `notificationPolicy: silent` and cannot change operational health signatures or
-produce degraded/recovered notifications. See `api-routes/src/doctor/AGENTS.md`.
+produce degraded/recovered notifications; the scheduled health pass does not run
+them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
+so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.

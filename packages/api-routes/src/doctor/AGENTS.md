@@ -77,23 +77,36 @@ Two schedules feed `health.degraded` and `health.recovered`, which reach every e
 `report.sweeps`, `report.models`, and `report.daily-data` are stored-evidence
 project checks. They run by default and carry `notificationPolicy: silent`.
 The notifier excludes silent checks from health status, signatures and recovery;
-a report-only pass must leave existing operational state untouched.
+a report-only pass must leave existing operational state untouched. The
+scheduled health pass requests only `scheduledHealthCheckIds()` (non-silent,
+non-opt-in), so it never pays for advisories the notifier would discard. A
+silent check that throws reports `warn`, never `fail`: an advisory cannot fail
+`canonry doctor`.
 
 `reportMonth=YYYY-MM` selects a report month (never a future month). Omitted,
 checks cover the current UTC month and retain the previous closed month through
 day 3. This is read selection, not a work-identity or tuning parameter.
 
-Sweep readiness excludes probes and spot checks. Advanced runs validate their
-frozen revision, complete manifest and usable observations. Simple runs use the
-frozen input definition when present; legacy runs explicitly report current-basket
-coverage as their basis. A failed or empty run cannot clear readiness.
-Model checks use the same matched-pair snapshot continuity gate as monthly
-comparison, including unknown and mixed models. First observed dates do not
-claim to be provider deployment dates.
+Sweep readiness excludes probes and spot checks. Plan runs (schema v1 or v2)
+validate their manifest against the frozen revision and match usable answers by
+execution slot (`measurementSlotKey`); an answer with no execution id makes the
+run unusable. Simple runs use the frozen input definition when present; legacy
+runs explicitly report current-basket coverage as their basis. A month is ready
+when its sweeps with the same expected slots together answer every slot, as the
+monthly comparison pools a month; a failed or empty run cannot clear readiness.
+Model checks read `readVisibilityContinuity`: the same matched-pair continuity
+gate and frame as monthly comparison (frozen class frame for Advanced), including
+unknown and mixed models, without loading or matching answer text. First observed
+dates do not claim to be provider deployment dates.
 
-Daily checks distinguish observed totals (including measured zero), unknown
-dates, onboarding dates and pending reporting dates. Both APIs omit zero-data
-rows. No current store proves every interior date was queried, so missing rows
-never become confirmed collection gaps or synthetic zeros. Search Console uses
-Pacific dates. GA timezone is unrecorded and the response labels its UTC fallback.
-Both use a conservative three-day reporting lag. Backfill is advice only.
+Daily checks distinguish observed totals (including measured zero), dates the
+latest sync queried that returned no row, unknown dates, onboarding dates and
+pending reporting dates. Both APIs omit zero-data rows, and each sync replaces
+its whole requested range, so an absent date inside the latest sync's range
+(`latestSyncRange`: the GA summary window, or the Search Console rows' span up
+to the watermark's requested ceiling when both came from that sync) is zero
+activity. Earlier syncs' ranges are not recorded: absent dates outside the
+latest range stay unknown, never confirmed gaps or synthetic zeros. Search
+Console uses Pacific dates. GA timezone is unrecorded and the response labels
+its UTC fallback. Both use a conservative three-day reporting lag. Backfill is
+advice only.

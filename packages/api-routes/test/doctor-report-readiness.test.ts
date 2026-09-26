@@ -4,11 +4,11 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, queries, querySnapshots, runs, measurementPlans, measurementPlanVersions, gaDailyTotals, gscDailyTotals } from '@ainyc/canonry-db'
-import { canonicalMeasurementPlanV2Json, CitationStates, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, queries, querySnapshots, runs, measurementPlans, measurementPlanVersions, gaDailyTotals, gaTrafficSummaries, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
+import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, CheckCategories, CheckScopes, CitationStates, compileMeasurementPlan, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
-import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
-import { ALL_CHECKS } from '../src/doctor/registry.js'
+import { buildMeasurementPlanV2Manifest, buildMeasurementRunManifest } from '../src/measurement-report-adapter.js'
+import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 
@@ -80,13 +80,14 @@ describe('monthly report readiness (stored evidence only)', () => {
     expect((await report('2026-08')).checks.find(c => c.id === 'report.sweeps')).toMatchObject({ details: { months: [{ month: '2026-08' }] } })
   })
   it('labels absent daily rows unknown, preserves observed zero, and excludes source latency', async () => {
-    db.insert(gaDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-01', sessions: 0, users: 0, syncedAt: NOW, createdAt: NOW }).run()
+    // The 09-01 row came from an earlier sync; the latest one proves only 09-15.
+    db.insert(gaDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-01', sessions: 0, users: 0, syncedAt: '2026-09-02T06:00:00.000Z', createdAt: NOW }).run()
     db.insert(gaDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-15', sessions: 3, users: 2, syncedAt: NOW, createdAt: NOW }).run()
     db.insert(gscDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-01', clicks: 0, impressions: 0, position: '0', createdAt: NOW }).run()
     const daily = (await report()).checks.find(c => c.id === 'report.daily-data')
     expect(daily).toMatchObject({ status: 'warn', details: { months: [{ sources: [
-      { source: 'ga', observedDays: 2, observedZeroDays: 1, confirmedMissingDays: 0, unknownDays: 20, unknownRanges: [{ start: '2026-09-02', end: '2026-09-14' }, { start: '2026-09-16', end: '2026-09-22' }], pendingDays: 8 },
-      { source: 'gsc', observedDays: 1, observedZeroDays: 1, confirmedMissingDays: 0, unknownDays: 21, pendingDays: 8 },
+      { source: 'ga', observedDays: 2, observedZeroDays: 1, queriedEmptyDays: 0, latestSyncRange: { start: '2026-09-15', end: '2026-09-15' }, confirmedMissingDays: 0, unknownDays: 20, unknownRanges: [{ start: '2026-09-02', end: '2026-09-14' }, { start: '2026-09-16', end: '2026-09-22' }], pendingDays: 8 },
+      { source: 'gsc', observedDays: 1, observedZeroDays: 1, queriedEmptyDays: 0, confirmedMissingDays: 0, unknownDays: 21, pendingDays: 8 },
     ] }] } })
     expect(daily?.remediation).toContain('canonry ga sync client --days')
     expect(daily?.summary).toMatch(/unknown/i)
@@ -133,5 +134,89 @@ describe('monthly report readiness (stored evidence only)', () => {
   })
   it('skips daily integrations without stored evidence or a connection', async () => {
     expect((await report()).checks.find(c => c.id === 'report.daily-data')).toMatchObject({ status: 'skipped', code: 'report.daily-data.not-connected' })
+  })
+  it('counts dates the latest sync queried but got no row for as zero activity, not unknown', async () => {
+    // One GA sync over 08-27..09-25 returned rows for two dates only: GA omits
+    // days with no activity, so the other dates it covered were quiet.
+    db.insert(gaDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-01', sessions: 2, users: 1, syncedAt: NOW, createdAt: NOW }).run()
+    db.insert(gaDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-15', sessions: 3, users: 2, syncedAt: NOW, createdAt: NOW }).run()
+    db.insert(gaTrafficSummaries).values({ id: randomUUID(), projectId: project.id, periodStart: '2026-08-27', periodEnd: '2026-09-25', totalSessions: 5, totalUsers: 3, syncedAt: NOW }).run()
+    const daily = (await runChecks({ db, project, reportMonth: '2026-09' }, ALL_CHECKS, { checkIds: ['report.daily-data'] })).checks[0]
+    expect(daily).toMatchObject({ status: 'ok', code: 'report.daily-data.observed', details: { months: [{ sources: [
+      { source: 'ga', observedDays: 2, queriedEmptyDays: 20, unknownDays: 0, unknownRanges: [], latestSyncRange: { start: '2026-08-27', end: '2026-09-25' }, pendingDays: 8 },
+    ] }] } })
+  })
+  it('extends Search Console coverage to the requested ceiling only for the sync that wrote the rows', async () => {
+    db.insert(gscDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-05', clicks: 1, impressions: 9, position: '4', createdAt: NOW }).run()
+    db.insert(gscDailyTotals).values({ id: randomUUID(), projectId: project.id, date: '2026-09-10', clicks: 0, impressions: 3, position: '7', createdAt: NOW }).run()
+    db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: '2026-09-10', syncedThroughDate: '2026-09-24', updatedAt: NOW }).run()
+    const read = async () => (await runChecks({ db, project, reportMonth: '2026-09' }, ALL_CHECKS, { checkIds: ['report.daily-data'] })).checks[0]
+    // Asked through 09-24, rows from 09-05: 09-01..09-04 were never asked for.
+    expect(await read()).toMatchObject({ status: 'warn', details: { months: [{ sources: [
+      { source: 'gsc', observedDays: 2, queriedEmptyDays: 16, unknownDays: 4, unknownRanges: [{ start: '2026-09-01', end: '2026-09-04' }], latestSyncRange: { start: '2026-09-05', end: '2026-09-24' } },
+    ] }] } })
+    // A newer sync that returned nothing moved the watermark; it says nothing
+    // about the older rows' window, so only their own dates stay proven.
+    db.update(gscDataWatermarks).set({ updatedAt: '2026-09-25T13:00:00.000Z' }).where(eq(gscDataWatermarks.projectId, project.id)).run()
+    expect(await read()).toMatchObject({ details: { months: [{ sources: [
+      { source: 'gsc', queriedEmptyDays: 4, unknownDays: 16, latestSyncRange: { start: '2026-09-05', end: '2026-09-10' } },
+    ] }] } })
+  })
+  it('clears a month whose sweeps together answer every slot, but never across different definitions', async () => {
+    const second = randomUUID()
+    db.insert(queries).values({ id: second, projectId: project.id, query: 'second category', createdAt: NOW }).run()
+    const answer = (runId: string, id: string, date: string) => db.insert(querySnapshots).values({ id: randomUUID(), runId, queryId: id, provider: 'perplexity', model: 'fast', citationState: CitationStates['not-cited'], answerMentioned: false, answerText: 'Other service', createdAt: `${date}T12:00:00.000Z` }).run()
+    const first = randomUUID()
+    db.insert(runs).values({ id: first, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.partial, trigger: RunTriggers.scheduled, createdAt: '2026-09-10T12:00:00.000Z' }).run()
+    answer(first, queryId, '2026-09-10')
+    const read = async () => (await report()).checks.find(c => c.id === 'report.sweeps')
+    expect(await read()).toMatchObject({ status: 'warn', details: { months: [{ eligibleRunIds: [], coverage: { expected: 2, answered: 1, sweeps: 1 } }] } })
+    const later = randomUUID()
+    db.insert(runs).values({ id: later, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.partial, trigger: RunTriggers.scheduled, createdAt: '2026-09-12T12:00:00.000Z' }).run()
+    answer(later, second, '2026-09-12')
+    // Neither partial sweep is complete alone; together they answer both queries.
+    expect(await read()).toMatchObject({ status: 'ok', details: { months: [{ eligibleRunIds: [first, later], coverage: { expected: 2, answered: 2, sweeps: 2 }, runs: [{ complete: false }, { complete: false }] }] } })
+  })
+  it('validates schema-v1 plan runs against their frozen manifest instead of leaving them unverified', async () => {
+    const legacy = compileMeasurementPlan({ schemaVersion: 1, targets: [{ stableKey: 'downtown', label: 'Client Downtown', urls: [{ kind: 'prefix', host: 'client.example', pathPrefix: '/downtown', pathCase: 'insensitive' }], aliases: ['Client Downtown'] }], groups: [], targetQuerySelections: [{ targetKey: 'downtown', queryIds: [queryId] }] }, { canonicalDomain: 'client.example', ownedDomains: [], brandNames: ['Client'], trackedQueries: [{ id: queryId, query: 'best service' }], locations: [], defaultContext: null, expectedSnapshots: 1 })
+    const versionId = randomUUID()
+    db.insert(measurementPlanVersions).values({ id: versionId, projectId: project.id, revision: 1, canonicalJson: canonicalMeasurementPlanJson(legacy), checksum: 'a'.repeat(64), schemaVersion: 1, createdAt: NOW }).run()
+    const manifest = buildMeasurementRunManifest(legacy, ['perplexity'])
+    const runId = randomUUID()
+    db.insert(runs).values({ id: runId, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: NOW, measurementPlanVersionId: versionId, measurementManifest: manifest }).run()
+    for (const slot of manifest.expectedSlots) db.insert(querySnapshots).values({ id: randomUUID(), runId, queryId, queryText: slot.queryText, provider: slot.provider, model: 'fast', answerText: 'Other service', answerMentioned: false, citationState: CitationStates['not-cited'], measurementExecutionId: slot.executionId, createdAt: NOW }).run()
+    expect((await report()).checks.find(c => c.id === 'report.sweeps')).toMatchObject({ status: 'ok', details: { months: [{ eligibleRunIds: [runId], runs: [{ reason: 'frozen-plan', schemaVersion: 1, complete: true, expected: 1, answered: 1 }] }] } })
+  })
+  it('reads model continuity without matching any answer text', async () => {
+    // Every answer names the project, so a metric pass would have to walk them.
+    const named = (date: string, model: string) => {
+      const id = sweep(date, model)
+      db.update(querySnapshots).set({ answerText: 'Client and a rival are both reviewed here.' }).where(eq(querySnapshots.runId, id)).run()
+    }
+    named('2026-08-16', 'fast'); named('2026-09-15', 'fast')
+    const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment')
+    try {
+      expect((await report()).checks.find(c => c.id === 'report.models')).toMatchObject({ status: 'ok', details: { months: [{ frame: 'project', continuity: 'comparable', providers: [{ status: 'included' }] }] } })
+      expect(segment.mock.calls.filter(([text]) => String(text).includes('rival are both reviewed'))).toEqual([])
+    } finally {
+      segment.mockRestore()
+    }
+  })
+  it('downgrades a crashed advisory to a warning so it cannot fail the doctor', async () => {
+    const boom = (notificationPolicy?: 'silent') => ({ id: `probe.${notificationPolicy ?? 'health'}`, category: CheckCategories.integrations, scope: CheckScopes.project, title: 'Boom', ...(notificationPolicy ? { notificationPolicy } : {}), run: () => { throw new Error('boom') } })
+    const result = await runChecks({ db, project }, [boom('silent'), boom()], {})
+    expect(result.checks.map(check => [check.id, check.status, check.code])).toEqual([
+      ['probe.silent', 'warn', 'probe.silent.runtime-error'],
+      ['probe.health', 'fail', 'probe.health.runtime-error'],
+    ])
+    expect(result.summary).toMatchObject({ warn: 1, fail: 1 })
+  })
+  it('schedules only checks that can page: no silent advisories and no opt-in checks', () => {
+    const ids = scheduledHealthCheckIds()
+    expect(ids.filter(id => id.startsWith('report.'))).toEqual([])
+    const projectChecks = ALL_CHECKS.filter(check => check.scope === CheckScopes.project)
+    expect(ids).toEqual(projectChecks.filter(check => !check.optIn && check.notificationPolicy !== 'silent').map(check => check.id))
+    expect(projectChecks.some(check => check.optIn)).toBe(true)
+    expect(ids.length).toBeGreaterThan(0)
   })
 })

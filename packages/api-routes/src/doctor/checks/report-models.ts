@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, lte } from 'drizzle-orm'
 import { calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, reportMonthsForDoctor, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import { querySnapshots, runs } from '@ainyc/canonry-db'
 import { notProbeRun } from '../../helpers.js'
-import { readVisibilityCompare } from '../../visibility-stats.js'
+import { readVisibilityContinuity } from '../../visibility-stats.js'
 import type { CheckDefinition } from '../types.js'
 
 export const reportModelsCheck: CheckDefinition = {
@@ -13,12 +13,12 @@ export const reportModelsCheck: CheckDefinition = {
     const months = reportMonthsForDoctor(ctx.reportMonth).map(month => {
       const bounds = calendarMonthBounds(month)
       const previous = new Date(Date.parse(bounds.since) - 1).toISOString().slice(0, 7)
-      const comparison = readVisibilityCompare(ctx.db, ctx.project!.name, { from: previous, to: month })
-      const frame = comparison.classComparison ?? comparison
+      // The comparison's own continuity gate, without its answer-matching metrics.
+      const { frame, continuity } = readVisibilityContinuity(ctx.db, ctx.project!.name, { from: previous, to: month })
       const observations = ctx.db.select({ provider: querySnapshots.provider, model: querySnapshots.model, at: runs.createdAt })
         .from(querySnapshots).innerJoin(runs, eq(runs.id, querySnapshots.runId))
         .where(and(eq(runs.projectId, ctx.project!.id), eq(runs.kind, RunKinds['answer-visibility']), inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]), notProbeRun(), gte(runs.createdAt, bounds.since), lte(runs.createdAt, bounds.until))).all()
-      const providers = frame.continuity.providers.map(provider => {
+      const providers = continuity.providers.map(provider => {
         const modelDates = provider.toModels.map(model => ({
           model,
           firstObservedAt: observations.filter(observation => observation.provider === provider.provider && observation.model?.trim() === model)
@@ -33,7 +33,7 @@ export const reportModelsCheck: CheckDefinition = {
           modelDates,
         }
       })
-      return { month, previousMonth: previous, selection: comparison.selection ?? { scope: 'project' }, continuity: frame.continuity.status, providers }
+      return { month, previousMonth: previous, selection: {}, frame, continuity: continuity.status, providers }
     })
     const excluded = months.flatMap(month => month.providers.filter(provider => provider.status !== 'included').map(provider => `${provider.provider}: ${provider.fromModels.join(', ') || 'unknown'} → ${provider.toModels.join(', ') || 'unknown'} (${month.month}; ${provider.firstObservedAt ? `new model first observed ${provider.firstObservedAt}` : 'change date unknown'})`))
     const insufficient = months.some(month => month.providers.length === 0)

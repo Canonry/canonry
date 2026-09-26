@@ -102,7 +102,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 10742,
+    characters: 11295,
     content: aeroReferencesReportingPart0,
   },
   {
@@ -162,7 +162,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 111224,
+    characters: 112225,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {
