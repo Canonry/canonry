@@ -6,7 +6,7 @@ import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
-import { AppError, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
+import { AppError, formatPercent, gscCoverageSummaryDtoSchema, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
 import { googleOAuthSuccessHtml, googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior.
@@ -1026,6 +1026,132 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
     expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.33 })
+  })
+})
+
+describe('googleRoutes: GSC coverage shares', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  let db: ReturnType<typeof createClient>
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-shares-'))
+    db = createClient(path.join(tmpDir, 'test.db'))
+    migrate(db)
+    const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) return reply.status(error.statusCode).send(error.toJSON())
+      throw error
+    })
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+    })
+    app = fastify
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function seedProject(name: string): string {
+    const id = crypto.randomUUID()
+    const now = '2026-05-01T00:00:00.000Z'
+    db.insert(projects).values({
+      id, name, displayName: name, canonicalDomain: `${name}.example`, country: 'US', language: 'en', createdAt: now, updatedAt: now,
+    }).run()
+    return id
+  }
+
+  function inspect(projectId: string, url: string, indexingState: string, inspectedAt: string) {
+    return { id: crypto.randomUUID(), projectId, url, indexingState, inspectedAt, createdAt: inspectedAt }
+  }
+
+  async function coverage(name: string): Promise<GscCoverageSummaryDto> {
+    const res = await app.inject({ method: 'GET', url: `/projects/${name}/google/gsc/coverage` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as GscCoverageSummaryDto
+    expect(() => gscCoverageSummaryDtoSchema.parse(body)).not.toThrow()
+    return body
+  }
+
+  it('shares each latest inspection between indexed and not indexed, summing to 1', async () => {
+    const projectId = seedProject('sharesplit')
+    db.insert(gscUrlInspections).values([
+      inspect(projectId, 'https://sharesplit.example/a', 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'),
+      inspect(projectId, 'https://sharesplit.example/b', 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'),
+      // http and https of one page collapse into one inspected page.
+      inspect(projectId, 'http://sharesplit.example/c', 'INDEXING_ALLOWED', '2026-05-01T00:00:00.000Z'),
+      inspect(projectId, 'https://sharesplit.example/c', 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'),
+      // Indexed before, not now: counted once, as not indexed (and deindexed).
+      inspect(projectId, 'https://sharesplit.example/d', 'INDEXING_ALLOWED', '2026-05-01T00:00:00.000Z'),
+      inspect(projectId, 'https://sharesplit.example/d', 'BLOCKED', '2026-05-02T00:00:00.000Z'),
+    ]).run()
+
+    const { summary } = await coverage('sharesplit')
+    expect(summary).toEqual({
+      total: 4,
+      indexed: 3,
+      notIndexed: 1,
+      deindexed: 1,
+      percentage: 75,
+      indexedShare: 0.75,
+      notIndexedShare: 0.25,
+    })
+    expect(summary.indexed + summary.notIndexed).toBe(summary.total)
+    expect(summary.indexedShare! + summary.notIndexedShare!).toBe(1)
+    expect(formatPercent(summary.indexedShare)).toBe('75.0%')
+    expect(formatPercent(summary.notIndexedShare)).toBe('25.0%')
+  })
+
+  it('keeps the shares unrounded beside the two-decimal percentage', async () => {
+    const projectId = seedProject('sharesliver')
+    const rows = Array.from({ length: 2000 }, (_, i) =>
+      inspect(projectId, `https://sharesliver.example/p${i}`, 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'))
+    rows.push(inspect(projectId, 'https://sharesliver.example/missing', 'NEUTRAL', '2026-05-02T00:00:00.000Z'))
+    db.insert(gscUrlInspections).values(rows).run()
+
+    const { summary } = await coverage('sharesliver')
+    expect(summary.total).toBe(2001)
+    expect(summary.indexedShare).toBe(2000 / 2001)
+    expect(summary.notIndexedShare).toBe(1 / 2001)
+    expect(summary.indexedShare! + summary.notIndexedShare!).toBeCloseTo(1, 12)
+    // `percentage` keeps two decimals (99.95); the shares keep every digit.
+    expect(summary.percentage).toBe(99.95)
+    expect(formatPercent(summary.indexedShare)).toBe('>99.9%')
+    expect(formatPercent(summary.notIndexedShare)).toBe('<0.1%')
+  })
+
+  it('reports no share, not 0%, before any page has been inspected', async () => {
+    seedProject('shareempty')
+    const { summary } = await coverage('shareempty')
+    expect(summary.total).toBe(0)
+    expect(summary.indexedShare).toBeNull()
+    expect(summary.notIndexedShare).toBeNull()
+    expect(formatPercent(summary.indexedShare)).toBe('—')
+  })
+
+  it('reads exact 0 and 1 when every page is on one side', async () => {
+    const allIndexed = seedProject('shareall')
+    db.insert(gscUrlInspections).values([
+      inspect(allIndexed, 'https://shareall.example/a', 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'),
+      inspect(allIndexed, 'https://shareall.example/b', 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'),
+    ]).run()
+    const full = (await coverage('shareall')).summary
+    expect(full.indexedShare).toBe(1)
+    expect(full.notIndexedShare).toBe(0)
+    expect(formatPercent(full.indexedShare)).toBe('100%')
+    expect(formatPercent(full.notIndexedShare)).toBe('0%')
   })
 })
 

@@ -36,7 +36,7 @@ const {
 const PROJECT = 'demo'
 
 const coverageResult = {
-  summary: { total: 50, indexed: 42, notIndexed: 6, deindexed: 2, percentage: 84 },
+  summary: { total: 50, indexed: 42, notIndexed: 8, deindexed: 2, percentage: 84, indexedShare: 0.84, notIndexedShare: 0.16 },
   lastInspectedAt: '2026-05-02T00:00:00.000Z',
   indexed: [{ url: 'https://x/1', indexingState: 'INDEXING_ALLOWED', crawlTime: '2026-05-01T00:00:00.000Z' }],
   notIndexed: [{ url: 'https://x/2', indexingState: null, coverageState: 'Crawled - not indexed' }],
@@ -86,18 +86,52 @@ describe('google jsonl degrade (composite/object commands)', () => {
       await cap.run
       const out = cap.text()
       expect(out).toContain('Index Coverage for "demo"')
-      expect(out).toContain('42 / 50 pages indexed (84.0%)')
+      expect(out).toContain('42 / 50 pages indexed (84.0%) · 8 not indexed (16.0%)')
       expect(() => JSON.parse(out)).toThrow()
     })
 
-    it('reads the summary percentage as 0..100, so 1 of 1,000 indexed is 0.1%, not 10%', async () => {
+    it('reads the shares as 0..1 fractions, so 1 of 1,000 indexed is 0.1%, not 10%', async () => {
       mockGscCoverage.mockResolvedValue({
         ...coverageResult,
-        summary: { total: 1000, indexed: 1, notIndexed: 999, deindexed: 0, percentage: 0.1 },
+        summary: { total: 1000, indexed: 1, notIndexed: 999, deindexed: 0, percentage: 0.1, indexedShare: 0.001, notIndexedShare: 0.999 },
       })
       const cap = captureLog(() => googleCoverage(PROJECT, undefined))
       await cap.run
-      expect(cap.text()).toContain('1 / 1000 pages indexed (0.1%)')
+      expect(cap.text()).toContain('1 / 1000 pages indexed (0.1%) · 999 not indexed (99.9%)')
+    })
+
+    it('prints the server shares the dashboard donut draws, never the counts divided here', async () => {
+      // Deliberately not 3 / 4: the CLI must print the server's fractions, so
+      // a near-complete share keeps its >99.9% edge where the rounded
+      // percentage would claim 100.
+      mockGscCoverage.mockResolvedValue({
+        ...coverageResult,
+        summary: { total: 4, indexed: 3, notIndexed: 1, deindexed: 0, percentage: 100, indexedShare: 0.9996, notIndexedShare: 0.0004 },
+      })
+      const cap = captureLog(() => googleCoverage(PROJECT, undefined))
+      await cap.run
+      expect(cap.text()).toContain('3 / 4 pages indexed (>99.9%) · 1 not indexed (<0.1%)')
+      expect(cap.text()).not.toContain('75.0%')
+    })
+
+    it('carries both shares in --format json unchanged', async () => {
+      mockGscCoverage.mockResolvedValue(coverageResult)
+      const cap = captureLog(() => googleCoverage(PROJECT, 'json'))
+      await cap.run
+      const parsed = JSON.parse(cap.text()) as typeof coverageResult
+      expect(parsed.summary.indexedShare).toBe(0.84)
+      expect(parsed.summary.notIndexedShare).toBe(0.16)
+    })
+
+    it('still prints the rounded percentage from a server that predates the shares', async () => {
+      mockGscCoverage.mockResolvedValue({
+        ...coverageResult,
+        summary: { total: 50, indexed: 42, notIndexed: 8, deindexed: 2, percentage: 84 },
+      })
+      const cap = captureLog(() => googleCoverage(PROJECT, undefined))
+      await cap.run
+      expect(cap.text()).toContain('42 / 50 pages indexed (84.0%)')
+      expect(cap.text()).not.toContain('not indexed (')
     })
   })
 
