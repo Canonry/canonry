@@ -2,16 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { getAttributes, countAttributes, hashAttributes } from '../src/attributes-client.js'
 import { GbpApiError } from '../src/types.js'
 
-// Captured verbatim from the live Business Information API
-// (GET /v1/locations/{id}/attributes) for a real location — getAttributes
+// Shape captured from the live Business Information API
+// (GET /v1/locations/{id}/attributes), with fictional values. getAttributes
 // returns ONLY the attributes the owner has set, with one of four value
 // carriers (values / uriValues / repeatedEnumValue). See PR description.
-const REAL_GJELINA_RESPONSE = {
-  name: 'locations/13162902540120712264/attributes',
+const CAPTURED_HOTEL_RESPONSE = {
+  name: 'locations/10000000000000000001/attributes',
   attributes: [
     { name: 'attributes/welcomes_lgbtq', valueType: 'BOOL', values: [true] },
-    { name: 'attributes/url_text_messaging', valueType: 'URL', uriValues: [{ uri: 'sms:+13109362146' }] },
-    { name: 'attributes/url_instagram', valueType: 'URL', uriValues: [{ uri: 'https://www.instagram.com/gjelinahotel/' }] },
+    { name: 'attributes/url_text_messaging', valueType: 'URL', uriValues: [{ uri: 'sms:+13105550123' }] },
+    { name: 'attributes/url_instagram', valueType: 'URL', uriValues: [{ uri: 'https://www.instagram.com/harborline.example/' }] },
   ],
 }
 
@@ -62,12 +62,12 @@ describe('getAttributes', () => {
   afterEach(() => { globalThis.fetch = originalFetch })
 
   it('normalizes the real BOOL + URL response into flat values/uris', async () => {
-    fetchSpy.mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify(REAL_GJELINA_RESPONSE) })
-    const out = await getAttributes('tok', 'locations/13162902540120712264')
+    fetchSpy.mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify(CAPTURED_HOTEL_RESPONSE) })
+    const out = await getAttributes('tok', 'locations/10000000000000000001')
     expect(out).toEqual([
       { name: 'attributes/welcomes_lgbtq', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
-      { name: 'attributes/url_text_messaging', valueType: 'URL', values: [], unsetValues: [], uris: ['sms:+13109362146'] },
-      { name: 'attributes/url_instagram', valueType: 'URL', values: [], unsetValues: [], uris: ['https://www.instagram.com/gjelinahotel/'] },
+      { name: 'attributes/url_text_messaging', valueType: 'URL', values: [], unsetValues: [], uris: ['sms:+13105550123'] },
+      { name: 'attributes/url_instagram', valueType: 'URL', values: [], unsetValues: [], uris: ['https://www.instagram.com/harborline.example/'] },
     ])
   })
 

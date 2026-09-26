@@ -57,7 +57,7 @@ describe('listLocations', () => {
     mockLocations([
       {
         name: 'locations/1',
-        title: 'Gjelina Hotel',
+        title: 'Harborline Hotel',
         metadata: { placeId: 'ChIJplaceid123', mapsUri: 'https://maps.google.com/?cid=42' },
       },
     ])
@@ -78,22 +78,22 @@ describe('buildLocationProfileFields', () => {
   it('extracts the full owner-content profile from a populated location', () => {
     const out = buildLocationProfileFields({
       name: 'locations/1',
-      title: 'AZ Coatings',
+      title: 'Blue Kettle',
       categories: {
         primaryCategory: { displayName: 'Roofing contractor' },
         additionalCategories: [{ displayName: 'Insulation contractor' }, { displayName: 'Waterproofing service' }],
       },
-      profile: { description: 'AZ Coatings specializes in commercial roof restoration.' },
-      serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY', places: { placeInfos: [{ placeName: 'Almont, MI' }] } },
+      profile: { description: 'Blue Kettle specializes in commercial roof restoration.' },
+      serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY', places: { placeInfos: [{ placeName: 'Example City, MI' }] } },
       regularHours: { periods: [{ openDay: 'MONDAY', openTime: { hours: 7 }, closeDay: 'MONDAY', closeTime: { hours: 18, minutes: 30 } }] },
-      phoneNumbers: { primaryPhone: '(248) 925-7414' },
+      phoneNumbers: { primaryPhone: '(248) 555-0142' },
       openInfo: { status: 'OPEN', openingDate: { year: 2021, month: 12, day: 1 } },
     })
     expect(out.additionalCategories).toEqual(['Insulation contractor', 'Waterproofing service'])
-    expect(out.description).toBe('AZ Coatings specializes in commercial roof restoration.')
-    expect(out.serviceArea).toEqual({ businessType: 'CUSTOMER_LOCATION_ONLY', places: { placeInfos: [{ placeName: 'Almont, MI' }] } })
+    expect(out.description).toBe('Blue Kettle specializes in commercial roof restoration.')
+    expect(out.serviceArea).toEqual({ businessType: 'CUSTOMER_LOCATION_ONLY', places: { placeInfos: [{ placeName: 'Example City, MI' }] } })
     expect(out.regularHours).toEqual({ periods: [{ openDay: 'MONDAY', openTime: { hours: 7 }, closeDay: 'MONDAY', closeTime: { hours: 18, minutes: 30 } }] })
-    expect(out.primaryPhone).toBe('(248) 925-7414')
+    expect(out.primaryPhone).toBe('(248) 555-0142')
     expect(out.openStatus).toBe('OPEN')
     expect(out.openingDate).toBe('2021-12-01')
   })
@@ -127,8 +127,8 @@ describe('formatStorefrontAddress', () => {
   it('flattens the address parts present, skipping the missing ones', () => {
     expect(formatStorefrontAddress({
       name: 'locations/1',
-      storefrontAddress: { addressLines: ['123 Main St'], locality: 'Venice', administrativeArea: 'CA', postalCode: '90291', regionCode: 'US' },
-    })).toBe('123 Main St, Venice, CA, 90291, US')
+      storefrontAddress: { addressLines: ['123 Main St'], locality: 'Example City', administrativeArea: 'CA', postalCode: '90001', regionCode: 'US' },
+    })).toBe('123 Main St, Example City, CA, 90001, US')
   })
 
   it('returns null when there is no storefront address', () => {
