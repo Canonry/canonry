@@ -327,7 +327,7 @@ CANONRY_PORT=4100 CANONRY_BASE_PATH=/canonry/ canonry serve
 Deployment identity is env-only and is reported by `GET /health`: `CANONRY_INSTANCE` names the instance, `CANONRY_INSTANCE_ROLE` tags what it is for (convention: `internal`, `client-demo`, `client-trial`, `preview`), and `CANONRY_COMMIT` supplies the build commit when the bundle was built without git. See "Health endpoint" in `AGENTS.md` for the response shape.
 
 ```bash
-CANONRY_INSTANCE=gjelina-demo CANONRY_INSTANCE_ROLE=client-demo canonry serve
+CANONRY_INSTANCE=acme-demo CANONRY_INSTANCE_ROLE=client-demo canonry serve
 ```
 
 ---

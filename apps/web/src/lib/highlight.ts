@@ -11,8 +11,8 @@ const SEPARATOR_CHARS = /[\s\-_]+/
 
 /**
  * Convert a term into a regex source that tolerates separator drift between
- * the term and the answer text. A stored term `demand-iq` should highlight
- * "Demand IQ" in prose; "AZ Coatings" should highlight "AZCoatings". Each run
+ * the term and the answer text. A stored term `widget-iq` should highlight
+ * "Widget IQ" in prose; "Blue Kettle" should highlight "BlueKettle". Each run
  * of space/hyphen/underscore in the term becomes `[\s\-_]*` (zero or more
  * separators) in the regex. Returns `null` if the term reduces to nothing.
  */
@@ -52,7 +52,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
 
   // Build a single regex from all terms (longest first to avoid partial matches).
   // Each term becomes a separator-tolerant alternative so a slug like
-  // `demand-iq` still matches the spaced "Demand IQ" form in answer prose.
+  // `widget-iq` still matches the spaced "Widget IQ" form in answer prose.
   const sorted = [...allTerms].sort((a, b) => b.length - a.length)
   const sources = sorted
     .map(termToRegexSource)
@@ -67,8 +67,8 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
   const regex = new RegExp(`(${sources.join('|')})`, 'gi')
 
   // Build a lookup keyed by brand-key (alphanumeric-only lowercase) so a
-  // matched span like "Demand IQ" reverse-maps to a term registered as
-  // `demand-iq` (both produce key `demandiq`).
+  // matched span like "Widget IQ" reverse-maps to a term registered as
+  // `widget-iq` (both produce key `widgetiq`).
   const termClassMap = new Map<string, string>()
   for (const group of groups) {
     for (const term of group.terms) {

@@ -6,7 +6,7 @@ import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
-import { AppError, formatPercent, gscCoverageSummaryDtoSchema, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
+import { AppError, formatPercent, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
 import { googleOAuthSuccessHtml, googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior.
@@ -996,8 +996,8 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     expect(body.lastSyncedAt).toBe(latestSync)
   })
 
-  it('sends the indexed percentage to two decimals, not a tenth', async () => {
-    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.33%.
+  it('sends the indexed percentage at wire precision, not a tenth', async () => {
+    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.333333%.
     for (const [id, url] of [['i2', 'https://coverage.com/page-2'], ['i3', 'https://coverage.com/page-3']] as const) {
       db.insert(gscUrlInspections).values({
         id,
@@ -1025,7 +1025,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
-    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.33 })
+    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.333333 })
   })
 })
 
@@ -1114,7 +1114,7 @@ describe('googleRoutes: GSC coverage shares', () => {
     expect(formatPercent(summary.notIndexedShare)).toBe('25.0%')
   })
 
-  it('keeps the shares unrounded beside the two-decimal percentage', async () => {
+  it('keeps the shares unrounded beside the percentage at wire precision', async () => {
     const projectId = seedProject('sharesliver')
     const rows = Array.from({ length: 2000 }, (_, i) =>
       inspect(projectId, `https://sharesliver.example/p${i}`, 'INDEXING_ALLOWED', '2026-05-02T00:00:00.000Z'))
@@ -1126,8 +1126,9 @@ describe('googleRoutes: GSC coverage shares', () => {
     expect(summary.indexedShare).toBe(2000 / 2001)
     expect(summary.notIndexedShare).toBe(1 / 2001)
     expect(summary.indexedShare! + summary.notIndexedShare!).toBeCloseTo(1, 12)
-    // `percentage` keeps two decimals (99.95); the shares keep every digit.
-    expect(summary.percentage).toBe(99.95)
+    // `percentage` keeps six decimals (99.950025) and reads as the share does; the shares keep every digit.
+    expect(summary.percentage).toBe(99.950025)
+    expect(formatPercent(summary.percentage, RatioUnits.percent)).toBe('>99.9%')
     expect(formatPercent(summary.indexedShare)).toBe('>99.9%')
     expect(formatPercent(summary.notIndexedShare)).toBe('<0.1%')
   })

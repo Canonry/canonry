@@ -70,8 +70,8 @@ test('deleting a tracked query keeps its snapshots (query_id=NULL, query_text in
     provider: 'openai',
     citationState: 'cited',
     answerMentioned: true,
-    answerText: 'azcoatings is one option…',
-    citedDomains: ['azcoatingsllc.com'],
+    answerText: 'bluekettle is one option…',
+    citedDomains: ['bluekettle.example.com'],
     competitorOverlap: [],
     recommendedCompetitors: [],
     location: null,
@@ -89,7 +89,7 @@ test('deleting a tracked query keeps its snapshots (query_id=NULL, query_text in
   expect(after[0]!.queryId).toBeNull()
   expect(after[0]!.queryText).toBe('best polyurea roof coating')
   expect(after[0]!.citationState).toBe('cited')
-  expect(after[0]!.citedDomains).toEqual(['azcoatingsllc.com'])
+  expect(after[0]!.citedDomains).toEqual(['bluekettle.example.com'])
 })
 
 test('deleting the run still cascades and removes its snapshots', () => {
@@ -163,7 +163,7 @@ test('migration sanitizes pre-existing dangling query_id refs (production data)'
   // Real production DBs can contain snapshots whose `query_id` no longer
   // points to any queries row — earlier deletions that ran with PRAGMA
   // foreign_keys=OFF, or a pre-FK schema, can leave dangling refs even
-  // though the current FK is CASCADE. The May 2026 azcoatings DB had 459
+  // though the current FK is CASCADE. A May 2026 production DB had 459
   // such rows.
   //
   // If v58's INSERT...SELECT copies `qs.query_id` verbatim, the new
