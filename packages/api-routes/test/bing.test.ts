@@ -395,12 +395,13 @@ describe('Bing routes', () => {
       notIndexed: Array<{ url: string }>
       unknown: Array<{ url: string }>
     }
+    // 1 of 3 is 33.33 at the percent wire precision, not a tenth.
     expect(body.summary).toEqual({
       total: 3,
       indexed: 1,
       notIndexed: 1,
       unknown: 1,
-      percentage: 33.3,
+      percentage: 33.33,
     })
     expect(body.indexed.map((row) => row.url)).toEqual(['https://example.com/indexed'])
     expect(body.notIndexed.map((row) => row.url)).toEqual(['https://example.com/not-indexed'])

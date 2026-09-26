@@ -15,6 +15,7 @@ import {
   formatNumber,
   formatPointDelta,
   formatPercent,
+  formatSignedPercent,
   formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
   parseInclusiveEndMs,
@@ -543,12 +544,39 @@ describe('deltaPercent', () => {
     expect(deltaPercent(50, -1)).toBeNull()
   })
 
-  test('rounds to nearest integer percent', () => {
+  test('keeps the percent wire precision of two decimals', () => {
     expect(deltaPercent(150, 100)).toBe(50)
     expect(deltaPercent(50, 100)).toBe(-50)
     expect(deltaPercent(100, 100)).toBe(0)
     expect(deltaPercent(101, 100)).toBe(1)
-    expect(deltaPercent(102, 99)).toBe(3) // (102-99)/99 = 0.0303 → 3
+    expect(deltaPercent(102, 99)).toBe(3.03) // (102-99)/99 = 0.030303 → 3.03, not 3
+    expect(deltaPercent(4, 3)).toBe(33.33) // 1/3 → 33.33, not 33
+    expect(deltaPercent(1, 3)).toBe(-66.67) // -2/3 → -66.67, not -67
+    expect(deltaPercent(250, 100)).toBe(150)
+  })
+
+  test('a change a whole-percent rounding used to hide survives', () => {
+    // +0.4% used to arrive as 0 and read as no change at all.
+    expect(deltaPercent(1004, 1000)).toBe(0.4)
+    expect(deltaPercent(996, 1000)).toBe(-0.4)
+    expect(deltaTone(deltaPercent(1004, 1000))).toBe('positive')
+    // Below the wire precision it is 0, with no negative zero.
+    expect(Object.is(deltaPercent(99_999, 100_000), 0)).toBe(true)
+  })
+})
+
+describe('formatSignedPercent', () => {
+  test('signs a positive value, keeps the minus of a negative one, and leaves an exact zero unsigned', () => {
+    expect(formatSignedPercent(33.33, 'percent')).toBe('+33.3%')
+    expect(formatSignedPercent(-66.67, 'percent')).toBe('-66.7%')
+    expect(formatSignedPercent(0, 'percent')).toBe('0%')
+    expect(formatSignedPercent(100, 'percent')).toBe('+100%')
+    expect(formatSignedPercent(0.04, 'percent')).toBe('+<0.1%')
+  })
+
+  test('defaults to a fraction, like formatPercent', () => {
+    expect(formatSignedPercent(0.125)).toBe('+12.5%')
+    expect(formatSignedPercent(-0.5)).toBe('-50.0%')
   })
 })
 
@@ -586,7 +614,17 @@ describe('formatDeltaCopy', () => {
 
   test('negative delta uses Down phrasing with absolute value', () => {
     expect(formatDeltaCopy({ current: 50, prior: 100, deltaPct: -50 }, 'arrivals'))
-      .toBe('Down 50% vs prior 7 days (100 arrivals)')
+      .toBe('Down 50.0% vs prior 7 days (100 arrivals)')
+  })
+
+  test('the percentage is the two-decimal deltaPct through formatPercent', () => {
+    // 3 → 4 is +33.33%; 1,000 → 1,004 is +0.4%, which a whole-percent delta flattened to "Flat".
+    expect(formatDeltaCopy({ current: 4, prior: 3, deltaPct: deltaPercent(4, 3) }, 'crawls'))
+      .toBe('Up 33.3% vs prior 7 days (3 crawls)')
+    expect(formatDeltaCopy({ current: 2, prior: 3, deltaPct: deltaPercent(2, 3) }, 'crawls'))
+      .toBe('Down 33.3% vs prior 7 days (3 crawls)')
+    expect(formatDeltaCopy({ current: 1004, prior: 1000, deltaPct: deltaPercent(1004, 1000) }, 'hits'))
+      .toBe('Up 0.4% vs prior 7 days (1.0K hits)')
   })
 
   test('zero delta uses Flat phrasing', () => {
@@ -602,11 +640,13 @@ describe('formatDeltaCopy', () => {
 
 describe('formatAverageDelta', () => {
   test('large base renders a signed percentage vs prior', () => {
-    expect(formatAverageDelta({ deltaAbs: 4.2, prior: 30, deltaPct: 14 })).toBe('+14% vs prior')
+    expect(formatAverageDelta({ deltaAbs: 4.2, prior: 30, deltaPct: 14 })).toBe('+14.0% vs prior')
+    // 30 → 34.2 is +14%; 35 → 40 is +14.29%, shown to one decimal.
+    expect(formatAverageDelta({ deltaAbs: 5, prior: 35, deltaPct: deltaPercent(40, 35) })).toBe('+14.3% vs prior')
   })
 
   test('large base with a negative delta keeps the sign from deltaPct', () => {
-    expect(formatAverageDelta({ deltaAbs: -6, prior: 50, deltaPct: -12 })).toBe('-12% vs prior')
+    expect(formatAverageDelta({ deltaAbs: -6, prior: 50, deltaPct: -12 })).toBe('-12.0% vs prior')
   })
 
   test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded raw delta`, () => {
@@ -635,13 +675,13 @@ describe('formatAverageDelta', () => {
 
 describe('formatWindowCountDelta', () => {
   test('large base renders a signed percentage with the window label, no count word', () => {
-    expect(formatWindowCountDelta({ deltaAbs: -54, prior: 382, deltaPct: -14 }, 'visits', 'vs prior 14 days'))
-      .toBe('-14% vs prior 14 days')
+    expect(formatWindowCountDelta({ deltaAbs: -54, prior: 382, deltaPct: deltaPercent(328, 382) }, 'visits', 'vs prior 14 days'))
+      .toBe('-14.1% vs prior 14 days')
   })
 
   test('large base positive delta gets a plus sign', () => {
     expect(formatWindowCountDelta({ deltaAbs: 60, prior: 300, deltaPct: 20 }, 'clicks', 'vs prior 14 days'))
-      .toBe('+20% vs prior 14 days')
+      .toBe('+20.0% vs prior 14 days')
   })
 
   test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded absolute delta with the count label`, () => {

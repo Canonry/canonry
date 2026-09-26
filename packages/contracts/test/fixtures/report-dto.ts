@@ -207,19 +207,20 @@ export function richReport(): ProjectReportDto {
     },
     mentionLandscape: {
       // Top level mirrors `nonBrand` — the competitive view the section leads with.
+      // Shares are what the producers send: two decimals, so 2 of 6 named is 33.33.
       projectMentionCount: 3,
       totalAnswerSnapshots: 4,
       competitors: [
-        { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33 },
-        { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 17 },
+        { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33.33 },
+        { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 16.67 },
       ],
       scope: 'non-brand',
       nonBrand: {
         projectMentionCount: 3,
         totalAnswerSnapshots: 4,
         competitors: [
-          { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33 },
-          { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 17 },
+          { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedQueries: ['aeo platform'], sharePct: 33.33 },
+          { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedQueries: ['answer engine'], sharePct: 16.67 },
         ],
       },
       branded: {
@@ -273,8 +274,8 @@ export function richReport(): ProjectReportDto {
         { page: '/', sessions: 6000, users: 4500, organicSessions: 4000 },
       ],
       channelBreakdown: [
-        { channel: 'Organic Search', sessions: 8000, sharePct: 67 },
-        { channel: 'Direct', sessions: 4000, sharePct: 33 },
+        { channel: 'Organic Search', sessions: 8000, sharePct: 66.67 },
+        { channel: 'Direct', sessions: 4000, sharePct: 33.33 },
       ],
     },
     socialReferrals: {
@@ -282,8 +283,8 @@ export function richReport(): ProjectReportDto {
       organicSessions: 1000,
       paidSessions: 500,
       channels: [
-        { channelGroup: 'Organic Social', sessions: 1000, sharePct: 67 },
-        { channelGroup: 'Paid Social', sessions: 500, sharePct: 33 },
+        { channelGroup: 'Organic Social', sessions: 1000, sharePct: 66.67 },
+        { channelGroup: 'Paid Social', sessions: 500, sharePct: 33.33 },
       ],
       topCampaigns: [
         { source: 'linkedin.com', medium: 'referral', sessions: 700 },
@@ -313,7 +314,7 @@ export function richReport(): ProjectReportDto {
       hasData: true,
       verifiedCrawlerHits: { current: 234, prior: 117, deltaPct: 100 },
       unverifiedCrawlerHits: { current: 15, prior: 5, deltaPct: 200 },
-      aiUserFetchHits: { current: 42, prior: 18, deltaPct: 133 },
+      aiUserFetchHits: { current: 42, prior: 18, deltaPct: 133.33 },
       referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
       referralRedirects: 0,
       referralArrivalsByClass: {
@@ -540,11 +541,11 @@ export function fullReport(): ProjectReportDto {
     enoughHistory: true,
     headline: 'Citation coverage rose 15 points across the last 3 checks.',
     citationRate: { current: 65, prior: 50, deltaAbs: 15, deltaPct: 30, direction: 'up', window: 3 },
-    mentionRate: { current: 40, prior: 45, deltaAbs: -5, deltaPct: -11, direction: 'down', window: 3 },
-    citedQueryCount: { current: 3.3, prior: 2.7, deltaAbs: 0.6, deltaPct: 22, direction: 'up', window: 3 },
+    mentionRate: { current: 40, prior: 45, deltaAbs: -5, deltaPct: -11.11, direction: 'down', window: 3 },
+    citedQueryCount: { current: 3.3, prior: 2.7, deltaAbs: 0.6, deltaPct: 22.22, direction: 'up', window: 3 },
     mentionedQueryCount: { current: 2, prior: 2, deltaAbs: 0, deltaPct: 0, direction: 'flat', window: 3 },
-    gscClicksDelta: { current: 520, prior: 480, deltaAbs: 40, deltaPct: 8, direction: 'up' },
-    aiReferralsDelta: { current: 110, prior: 90, deltaAbs: 20, deltaPct: 22, direction: 'up' },
+    gscClicksDelta: { current: 520, prior: 480, deltaAbs: 40, deltaPct: 8.33, direction: 'up' },
+    aiReferralsDelta: { current: 110, prior: 90, deltaAbs: 20, deltaPct: 22.22, direction: 'up' },
     providerMovements: [
       { provider: 'gemini', prior: 50, current: 65, deltaAbs: 15, direction: 'up' },
       { provider: 'openai', prior: 50, current: 49, deltaAbs: -1, direction: 'flat' },
@@ -731,7 +732,7 @@ export function truncatedReport(): ProjectReportDto {
   // golden that has a hero trend has a falling mention rate, so the branch the
   // renderers paint green is untested. The rate itself is unchanged, so the
   // tiles beside it still agree with `executiveSummary`.
-  report.whatsChanged.mentionRate = { current: 40, prior: 33, deltaAbs: 7, deltaPct: 21, direction: 'up', window: 3 }
+  report.whatsChanged.mentionRate = { current: 40, prior: 33, deltaAbs: 7, deltaPct: 21.21, direction: 'up', window: 3 }
 
   // The share-of-voice band, which renders in NO other fixture. The HTML report
   // writes it as loose notes between sections and the SPA as a band of its own,

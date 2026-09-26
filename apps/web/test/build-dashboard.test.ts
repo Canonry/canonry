@@ -684,7 +684,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
-        visibility: { label: 'Answer Visibility', value: '75', delta: '3 of 4 queries visible', tone: 'positive', description: '', tooltip: '', trend: [], progress: 75 },
+        visibility: { label: 'Answer Visibility', value: '75.0%', delta: '3 of 4 queries visible', tone: 'positive', description: '', tooltip: '', trend: [], progress: 75 },
         gapQueries: { label: 'Gap Queries', value: '0', delta: '0 of 4 queries at risk', tone: 'positive', description: '', tooltip: '', trend: [] },
         indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
@@ -708,7 +708,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   }
 
   const vm = buildProjectCommandCenter(data)
-  expect(vm.visibilitySummary.value).toBe('75')
+  expect(vm.visibilitySummary.value).toBe('75.0%')
   expect(vm.visibilitySummary.tone).toBe('positive')
   expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
   expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
@@ -895,9 +895,9 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
   const data: ProjectData = {
     project: {
       id: 'proj_multi',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -953,8 +953,8 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
           model: 'gemini-2.5-flash',
           citationState: 'cited',
           answerMentioned: true,
-          answerText: 'AZ Coatings is one Florida vendor for polyurea roof coating.',
-          citedDomains: ['azcoatings.example'],
+          answerText: 'Blue Kettle is one Florida vendor for polyurea roof coating.',
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],
@@ -1003,7 +1003,7 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
   expect(michigan).toBeDefined()
   expect(florida?.citationState).toBe('cited')
   expect(michigan?.citationState).toBe('not-cited')
-  expect(florida?.citedDomains).toEqual(['azcoatings.example'])
+  expect(florida?.citedDomains).toEqual(['bluekettle.example.com'])
   expect(michigan?.citedDomains).toEqual([])
   expect(florida?.answerSnippet).toContain('Florida')
   expect(michigan?.answerSnippet).toContain('Michigan')
@@ -1019,9 +1019,9 @@ test('buildProjectCommandCenter scopes per-location streak/changeLabel to that l
   const data: ProjectData = {
     project: {
       id: 'proj_loc_history',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -1084,7 +1084,7 @@ test('buildProjectCommandCenter scopes per-location streak/changeLabel to that l
           citationState: 'cited',
           answerMentioned: true,
           answerText: 'florida snap',
-          citedDomains: ['azcoatings.example'],
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],
@@ -1145,9 +1145,9 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   const data: ProjectData = {
     project: {
       id: 'proj_history_only',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -1207,7 +1207,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
           citationState: 'cited',
           answerMentioned: true,
           answerText: 'florida gemini snap',
-          citedDomains: ['azcoatings.example'],
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],
@@ -1311,8 +1311,8 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
         // Mention is the headline metric the portfolio row reads; give it a
         // distinct trend + progress from visibility to prove the builder reads
         // mention, not cited.
-        mention: { label: 'Mention Coverage', value: '60', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
-        visibility: { label: 'Citation Coverage', value: '75', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
+        mention: { label: 'Mention Coverage', value: '60.0%', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
+        visibility: { label: 'Citation Coverage', value: '75.0%', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
         mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], scope: 'non-brand', breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null }, branded: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0, score: null } },
         mentionGaps: { label: 'Mention Gaps', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
         gapQueries: { label: 'Gap Queries', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },

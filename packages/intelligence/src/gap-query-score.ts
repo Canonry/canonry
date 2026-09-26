@@ -1,4 +1,4 @@
-import { CitationStates, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { gapTone } from './score-tones.js'
 
 export interface GapQueryScoreSnapshot {
@@ -20,7 +20,7 @@ export interface GapQueryScoreSnapshot {
  *
  * The gauge value is the gap count itself (so the dashboard reads the magnitude
  * directly), with `progress` set to the 0–100 percentage of tracked queries
- * that are gaps.
+ * that are gaps, to two decimals.
  */
 export function buildGapQueryScore(
   snapshots: readonly GapQueryScoreSnapshot[],
@@ -64,7 +64,7 @@ export function buildGapQueryScore(
       : 'No competitive citation gaps detected in the latest visibility run.',
     tooltip,
     trend: [],
-    progress: totalCount > 0 ? Math.round((gapCount / totalCount) * 100) : 0,
+    progress: percentOf(gapCount, totalCount) ?? 0,
   }
 }
 
@@ -121,6 +121,6 @@ export function buildMentionGapScore(
       : 'No competitive mention gaps detected in the latest visibility run.',
     tooltip,
     trend: [],
-    progress: totalCount > 0 ? Math.round((gapCount / totalCount) * 100) : 0,
+    progress: percentOf(gapCount, totalCount) ?? 0,
   }
 }

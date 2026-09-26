@@ -40,7 +40,9 @@ import {
   effectiveBrandNames,
   formatPercent,
   getProviderLocationHandling,
+  percentOf,
   RatioUnits,
+  roundRatio,
   parseReportPeriodDays,
   reportCompactList,
   reportComparisonWindowDays,
@@ -74,6 +76,7 @@ import {
   isTrendBaseline,
   MIN_TREND_POINTS,
   mapOpportunitiesToNextSteps,
+  SMOOTHED_RUN_DELTA_MAX_WINDOW,
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { loadDismissedTargetRefs } from './content.js'
@@ -343,7 +346,7 @@ function buildGscSection(
     category,
     clicks: agg.clicks,
     impressions: agg.impressions,
-    sharePct: categoryTotalClicks > 0 ? Math.round((agg.clicks / categoryTotalClicks) * 100) : 0,
+    sharePct: percentOf(agg.clicks, categoryTotalClicks) ?? 0,
   })).sort((a, b) => b.clicks - a.clicks)
 
   const periodStart = trend[0]?.date ?? ''
@@ -545,7 +548,7 @@ function buildGaSection(db: DatabaseClient, projectId: string, windowDays: numbe
         channelBreakdown.push({
           channel: b.channel,
           sessions: b.sessions,
-          sharePct: Math.round((b.sessions / totalSessions) * 100),
+          sharePct: percentOf(b.sessions, totalSessions) ?? 0,
         })
       }
     }
@@ -615,7 +618,7 @@ function buildSocialReferrals(
     .map(([channelGroup, sessions]) => ({
       channelGroup,
       sessions,
-      sharePct: total > 0 ? Math.round((sessions / total) * 100) : 0,
+      sharePct: percentOf(sessions, total) ?? 0,
     }))
     .sort((a, b) => b.sessions - a.sessions)
 
@@ -775,7 +778,7 @@ function buildAiReferrals(
       sessions: data.sessions,
       paidSessions: data.paidSessions,
       organicSessions: data.organicSessions,
-      sharePct: total > 0 ? Math.round((data.sessions / total) * 100) : 0,
+      sharePct: percentOf(data.sessions, total) ?? 0,
     }))
     .sort((a, b) => b.sessions - a.sessions)
 
@@ -1301,7 +1304,7 @@ function buildIndexingHealth(db: DatabaseClient, projectId: string): ProjectRepo
       notIndexed: gsc.notIndexed,
       deindexed: 0,
       unknown: 0,
-      indexedPct: total > 0 ? Math.round((gsc.indexed / total) * 100) : 0,
+      indexedPct: percentOf(gsc.indexed, total) ?? 0,
     }
   }
 
@@ -1321,7 +1324,7 @@ function buildIndexingHealth(db: DatabaseClient, projectId: string): ProjectRepo
       notIndexed: bing.notIndexed,
       deindexed: 0,
       unknown: bing.unknown,
-      indexedPct: total > 0 ? Math.round((bing.indexed / total) * 100) : 0,
+      indexedPct: percentOf(bing.indexed, total) ?? 0,
     }
   }
 
@@ -1377,17 +1380,13 @@ function buildCitationsTrend(
     const totalQueries = new Set(snaps.map(snapshot => snapshot.queryId)).size
     const citedQueryCount = citedQueryIds.size
     const mentionedQueryCount = mentionedQueryIds.size
-    const citationRate = totalQueries > 0
-      ? Math.round((citedQueryCount / totalQueries) * 100)
-      : 0
-    const mentionRate = totalQueries > 0
-      ? Math.round((mentionedQueryCount / totalQueries) * 100)
-      : 0
+    const citationRate = percentOf(citedQueryCount, totalQueries) ?? 0
+    const mentionRate = percentOf(mentionedQueryCount, totalQueries) ?? 0
     const providerRates = [...providerCounts.entries()]
       .map(([provider, counts]) => ({
         provider,
-        citationRate: counts.total > 0 ? Math.round((counts.cited / counts.total) * 100) : 0,
-        mentionRate: counts.total > 0 ? Math.round((counts.mentioned / counts.total) * 100) : 0,
+        citationRate: percentOf(counts.cited, counts.total) ?? 0,
+        mentionRate: percentOf(counts.mentioned, counts.total) ?? 0,
       }))
       .sort((a, b) => a.provider.localeCompare(b.provider))
 
@@ -2145,8 +2144,9 @@ function buildWhatsChanged(input: {
   // grows the window up to 3 runs as history accumulates, falling back to
   // window=1 (legacy behavior) at 2–3 runs total. Direction uses a
   // real-movement threshold so a single-query bounce on a small basket
-  // doesn't flip the tone arrow.
-  const citationRateSmoothed = smoothedRunDelta(citationsTrend, p => p.citationRate)
+  // doesn't flip the tone arrow. The rates are 0..100, so their averages keep
+  // the percent wire precision; the counts below keep one decimal.
+  const citationRateSmoothed = smoothedRunDelta(citationsTrend, p => p.citationRate, SMOOTHED_RUN_DELTA_MAX_WINDOW, RatioUnits.percent)
   const citationRate: ReportRateDelta | null = enoughHistory && citationRateSmoothed
     ? {
         ...citationRateSmoothed,
@@ -2154,7 +2154,7 @@ function buildWhatsChanged(input: {
       }
     : null
 
-  const mentionRateSmoothed = smoothedRunDelta(citationsTrend, p => p.mentionRate)
+  const mentionRateSmoothed = smoothedRunDelta(citationsTrend, p => p.mentionRate, SMOOTHED_RUN_DELTA_MAX_WINDOW, RatioUnits.percent)
   const mentionRate: ReportRateDelta | null = enoughHistory && mentionRateSmoothed
     ? {
         ...mentionRateSmoothed,
@@ -2184,7 +2184,9 @@ function buildWhatsChanged(input: {
     for (const cur of latest!.providerRates) {
       const priorRate = priorByProvider.get(cur.provider)
       if (priorRate === undefined) continue
-      const deltaAbs = cur.citationRate - priorRate
+      // Points between two two-decimal rates, kept at that precision so the
+      // wire carries 16.67 rather than 16.670000000000002.
+      const deltaAbs = roundRatio(cur.citationRate - priorRate, RatioUnits.percent)
       providerMovements.push({
         provider: cur.provider,
         current: cur.citationRate,
@@ -2342,7 +2344,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
       pressureLabel: row.mentions === 0 ? 'None' : row.mentions / share.snapshotsWithAnswerText >= 0.5 ? 'High' : row.mentions / share.snapshotsWithAnswerText >= 0.2 ? 'Moderate' : 'Low',
       mentionCount: counts.get(row.domain) ?? 0, totalCount: share.snapshotsWithAnswerText,
       sharePct: share.availability === 'measured'
-        ? Math.round((counts.get(row.domain) ?? 0) / (share.projectMentions + share.competitorMentions) * 1000) / 10 : null,
+        ? percentOf(counts.get(row.domain) ?? 0, share.projectMentions + share.competitorMentions) : null,
     }))
   }
   Object.assign(mentionLandscape, mentionLandscape.nonBrand)
@@ -2427,12 +2429,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   }
   const citedQueryCount = citedQueryIds.size
   const mentionedQueryCount = mentionedQueryIds.size
-  const citationRate = totalQueryCount > 0
-    ? Math.round((citedQueryCount / totalQueryCount) * 100)
-    : 0
-  const mentionRate = totalQueryCount > 0
-    ? Math.round((mentionedQueryCount / totalQueryCount) * 100)
-    : 0
+  const citationRate = percentOf(citedQueryCount, totalQueryCount) ?? 0
+  const mentionRate = percentOf(mentionedQueryCount, totalQueryCount) ?? 0
 
   // Suppress trend computation until enough runs exist — a 5%→1% delta on
   // N=2 reads as a crisis to a non-analyst reader but is pure noise on a

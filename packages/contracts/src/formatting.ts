@@ -1,4 +1,4 @@
-import { RatioUnits, type RatioUnit } from './ratio-unit.js'
+import { RatioUnits, roundRatio, type RatioUnit } from './ratio-unit.js'
 
 /** A ratio in percent units (or a change in points), with the float error of the scaling removed. */
 function inPercentUnits(value: number, unit: RatioUnit): number {
@@ -432,9 +432,25 @@ export function relativeChangeRatio(current: number, baseline: number): number |
   return Number.isFinite(ratio) ? ratio : null
 }
 
+/**
+ * Signed relative change from `prior` to `current` in percent units (50 is
+ * +50%), at the percent wire precision of two decimals: 150 against 100 is
+ * `50`, 4 against 3 is `33.33`. Null when the change is undefined (see
+ * `relativeChangeRatio`). Show it with `formatSignedPercent` or
+ * `formatPercent(value, 'percent')`.
+ */
 export function deltaPercent(current: number, prior: number): number | null {
   const ratio = relativeChangeRatio(current, prior)
-  return ratio === null ? null : Math.round(ratio * 100)
+  return ratio === null ? null : roundRatio(ratio * 100, RatioUnits.percent)
+}
+
+/**
+ * A signed percent through `formatPercent`: `+33.3%`, `-50.0%`, and `0%` with
+ * no sign for no change. `unit` is the value's wire unit, as for
+ * `formatPercent`.
+ */
+export function formatSignedPercent(value: number, unit: RatioUnit = RatioUnits.fraction): string {
+  return `${value > 0 ? '+' : ''}${formatPercent(value, unit)}`
 }
 
 export type DeltaTone = 'positive' | 'negative' | 'neutral'
@@ -446,13 +462,13 @@ export function deltaTone(deltaPct: number | null): DeltaTone {
 
 // Canonical subtitle copy for a "current vs prior window" tile. Used by
 // both the SPA and the HTML renderer so they stay verbatim-identical per
-// the report-parity rule.
+// the report-parity rule. `deltaPct` is in percent units (`deltaPercent`).
 export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'vs prior 7 days'): string {
   if (d.deltaPct === null) {
     return d.prior === 0 ? 'First baseline week' : ''
   }
-  if (d.deltaPct > 0) return `Up ${d.deltaPct}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
-  if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  if (d.deltaPct > 0) return `Up ${formatPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  if (d.deltaPct < 0) return `Down ${formatPercent(Math.abs(d.deltaPct), RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
   return `Flat ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
 }
 
@@ -474,16 +490,15 @@ function round1(value: number): number {
  * over a rolling window). When the prior average is a large-enough base
  * (`prior >= MIN_PCT_BASE`) and a percentage is computable, render the signed
  * percent — otherwise fall back to a clean rounded raw delta vs the prior
- * average. `deltaPct` is already signed (negative = down); we only add a '+'
- * for positive values.
+ * average. `deltaPct` is already signed (negative = down) and in percent
+ * units; `formatSignedPercent` adds the '+' for positive values.
  *
  * Pure. Shared by the report SPA and HTML renderer so both surfaces produce
  * byte-identical copy per the report-parity rule.
  */
 export function formatAverageDelta(d: { deltaAbs: number; prior: number; deltaPct: number | null }): string {
   if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    const sign = d.deltaPct > 0 ? '+' : ''
-    return `${sign}${d.deltaPct}% vs prior`
+    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} vs prior`
   }
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${round1(d.deltaAbs)} vs ${round1(d.prior)}`
@@ -504,8 +519,7 @@ export function formatWindowCountDelta(
   windowLabel: string,
 ): string {
   if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    const sign = d.deltaPct > 0 ? '+' : ''
-    return `${sign}${d.deltaPct}% ${windowLabel}`
+    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel}`
   }
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`

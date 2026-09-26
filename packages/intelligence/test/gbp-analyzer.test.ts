@@ -17,7 +17,7 @@ function healthy(overrides: Partial<GbpLocationSignals> = {}): GbpLocationSignal
     hasDirectMerchantCta: true,
     keywordRecentMonth: '2026-04',
     keywordPriorMonth: '2026-03',
-    keywordPoints: [{ keyword: 'venice beach hotel', recent: 100, prior: 100 }],
+    keywordPoints: [{ keyword: 'harborview beach hotel', recent: 100, prior: 100 }],
     ...overrides,
   }
 }
@@ -196,22 +196,43 @@ describe('analyzeGbp', () => {
       expect(drop[0]!.severity).toBe('high')
       expect(drop[0]!.title.toLowerCase()).toContain('call')
     })
+
+    it('states the two-decimal delta through formatPercent in the title', () => {
+      // 30 → 17 is a 43.33% drop, which the summary now sends unrounded.
+      const insights = analyzeGbp([healthy({
+        metricPrior7d: { WEBSITE_CLICKS: 30 },
+        metricRecent7d: { WEBSITE_CLICKS: 17 },
+        metricDeltaPct: { WEBSITE_CLICKS: -43.33 },
+      })])
+      const drop = insights.find((i) => i.type === 'gbp-metric-drop')
+      expect(drop?.title).toBe('Test Hotel: Website clicks down 43.3% week-over-week')
+    })
+
+    it('holds the drop floor to the delta as sent', () => {
+      // -39.6% is short of the 40% floor; a whole-percent delta used to lift it to -40 and alert.
+      const insights = analyzeGbp([healthy({
+        metricPrior7d: { WEBSITE_CLICKS: 1000 },
+        metricRecent7d: { WEBSITE_CLICKS: 604 },
+        metricDeltaPct: { WEBSITE_CLICKS: -39.6 },
+      })])
+      expect(insights.some((i) => i.type === 'gbp-metric-drop')).toBe(false)
+    })
   })
 
   describe('keyword drop (month-over-month)', () => {
     it('flags a meaningful keyword impressions drop as medium', () => {
       const insights = analyzeGbp([healthy({
-        keywordPoints: [{ keyword: 'venice hotel', recent: 40, prior: 100 }],
+        keywordPoints: [{ keyword: 'harborview hotel', recent: 40, prior: 100 }],
       })])
       const drop = insights.filter((i) => i.type === 'gbp-keyword-drop')
       expect(drop).toHaveLength(1)
       expect(drop[0]!.severity).toBe('medium')
-      expect(drop[0]!.title).toContain('venice hotel')
+      expect(drop[0]!.title).toContain('harborview hotel')
     })
 
       it('escalates a severe keyword drop to high WHEN ACTIONS FELL WITH IT', () => {
         const insights = analyzeGbp([healthy({
-          keywordPoints: [{ keyword: 'venice hotel', recent: 10, prior: 100 }],
+          keywordPoints: [{ keyword: 'harborview hotel', recent: 10, prior: 100 }],
           metricDeltaPct: { WEBSITE_CLICKS: -60, CALL_CLICKS: -55, BUSINESS_DIRECTION_REQUESTS: -50 },
         })])
         const drop = insights.filter((i) => i.type === 'gbp-keyword-drop')
@@ -224,11 +245,24 @@ describe('analyzeGbp', () => {
         // clicks ran 19.0/day then 17.3/day. It alerted `high` daily for a month
         // over reach that was never converting.
         const insights = analyzeGbp([healthy({
-          keywordPoints: [{ keyword: 'venice hotel', recent: 10, prior: 100 }],
+          keywordPoints: [{ keyword: 'harborview hotel', recent: 10, prior: 100 }],
         })])
         const drop = insights.filter((i) => i.type === 'gbp-keyword-drop')
         expect(drop[0]!.severity).toBe('medium')
       })
+
+    it('states the unrounded drop through formatPercent and holds the floor to it', () => {
+      // 300 → 170 is a 43.33% drop.
+      const shown = analyzeGbp([healthy({
+        keywordPoints: [{ keyword: 'venice hotel', recent: 170, prior: 300 }],
+      })]).find((i) => i.type === 'gbp-keyword-drop')
+      expect(shown?.title).toBe('Test Hotel: "venice hotel" impressions down 43.3% month-over-month (2026-03→2026-04)')
+      // 1,000 → 604 is 39.6%, short of the 40% floor that a whole-percent rounding used to reach.
+      const belowFloor = analyzeGbp([healthy({
+        keywordPoints: [{ keyword: 'venice hotel', recent: 604, prior: 1000 }],
+      })])
+      expect(belowFloor.some((i) => i.type === 'gbp-keyword-drop')).toBe(false)
+    })
 
     it('ignores keywords with a tiny prior baseline', () => {
       const insights = analyzeGbp([healthy({
@@ -250,7 +284,7 @@ describe('analyzeGbp', () => {
     it('does not flag when there is no prior month to compare', () => {
       const insights = analyzeGbp([healthy({
         keywordPriorMonth: null,
-        keywordPoints: [{ keyword: 'venice hotel', recent: 40, prior: null }],
+        keywordPoints: [{ keyword: 'harborview hotel', recent: 40, prior: null }],
       })])
       expect(insights.some((i) => i.type === 'gbp-keyword-drop')).toBe(false)
     })
@@ -273,8 +307,8 @@ describe('analyzeGbp', () => {
 
   it('scopes insights to the correct location across a multi-location chain', () => {
     const insights = analyzeGbp([
-      healthy({ locationName: 'locations/1', displayName: 'Gjelina', lodgingEmpty: true }),
-      healthy({ locationName: 'locations/2', displayName: 'Gjelina', placeActionCount: 1, hasDirectMerchantCta: false }),
+      healthy({ locationName: 'locations/1', displayName: 'Vantrell', lodgingEmpty: true }),
+      healthy({ locationName: 'locations/2', displayName: 'Vantrell', placeActionCount: 1, hasDirectMerchantCta: false }),
     ])
     const byLoc = (loc: string) => insights.filter((i) => i.locationName === loc).map((i) => i.type)
     // Two locations sharing a displayName must still produce distinct,

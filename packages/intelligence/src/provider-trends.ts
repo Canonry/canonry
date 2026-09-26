@@ -1,4 +1,4 @@
-import { CitationStates } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf } from '@ainyc/canonry-contracts'
 
 export interface ProviderTrendRun {
   id: string
@@ -13,7 +13,7 @@ export interface ProviderTrendSnapshot {
 }
 
 export interface ProviderTrendPoint {
-  /** Per-run citation rate as a 0-100 integer for this (provider, model). */
+  /** Per-run citation rate as 0-100, to two decimals, for this (provider, model). */
   rate: number
   /** ISO timestamp of the run for tooltips / ordering. */
   createdAt: string
@@ -58,9 +58,8 @@ export function buildProviderTrends(
     }
     for (const key of keys) {
       const queryMap = perKey.get(key)
-      const rate = queryMap && queryMap.size > 0
-        ? Math.round([...queryMap.values()].filter(Boolean).length / queryMap.size * 100)
-        : 0
+      const cited = queryMap ? [...queryMap.values()].filter(Boolean).length : 0
+      const rate = percentOf(cited, queryMap?.size ?? 0) ?? 0
       result.get(key)!.push({ rate, createdAt: run.createdAt })
     }
   }

@@ -1,5 +1,5 @@
 import type { InsightSeverity, InsightType } from './types.js'
-import { relativeChangeRatio } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, relativeChangeRatio, roundRatio } from '@ainyc/canonry-contracts'
 
 /**
  * Pure analyzers for Google Business Profile (local-AEO) signals. Take
@@ -66,7 +66,7 @@ export interface GbpLocationSignals {
   displayName: string
   metricRecent7d: Record<string, number>
   metricPrior7d: Record<string, number>
-  /** Per-metric % change recent-vs-prior; null when the prior window was 0. */
+  /** Per-metric % change recent-vs-prior in percent units (two decimals); null when the prior window was 0. */
   metricDeltaPct: Record<string, number | null>
   /** True when the location has a lodging profile at all (hotel/lodging category). */
   lodgingCapable: boolean
@@ -209,7 +209,7 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
         ...base,
         type: 'gbp-metric-drop',
         severity: abs >= GBP_METRIC_SEVERE_PCT ? 'high' : 'medium',
-        title: `${loc.displayName}: ${metricLabel(worstMetric.metric)} down ${abs}% week-over-week`,
+        title: `${loc.displayName}: ${metricLabel(worstMetric.metric)} down ${formatPercent(abs, RatioUnits.percent)} week-over-week`,
         recommendation: {
           action: 'Investigate the local-visibility drop (profile changes, category edits, new competition)',
           reason: `${metricLabel(worstMetric.metric)} fell from ${worstMetric.prior} to ${worstMetric.recent} (last 7d vs the prior 7d).`,
@@ -230,7 +230,7 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
           worstKeyword.dropPct >= GBP_KEYWORD_SEVERE_PCT && !actionsHeldUp(loc)
             ? 'high'
             : 'medium',
-        title: `${loc.displayName}: "${worstKeyword.keyword}" impressions down ${worstKeyword.dropPct}% month-over-month${window}`,
+        title: `${loc.displayName}: "${worstKeyword.keyword}" impressions down ${formatPercent(worstKeyword.dropPct, RatioUnits.percent)} month-over-month${window}`,
         recommendation: {
           action: 'Check whether the property still ranks for this local search term and refresh the profile',
           reason: `Search-keyword impressions for "${worstKeyword.keyword}" fell from ${worstKeyword.prior} to ${worstKeyword.recent} month-over-month.`,
@@ -276,7 +276,7 @@ function pickWorstKeywordDrop(loc: GbpLocationSignals): { keyword: string; dropP
     if (point.recent == null || point.prior == null || point.prior < GBP_KEYWORD_MIN_BASELINE) continue
     const changeRatio = relativeChangeRatio(point.recent, point.prior)
     if (changeRatio === null) continue
-    const dropPct = Math.round(-changeRatio * 100)
+    const dropPct = roundRatio(-changeRatio * 100, RatioUnits.percent)
     if (dropPct < GBP_KEYWORD_DROP_PCT) continue
     if (!worst || dropPct > worst.dropPct) {
       worst = { keyword: point.keyword, dropPct, recent: point.recent, prior: point.prior }

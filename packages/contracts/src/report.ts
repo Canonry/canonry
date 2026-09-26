@@ -484,7 +484,7 @@ export const aiReferralSectionSchema = z.object({
 
 export type AiReferralSection = z.infer<typeof aiReferralSectionSchema>
 
-/** A count in the report window, the same count in the window before it, and the signed whole-percent change. */
+/** A count in the report window, the same count in the window before it, and the signed percent change (two decimals). */
 const serverActivityCountSchema = z.object({ current: z.number(), prior: z.number(), deltaPct: percent().nullable() })
 
 /**
@@ -710,8 +710,9 @@ export type RecommendedNextStep = z.infer<typeof recommendedNextStepSchema>
  * meaningful deltas; renderers should fall back to a baseline message.
  */
 export const reportRateDeltaSchema = z.object({
-  /** Current value (0..100 for rates, raw count otherwise). When `window`
-   *  is present this is the average over the last `window` checks. */
+  /** Current value (0..100 to two decimals for rates, a raw count
+   *  otherwise). When `window` is present this is the average over the last
+   *  `window` checks; an averaged count keeps one decimal. */
   current: z.number(),
   /** Prior value compared against. When `window` is present this is the
    *  average over the prior `window` checks before that. */
@@ -719,7 +720,7 @@ export const reportRateDeltaSchema = z.object({
   /** Absolute delta (current − prior). Negative = decrease. */
   deltaAbs: z.number(),
   /**
-   * Signed percent change vs `prior`, rounded to a whole number. Null when
+   * Signed percent change vs `prior`, to two decimals. Null when
    * `prior <= 0` (percentage undefined). Renderers route count/traffic tiles
    * through the "smart %" rule — percentage when the prior base is large
    * enough (`MIN_PCT_BASE`), otherwise a rounded raw delta.

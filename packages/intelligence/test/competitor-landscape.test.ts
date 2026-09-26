@@ -105,7 +105,24 @@ describe('buildCompetitorLandscape', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.projectCitationCount).toBe(1)
-    expect(result.competitors[0]?.sharePct).toBe(67) // 2 of 3 total
+    expect(result.competitors[0]?.sharePct).toBe(66.67) // 2 of 3 total, two decimals, not 67
+  })
+
+  it('keeps a share a whole percent used to round away', () => {
+    // 1 rival citation among 250 cited slots is 0.4%, not 0; the project's 249 slots stay out of the rows.
+    const snapshots = Array.from({ length: 250 }, (_, index) => snap({
+      queryId: `q${index}`,
+      citedDomains: [index === 0 ? 'rival.com' : 'example.com'],
+    }))
+    const result = buildCompetitorLandscape(
+      snapshots,
+      ['rival.com'],
+      PROJECT_DOMAINS,
+      lookup(snapshots.map(s => [s.queryId, s.queryId] as [string, string])),
+    )
+    expect(result.projectCitationCount).toBe(249)
+    expect(result.competitors[0]?.citationCount).toBe(1)
+    expect(result.competitors[0]?.sharePct).toBe(0.4)
   })
 
   it('extracts cited pages from grounding sources whose host matches the competitor', () => {

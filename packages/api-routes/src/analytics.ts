@@ -7,6 +7,7 @@ import {
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
   hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS,
+  RatioUnits, roundRatio,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -1242,7 +1243,7 @@ function computeMentionShareBucketMetric(
     // A project-only denominator is recognition evidence, not competitive
     // share. Preserve the count but leave the rate undefined without a frame.
     rate: mentionShareCompetitors.length > 0 && denominator > 0
-      ? round4(projectMentionSnapshots / denominator)
+      ? roundRatio(projectMentionSnapshots / denominator, RatioUnits.fraction)
       : null,
     projectMentionSnapshots,
     competitorMentionSnapshots,
@@ -1314,10 +1315,6 @@ export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'm
   return 'stable'
 }
 
-function round4(ratio: number): number {
-  return Math.round(ratio * 10000) / 10000
-}
-
 function bumpDomain(
   map: Map<string, DomainAgg>,
   domain: string,
@@ -1357,8 +1354,8 @@ function buildRankedList(
   const entries: SourceRankEntry[] = shownEntries.map(d => ({
     domain: d.domain,
     count: d.count,
-    percentage: totalCitedSlots > 0 ? round4(d.count / totalCitedSlots) : 0,
-    answerShare: answerTotal > 0 ? round4(d.count / answerTotal) : 0,
+    percentage: totalCitedSlots > 0 ? roundRatio(d.count / totalCitedSlots, RatioUnits.fraction) : 0,
+    answerShare: answerTotal > 0 ? roundRatio(d.count / answerTotal, RatioUnits.fraction) : 0,
     category: d.category,
     label: d.label,
     surfaceClass: d.surfaceClass,
@@ -1379,7 +1376,7 @@ function buildRankedList(
       surfaceClass,
       label: surfaceClassLabel(surfaceClass),
       count: v.count,
-      percentage: totalCitedSlots > 0 ? round4(v.count / totalCitedSlots) : 0,
+      percentage: totalCitedSlots > 0 ? roundRatio(v.count / totalCitedSlots, RatioUnits.fraction) : 0,
       domainCount: v.domainCount,
     }))
     .sort((a, b) => b.count - a.count || a.surfaceClass.localeCompare(b.surfaceClass))

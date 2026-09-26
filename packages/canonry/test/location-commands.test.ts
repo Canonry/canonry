@@ -383,7 +383,7 @@ describe('location CLI commands', () => {
 
   it('run --all --all-locations handles mixed-config portfolios correctly', async () => {
     // Two regressions this case guards:
-    //   1. 0-location projects (demand-iq, gjelina-hotel in the original
+    //   1. 0-location projects (acme-iq, harborline-hotel in the original
     //      report) shouldn't 400 — the multi-project loop drops the flag
     //      per-project so they run a single locationless sweep.
     //   2. Projects with locations should still fan out and ALL their

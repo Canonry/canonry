@@ -70,7 +70,8 @@ describe('buildMentionShare', () => {
       [snap(true, 'Some answer.'), snap(true, 'Another.')],
       baseOpts,
     )
-    expect(result.value).toBe('100')
+    expect(result.value).toBe('100%')
+    expect(result.progress).toBe(100)
     expect(result.tone).toBe('positive')
   })
 
@@ -82,7 +83,8 @@ describe('buildMentionShare', () => {
       ],
       baseOpts,
     )
-    expect(result.value).toBe('50')
+    expect(result.value).toBe('50.0%')
+    expect(result.progress).toBe(50)
     expect(result.tone).toBe('positive')
     expect(result.breakdown.projectMentionSnapshots).toBe(1)
     expect(result.breakdown.competitorMentionSnapshots).toBe(1)
@@ -95,10 +97,11 @@ describe('buildMentionShare', () => {
     for (let i = 0; i < 2; i++) snaps.push(snap(false, `Praising OtherBrand and similar #${i}`))
     const result = buildMentionShare(snaps, { competitors: [rivalA, rivalB] })
     expect(result.breakdown.perCompetitor).toEqual([
-      { domain: 'rival-a.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 66.7 },
-      { domain: 'rival-b.com', mentionSnapshots: 2, shareOfCompetitiveTotal: 33.3 },
+      { domain: 'rival-a.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 66.67 },
+      { domain: 'rival-b.com', mentionSnapshots: 2, shareOfCompetitiveTotal: 33.33 },
     ])
-    expect(result.value).toBe('40') // 4 project / (4 + 6) = 40
+    expect(result.value).toBe('40.0%') // 4 project / (4 + 6) = 40
+    expect(result.breakdown.score).toBe(40)
   })
 
   it('respects word-boundary matching: brand token "rival" does NOT match "Survival"', () => {
@@ -155,14 +158,14 @@ describe('buildMentionShare', () => {
     expect(buildMentionShare(snaps, baseOpts).tone).toBe('negative')
   })
 
-  it('tolerates spacing / hyphenation variants via brand-key match (demand-iq token matches "Demand IQ" prose)', () => {
+  it('tolerates spacing / hyphenation variants via brand-key match (vexlo-iq token matches "Vexlo IQ" prose)', () => {
     // Mirrors `extractAnswerMentions` brand-key normalization so the
     // competitor matcher and project matcher stay in lockstep.
-    const competitor: MentionShareCompetitor = { domain: 'demand-iq.com', brandTokens: ['demand-iq'] }
+    const competitor: MentionShareCompetitor = { domain: 'vexlo-iq.example.com', brandTokens: ['vexlo-iq'] }
     const variants = [
-      'Demand IQ is a leading solar CRM.',           // space-separated
-      'DemandIQ integrates with rooftop scanners.',   // concatenated
-      'demand-iq.com is the URL to check out.',       // hyphenated, exact match
+      'Vexlo IQ is a leading solar CRM.',            // space-separated
+      'VexloIQ integrates with rooftop scanners.',    // concatenated
+      'vexlo-iq.example.com is the URL to check out.', // hyphenated, exact match
     ]
     for (const text of variants) {
       const result = buildMentionShare([snap(false, text)], { competitors: [competitor] })
@@ -188,15 +191,16 @@ describe('buildMentionShare', () => {
     const snaps: MentionShareSnapshot[] = []
     for (let i = 0; i < 5; i++) snaps.push(snap(false, `Rival update ${i}`))
     const result = buildMentionShare(snaps, baseOpts)
-    expect(result.value).toBe('0')
+    expect(result.value).toBe('0%')
+    expect(result.breakdown.score).toBe(0)
     expect(result.tone).toBe('negative')
     expect(result.breakdown.projectMentionSnapshots).toBe(0)
     expect(result.breakdown.competitorMentionSnapshots).toBe(5)
   })
 
-  it('shareOfCompetitiveTotal rows sum to ≈100 (within ±0.2 for three-way splits)', () => {
-    // Three competitors each mentioned in 1 snapshot → each gets ~33.3%.
-    // Rounding gives 33.3 × 3 = 99.9 (or 100.1 depending on direction).
+  it('shareOfCompetitiveTotal rows sum to ≈100 (within ±0.02 for three-way splits)', () => {
+    // Three competitors each mentioned in 1 snapshot → each gets 33.33%.
+    // Two-decimal rounding gives 33.33 × 3 = 99.99.
     // Assert the residual stays within a tight band so an agent consumer
     // can rely on "approximately 100" without exact arithmetic.
     const competitors: MentionShareCompetitor[] = [
@@ -210,25 +214,29 @@ describe('buildMentionShare', () => {
       snap(false, 'ThreeCo announcement'),
     ]
     const result = buildMentionShare(snaps, { competitors })
+    expect(result.breakdown.perCompetitor.map(r => r.shareOfCompetitiveTotal)).toEqual([33.33, 33.33, 33.33])
     const total = result.breakdown.perCompetitor.reduce((sum, r) => sum + r.shareOfCompetitiveTotal, 0)
-    expect(total).toBeGreaterThanOrEqual(99.8)
-    expect(total).toBeLessThanOrEqual(100.2)
+    expect(total).toBeCloseTo(99.99, 10)
+    expect(Math.abs(total - 100)).toBeLessThanOrEqual(0.02)
   })
 
-  it('demand-iq replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
+  it('abstract-brand replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
     // Mirrors the empirical finding from the 2026-07 SoV rework analysis.
     const competitors: MentionShareCompetitor[] = [
-      { domain: 'roofr.com', brandTokens: ['roofr'] },
-      { domain: 'buildxact.com', brandTokens: ['buildxact'] },
+      { domain: 'rooftally.example.com', brandTokens: ['rooftally'] },
+      { domain: 'bidframe.example.com', brandTokens: ['bidframe'] },
     ]
     const snaps: MentionShareSnapshot[] = []
-    for (let i = 0; i < 5; i++) snaps.push(snap(true, `Demand-iq answer ${i}`))
-    for (let i = 0; i < 20; i++) snaps.push(snap(false, `Talking about Roofr software ${i}`))
-    for (let i = 0; i < 13; i++) snaps.push(snap(false, `BuildXact integration story ${i}`))
+    for (let i = 0; i < 5; i++) snaps.push(snap(true, `Vexlo-iq answer ${i}`))
+    for (let i = 0; i < 20; i++) snaps.push(snap(false, `Talking about Rooftally software ${i}`))
+    for (let i = 0; i < 13; i++) snaps.push(snap(false, `BidFrame integration story ${i}`))
     const result = buildMentionShare(snaps, { competitors })
-    expect(result.value).toBe('13') // 5 / 38
+    // 5 / 38 = 13.157…%: two decimals on the wire, one decimal in `value`.
+    expect(result.breakdown.score).toBe(13.16)
+    expect(result.progress).toBe(13.16)
+    expect(result.value).toBe('13.2%')
     expect(result.tone).toBe('negative')
-    expect(result.breakdown.perCompetitor[0]!.domain).toBe('roofr.com')
+    expect(result.breakdown.perCompetitor[0]!.domain).toBe('rooftally.example.com')
     expect(result.breakdown.perCompetitor[0]!.mentionSnapshots).toBe(20)
   })
 })
@@ -282,7 +290,7 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
     expect(result.breakdown.projectMentionSnapshots).toBe(1)
     expect(result.breakdown.competitorMentionSnapshots).toBe(24)
     expect(result.breakdown.score).toBe(4) // 1 / 25 = 4%
-    expect(result.value).toBe('4')
+    expect(result.value).toBe('4.0%')
     expect(result.tone).toBe('negative')
 
     // THE INVARIANT: every tracked competitor outranks the subject.
@@ -309,7 +317,8 @@ describe('buildMentionShare — branded vs non-brand are never pooled', () => {
     expect(pooled.scope).toBe('pooled')
     expect(pooled.breakdown.projectMentionSnapshots).toBe(21)
     expect(pooled.breakdown.competitorMentionSnapshots).toBe(24)
-    expect(pooled.breakdown.score).toBe(47) // 21 / 45
+    expect(pooled.breakdown.score).toBe(46.67) // 21 / 45, two decimals, not 47
+    expect(pooled.value).toBe('46.7%')
     expect(pooled.delta).toBe('21 of 45 brand mentions · pooled queries · classification unavailable')
     const topCompetitor = pooled.breakdown.perCompetitor[0]!
     expect(pooled.breakdown.projectMentionSnapshots).toBeGreaterThan(topCompetitor.mentionSnapshots)
@@ -436,7 +445,7 @@ describe('buildMentionShare — ranking is the head-to-head table, with its shar
     expect(breakdown.ranking.reduce((sum, row) => sum + row.share, 0)).toBe(1)
     // The zero row is in the ranking only: perCompetitor still lists named competitors.
     expect(breakdown.perCompetitor.map(row => row.domain)).toEqual(['rival-a.com', 'rival-b.com'])
-    // The project row agrees with the rounded integer score.
+    // The project row agrees with the score.
     expect(breakdown.score).toBe(40)
     expect(breakdown.ranking.map(row => formatPercent(row.share))).toEqual(['40.0%', '40.0%', '20.0%', '0%'])
   })
@@ -466,8 +475,8 @@ describe('buildMentionShare — ranking is the head-to-head table, with its shar
     expect(you).toEqual({ kind: 'project', domain: null, mentionSnapshots: 1, share: 1 / 2001 })
     expect(formatPercent(top!.share)).toBe('>99.9%')
     expect(formatPercent(you!.share)).toBe('<0.1%')
-    // The integer score rounds the same sliver to 0, which is why rows read the share.
-    expect(breakdown.score).toBe(0)
+    // The score keeps two decimals, so the sliver is 0.05 rather than the 0 a whole-percent score sent.
+    expect(breakdown.score).toBe(0.05)
   })
 
   it('ranks each class against its own denominator: the subject last on non-brand, first on branded', () => {

@@ -47,6 +47,21 @@ describe('buildProviderTrends', () => {
     expect(result.get(openaiKey)?.map(p => p.rate)).toEqual([100, 0])
   })
 
+  it('keeps each run rate to two decimals, not a whole percent', () => {
+    // 2 of 3 queries cited is 66.67; 1 of 250 is 0.4, which a whole percent sent as 0.
+    const runs = [run('r1', '2026-05-10'), run('r2', '2026-05-11')]
+    const snapshotsByRun = new Map([
+      ['r1', [
+        snap('gemini', 'flash', 'q1', 'cited'),
+        snap('gemini', 'flash', 'q2', 'cited'),
+        snap('gemini', 'flash', 'q3', 'not-cited'),
+      ]],
+      ['r2', Array.from({ length: 250 }, (_, i) => snap('gemini', 'flash', `q${i}`, i === 0 ? 'cited' : 'not-cited'))],
+    ])
+    const result = buildProviderTrends(runs, snapshotsByRun)
+    expect(result.get(providerKey('gemini', 'flash'))?.map(p => p.rate)).toEqual([66.67, 0.4])
+  })
+
   it('sorts oldest-first so sparklines read left-to-right', () => {
     const runs = [run('r2', '2026-05-11'), run('r1', '2026-05-10')]
     const snapshotsByRun = new Map([

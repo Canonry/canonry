@@ -347,7 +347,7 @@ const claudeSonnet5Response: Record<string, unknown> = {
       type: 'server_tool_use',
       id: 'srvtoolu_011USZRBBfog9hQyQC8iDSrY',
       name: 'web_search',
-      input: { query: 'best boutique hotels in Venice Beach Los Angeles' },
+      input: { query: 'best boutique hotels in Example City' },
     },
   ],
 }

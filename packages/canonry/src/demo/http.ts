@@ -6,7 +6,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import rateLimit from '@fastify/rate-limit'
 import { apiRoutes, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
-import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
+import { percentOf, type AeroPreviewResponse } from '@ainyc/canonry-contracts'
 import { apiKeys, bingKeywordStats, bingUrlInspections, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { isDemoApiReadAllowed } from './access.js'
@@ -166,7 +166,7 @@ export async function createDemoHttpServer(options: {
         const notIndexed = [...latest.values()].filter(row => row.inIndex === false).map(format)
         const unknown = [...latest.values()].filter(row => row.inIndex === null).map(format)
         const total = latest.size
-        return reply.send({ summary: { total, indexed: indexed.length, notIndexed: notIndexed.length, unknown: unknown.length, percentage: total ? Math.round(indexed.length / total * 1000) / 10 : 0 }, lastInspectedAt: rows[0]?.inspectedAt ?? null, indexed, notIndexed, unknown })
+        return reply.send({ summary: { total, indexed: indexed.length, notIndexed: notIndexed.length, unknown: unknown.length, percentage: percentOf(indexed.length, total) ?? 0 }, lastInspectedAt: rows[0]?.inspectedAt ?? null, indexed, notIndexed, unknown })
       }
       if (route === '/api/v1/projects/:name/bing/performance') {
         const name = (request.params as { name: string }).name

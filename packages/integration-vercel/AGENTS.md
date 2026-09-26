@@ -97,7 +97,7 @@ with **no in-app instrumentation** required on the user's Vercel project.
   going-forward traffic. Operators who want any historical recovery run an
   explicit `cnry traffic backfill --days N` (capped at retention).
 - **Operator recovery from a stuck source.** An idle source whose
-  `lastSyncedAt` ages past retention (or the gjelina-class case where many
+  `lastSyncedAt` ages past retention (or the dense-backlog case where many
   consecutive syncs failed before this drain was hardened) gets the same
   permanent-stuck symptom — the operator runs
   `cnry traffic reset <project> --source <id> --advance-to-now` to advance

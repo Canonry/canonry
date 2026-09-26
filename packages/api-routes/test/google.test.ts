@@ -995,6 +995,38 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     const body = res.json() as { lastSyncedAt: string | null }
     expect(body.lastSyncedAt).toBe(latestSync)
   })
+
+  it('sends the indexed percentage to two decimals, not a tenth', async () => {
+    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.33%.
+    for (const [id, url] of [['i2', 'https://coverage.com/page-2'], ['i3', 'https://coverage.com/page-3']] as const) {
+      db.insert(gscUrlInspections).values({
+        id,
+        projectId: 'p1',
+        syncRunId: 'r1',
+        url,
+        indexingState: 'BLOCKED_BY_META_TAG',
+        verdict: 'NEUTRAL',
+        coverageState: 'Excluded by noindex tag',
+        pageFetchState: 'SUCCESSFUL',
+        robotsTxtState: 'ALLOWED',
+        crawlTime: '2026-05-01T08:00:00.000Z',
+        lastCrawlResult: null,
+        isMobileFriendly: 1,
+        richResults: '[]',
+        referringUrls: '[]',
+        inspectedAt: '2026-05-01T08:00:00.000Z',
+        createdAt: '2026-05-01T08:00:00.000Z',
+      }).run()
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/covproj/google/gsc/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
+    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.33 })
+  })
 })
 
 describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {

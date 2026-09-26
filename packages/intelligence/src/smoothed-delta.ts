@@ -14,19 +14,20 @@
  * a value extractor; this helper does the windowing math.
  */
 
-import { deltaPercent } from '@ainyc/canonry-contracts'
+import { deltaPercent, roundRatio, type RatioUnit } from '@ainyc/canonry-contracts'
 
 export interface SmoothedRunDelta {
-  /** Average of the most recent `window` points, rounded to 1 decimal. */
+  /** Average of the most recent `window` points: the ratio wire precision for
+   *  a ratio series (`ratioUnit`), otherwise rounded to 1 decimal. */
   current: number
-  /** Average of the prior `window` points before that, rounded to 1 decimal. */
+  /** Average of the prior `window` points before that, rounded like `current`. */
   prior: number
   /** Unrounded `current - prior` average. Caller compares against a
    *  threshold (e.g. 3pp for rates) to decide up/down/flat. */
   deltaAbs: number
-  /** Signed percent change of `current` vs `prior` (rounded averages),
-   *  rounded to a whole number. Null when `prior <= 0`. Renderers route
-   *  count tiles through the "smart %" rule with this. */
+  /** Signed percent change of `current` vs `prior` (rounded averages), in
+   *  percent units to two decimals (`deltaPercent`). Null when `prior <= 0`.
+   *  Renderers route count tiles through the "smart %" rule with this. */
   deltaPct: number | null
   /** How many points went into each side of the average. 1 = point-to-point
    *  (only 2–3 runs in history); higher = real smoothing. Renderers use
@@ -48,11 +49,17 @@ export const SMOOTHED_RUN_DELTA_MAX_WINDOW = 3
  *   - Caller owns the up/down/flat threshold — this helper just emits
  *     `deltaAbs` so the caller can pick a meaningful floor (e.g. 3pp for
  *     percentage rates, 0.5 for integer counts).
+ *   - `ratioUnit` says the series is a ratio in that unit (a 0..100 rate is
+ *     `percent`). Its averages then keep the ratio wire precision
+ *     (`roundRatio`), so a display never shows a tenth that rounding made up
+ *     or a 100% that was 99.96%. Without it the points are counts and their
+ *     averages keep one decimal.
  */
 export function smoothedRunDelta<T>(
   points: readonly T[],
   valueFn: (point: T) => number,
   maxWindow: number = SMOOTHED_RUN_DELTA_MAX_WINDOW,
+  ratioUnit?: RatioUnit,
 ): SmoothedRunDelta | null {
   if (points.length < 2) return null
   const window = Math.min(maxWindow, Math.floor(points.length / 2))
@@ -61,8 +68,9 @@ export function smoothedRunDelta<T>(
   const sum = (arr: readonly T[]): number => arr.reduce((s, p) => s + valueFn(p), 0)
   const currentAvg = sum(tail) / tail.length
   const priorAvg = sum(prior) / prior.length
-  const current = roundTo1Decimal(currentAvg)
-  const prior_ = roundTo1Decimal(priorAvg)
+  const round = (value: number): number => ratioUnit ? roundRatio(value, ratioUnit) : roundTo1Decimal(value)
+  const current = round(currentAvg)
+  const prior_ = round(priorAvg)
   return {
     current,
     prior: prior_,

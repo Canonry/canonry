@@ -33,7 +33,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/retry.ts` | Generic retry helpers: `backoffDelayMs`, `withRetry`, `isRetryableHttpError`, `isRateLimitError`, `retryAfterDelayMs`. Used by every API provider, GA4, GBP, and Bing — domain-specific code only supplies the `isRetryable` predicate; the math (jittered exponential backoff per Google's documented formula) lives here. **Rate limiting is detected semantically, not by status code**: a service may report a throttle on a 4xx (Bing answers `400` with `ErrorCode 5 ThrottleHost`), so `isRateLimitError` checks `Retry-After`, then 429, then documented throttle markers in the message. A new integration whose throttle signal is a private numeric code must surface that code's meaning in the error message or set `retryAfter`, or the shared predicate cannot see it. |
 | `src/concurrency.ts` | `mapWithConcurrency` — generic order-preserving bounded worker pool (fail-fast on the first rejection, in-flight tasks settle cleanly). Used by the discovery probe phase. |
 | `src/http-status.ts` | `LOCATION_REDIRECT_STATUSES` / `isLocationRedirectStatus` — the five statuses that mean "fetch a different URL" (301/302/303/307/308). Deliberately NOT all of 3xx: a 304 is a served page view from cache, so classing it as a redirect drops real visits. Shared by the AI-referral landed/hop split and the sitemap fetcher. |
-| `src/ratio-unit.ts` | `fraction()` / `percent()` declare a ratio field's wire unit (0..1 or 0..100) as `x-unit` schema metadata, which reaches OpenAPI and MCP output schemas; `ratioUnitOf` reads it back. `undeclaredRatioFields` walks a JSON Schema for ratio-named numbers (`RATIO_FIELD_NAME_PATTERN`) that declare no unit. See "Ratio units" below. |
+| `src/ratio-unit.ts` | `fraction()` / `percent()` declare a ratio field's wire unit (0..1 or 0..100) as `x-unit` schema metadata, which reaches OpenAPI and MCP output schemas; `ratioUnitOf` reads it back. `undeclaredRatioFields` walks a JSON Schema for ratio-named numbers (`RATIO_FIELD_NAME_PATTERN`) that declare no unit. `RATIO_WIRE_DECIMALS` / `roundRatio(value, unit)` / `percentOf(part, whole)` are the wire precision a producer rounds to (4 decimals for a fraction, 2 for a percent). See "Ratio units" below. |
 | `src/index.ts` | Barrel re-export of all modules |
 
 ## Patterns
@@ -67,7 +67,8 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 
 | Concern | File |
 |---------|------|
-| Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
+| Date / number / ratio formatting | `packages/contracts/src/formatting.ts` (`formatPercent`, `formatSignedPercent`, `deltaPercent`) |
+| Ratio wire precision (what a producer sends) | `packages/contracts/src/ratio-unit.ts` (`roundRatio`, `percentOf`) |
 | URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, exact-or-subdomain matching, prose domain extraction) |
 | Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
 | Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
@@ -168,6 +169,7 @@ A field name never tells a reader the unit: `citationRate` is 0..1 in analytics 
 3. Never change a wire value to make units agree; that is a breaking change. If producers of one field disagree, declare the unit most of them use and fix the producers separately.
 4. `packages/api-routes/test/ratio-units.test.ts` (every registered OpenAPI schema) and `packages/canonry/test/mcp-ratio-units.test.ts` (every MCP tool schema) fail on an undeclared ratio-named number. A name that reads as a ratio but is not one (a day count, a multiplier) goes in that test's `NOT_A_RATIO` with the reason.
 5. A shared shape whose value is a ratio in one place and a count in another gets a count variant with no unit, never a unit on the shared one: `measurementCountMetricValueSchema` / `measurementCountMetricDeltaSchema` carry `propertiesMentioned`, whose `value` is a number of Properties. Aero and every display show a declared ratio as a percent, so a count declared `fraction` would read `1200.0%`.
+6. A producer sends a ratio at the wire precision and no coarser: `percentOf(part, whole)` for a 0..100 share, `roundRatio(value, unit)` otherwise, and `deltaPercent` for a relative change. Never `Math.round(x * 100)` or a tenth: `formatPercent` shows one decimal and prints `0%` / `100%` only for an exact value, so a whole percent on the wire shows 2 of 3 as `67.0%`, 0.4% as `0%` and 99.6% as `100%`. A ratio schema never carries `.int()`. A presentational string built on the server (a gauge `value`) formats the unrounded share with `formatPercent`.
 
 ### Market selection
 

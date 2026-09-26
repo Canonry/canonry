@@ -216,6 +216,14 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Since last sweep/)
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
+  // The hero figures arrive formatted by the API ("66.7%"); the sign is set
+  // apart once, never appended to a value that already carries it.
+  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">66\.7<span class="text-faint">%<\/span><\/p>/)
+  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">61\.0<span class="text-faint">%<\/span><\/p>/)
+  expect(html).not.toMatch(/%<span class="text-faint">%/)
+  // Per-model citation rates are 0..100 at two decimals and read through formatPercent.
+  expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
+  expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
   expect(html).toMatch(/1 query added · 8 comparable queries\./)
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Emergency-intent prompts stopped grounding Citypoint/)

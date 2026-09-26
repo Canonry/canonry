@@ -20,8 +20,11 @@ import {
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
+  RatioUnits,
+  roundRatio,
   RunKinds,
   RunStatuses,
   type AttentionItemDto,
@@ -844,7 +847,7 @@ function buildIndexCoverageScore(app: FastifyInstance, projectId: string): Score
 
   return {
     label: 'Index Coverage',
-    value: `${Math.round(percentage)}`,
+    value: formatPercent(chosen.indexed / total),
     delta: `${chosen.provider} · ${chosen.indexed} of ${total} indexed`,
     tone,
     description: deindexed > 0
@@ -852,7 +855,7 @@ function buildIndexCoverageScore(app: FastifyInstance, projectId: string): Score
       : `${chosen.notIndexed} ${notIndexedLabel} not indexed in ${chosen.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
     tooltip,
     trend: [],
-    progress: Math.round(percentage),
+    progress: roundRatio(percentage, RatioUnits.percent),
   }
 }
 

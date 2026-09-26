@@ -28,6 +28,7 @@ import {
   deriveSiteHealthState,
   factorStatusFromScore,
   isSelfLink,
+  percentOf,
   type RunStatus,
   type SiteAuditCrossCuttingIssueDto,
   type SiteAuditFactorSummaryDto,
@@ -278,7 +279,7 @@ function toLegacyIssue(summary: SiteAuditFactorSummaryDto, totalPages: number): 
     avgScore: summary.avgScore,
     affectedPages: affected,
     totalPages,
-    affectedPct: totalPages > 0 ? Math.round((affected / totalPages) * 100) : 0,
+    affectedPct: percentOf(affected, totalPages) ?? 0,
     topRecommendations: [],
   }
 }

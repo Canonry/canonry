@@ -33,15 +33,15 @@ describe('buildVisibilityScore', () => {
     expect(result.providerCoverage).toBeUndefined()
   })
 
-  it('computes score as the rounded percentage of cited queries', () => {
+  it('keeps the share to two decimals in progress and formats value from the unrounded share', () => {
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'cited' }),
       snap({ queryId: 'q2', citationState: 'cited' }),
       snap({ queryId: 'q3', citationState: 'not-cited' }),
     ]
     const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
-    expect(result.value).toBe('67')
-    expect(result.progress).toBe(67)
+    expect(result.value).toBe('66.7%')
+    expect(result.progress).toBe(66.67)
     // Delta vocabulary tracks the label vocabulary — "cited", not "visible".
     expect(result.delta).toBe('2 of 3 queries cited')
   })
@@ -52,7 +52,20 @@ describe('buildVisibilityScore', () => {
       snap({ queryId: 'q1', provider: 'openai', citationState: 'cited' }),
     ]
     const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini', 'openai'] })
-    expect(result.value).toBe('100')
+    expect(result.value).toBe('100%')
+    expect(result.progress).toBe(100)
+  })
+
+  it('never shows an edge a whole percent used to invent, and tones by the unrounded share', () => {
+    const cited = (count: number, total: number) => Array.from({ length: total }, (_, i) =>
+      snap({ queryId: `q${i}`, citationState: i < count ? 'cited' : 'not-cited' }))
+    const low = buildVisibilityScore(cited(1, 250), { configuredApiProviders: ['gemini'] })
+    expect([low.value, low.progress, low.tone]).toEqual(['0.4%', 0.4, 'negative'])
+    const high = buildVisibilityScore(cited(249, 250), { configuredApiProviders: ['gemini'] })
+    expect([high.value, high.progress, high.tone]).toEqual(['99.6%', 99.6, 'positive'])
+    // 99 of 250 is 39.6%: negative, where a whole percent read 40 and caution.
+    const nearBand = buildVisibilityScore(cited(99, 250), { configuredApiProviders: ['gemini'] })
+    expect([nearBand.value, nearBand.progress, nearBand.tone]).toEqual(['39.6%', 39.6, 'negative'])
   })
 
   it('applies scoreTone: positive when score >= 70', () => {

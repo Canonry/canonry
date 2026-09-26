@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
+import { formatPercent } from '../src/formatting.js'
 import {
   RATIO_FIELD_NAME_PATTERN,
   RATIO_UNIT_META_KEY,
+  RATIO_WIRE_DECIMALS,
   fraction,
   percent,
+  percentOf,
   ratioUnitOf,
+  roundRatio,
   undeclaredRatioFields,
 } from '../src/ratio-unit.js'
 
@@ -50,6 +54,60 @@ describe('ratio units', () => {
     expect(JSON.stringify(json.properties.sharePct)).toContain(`"${RATIO_UNIT_META_KEY}":"percent"`)
     expect(json.properties.count).not.toHaveProperty(RATIO_UNIT_META_KEY)
     expect(RATIO_UNIT_META_KEY.startsWith('x-')).toBe(true)
+  })
+})
+
+describe('ratio wire precision', () => {
+  test('a fraction keeps four decimals and a percent two: the same hundredth of a point', () => {
+    expect(RATIO_WIRE_DECIMALS).toEqual({ fraction: 4, percent: 2 })
+    expect(roundRatio(2 / 3, 'fraction')).toBe(0.6667)
+    expect(roundRatio((2 / 3) * 100, 'percent')).toBe(66.67)
+    expect(roundRatio(0.00004, 'fraction')).toBe(0)
+    expect(roundRatio(0.004, 'percent')).toBe(0)
+  })
+
+  test('rounds half up and never returns a negative zero', () => {
+    expect(roundRatio(12.345, 'percent')).toBe(12.35)
+    expect(roundRatio(-66.666, 'percent')).toBe(-66.67)
+    expect(Object.is(roundRatio(-0.001, 'percent'), 0)).toBe(true)
+  })
+
+  test('a half is judged on the decimal value, not the float the scaling leaves', () => {
+    // 1.005 * 100 is 100.49999999999999 in binary, which would round down.
+    expect(roundRatio(1.005, 'percent')).toBe(1.01)
+    expect(roundRatio(0.00125, 'fraction')).toBe(0.0013)
+  })
+
+  test('percentOf is part / whole as 0..100 at two decimals', () => {
+    expect(percentOf(2, 3)).toBe(66.67)
+    expect(percentOf(1, 3)).toBe(33.33)
+    expect(percentOf(3, 3)).toBe(100)
+    expect(percentOf(0, 3)).toBe(0)
+    expect(percentOf(57, 200)).toBe(28.5)
+  })
+
+  test('the values a whole-percent rounding used to flatten survive', () => {
+    // 1 of 250 is 0.4%, which a whole percent sent as 0 and showed as "0%".
+    expect(percentOf(1, 250)).toBe(0.4)
+    expect(formatPercent(percentOf(1, 250), 'percent')).toBe('0.4%')
+    // 249 of 250 is 99.6%, which a whole percent sent as 100 and showed as "100%".
+    expect(percentOf(249, 250)).toBe(99.6)
+    expect(formatPercent(percentOf(249, 250), 'percent')).toBe('99.6%')
+    // 2 of 3 is 66.7%, which a whole percent sent as 67 and showed as "67.0%".
+    expect(formatPercent(percentOf(2, 3), 'percent')).toBe('66.7%')
+    // Near the edges the display keeps its inexact markers: 1 of 3,000 is 0.03%
+    // and 2,999 of 3,000 is 99.97%, never an exact-looking 0% or 100%.
+    expect(percentOf(1, 3000)).toBe(0.03)
+    expect(formatPercent(percentOf(1, 3000), 'percent')).toBe('<0.1%')
+    expect(percentOf(2999, 3000)).toBe(99.97)
+    expect(formatPercent(percentOf(2999, 3000), 'percent')).toBe('>99.9%')
+  })
+
+  test('an empty or invalid whole is not a measured 0%', () => {
+    expect(percentOf(0, 0)).toBeNull()
+    expect(percentOf(5, 0)).toBeNull()
+    expect(percentOf(1, -4)).toBeNull()
+    expect(percentOf(1, Number.NaN)).toBeNull()
   })
 })
 

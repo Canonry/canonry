@@ -1948,19 +1948,19 @@ export interface ApiGaTraffic {
   socialUsers: number
   /** Five disjoint buckets used for the channel breakdown cards. */
   channelBreakdown: ApiGaChannelBreakdown
-  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
+  /** Organic sessions as a percentage of total sessions (0–100, to two decimals). */
   organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, to two decimals). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, to two decimals). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
   paidAiSharePct: number
   paidAiSharePctBySession: number
   organicAiSharePct: number
   organicAiSharePctBySession: number
-  /** Social sessions as a percentage of total sessions (0–100, rounded). */
+  /** Social sessions as a percentage of total sessions (0–100, to two decimals). */
   socialSharePct: number
-  /** Direct sessions as a percentage of total sessions (0–100, rounded). */
+  /** Direct sessions as a percentage of total sessions (0–100, to two decimals). */
   directSharePct: number
   /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: string
@@ -1978,7 +1978,7 @@ export interface ApiGaTraffic {
   directSharePctDisplay: string
   /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. */
   otherSessions: number
-  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  /** Other sessions as a percentage of total sessions (0–100, to two decimals). */
   otherSharePct: number
   /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   otherSharePctDisplay: string

@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { aeroPreviewResponseSchema, aeroPreviewStarterIds, type AeroPreviewResponse } from '@ainyc/canonry-contracts'
+import { aeroPreviewResponseSchema, aeroPreviewStarterIds, formatPercent, type AeroPreviewResponse } from '@ainyc/canonry-contracts'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -108,8 +108,8 @@ describe('scripted Aero preview on the public demo', () => {
     const branded = await report('summit-roofing', 'queryClass=branded')
     const nonBrand = await report('summit-roofing', 'queryClass=non-brand')
     expect(status).toContain(`| Branded (${branded.summary.queryCount}) | ${ratio(branded.summary.mentionCoverage)} | ${ratio(branded.summary.citationCoverage)} |`)
-    const percent = (value: { rate: number }) => Math.round(value.rate * 100)
-    expect(status).toContain(`| Non-brand (${nonBrand.summary.queryCount}) | ${ratio(nonBrand.summary.mentionCoverage)} (${percent(nonBrand.summary.mentionCoverage)}%) | ${ratio(nonBrand.summary.citationCoverage)} (${percent(nonBrand.summary.citationCoverage)}%) |`)
+    const percent = (value: { rate: number }) => formatPercent(value.rate)
+    expect(status).toContain(`| Non-brand (${nonBrand.summary.queryCount}) | ${ratio(nonBrand.summary.mentionCoverage)} (${percent(nonBrand.summary.mentionCoverage)}) | ${ratio(nonBrand.summary.citationCoverage)} (${percent(nonBrand.summary.citationCoverage)}) |`)
     for (const [provider, name] of Object.entries(ENGINES)) {
       const engine = await report('summit-roofing', `queryClass=non-brand&provider=${provider}`)
       expect(status).toContain(`${name} ${ratio(engine.summary.mentionCoverage)} and ${ratio(engine.summary.citationCoverage)}`)

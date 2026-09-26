@@ -188,7 +188,8 @@ describe('shared report helpers', () => {
     expect(reportRateDeltaCopy({ current: 99.96, prior: 100, deltaAbs: -0.04, deltaPct: 0, direction: 'flat' }, '%')).toBe('-<0.1 pts vs 100%')
     // Counts route through the shared smart-% rule: a small base shows a rounded raw delta, a large one a percentage.
     expect(reportRateDeltaCopy({ current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 }, 'count')).toBe('+0.3 vs 3.3')
-    expect(reportRateDeltaCopy({ current: 40, prior: 30, deltaAbs: 10, deltaPct: 33, direction: 'up' }, 'count')).toBe('+33% vs prior')
+    // The percentage is the API's two-decimal deltaPct through formatPercent: 30 -> 40 is +33.33%.
+    expect(reportRateDeltaCopy({ current: 40, prior: 30, deltaAbs: 10, deltaPct: 33.33, direction: 'up' }, 'count')).toBe('+33.3% vs prior')
     expect(reportMovementChangeCopy({ provider: 'gemini', prior: 50, current: 65, deltaAbs: 15, direction: 'up' })).toBe('+15.0 pts ↑')
     expect(reportMovementChangeCopy({ provider: 'openai', prior: 50, current: 46.5, deltaAbs: -3.5, direction: 'down' })).toBe('-3.5 pts ↓')
     expect(reportMovementChangeCopy({ provider: 'claude', prior: 50, current: 50, deltaAbs: 0, direction: 'flat' })).toBe('0 pts →')
@@ -505,8 +506,10 @@ describe('report slice S4: server-side, indexing and trend copy', () => {
     expect(reportReferralRedirectNote(0)).toBe('')
   })
 
-  test('an operator delta is signed as the API sent it, and a missing delta is a dash', () => {
-    expect([75, -30, 0, 12.5, null].map(delta => reportServerActivityOperatorDelta(delta))).toEqual(['+75%', '-30%', '0%', '+12.5%', '—'])
+  test('an operator delta is signed and shown through formatPercent, and a missing delta is a dash', () => {
+    // deltaPct is percent units at two decimals: 4 against 3 is 33.33, 1,001 against 1,000 is 0.1.
+    expect([75, -30, 0, 12.5, 33.33, -66.67, 0.1, 0.04, 100, null].map(delta => reportServerActivityOperatorDelta(delta)))
+      .toEqual(['+75.0%', '-30.0%', '0%', '+12.5%', '+33.3%', '-66.7%', '+0.1%', '+<0.1%', '+100%', '—'])
   })
 
   test('a crawled path counts its unverified hits with its verified hits, and adds none when they were never recorded', () => {

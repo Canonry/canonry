@@ -3,6 +3,7 @@ import {
   buildCompetitorLandscapeHistory,
   type CompetitorLandscapeHistorySnapshot,
 } from '../src/competitor-landscape-history.js'
+import { buildShareOfVoiceFrame } from '../src/share-of-voice-frame.js'
 
 function snapshot(
   overrides: Partial<CompetitorLandscapeHistorySnapshot> = {},
@@ -18,7 +19,50 @@ function snapshot(
   }
 }
 
+describe('buildShareOfVoiceFrame', () => {
+  it('scores the project share to two decimals, not a tenth', () => {
+    // 1 of 3 named credits is 33.33%; a tenth rounding sent 33.3.
+    const frame = buildShareOfVoiceFrame({
+      tracked: true, classSelected: true, projectMentions: 1, answeredResults: 3,
+      competitors: [{ domain: 'rival.example', mentions: 2 }],
+    })
+    expect([frame.availability, frame.denominator, frame.score]).toEqual(['measured', 3, 33.33])
+  })
+
+  it('keeps a share a coarser rounding sent as 0, and scores nothing without mentions', () => {
+    // 1 of 2,500 credits is 0.04%, which a tenth rounding sent as 0.
+    const small = buildShareOfVoiceFrame({
+      tracked: true, classSelected: true, projectMentions: 1, answeredResults: 2500,
+      competitors: [{ domain: 'rival.example', mentions: 2499 }],
+    })
+    expect(small.score).toBe(0.04)
+    const none = buildShareOfVoiceFrame({
+      tracked: true, classSelected: true, projectMentions: 0, answeredResults: 3,
+      competitors: [{ domain: 'rival.example', mentions: 0 }],
+    })
+    expect([none.reason, none.score]).toEqual(['no-mentions', null])
+  })
+})
+
 describe('buildCompetitorLandscapeHistory', () => {
+  it('keeps each share of voice to two decimals, and the shares sum to about 100', () => {
+    const result = buildCompetitorLandscapeHistory({
+      project: { domain: 'acme.example', label: 'Acme', domains: ['acme.example'] },
+      pinned: [{ domain: 'rival.example', label: 'Rival' }],
+      shareOfVoiceEligible: true,
+      classifications: new Map(),
+      snapshots: [
+        snapshot({ id: 'a', answerText: 'Acme is one option.', projectMentioned: true }),
+        snapshot({ id: 'b', answerText: 'Rival is the pick.' }),
+        snapshot({ id: 'c', answerText: 'Rival again.' }),
+      ],
+    })
+    // 1 of 3 and 2 of 3 credits: 33.33 and 66.67, where a tenth rounding sent 33.3 and 66.7.
+    expect(result.project).toMatchObject({ mentionCount: 1, shareOfVoice: 33.33 })
+    expect(result.pinned).toEqual([expect.objectContaining({ domain: 'rival.example', mentionCount: 2, shareOfVoice: 66.67 })])
+    expect(result.evidence.mentionCredits).toBe(3)
+  })
+
   it('keeps owned-host boundaries before grouping sibling sources by registrable domain', () => {
     const result = buildCompetitorLandscapeHistory({
       project: { domain: 'acme.example', label: 'Acme', domains: ['acme.example', 'owned.platform.example'] },

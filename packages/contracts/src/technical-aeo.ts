@@ -73,8 +73,12 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
   avgScore: z.number(),
   affectedPages: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
-  /** `round(affectedPages / totalPages * 100)`, `0` when `totalPages` is `0`. Computed by canonry, not aeo-audit. */
-  affectedPct: percent(z.number().int().nonnegative()),
+  /**
+   * `affectedPages / totalPages * 100` to two decimals, `0` when `totalPages`
+   * is `0`. Computed by canonry, not aeo-audit. Audits stored by earlier
+   * versions carry a whole number.
+   */
+  affectedPct: percent(z.number().nonnegative()),
   topRecommendations: z.array(z.string()).default([]),
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
