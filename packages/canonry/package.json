@@ -60,9 +60,9 @@
     "build:cli": "node --import tsx scripts/copy-agent-assets.ts && tsup",
     "build:web": "node --import tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p eval/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/ eval/"
+    "lint": "eslint src/ test/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
