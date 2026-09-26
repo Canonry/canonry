@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { Type } from '@sinclair/typebox'
 import type { Agent, AgentTool } from '@mariozechner/pi-agent-core'
+import type { AssistantMessage, AssistantMessageEventStream } from '@mariozechner/pi-ai'
 import { agentTurnLimitsSchema, type AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { canonryMcpTools } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
@@ -29,6 +30,8 @@ interface Runtime {
   progressive: boolean
   /** Tools a progressive turn keeps visible without loading their toolkit. */
   pinned: Set<string>
+  /** The misspelled name the model wrote, by tool call id, for calls renamed to a visible tool. */
+  corrected: Map<string, string>
 }
 const runtimes = new WeakMap<Agent, Runtime>()
 
@@ -75,11 +78,118 @@ function visibleTools(runtime: Runtime): AgentTool[] {
   }]
 }
 
+/** How far a misspelled tool name may be from the real one: two swapped, dropped, extra or wrong letters. */
+const MAX_NAME_EDITS = 2
+/** Most near names a "did you mean" reply lists before it stops guessing. */
+const MAX_NAME_SUGGESTIONS = 3
+
+/** Optimal string alignment distance: Levenshtein plus adjacent transpositions. */
+function nameDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > MAX_NAME_EDITS) return MAX_NAME_EDITS + 1
+  let before: number[] = []
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i]
+    for (let j = 1; j <= b.length; j++) {
+      let value = Math.min(previous[j]! + 1, row[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) value = Math.min(value, before[j - 2]! + 1)
+      row.push(value)
+    }
+    before = previous
+    previous = row
+  }
+  return previous[b.length]!
+}
+
+/** Short names get one edit, so a two-letter change cannot turn one word into another. */
+function withinEdits(a: string, b: string): boolean {
+  return nameDistance(a, b) <= (Math.min(a.length, b.length) >= 10 ? MAX_NAME_EDITS : 1)
+}
+
+/** The name after its first underscore-delimited prefix (`canonry_`, `aero_`). */
+function afterPrefix(name: string): string {
+  return name.slice(name.indexOf('_') + 1)
+}
+
+/**
+ * Known tool names a misspelling is close to: within two edits of the whole
+ * name, or of the name after its prefix (so a garbled `canonry_` still
+ * resolves). A name that is itself known matches only itself.
+ */
+function nearToolNames(name: string, known: Iterable<string>): string[] {
+  const wanted = name.trim().toLowerCase()
+  const matches: string[] = []
+  for (const candidate of known) {
+    if (candidate === wanted) return [candidate]
+    if (withinEdits(wanted, candidate) || withinEdits(afterPrefix(wanted), afterPrefix(candidate))) matches.push(candidate)
+  }
+  return matches
+}
+
+/**
+ * Whether a call may be renamed to this tool without the model naming it
+ * exactly. Only reads: the registry's `access`, plus this runtime's own toolkit
+ * tools, which only change what is visible. A tool whose access is unknown
+ * counts as a write.
+ */
+function isReadTool(name: string): boolean {
+  return name === DISCOVER || name === LOAD || metadata.get(name)?.access === 'read'
+}
+
+/**
+ * Some models misspell tool names (`canrony_...` for `canonry_...`). pi looks
+ * the tool up before any hook runs and answers "Tool X not found", so the call
+ * has to be renamed in the assistant message itself, before pi prepares it.
+ * Rename only to the one visible tool the name is close to, only when no
+ * other known tool (visible, allowed or in the registry) is as close, and only
+ * when that tool is a read. A misspelled write is left for pi to refuse, and
+ * the "did you mean" reply makes the model call it again by its exact name.
+ */
+function correctToolNames(runtime: Runtime, message: AssistantMessage, visible: ReadonlySet<string>): void {
+  let known: Set<string> | undefined
+  for (const block of message.content) {
+    if (block.type !== 'toolCall' || visible.has(block.name)) continue
+    known ??= new Set([...metadata.keys(), ...runtime.allowed.map(tool => tool.name), ...visible])
+    const matches = nearToolNames(block.name, known)
+    if (matches.length !== 1 || !visible.has(matches[0]!) || !isReadTool(matches[0]!)) continue
+    runtime.corrected.set(block.id, block.name)
+    block.name = matches[0]!
+  }
+}
+
+/** Rename misspelled calls in the final message, which is what pi executes and stores. */
+function withCorrectedToolNames(runtime: Runtime, response: AssistantMessageEventStream, visible: ReadonlySet<string>): AssistantMessageEventStream {
+  const result = response.result.bind(response)
+  response.result = async () => {
+    const message = await result()
+    correctToolNames(runtime, message, visible)
+    return message
+  }
+  return response
+}
+
+/**
+ * A reply for a name that is not a tool but is close to one this turn may
+ * use. Names only allowed tools, so a near miss never reveals one that is not.
+ */
+function suggestToolName(runtime: Runtime, name: string): string | undefined {
+  const visible = visibleTools(runtime).map(tool => tool.name)
+  const matches = nearToolNames(name, new Set([...visible, ...runtime.allowed.map(tool => tool.name)]))
+  if (matches.length === 0 || matches.length > MAX_NAME_SUGGESTIONS || matches.includes(name)) return undefined
+  if (matches.length > 1) return `${name} is not a tool. Did you mean one of: ${matches.join(', ')}? Call the one you meant by its exact name.`
+  const match = matches[0]!
+  const toolkit = metadata.get(match)?.tier
+  return visible.includes(match) || !toolkit
+    ? `${name} is not a tool. Did you mean ${match}? Call it again by that exact name.`
+    : `${name} is not a tool. Did you mean ${match}? Call ${LOAD} with toolkit "${toolkit}", then call ${match}.`
+}
+
 /**
  * pi answers a call to a tool outside the visible list with a bare
  * "Tool X not found". A model that learned a tool's name from a skill doc
- * then retries or gives up. Say what to do instead: which toolkit to load when
- * the tool is allowed but not loaded yet, or that it is not available at all.
+ * then retries or gives up. Say what to do instead: the exact name when it
+ * misspelled one, which toolkit to load when the tool is allowed but not
+ * loaded yet, or that it is not available at all.
  */
 function explainMissingTool(runtime: Runtime, message: { isError?: boolean; content?: unknown }): void {
   if (!message.isError || !Array.isArray(message.content)) return
@@ -87,7 +197,10 @@ function explainMissingTool(runtime: Runtime, message: { isError?: boolean; cont
   const name = first?.type === 'text' ? /^Tool (\S+) not found$/.exec(first.text ?? '')?.[1] : undefined
   if (!name) return
   let text: string
-  if (!runtime.progressive) {
+  const suggestion = suggestToolName(runtime, name)
+  if (suggestion) {
+    text = suggestion
+  } else if (!runtime.progressive) {
     // No toolkits to load in this turn: every tool it may use is already listed.
     text = `${name} is not available in this conversation. Use only the tools listed for you.`
   } else {
@@ -103,14 +216,18 @@ function explainMissingTool(runtime: Runtime, message: { isError?: boolean; cont
 export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true, pinned: readonly string[] = []): void {
   let runtime = runtimes.get(agent)
   if (!runtime) {
-    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned) }
+    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map() }
     runtimes.set(agent, runtime)
     const state = runtime
     const stream = agent.streamFn
     agent.streamFn = (model, context, options) => {
       options?.signal?.throwIfAborted()
       state.rounds++
-      return stream(model, context, options)
+      const visible = new Set((context.tools ?? []).map(tool => tool.name))
+      const response = stream(model, context, options)
+      return response instanceof Promise
+        ? response.then(ready => withCorrectedToolNames(state, ready, visible))
+        : withCorrectedToolNames(state, response, visible)
     }
     const before = agent.beforeToolCall
     const after = agent.afterToolCall
@@ -144,14 +261,18 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         const message = event.message
         explainMissingTool(state, message)
         const startedAt = toolStarts.get(message.toolCallId)
+        const requested = state.corrected.get(message.toolCallId)
         Object.assign(message, {
           aeroToolLabel: state.allowed.find(tool => tool.name === message.toolName)?.label,
           ...(startedAt === undefined ? {} : { aeroDurationMs: Date.now() - startedAt }),
+          ...(requested === undefined ? {} : { aeroRequestedToolName: requested }),
         })
         toolStarts.delete(event.message.toolCallId)
+        state.corrected.delete(message.toolCallId)
       }
       if (event.type === 'agent_start') {
         toolStarts.clear()
+        state.corrected.clear()
         state.calls = 0
         state.rounds = 0
         state.reason = 'completed'

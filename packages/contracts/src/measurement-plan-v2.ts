@@ -595,9 +595,26 @@ export const measurementOutcomeCountsSchema = z.object({
 }).strict()
 export type MeasurementOutcomeCounts = z.output<typeof measurementOutcomeCountsSchema>
 
+/**
+ * A top-level reporting group: the root of a Property's market hierarchy.
+ * Chosen from the groups that hold the Property, never inferred from a label.
+ */
+export const measurementPropertyMetroSchema = z.object({
+  groupKey: measurementV2StableKeySchema,
+  label: z.string().trim().min(1),
+}).strict()
+export type MeasurementPropertyMetro = z.output<typeof measurementPropertyMetroSchema>
+
 export const measurementPropertyRowSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   label: z.string().min(1),
+  /**
+   * Schema v2 only: the top-level group holding this Property, null when it is
+   * in none. The same placement the portfolio summary's rows carry.
+   */
+  metro: measurementPropertyMetroSchema.nullable().optional(),
+  /** Further top-level groups holding the same Property. Present only when there are any. */
+  otherMetros: z.array(measurementPropertyMetroSchema).min(1).optional(),
   mentionCoverage: measurementMetricValueSchema,
   citationCoverage: measurementMetricValueSchema,
   /** Per-answer-engine split of the same population, in stable provider order. */

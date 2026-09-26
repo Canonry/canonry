@@ -286,6 +286,50 @@ describe('MCP tool registry', () => {
     )
   })
 
+  it('sends an agent on an Advanced project from mode simple to mode advanced', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_report')!
+    const getVisibilityReport = vi.fn().mockResolvedValue({ ok: true })
+    const listMeasurementPlanVersions = vi.fn()
+    const client = { getVisibilityReport, listMeasurementPlanVersions } as unknown as ApiClient
+    const advanced = { versions: [{ revision: 2, checksum: 'b', createdAt: '2026-09-02T00:00:00.000Z', active: true }] }
+
+    // mode simple on a project with an active plan would read only pre-plan
+    // sweeps, with or without a window, so it is refused before the report read.
+    for (const input of [
+      { project: 'acme', mode: 'simple' },
+      { project: 'acme', mode: 'simple', from: '2026-08-01T00:00:00.000Z', to: '2026-08-31T23:59:59.999Z' },
+    ]) {
+      listMeasurementPlanVersions.mockResolvedValueOnce(advanced)
+      const refused = await tool.handler(client, tool.inputSchema.parse(input)).catch((error: unknown) => error)
+      expect(refused, JSON.stringify(input)).toBeInstanceOf(CliError)
+      expect(refused).toMatchObject({ code: 'VALIDATION_ERROR', details: { project: 'acme', mode: 'simple' } })
+      expect((refused as CliError).message).toContain('Use mode "advanced", or omit mode.')
+    }
+    expect(getVisibilityReport).not.toHaveBeenCalled()
+
+    // A pinned pre-plan run is still readable, and needs no plan lookup.
+    listMeasurementPlanVersions.mockClear()
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', mode: 'simple', runId: 'pre-plan-run' }))
+    expect(listMeasurementPlanVersions).not.toHaveBeenCalled()
+    expect(getVisibilityReport).toHaveBeenLastCalledWith('acme', expect.objectContaining({ mode: 'simple', runId: 'pre-plan-run' }))
+
+    // A project with no active plan (none published, or only inactive
+    // revisions) reads simple mode as before.
+    for (const versions of [[], [{ revision: 1, checksum: 'a', createdAt: '2026-09-01T00:00:00.000Z', active: false }]]) {
+      listMeasurementPlanVersions.mockResolvedValueOnce({ versions })
+      await expect(tool.handler(client, tool.inputSchema.parse({ project: 'acme', mode: 'simple' }))).resolves.toEqual({ ok: true })
+      expect(getVisibilityReport).toHaveBeenLastCalledWith('acme', expect.objectContaining({ mode: 'simple' }))
+    }
+
+    // The default and advanced reads never look up the plan.
+    listMeasurementPlanVersions.mockClear()
+    for (const mode of [undefined, 'auto', 'advanced']) {
+      await tool.handler(client, tool.inputSchema.parse({ project: 'acme', ...(mode === undefined ? {} : { mode }) }))
+    }
+    expect(listMeasurementPlanVersions).not.toHaveBeenCalled()
+    expect(tool.description).toContain('On an Advanced project use mode advanced, or omit mode')
+  })
+
   it('defers Cloudflare connect to the local secret-safe CLI workflow', () => {
     expect(canonryMcpTools.some(tool => tool.name === 'canonry_traffic_connect_cloudflare')).toBe(false)
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[
@@ -429,8 +473,146 @@ describe('MCP tool registry', () => {
     expect(getAnalyticsSources).toHaveBeenLastCalledWith('acme', {
       window: '30d', limit: 20, runId: undefined, queryClass: undefined, includeByQuery: true,
     })
-    expect(tool.description).toContain('pools every sweep in the window')
+    expect(tool.description).toContain('pass `window` to pool every sweep in it')
     expect(tool.description).toContain('Gemini')
+  })
+
+  it('reads the latest sweep for class-scoped sources and landscape unless a run or window is given', async () => {
+    const getAnalyticsSources = vi.fn().mockResolvedValue({})
+    const getCompetitorLandscape = vi.fn().mockResolvedValue({})
+    const client = { getAnalyticsSources, getCompetitorLandscape } as unknown as ApiClient
+    const sources = canonryMcpTools.find(candidate => candidate.name === 'canonry_analytics_sources')!
+    const landscape = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitor_landscape')!
+    const cases: Array<[Record<string, unknown>, string | undefined]> = [
+      [{ queryClass: 'non-brand' }, 'latest'],
+      [{ queryClass: 'branded' }, 'latest'],
+      // An explicit run, or a window, keeps what was asked for.
+      [{ queryClass: 'non-brand', runId: 'run-7' }, 'run-7'],
+      [{ queryClass: 'non-brand', window: '30d' }, undefined],
+      // Without one class the read pools both, as the HTTP default does.
+      [{ queryClass: 'all' }, undefined],
+      [{}, undefined],
+    ]
+    for (const [input, runId] of cases) {
+      // Raw arguments, as Aero passes them after JSON-schema validation.
+      await sources.handler(client, { project: 'acme', ...input } as never)
+      expect(getAnalyticsSources.mock.lastCall?.[1]?.runId, JSON.stringify(input)).toBe(runId)
+      await landscape.handler(client, landscape.inputSchema.parse({ project: 'acme', ...input }))
+      expect(getCompetitorLandscape.mock.lastCall?.[1]?.runId, JSON.stringify(input)).toBe(runId)
+    }
+    for (const tool of [sources, landscape]) {
+      expect(tool.description).toContain('runIds')
+      expect(tool.description).toContain('countUnits')
+    }
+    expect(landscape.description).toContain('observedNamesTotal` counts distinct names, never answers')
+    expect(sources.description).toContain('`domainTotal` is distinct domains, never answers or citations')
+  })
+
+  it('lowers an agent portfolio limit to the rows that fit one result, and drops the deprecated name copy', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
+    const row = {
+      targetKey: 'harbor', label: 'Harbor', namedInsteadInAnswerText: [{ name: 'Bayside', answers: 3 }], namedInsteadInAnswerTextTotal: 1,
+      recommendedInstead: [{ name: 'Bayside', occurrences: 3 }], recommendedInsteadTotal: 1, recommendedInsteadTruncated: false,
+    }
+    const getMeasurementPortfolioSummary = vi.fn().mockResolvedValue({ queryClass: 'non-brand', weakestProperties: [row], markets: [] })
+    const client = { getMeasurementPortfolioSummary } as unknown as ApiClient
+
+    // Portfolio-wide, 4 rows fit: a larger limit is lowered and the result says so first.
+    const lowered = await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 6 }) as Record<string, unknown>
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 4 })
+    expect(Object.keys(lowered)[0]).toBe('limitNote')
+    expect(lowered.limitNote).toBe('limit 6 was lowered to 4, the most rows that fit one result. For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview.')
+    expect(lowered.weakestProperties).toEqual([{ targetKey: 'harbor', label: 'Harbor', namedInsteadInAnswerText: [{ name: 'Bayside', answers: 3 }], namedInsteadInAnswerTextTotal: 1 }])
+    expect(lowered).toMatchObject({ queryClass: 'non-brand', markets: [] })
+
+    // A metro lists every one of its submarkets, so its rows are capped at 4 too.
+    const scoped = await tool.handler(client, { project: 'acme', queryClass: 'non-brand', groupKey: 'metro-east', limit: 6 }) as Record<string, unknown>
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
+    expect(Object.keys(scoped)[0]).toBe('limitNote')
+    expect(scoped.limitNote).toBe('limit 6 was lowered to 4, the most rows that fit one result. For more rows page canonry_measurement_overview with scope group.')
+    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
+
+    // A limit that fits, or none, passes through unchanged.
+    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 3 })
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 3 })
+    const plain = await tool.handler(client, { project: 'acme', queryClass: 'non-brand' }) as Record<string, unknown>
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand' })
+    expect(plain).not.toHaveProperty('limitNote')
+
+    // The schema keeps the earlier maximum of 10, so a larger request is lowered with a note, not refused.
+    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 10 }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 11 }).success).toBe(false)
+    expect(schemaProperty(inputSchemaFor(tool.name), 'limit')).toMatchObject({ maximum: 10 })
+    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 10 })
+    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 4 })
+    expect(tool.description).toContain('markets lists every market at one level')
+    expect(tool.description).toContain('tiedAtWeakest.byMetro')
+    expect(tool.description).toContain('tiedAtWeakest.namedInstead')
+  })
+
+  it('defaults an agent\'s Property and change reads to non-brand without overriding an explicit class', async () => {
+    const client = {
+      getMeasurementChanges: vi.fn().mockResolvedValue({}),
+      getMeasurementPropertyCompetitors: vi.fn().mockResolvedValue({}),
+      getMeasurementPropertyEvidence: vi.fn().mockResolvedValue({}),
+    }
+    const reads = [
+      ['canonry_measurement_changes', 'getMeasurementChanges', {}],
+      ['canonry_measurement_property_competitors', 'getMeasurementPropertyCompetitors', { targetKey: 'harbor' }],
+      ['canonry_measurement_property_evidence', 'getMeasurementPropertyEvidence', { targetKey: 'harbor' }],
+    ] as const
+    for (const [name, method, input] of reads) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)!
+      // Raw arguments (Aero applies no zod default) and parsed MCP input alike.
+      await tool.handler(client as unknown as ApiClient, { project: 'acme', ...input } as never)
+      expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass: 'non-brand' })
+      await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project: 'acme', ...input }))
+      expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass: 'non-brand' })
+      for (const queryClass of ['branded', 'all'] as const) {
+        await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project: 'acme', ...input, queryClass }))
+        expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass })
+      }
+    }
+  })
+
+  it('bounds agent change reads and documents their order, distribution and noise', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_changes')!
+    const getMeasurementChanges = vi.fn().mockResolvedValue({})
+    const client = { getMeasurementChanges } as unknown as ApiClient
+    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 20 }).success).toBe(true)
+    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 21 }).success).toBe(false)
+    // The scope rules still hold on the agent schema.
+    expect(tool.inputSchema.safeParse({ project: 'acme', scope: 'all', groupKey: 'metro-east' }).success).toBe(false)
+    expect(schemaProperty(inputSchemaFor(tool.name), 'queryClass')).toMatchObject({ default: 'non-brand' })
+    // The HTTP route orders by size of move; the tool leaves sort to it unless asked.
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme' }))
+    expect(getMeasurementChanges.mock.lastCall?.[1]).not.toHaveProperty('sort')
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', sort: 'label' }))
+    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ sort: 'label' })
+    for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means every move was 2 answers or fewer', 'denominatorChanged true means a rate was taken over a different number of answers', 'metricsByClass', 'totalProperties above the rows returned']) {
+      expect(tool.description).toContain(phrase)
+    }
+  })
+
+  it('routes completeness to data quality and run completeness, never to a run status or doctor', () => {
+    const description = (name: string) => canonryMcpTools.find(candidate => candidate.name === name)!.description
+    expect(description('canonry_measurement_data_quality')).toContain('Quote expected, executed and missing')
+    expect(description('canonry_measurement_data_quality')).toContain('unattributedByClass')
+    expect(description('canonry_measurement_data_quality')).toContain('latestFill')
+    expect(description('canonry_measurement_data_quality')).toContain('pass run.displayedRunId to canonry_run_completeness')
+    expect(description('canonry_run_completeness')).toContain('missingByProvider')
+    expect(description('canonry_run_completeness')).toContain('its zero counts are not a completeness check')
+    expect(description('canonry_doctor')).toContain('not whether a sweep completed')
+    const overview = description('canonry_project_overview')
+    // The shape prompt already states the project type; plan_get is only the fallback.
+    expect(overview).toContain('When the system prompt has no Project shape line, call canonry_measurement_plan_get')
+    expect(overview).toContain('not a completeness check')
+    expect(overview).toContain('canonry_doctor checks configuration and integrations, not sweeps')
+    expect(overview).toContain('queryClassScope')
+    expect(description('canonry_measurement_property_competitors')).toContain('citedDomains')
+    expect(description('canonry_measurement_property_competitors')).toContain('never read those 5 as all')
+    expect(description('canonry_visibility_report')).toContain('mode simple reads only pre-plan sweeps, so it is refused there unless runId names one')
   })
 
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
@@ -528,10 +710,10 @@ describe('MCP tool registry', () => {
       }]],
       ['canonry_measurement_portfolio_summary', {
         project: 'acme', groupKey: 'metro-east', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 8,
+        location: 'New York, NY', runId: 'run-7', limit: 4,
       }, 'getMeasurementPortfolioSummary', ['acme', {
         groupKey: 'metro-east', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 8,
+        location: 'New York, NY', runId: 'run-7', limit: 4,
       }]],
       ['canonry_measurement_property_questions', {
         project: 'acme', targetKey: 'harbor-view', queryClass: 'non-brand', provider: 'openai',
@@ -1366,7 +1548,8 @@ const handlerCases: HandlerCase[] = [
     tool: 'canonry_competitor_landscape',
     input: { project: 'acme', scope: 'all-markets', provider: 'openai', groupBy: 'model', model: 'gpt-test', queryClass: 'non-brand' },
     methods: ['getCompetitorLandscape'],
-    expectedArgs: [['acme', { scope: 'all-markets', provider: 'openai', groupBy: 'model', model: 'gpt-test', queryClass: 'non-brand' }]],
+    // A class-scoped read with no run or window reads the latest sweep.
+    expectedArgs: [['acme', { scope: 'all-markets', provider: 'openai', groupBy: 'model', model: 'gpt-test', queryClass: 'non-brand', runId: 'latest' }]],
   },
   { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
   { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },

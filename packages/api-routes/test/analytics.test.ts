@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
-import { MODEL_POINTER_REGISTRY_CHECKED_THROUGH } from '@ainyc/canonry-contracts'
+import { MODEL_POINTER_REGISTRY_CHECKED_THROUGH, SOURCE_BREAKDOWN_COUNT_UNITS } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -1254,6 +1254,13 @@ describe('analytics routes', () => {
     const sourcesRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/sources' })
     expect(sourcesRes.statusCode).toBe(200)
     expect(JSON.parse(sourcesRes.payload).overall).toEqual([])
+
+    // No sweep yet: `latest` answers empty and says so, it never errors.
+    const latestRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/sources?runId=latest' })
+    expect(latestRes.statusCode).toBe(200)
+    expect(JSON.parse(latestRes.payload)).toMatchObject({
+      runCount: 0, runIds: [], pooledAcrossRuns: false, runId: '', filters: { runId: 'latest' },
+    })
   })
 })
 
@@ -1351,6 +1358,21 @@ describe('analytics fan-out (#480)', () => {
     const body2 = JSON.parse(res2.payload)
     expect(body1.runId).toBe(body2.runId)
     expect(body1.runId).toBe('ffffffff-ffff-ffff-ffff-fffffffff0a1')
+  })
+
+  it('/analytics/sources runId=latest reads every location run of the newest sweep', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/sources?runId=latest' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    expect(body.runIds).toEqual(['ffffffff-ffff-ffff-ffff-fffffffff0a1', '00000000-0000-0000-0000-0000000000a1'])
+    expect(body).toMatchObject({ runCount: 2, pooledAcrossRuns: true, runId: 'ffffffff-ffff-ffff-ffff-fffffffff0a1', answerTotal: 2 })
+    expect(body.filters.runId).toBe('latest')
+  })
+
+  it('/analytics/sources refuses runId=latest when the latest sweep is outside the window', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/sources?runId=latest&window=7d' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.message).toContain('7d')
   })
 })
 
@@ -1863,6 +1885,36 @@ describe('GET /projects/:name/analytics/sources: run, query class and byQuery fi
     expect(body.runId).toBe(RUN_NEW)
     expect(body.answerTotal).toBe(4)
     expect(body.unclassifiedAnswers).toBe(0)
+  })
+
+  it('names every pooled run instead of letting one runId stand for a pooled read', async () => {
+    const { body } = await get()
+    expect(body.runIds).toEqual([RUN_NEW, RUN_OLD])
+    expect(body.pooledAcrossRuns).toBe(true)
+    // `runId` stays for compatibility: the newest run in the window.
+    expect(body.runId).toBe(RUN_NEW)
+
+    const single = await get(`?runId=${RUN_OLD}`)
+    expect(single.body).toMatchObject({ runIds: [RUN_OLD], pooledAcrossRuns: false, runCount: 1 })
+  })
+
+  it('labels what each count counts, so distinct domains never read as answers', async () => {
+    const { body } = await get()
+    expect(body.countUnits).toEqual(SOURCE_BREAKDOWN_COUNT_UNITS)
+    expect(body.countUnits.distinctDomains).toContain('domainTotal')
+    expect(body.countUnits.answers).toContain('entries[].count')
+  })
+
+  it('reads the latest sweep with runId=latest instead of pooling the window', async () => {
+    const { status, body } = await get('?runId=latest&includeByQuery=false')
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ runId: RUN_NEW, runIds: [RUN_NEW], runCount: 1, pooledAcrossRuns: false, answerTotal: 3 })
+    // The echo keeps what was asked for; runIds says what it resolved to.
+    expect(body.filters.runId).toBe('latest')
+    expect(body.ranked).toEqual((await get(`?runId=${RUN_NEW}&includeByQuery=false`)).body.ranked)
+
+    const nonBrand = await get('?runId=latest&queryClass=non-brand')
+    expect(nonBrand.body).toMatchObject({ runIds: [RUN_NEW], answerTotal: 2 })
   })
 
   it('sums the per-query breakdown over every answer to the query', async () => {

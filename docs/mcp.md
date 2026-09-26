@@ -228,6 +228,17 @@ substitute citation ranking without saying the metric changed. Aggregate metrics
 the existing combined-signal `weakestProperties`, and overview pagination retain
 their existing semantics.
 
+Agent-facing defaults live in the MCP layer; the HTTP API is unchanged.
+`canonry_measurement_portfolio_summary` returns at most 4 Property rows, with or
+without `groupKey`; a larger `limit` is lowered and the result starts with `limitNote`,
+and the deprecated `recommendedInstead*` row fields are left out.
+`canonry_measurement_changes` defaults `queryClass` to `non-brand` and caps
+`limit` at 20. `canonry_measurement_property_competitors` and
+`canonry_measurement_property_evidence` read `non-brand` when `queryClass` is
+omitted. `canonry_analytics_sources` and `canonry_competitor_landscape` read the
+latest sweep (`runId=latest`) when `queryClass` is `branded` or `non-brand` and
+neither `runId` nor `window` is given.
+
 `canonry_measurement_overview` ranks one revision-pinned run snapshot only; it does not infer a trend or compare across revisions. Its optional `sort` is `label-asc` (default), `label-desc`, `citationCoverage-asc`, `citationCoverage-desc`, `mentionCoverage-asc`, or `mentionCoverage-desc`. For coverage sorts, unavailable rows are always the first bucket, then available rates follow the selected direction. Its cursor is sort-aware and pins later pages to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes: reuse it unchanged with the same sort and filters or the API rejects it. Evidence appended to a named running run also invalidates the cursor instead of silently reordering later pages. Legacy label cursors work only when `sort` is omitted; an explicit sort needs a new sort-bound cursor.
 
 Ordinary read-only API keys intentionally may read unpublished setup and draft state for their bound project; treat those callers as authorized to see that portfolio and competitor structure. Embed mode is narrower: its explicit safe-read allowlist denies draft paths, including when a self-hosted embed uses a project-scoped key.

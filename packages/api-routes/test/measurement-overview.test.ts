@@ -426,6 +426,38 @@ describe('measurement overview', () => {
     }
   })
 
+  it('places every Property row in its metro, from the groups that hold it', async () => {
+    const cedar = { ...structuredClone(plan.targets[1]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
+    plan = {
+      ...plan,
+      targets: [...plan.targets, cedar],
+      groups: [
+        ...plan.groups,
+        { stableKey: 'coastal-metro', label: 'Coastal Metro', targetKeys: ['harbor'], competitors: [] },
+        { stableKey: 'waterfront', label: 'Waterfront', parentGroupKey: 'coastal-metro', targetKeys: ['harbor'], competitors: [] },
+      ],
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+
+    const placement = (body: MeasurementOverviewResponse) => Object.fromEntries(body.properties.items
+      .map(row => [row.targetKey, { metro: row.metro, otherMetros: row.otherMetros }]))
+    const expected = {
+      // Harbor sits in two top-level groups: the first by label, then the rest. A submarket is never a metro.
+      harbor: { metro: { groupKey: 'coastal-metro', label: 'Coastal Metro' }, otherMetros: [{ groupKey: 'regional', label: 'Regional comparison' }] },
+      bayside: { metro: { groupKey: 'regional', label: 'Regional comparison' }, otherMetros: undefined },
+      // In no group: null, not a metro guessed from its label.
+      cedar: { metro: null, otherMetros: undefined },
+    }
+    // Before any run, and after one.
+    expect(placement((await overview('scope=all')).body)).toEqual(expected)
+    seedMeasuredRun(versionId)
+    const measured = await overview('scope=all&queryClass=non-brand')
+    expect(measured.status).toBe(200)
+    expect(placement(measured.body)).toEqual(expected)
+    expect(measured.body.properties.items.find(row => row.targetKey === 'bayside')).not.toHaveProperty('otherMetros')
+  })
+
   it('computes every metric before search and lets search filter rows only', async () => {
     const versionId = seedVersion(1)
     activate(versionId)

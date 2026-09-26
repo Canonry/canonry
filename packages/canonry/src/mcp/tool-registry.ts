@@ -68,6 +68,10 @@ import {
   measurementPropertyCompetitorsQuerySchema,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
+  measurementQueryClassFilterSchema,
+  type MeasurementPortfolioSummaryResponse,
+  type MeasurementQueryClassFilter,
+  LATEST_RUN_ID,
   measurementPropertyEvidenceQuerySchema,
   measurementPlanDeactivateRequestSchema,
   measurementQuerySetUpsertRequestSchema,
@@ -192,23 +196,67 @@ const measurementOverviewInputSchema = z.object({
     context.addIssue({ code: 'custom', path: ['targetKey'], message: `${input.scope} scope does not accept targetKey.` })
   }
 })
+/**
+ * One Property's reads serve one question class. The HTTP default pools both
+ * classes; for an agent, an omitted class reads non-brand, the acquisition
+ * signal, and the response echoes the class it served.
+ */
+const AGENT_DEFAULT_QUERY_CLASS = 'non-brand' satisfies MeasurementQueryClassFilter
+const propertyQueryClassInputSchema = measurementQueryClassFilterSchema.optional()
+  .describe('Omit for non-brand. branded reads brand recall; all pools both classes, so name the class you report.')
+/**
+ * Aero checks tool arguments against the JSON schema without applying zod
+ * defaults, so a default the HTTP route does not share is applied again here.
+ */
+function agentQueryClass(queryClass: MeasurementQueryClassFilter | undefined): MeasurementQueryClassFilter {
+  return queryClass ?? AGENT_DEFAULT_QUERY_CLASS
+}
 const measurementPropertyEvidenceInputSchema = measurementPropertyEvidenceQuerySchema.extend({
   project: projectNameSchema,
   targetKey: measurementPropertyEvidenceQuerySchema.shape.targetKey.describe('Property stable key. Required — this read is scoped to exactly one Property.'),
+  queryClass: propertyQueryClassInputSchema,
   shape: measurementPropertyEvidenceQuerySchema.shape.shape.describe(
     'What one row is. Omit for sources (one row per cited URL). answers gives one row per measured answer with its cited URLs nested, including the answers that cited nothing.',
   ),
 }).strict()
+/**
+ * Most Property rows one portfolio summary returns to an agent, with or
+ * without groupKey. Measured as compact JSON on a 200-Property, 20-metro
+ * portfolio with every metro listed and the deprecated recommendedInstead copy
+ * stripped: 4 rows are about 18,300 characters and 5 pass the 20,000-character
+ * tool-result cap. A groupKey read lists every submarket of its metro, uncapped,
+ * so a metro with a couple dozen submarkets passes the cap at 5 rows as well.
+ */
+const PORTFOLIO_SUMMARY_AGENT_ROWS = 4
+/**
+ * The largest limit the agent schema accepts: the route's earlier agent
+ * maximum. A request above PORTFOLIO_SUMMARY_AGENT_ROWS is lowered with a
+ * leading limitNote rather than refused.
+ */
+const PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX = 10
+/**
+ * The summary as an agent reads it: without the deprecated recommendedInstead
+ * copy of every row's namedInsteadInAnswerText (about 350 characters a row),
+ * and with a leading note when the requested limit was lowered.
+ */
+function portfolioSummaryForAgents(summary: MeasurementPortfolioSummaryResponse, limitNote: string | undefined): unknown {
+  const rows: unknown = summary.weakestProperties
+  return {
+    ...(limitNote === undefined ? {} : { limitNote }),
+    ...summary,
+    ...(Array.isArray(rows)
+      ? { weakestProperties: summary.weakestProperties.map(({ recommendedInstead: _names, recommendedInsteadTotal: _total, recommendedInsteadTruncated: _cut, ...row }) => row) }
+      : {}),
+  }
+}
 const measurementPortfolioSummaryInputSchema = measurementPortfolioSummaryQuerySchema.extend({
   project: projectNameSchema,
   groupKey: measurementPortfolioSummaryQuerySchema.shape.groupKey
-    .describe('A market stable key (a row\'s metro.groupKey). Scopes rows to that market and lists its direct submarkets.'),
-  // Capped below the route's 50: past about 10 rows the per-row evidence
-  // (names given instead, cited domains) no longer fits the tool-result cap.
-  limit: z.number().int().positive().max(10).optional()
-    .describe('Rows per list, at most 10. Default 4 keeps the whole result under the tool-result cap; prefer groupKey over a larger limit.'),
+    .describe('A market stable key (a row\'s metro.groupKey or a markets row\'s groupKey). Scopes rows to that market and lists its direct submarkets.'),
+  limit: z.number().int().positive().max(PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX).optional()
+    .describe(`Rows per Property list. Default ${PORTFOLIO_SUMMARY_AGENT_ROWS}, which is also the most returned (a larger value is lowered and limitNote says so). For other rows pass groupKey (one metro's weakest), or page canonry_measurement_overview.`),
   includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets
-    .describe('Every market at every level, uncapped. Off by default; large portfolios exceed the cap with it on.'),
+    .describe('Every market at every level, uncapped. Off by default and rarely needed: markets already lists every metro, and groupKey lists one metro\'s submarkets. Large portfolios exceed the tool-result cap with it on.'),
 }).strict()
 const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuerySchema.extend({
   project: projectNameSchema,
@@ -218,9 +266,20 @@ const measurementQuestionResultInputSchema = measurementQuestionResultQuerySchem
 }).strict()
 const measurementPropertyCompetitorsInputSchema = measurementPropertyCompetitorsQuerySchema.extend({
   project: projectNameSchema,
+  queryClass: propertyQueryClassInputSchema,
 }).strict()
-const measurementChangesInputSchema = measurementChangesQuerySchema.extend({
+/**
+ * Changed rows one measurement_changes call returns to an agent. A row is
+ * about 700 characters of compact JSON, so 20 rows plus the metric blocks and
+ * distribution stay well under the tool-result cap; 50 did not.
+ */
+const MEASUREMENT_CHANGES_AGENT_ROWS = 20
+const measurementChangesInputSchema = measurementChangesQuerySchema.safeExtend({
   project: projectNameSchema,
+  queryClass: measurementQueryClassFilterSchema.default(AGENT_DEFAULT_QUERY_CLASS)
+    .describe('Defaults to non-brand. Call once per class; all pools both classes in rows and distribution.'),
+  limit: z.number().int().positive().max(MEASUREMENT_CHANGES_AGENT_ROWS).optional()
+    .describe(`Changed rows, largest move first. Default 10, at most ${MEASUREMENT_CHANGES_AGENT_ROWS}; distribution counts every Property whatever the limit.`),
 }).strict()
 const measurementDataQualityInputSchema = measurementDataQualityQuerySchema.extend({
   project: projectNameSchema,
@@ -749,9 +808,23 @@ const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
 })
+const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (the run the measurement reads display). With queryClass branded or non-brand and neither runId nor window, this tool reads latest; pass window to pool every sweep in it.'
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
   project: projectNameSchema,
+  runId: z.string().trim().min(1).optional().describe(latestSweepRunIdDescription),
 }).strict()
+
+/**
+ * A class-scoped source or landscape read pooled over every sweep cannot be
+ * quoted as one sweep's counts, and the pooled default was misread that way.
+ * Without an explicit run or window, an agent's class-scoped read takes the
+ * latest sweep; the HTTP default still pools, which the dashboard relies on.
+ */
+function latestSweepUnlessPooled<T extends { runId?: string; window?: string; queryClass?: string }>(query: T): T {
+  if (query.runId !== undefined || query.window !== undefined) return query
+  if (query.queryClass !== 'branded' && query.queryClass !== 'non-brand') return query
+  return { ...query, runId: LATEST_RUN_ID }
+}
 
 const projectUpsertInputSchema = z.object({
   project: projectNameSchema,
@@ -1140,13 +1213,27 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_visibility_report',
     title: 'Read scoped AI visibility',
-    description: 'Read stored visibility for a site, group, market or property. Branded, non-brand and unclassified answers remain separate populations. The response owns rates, trends, query performance, answers and competitors under one frozen measured definition. Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable; it is absent when that sweep cannot be read. Material plan changes retain the prior measured revision; pending assignments are explicit. Search filters the query list only. Reuse cursors with identical selection. Never starts a sweep.',
+    description: 'Read stored visibility for a site, group, market or property. Branded, non-brand and unclassified answers remain separate populations. The response owns rates, trends, query performance, answers and competitors under one frozen measured definition. Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable; it is absent when that sweep cannot be read. Material plan changes retain the prior measured revision; pending assignments are explicit. Search filters the query list only. Reuse cursors with identical selection. On an Advanced project use mode advanced, or omit mode: mode simple reads only pre-plan sweeps, so it is refused there unless runId names one. Never starts a sweep.',
     access: 'read', tier: 'monitoring',
     inputSchema: visibilityReportRequestSchema.safeExtend({ project: projectNameSchema }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/visibility-report'],
-    handler: (client, input) => {
+    handler: async (client, input) => {
       const { project, ...selection } = input
+      // Simple mode reads planless sweeps only. On a project with an active
+      // plan they all predate it, so an agent would read stale pre-plan history
+      // as current. HTTP still serves that history; the agent is sent to the
+      // plan instead. A pinned runId still inspects one pre-plan sweep.
+      if (selection.mode === 'simple' && selection.runId === undefined) {
+        const { versions } = await client.listMeasurementPlanVersions(project)
+        if (versions.some(version => version.active)) {
+          throw new CliError({
+            code: 'VALIDATION_ERROR',
+            message: 'This project measures through an Advanced Measurement plan, so mode "simple" reads only pre-plan sweeps. Use mode "advanced", or omit mode. To inspect one pre-plan sweep, pass its runId.',
+            details: { project, mode: 'simple' },
+          })
+        }
+      }
       return client.getVisibilityReport(project, selection)
     },
   }),
@@ -1215,7 +1302,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. Before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance, call canonry_measurement_plan_get to establish the portfolio type, and canonry_measurement_portfolio_summary to rank Properties.',
+    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -1279,14 +1366,14 @@ export const canonryMcpTools = [
     name: 'canonry_analytics_sources',
     title: 'Get cited-source rankings',
     description:
-      'Where AI engines cite from for a project: cited domains ranked by how many answers cite them, each tagged with a category and a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), plus a surface-class roll-up and a per-provider breakdown. Project-wide: without `runId` it pools every sweep in the window (`runCount` says how many); without `queryClass` it pools branded and non-brand answers, where branded queries inflate your own domain. For the sources behind non-brand answers, set `queryClass=non-brand` and the latest `runId`; on a v2 measurement plan the class comes from the plan, the same answers as canonry_competitor_landscape with scope=all-markets. Counts come from each answer\'s stored source list, so every engine is included, Gemini too. A domain counts at most once per answer; `answerShare` is the share of all answers in scope that cite it. `providersWithoutSources` names engines that answered but cited nothing. `limit` caps each ranked list (default 10 for this tool, which keeps each engine list whole); a long-tail rollup keeps the totals. The per-query breakdown is omitted unless `includeByQuery` is true. No LLM calls; probe runs excluded.',
+      'Where AI engines cite from for a project: cited domains ranked by how many answers cite them, each tagged with a category and a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), plus a surface-class roll-up and a per-provider breakdown. Project-wide: without `queryClass` it pools branded and non-brand answers, where branded queries inflate your own domain. With `queryClass` set and neither `runId` nor `window`, this tool reads the latest sweep (`runId` latest); pass `window` to pool every sweep in it. `pooledAcrossRuns` true (`runCount` above 1) means the counts sum several runs and `runIds` is their scope; the legacy `runId` field is then only the newest run in the window. On a v2 measurement plan the class comes from the plan, the same answers as canonry_competitor_landscape with scope=all-markets. `countUnits` says what each count counts: `domainTotal` is distinct domains, never answers or citations. Compare engines by answer count or `answerShare`, never by rank position. Counts come from each answer\'s stored source list, so every engine is included, Gemini too. A domain counts at most once per answer; `answerShare` is the share of all answers in scope that cite it. `providersWithoutSources` names engines that answered but cited nothing. `limit` caps each ranked list (default 10 for this tool, which keeps each engine list whole); a long-tail rollup keeps the totals. The per-query breakdown is omitted unless `includeByQuery` is true. No LLM calls; probe runs excluded.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
       window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
       limit: z.number().int().positive().max(50).optional().describe('Cap each ranked list to the top N domains. Default 10; larger lists can exceed the tool-result cap.'),
-      runId: z.string().trim().min(1).optional().describe('Read one answer-visibility run (for example the latest sweep) instead of pooling every run in the window.'),
+      runId: z.string().trim().min(1).optional().describe(latestSweepRunIdDescription),
       queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand answers only. With an active v2 measurement plan the class comes from the plan assignments. Default all pools both classes.'),
       includeByQuery: z.boolean().optional().describe('Include the per-query breakdown. It is large; default false for this tool.'),
     }),
@@ -1297,7 +1384,7 @@ export const canonryMcpTools = [
       // The full ranked lists run past the agent's tool-result cap on a large
       // project, and the per-engine lists are the first thing lost.
       limit: input.limit ?? 10,
-      runId: input.runId,
+      runId: latestSweepUnlessPooled(input).runId,
       queryClass: input.queryClass,
       includeByQuery: input.includeByQuery ?? false,
     }),
@@ -1305,7 +1392,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitor_landscape',
     title: 'Get historical competitor landscape',
-    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` is the full count. Model groups are capped at 50 and disclose truncation.',
+    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` counts distinct names, never answers (`countUnits` says what each count counts). Model groups are capped at 50 and disclose truncation. For which names answers give instead across a portfolio, read this with queryClass and runId latest: per-Property named-instead lists are samples of weak Properties. With queryClass branded or non-brand and neither runId nor window, this tool reads the latest sweep; pass window to pool sweeps. `runCount` and `runIds` name the runs counted; above 1 the counts pool several runs.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: competitorLandscapeInputSchema,
@@ -1313,7 +1400,7 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/analytics/competitors'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getCompetitorLandscape(project, query)
+      return client.getCompetitorLandscape(project, latestSweepUnlessPooled(query))
     },
   }),
   defineTool({
@@ -1335,7 +1422,7 @@ export const canonryMcpTools = [
     name: 'canonry_doctor',
     title: 'Run health checks',
     description:
-      'Run canonry health checks. With `project`, runs project-scoped checks (Google/GA auth, redirect URI, scopes, property access). Without `project`, runs global checks (provider keys, etc.). Use `checks` to filter by exact ID or wildcard prefix (e.g. ["google.auth.*"]). Returns a structured DoctorReport with per-check status, code, summary, remediation, and details — use this to diagnose Google auth failures (401/403/redirect-mismatch/principal-mismatch) without parsing logs.',
+      'Run canonry health checks. With `project`, runs project-scoped checks (Google/GA auth, redirect URI, scopes, property access). Without `project`, runs global checks (provider keys, etc.). Use `checks` to filter by exact ID or wildcard prefix (e.g. ["google.auth.*"]). Returns a structured DoctorReport with per-check status, code, summary, remediation, and details. Use it to diagnose Google auth failures (401/403/redirect-mismatch/principal-mismatch) without parsing logs. It checks configuration and integrations, not whether a sweep completed or its answers are reliable: for that read canonry_measurement_data_quality or canonry_run_completeness.',
     access: 'read',
     tier: 'core',
     inputSchema: doctorInputSchema,
@@ -1430,7 +1517,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_run_completeness',
     title: 'Get run completeness',
-    description: 'Expected, answered and missing measurement slots per provider for a plan run, whether canonry_run_fill would be admitted now and why not, and the latest fill.',
+    description: 'Is a plan run complete? Expected, executed and missing answers (measurement slots, one per query per engine) for the run, missing answers per engine (missingByProvider), whether canonry_run_fill would be admitted now and why not, and the latest fill. Pass run.displayedRunId from canonry_measurement_data_quality, or measurement.displayedRunId from canonry_measurement_overview. Quote expected, executed and missing. A planless run (planned false) has no expected answers, so its zero counts are not a completeness check; readable false means the counts are unknown, not zero.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: runGetInputSchema,
@@ -2491,7 +2578,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
-    description: 'For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
+    description: 'For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementOverviewInputSchema,
@@ -2505,7 +2592,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_property_evidence',
     title: 'Page one Property\'s measurement evidence',
-    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP — an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence or answers is returned and the other is absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview — the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.',
+    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a provider or location. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned class. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP: an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence or answers is returned and the other is absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview: the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementPropertyEvidenceInputSchema,
@@ -2513,21 +2600,27 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-property-evidence'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementPropertyEvidence(project, query)
+      return client.getMeasurementPropertyEvidence(project, { ...query, queryClass: agentQueryClass(query.queryClass) })
     },
   }),
   defineTool({
     name: 'canonry_measurement_portfolio_summary',
     title: 'Summarize measured Properties',
-    description: 'Start here for best and worst Properties. One call returns the weakest Properties, the names answers wrote instead of them, and the domains engines cited for them. Defaults to non-brand queries; state the returned queryClass and never pool branded with non-brand. Keep the default limit; for more rows narrow with groupKey (a metro) rather than raising limit, which can overflow the tool-result cap. Mention (answer text names the Property) and citation (a source URL on its page) are separate: report each as numerator/denominator, with any unattributed count beside mention. Denominators count answers, one per query per engine (queries x engines = answers). Group Properties only by each row\'s metro and submarkets, never by label. namedInsteadInAnswerText lists names written in the answer text of answers that neither named nor cited the Property, counted by answer: they are not citations. citedDomains and weakestAnswerSources count answers citing each domain, every engine included; weakestAnswerSources covers the weakest rows plus every tied Property, each answer once. When tiedAtWeakest is set, that many Properties share the weakest rates and are ordered by name, not ranked. mentionRanking.strongest/.weakest rank every Property with an available mention rate; .excluded lists the rest with reasons. markets lists one level worst-first (metros, or a groupKey\'s submarkets), capped at limit, with totalMarkets; includeNestedMarkets returns every level. Markets may share Properties and never sum to portfolio totals. Reads stored data only; never starts provider work.',
+    description: 'Start here for best and worst Properties. One call returns the weakest Properties, the names answers wrote instead of them, and the domains engines cited for them. Defaults to non-brand queries; state the returned queryClass and never pool branded with non-brand. Returns at most 4 Property rows per list, the most that fit one result; a larger limit is lowered and limitNote says so. For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview. Mention (answer text names the Property) and citation (a source URL on its page) are separate: report each as numerator/denominator, with any unattributed count beside mention. Denominators count answers, one per query per engine (queries x engines = answers). Group Properties only by each row\'s metro and submarkets, never by label. namedInsteadInAnswerText lists names written in the answer text of answers that neither named nor cited the Property, counted by answer: they are not citations, and namedInsteadInAnswerTextTotal counts distinct names, not answers. citedDomains and weakestAnswerSources count answers citing each domain, every engine included; weakestAnswerSources pools the weakest rows plus every tied Property, each answer once, and its domainTotal counts distinct domains, not citations. When tiedAtWeakest is set, tiedAtWeakest.count Properties share the weakest rates and the rows are the first of them by name, not a rank: report the count, tiedAtWeakest.byMetro (tied Properties per metro over the whole tie; a Property in two metros counts in both) and tiedAtWeakest.namedInstead (names written instead across the whole tie, counted by distinct answer; namedInsteadTotal is distinct names), and call the rows examples. mentionRanking.strongest/.weakest rank every Property with an available mention rate; .excluded lists the rest with reasons. markets lists every market at one level, worst-first (every metro, or a groupKey\'s submarkets), whatever the limit. Markets may share Properties and never sum to portfolio totals. Reads stored data only; never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPortfolioSummaryInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-portfolio-summary'],
-    handler: (client, input) => {
+    handler: async (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementPortfolioSummary(project, query)
+      const most = PORTFOLIO_SUMMARY_AGENT_ROWS
+      const lowered = query.limit !== undefined && query.limit > most
+      const summary = await client.getMeasurementPortfolioSummary(project, lowered ? { ...query, limit: most } : query)
+      const more = query.groupKey === undefined
+        ? 'For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview.'
+        : 'For more rows page canonry_measurement_overview with scope group.'
+      return portfolioSummaryForAgents(summary, lowered ? `limit ${query.limit} was lowered to ${most}, the most rows that fit one result. ${more}` : undefined)
     },
   }),
   defineTool({
@@ -2561,7 +2654,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_property_competitors',
     title: 'List a Property’s stored replacements',
-    description: 'After reviewing a Property’s question outcomes, find repeated stored replacement names for its misses. Reads stored data only; it never starts provider work.',
+    description: 'For one Property: the names answers wrote in their text instead of it, and the domains its own answers cited. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned queryClass. competitors[] are names written in the answer text of this Property\'s answers that did not name it, never citations: occurrences counts answers, and questions lists at most 5 of questionTotal, so never read those 5 as all. citedDomains (top 10), citedDomainsTotal (distinct domains) and citedDomainsAnswers (the answers counted) are the domains cited in this Property\'s own answers, counted by answer: sources, never names written instead. Use them, not the portfolio-wide weakestAnswerSources, for one Property\'s sources. Reads stored data only; it never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPropertyCompetitorsInputSchema,
@@ -2569,13 +2662,13 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-property-competitors'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementPropertyCompetitors(project, query)
+      return client.getMeasurementPropertyCompetitors(project, { ...query, queryClass: agentQueryClass(query.queryClass) })
     },
   }),
   defineTool({
     name: 'canonry_measurement_changes',
     title: 'Compare stored measurement changes',
-    description: 'After reviewing the current summary, compare stored runs only when their execution identity is compatible. Reads stored data only; it never starts provider work.',
+    description: 'What changed since the previous sweep: compares the displayed run with the previous run of the same plan revision and execution identity; an incompatible pair returns unavailable with a reason, never a trend. Defaults to non-brand queries: call once per class (queryClass branded for the branded move) and never report one class as the whole. queryClass all pools both classes in rows and distribution and adds metricsByClass, the headline metrics per class; report those per class, never the pooled metrics alone. changedProperties come largest move first (answers that named the Property, then answers that cited it; sort label for alphabetical), default 10 and at most 20 rows; totalProperties above the rows returned means rows you did not see. distribution counts every Property in scope: improved, declined, mixed, withinNoise, unchanged, notComparable. mentionAnswersDelta and citationAnswersDelta are signed answer counts; denominatorChanged true means a rate was taken over a different number of answers, so those counts are not like for like and the coverage rates give the direction. A move is the rate change times the larger answer count (the count change when the denominator held). withinNoise true means every move was 2 answers or fewer: within noise, never a gain, loss, trend or regression. Reads stored data only; it never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementChangesInputSchema,
@@ -2583,13 +2676,13 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-changes'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementChanges(project, query)
+      return client.getMeasurementChanges(project, { ...query, queryClass: agentQueryClass(query.queryClass) })
     },
   }),
   defineTool({
     name: 'canonry_measurement_data_quality',
     title: 'Inspect stored measurement data quality',
-    description: 'Before acting on a measurement, inspect its stored completeness, capture, retrieval, and comparability context. Reads stored data only; it never starts provider work.',
+    description: 'Is the sweep complete, and is anything unreliable? For the displayed run (run.displayedRunId, or runId): completeness (expected, executed, answered and missing answers), capture, retrieval, population (expected, answered and missing questions), comparison (comparability with the previous run), unattributedByClass (per class, the answers every mention rate leaves out because they name the Property ambiguously; report per class, never pooled) and latestFill (the newest in-place fill: status, expected, filled; its answers already count in completeness). Quote expected, executed and missing. A Healthy run status is not a completeness check. For missing answers per engine and whether a fill would be admitted, pass run.displayedRunId to canonry_run_completeness. Reads stored data only; it never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementDataQualityInputSchema,

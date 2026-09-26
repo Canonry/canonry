@@ -143,3 +143,175 @@ it('counts malformed tool attempts and reports provider failure distinctly', asy
   await agent.prompt('Try again')
   expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'error', toolCalls: 0, modelCalls: 1 })
 })
+
+describe('misspelled tool names', () => {
+  function fakeTool(name: string) {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: `${name} ran` }], details: {} }))
+    return { execute, tool: { name, label: name, description: 'Test', parameters: Type.Object({ limit: Type.Optional(Type.Number()) }), execute } }
+  }
+
+  function watch(agent: Agent) {
+    const starts: string[] = []
+    const results: Array<{ toolName: string; isError: boolean; content: Array<{ text: string }>; aeroRequestedToolName?: string }> = []
+    agent.subscribe(event => {
+      if (event.type === 'tool_execution_start') starts.push(event.toolName)
+      if (event.type === 'message_end' && event.message.role === 'toolResult') results.push(event.message as never)
+    })
+    return { starts, results }
+  }
+
+  it('runs the visible tool a transposed prefix meant, and records the name the model wrote', async () => {
+    const changes = fakeTool('canonry_measurement_changes')
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [changes.tool], undefined, true, ['canonry_measurement_changes'])
+    const { starts, results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canrony_measurement_changes', { limit: 5 }), { stopReason: 'toolUse' }),
+      context => {
+        // The next request replays the call under the name that ran.
+        const call = context.messages.flatMap(message => message.role === 'assistant' ? message.content : []).find(block => block.type === 'toolCall')
+        expect(call).toMatchObject({ name: 'canonry_measurement_changes' })
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('What changed?')
+    expect(changes.execute).toHaveBeenCalledTimes(1)
+    expect(changes.execute.mock.calls[0]![1]).toEqual({ limit: 5 })
+    expect(starts).toEqual(['canonry_measurement_changes'])
+    expect(results[0]).toMatchObject({ toolName: 'canonry_measurement_changes', isError: false, aeroRequestedToolName: 'canrony_measurement_changes' })
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'completed', toolCalls: 1 })
+  })
+
+  it('runs the tool a dropped letter meant on an eager turn', async () => {
+    const changes = fakeTool('canonry_measurement_changes')
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [changes.tool, fakeTool('canonry_measurement_overview').tool], undefined, false)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_measurement_chages', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('What changed?')
+    expect(changes.execute).toHaveBeenCalledTimes(1)
+    expect(results[0]).toMatchObject({ toolName: 'canonry_measurement_changes', isError: false, aeroRequestedToolName: 'canonry_measurement_chages' })
+  })
+
+  it('does not guess between two close names, and lists both', async () => {
+    const get = fakeTool('harbor_report_get')
+    const set = fakeTool('harbor_report_set')
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [get.tool, set.tool], undefined, false)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('harbor_report_st', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Read the report')
+    expect(get.execute).not.toHaveBeenCalled()
+    expect(set.execute).not.toHaveBeenCalled()
+    expect(results[0]).toMatchObject({ toolName: 'harbor_report_st', isError: true })
+    expect(results[0]!.aeroRequestedToolName).toBeUndefined()
+    expect(results[0]!.content[0]!.text).toBe('harbor_report_st is not a tool. Did you mean one of: harbor_report_get, harbor_report_set? Call the one you meant by its exact name.')
+  })
+
+  it('keeps the plain refusal for a name close to no tool', async () => {
+    const changes = fakeTool('canonry_measurement_changes')
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [changes.tool], undefined, false)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_market_movers', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('What changed?')
+    expect(changes.execute).not.toHaveBeenCalled()
+    expect(results[0]!.content[0]!.text).toBe('canonry_market_movers is not available in this conversation. Use only the tools listed for you.')
+  })
+
+  it('never renames a misspelling to a write tool, and makes the model name the write exactly', async () => {
+    const fillRun = vi.fn(async () => ({}))
+    const allowed = buildAllTools({ client: { fillRun } as unknown as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    const { starts, results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_run_fills', { runId: 'run-1' }), { stopReason: 'toolUse' }),
+      context => {
+        // The call is replayed under the name the model wrote, not the write it was close to.
+        const call = context.messages.flatMap(message => message.role === 'assistant' ? message.content : []).find(block => block.type === 'toolCall')
+        expect(call).toMatchObject({ name: 'canonry_run_fills' })
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('Fill the run')
+    expect(fillRun).not.toHaveBeenCalled()
+    expect(starts).toEqual(['canonry_run_fills'])
+    expect(results[0]).toMatchObject({ toolName: 'canonry_run_fills', isError: true })
+    expect(results[0]!.aeroRequestedToolName).toBeUndefined()
+    expect(results[0]!.content[0]!.text).toBe('canonry_run_fills is not a tool. Did you mean canonry_run_fill? Call it again by that exact name.')
+  })
+
+  it('treats a tool whose access is unknown as a write and does not rename to it', async () => {
+    const publish = fakeTool('harbor_report_publish')
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, [publish.tool], undefined, false)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('harbor_report_publsh', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Publish the report')
+    expect(publish.execute).not.toHaveBeenCalled()
+    expect(results[0]).toMatchObject({ toolName: 'harbor_report_publsh', isError: true })
+    expect(results[0]!.content[0]!.text).toBe('harbor_report_publsh is not a tool. Did you mean harbor_report_publish? Call it again by that exact name.')
+  })
+
+  it('still renames a misspelled read when the full catalog, writes included, is visible', async () => {
+    const getRunCompleteness = vi.fn(async () => ({}))
+    const fillRun = vi.fn(async () => ({}))
+    const allowed = buildAllTools({ client: { getRunCompleteness, fillRun } as unknown as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_run_completness', { runId: 'run-1' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Is the run complete?')
+    expect(getRunCompleteness).toHaveBeenCalledWith('run-1')
+    expect(fillRun).not.toHaveBeenCalled()
+    expect(results[0]).toMatchObject({ toolName: 'canonry_run_completeness', isError: false, aeroRequestedToolName: 'canonry_run_completness' })
+  })
+
+  it('renames a misspelled toolkit load, which only changes what is visible', async () => {
+    const allowed = buildReadTools({ client: {} as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('aero_load_tolkit', { toolkit: 'monitoring' }), { stopReason: 'toolUse' }),
+      context => {
+        expect(context.tools?.map(tool => tool.name)).toContain('canonry_insights_list')
+        return fauxAssistantMessage('Done.')
+      },
+    ])
+    await agent.prompt('Load monitoring')
+    expect(results[0]).toMatchObject({ toolName: 'aero_load_toolkit', isError: false, aeroRequestedToolName: 'aero_load_tolkit' })
+  })
+
+  it('names the exact tool and its toolkit when the close match is allowed but not loaded', async () => {
+    const getInsights = vi.fn(async () => [])
+    const allowed = buildReadTools({ client: { getInsights } as unknown as ApiClient, projectName: 'demo' })
+    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    configureAeroRuntime(agent, allowed)
+    const { results } = watch(agent)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_insigths_list', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Check active insights')
+    expect(getInsights).not.toHaveBeenCalled()
+    expect(results[0]).toMatchObject({ toolName: 'canonry_insigths_list', isError: true })
+    expect(results[0]!.content[0]!.text).toBe('canonry_insigths_list is not a tool. Did you mean canonry_insights_list? Call aero_load_toolkit with toolkit "monitoring", then call canonry_insights_list.')
+  })
+})

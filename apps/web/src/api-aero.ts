@@ -49,6 +49,8 @@ export type AeroUserMessage = {
 export type AeroToolResultMessage = {
   aeroToolLabel?: string
   aeroDurationMs?: number
+  /** The misspelled tool name the model wrote, when the runtime corrected the call. */
+  aeroRequestedToolName?: string
   role: 'toolResult'
   content: Array<{ type: string; [k: string]: unknown }>
   toolCallId: string
