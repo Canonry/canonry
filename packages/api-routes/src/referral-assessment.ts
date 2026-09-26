@@ -41,11 +41,15 @@ export function buildReferralAssessment(db: DatabaseClient, projectName: string,
     return { rows: Number(row?.rows ?? 0), counts: aiReferralClassCounts(Number(row?.total ?? 0), Number(row?.paid ?? 0), Number(row?.organic ?? 0)) }
   }
   const { rows: observedRows, counts: raw } = sumCounts(sql`1 = 1`)
-  // Redirects win the partition for an asset answered with a redirect. Keep
-  // status-based hops separate from non-hop subresources and candidate bursts.
-  const redirects = sumCounts(sql`not (${referralLandedCondition()})`).counts
-  const subresources = sumCounts(and(referralLandedCondition(), sql`not (${countableReferralCondition()})`)!).counts
+  const landed = sumCounts(referralLandedCondition()).counts
   const countable = sumCounts(countableReferralCondition()).counts
+  // Redirects win the partition for an asset answered with a redirect, and a
+  // subresource is a landed hit that is not countable. Both complements are
+  // DERIVED from the shared conditions, never hand-mirrored, so the partition
+  // stays structural if either band changes.
+  const difference = (whole: typeof raw, part: typeof raw) => aiReferralClassCounts(whole.total - part.total, whole.paid - part.paid, whole.organic - part.organic)
+  const redirects = difference(raw, landed)
+  const subresources = difference(landed, countable)
 
   // Group before applying the threshold. Referrer/evidence/status splits are
   // different observations of the same normalized-path hour, not separate tests.

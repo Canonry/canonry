@@ -452,5 +452,6 @@ adjusted estimate remains separate from raw totals and report headlines. Evidenc
 is capped independently from totals. The default threshold is an uncalibrated
 review trigger. An observed server/GA quotient can be shown when GA is positive,
 but comparable coverage and GA timezone remain unknown. The silent
-`report.ai-referral-ratio` doctor diagnostic exposes that limitation; it never
-claims a verified 3x warning.
+`report.ai-referral-ratio` doctor diagnostic carries that limitation in its
+details and warns only when candidate bursts exist; it never claims a verified
+3x warning.

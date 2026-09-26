@@ -26,7 +26,7 @@ describe('report.ai-referral-ratio doctor diagnostic', () => {
     db.insert(gaAiReferrals).values({ id: 'ga', projectId: 'project', date: '2026-08-01', source: 'chatgpt.com', medium: 'referral', sessions: 10, users: 1, syncedAt: date }).run()
     const report = await runChecks({ db, project, reportMonth: '2026-08' }, ALL_CHECKS, { checkIds: ['report.ai-referral-ratio'] })
     expect(report.checks).toHaveLength(1)
-    expect(report.checks[0]).toMatchObject({ id: 'report.ai-referral-ratio', notificationPolicy: 'silent', status: 'warn', code: 'report.ai-referral-ratio.coverage-unknown' })
+    expect(report.checks[0]).toMatchObject({ id: 'report.ai-referral-ratio', notificationPolicy: 'silent', status: 'warn', code: 'report.ai-referral-ratio.bursts', summary: expect.stringContaining('2026-08: 119 suspected hits in 1 candidate hour') })
     expect(report.checks[0]?.details).toMatchObject({ months: [{ month: '2026-08', comparison: { observedRatio: 11.9, observedRatioAboveThreshold: true, status: 'unavailable', reasons: expect.arrayContaining(['server-coverage-unproven', 'ga-time-zone-unknown']) } }] })
     expect(report.checks[0]?.remediation).toContain('traffic referral-assessment')
     expect(report.checks[0]?.remediation).toContain('cannot verify')
@@ -39,5 +39,14 @@ describe('report.ai-referral-ratio doctor diagnostic', () => {
     const zero = await runChecks({ db, project, reportMonth: '2026-08' }, ALL_CHECKS, { checkIds: ['report.ai-referral-ratio'] })
     expect(zero.checks[0]?.details).toMatchObject({ months: [{ comparison: { gaSessions: 0, gaObservation: 'observed-zero', observedRatio: null } }] })
     expect(zero.checks[0]?.status).toBe('warn')
+  })
+  it('passes, keeping the descriptive quotient, when no hour qualifies as a burst', async () => {
+    db.update(aiReferralEventsHourly).set({ sessionsOrHits: 40, organicSessionsOrHits: 40 }).run()
+    db.insert(gaAiReferrals).values({ id: 'ga', projectId: 'project', date: '2026-08-01', source: 'chatgpt.com', medium: 'referral', sessions: 10, users: 1, syncedAt: date }).run()
+    const report = await runChecks({ db, project, reportMonth: '2026-08' }, ALL_CHECKS, { checkIds: ['report.ai-referral-ratio'] })
+    // A 4x quotient is above the default threshold of 3, yet it is not a
+    // warning: coverage is unproven, so only a burst is worth reviewing.
+    expect(report.checks[0]).toMatchObject({ status: 'ok', code: 'report.ai-referral-ratio.no-bursts', remediation: null, details: { months: [{ month: '2026-08', candidateHours: 0, suspected: { total: 0 }, comparison: { observedRatio: 4, observedRatioAboveThreshold: true, status: 'unavailable' } }] } })
+    expect(report.summary).toMatchObject({ ok: 1, warn: 0 })
   })
 })

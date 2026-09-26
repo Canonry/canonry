@@ -40,7 +40,10 @@ available. These limits apply equally to Simple and Advanced portfolios.
 
 The observed server/GA quotient uses dimension-deduplicated GA sessions, but
 complete matching coverage and the GA reporting timezone remain unknown.
-`report.ai-referral-ratio` exposes a silent coverage-unknown doctor advisory.
+The silent `report.ai-referral-ratio` doctor advisory warns
+(`report.ai-referral-ratio.bursts`) only when threshold-qualified bursts exist
+to review; otherwise it passes (`no-bursts`) with these coverage limits in its
+details.
 A high quotient does not confirm automation, and this diagnostic does not
 replace GA or change any existing report headline.
 

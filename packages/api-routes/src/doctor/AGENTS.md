@@ -56,7 +56,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 
 ## Referral reporting diagnostic
 
-`report.ai-referral-ratio` is a DB-only, silent project check. It follows the report-month selection and calls the same assessment reader as the API/CLI/MCP. It reports `report.ai-referral-ratio.coverage-unknown` with raw server counts, dimension-deduplicated GA counts, an observed quotient and explicit missing/zero states. Current records cannot prove complete server intervals or the GA reporting timezone. A high quotient is not a comparable-window warning or proof of automation. Silent checks never change health paging state.
+`report.ai-referral-ratio` is a DB-only, silent project check. It follows the report-month selection and calls the same assessment reader as the API/CLI/MCP. Its details carry raw server counts, dimension-deduplicated GA counts, an observed quotient and explicit missing/zero states. Current records cannot prove complete server intervals or the GA reporting timezone, so unproven coverage is never the signal: it warns (`report.ai-referral-ratio.bursts`) only when a report month has threshold-qualified bursts to review, and otherwise passes (`report.ai-referral-ratio.no-bursts`). A high quotient is not a comparable-window warning or proof of automation. Silent checks never change health paging state.
 
 ## Scheduled health alerts
 

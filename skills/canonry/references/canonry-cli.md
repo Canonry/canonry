@@ -677,7 +677,8 @@ positive and server rows exist. Server and GA observation states distinguish
 missing evidence from stored zero. `observedRatioAboveThreshold` compares it with `--ratio-threshold`;
 it is not a quality verdict. Complete matching coverage and the GA timezone
 are unknown. Missing GA differs from an explicit stored zero. The silent
-`report.ai-referral-ratio` doctor check reports these limits. Keep GA evidence;
+`report.ai-referral-ratio` doctor check warns only when candidate bursts exist
+and carries these limits in its details. Keep GA evidence;
 this assessment does not establish a replacement human-visit count.
 
 ## Google Analytics 4
