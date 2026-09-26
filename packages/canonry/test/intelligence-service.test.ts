@@ -312,7 +312,7 @@ describe('IntelligenceService', () => {
       // citedDomains set (provider order, not project order).
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
       seedSnapshot(db, run1, queryId, 'gemini', 'cited', {
-        citedDomains: ['winntile.com', 'example.com'],
+        citedDomains: ['tilerival.test', 'example.com'],
       })
 
       // Run 2: project lost its citation.
@@ -342,7 +342,7 @@ describe('IntelligenceService', () => {
 
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
       seedSnapshot(db, run2, queryId, 'gemini', 'cited', {
-        citedDomains: ['winntile.com', 'example.com'],
+        citedDomains: ['tilerival.test', 'example.com'],
       })
 
       const service = new IntelligenceService(db)
@@ -361,7 +361,7 @@ describe('IntelligenceService', () => {
       // no project domain is present in the stored citedDomains set — only a
       // competitor. We must not borrow the competitor as the project's URL.
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['winntile.com'] })
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['tilerival.test'] })
 
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
       seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
@@ -1240,7 +1240,7 @@ describe('IntelligenceService', () => {
         id: projectId,
         name: 'multi-loc-recurrence',
         displayName: 'Multi-Location Recurrence',
-        canonicalDomain: 'azcoatings.example',
+        canonicalDomain: 'harborline-coatings.example',
         country: 'US',
         language: 'en',
         providers: '["gemini"]',
@@ -1275,7 +1275,7 @@ describe('IntelligenceService', () => {
       // Snapshots: q cited in florida, not cited in michigan, across all 3
       // groups. The "regression" is consistent at michigan; florida is steady.
       for (const group of [oldGroup, midGroup, latestGroup]) {
-        seedSnapshot(db, group.florida,  queryId, 'gemini', 'cited',     { citedDomains: ['azcoatings.example'] })
+        seedSnapshot(db, group.florida,  queryId, 'gemini', 'cited',     { citedDomains: ['harborline-coatings.example'] })
         seedSnapshot(db, group.michigan, queryId, 'gemini', 'not-cited')
       }
 
@@ -1431,7 +1431,7 @@ describe('IntelligenceService', () => {
   })
 
   // Regression suite for the orphan-snapshot insight noise observed after
-  // backfilling azcoatings on 2026-05-16: 459 snapshots with `query_id`
+  // backfilling one project on 2026-05-16: 459 snapshots with `query_id`
   // nulled by the v58 dangling-FK cleanup all collapsed to a single
   // ("", "gemini", null) detector key, generating 28 phantom regressions
   // + 3 phantom gains + 1 phantom first-citation on a single run.

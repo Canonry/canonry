@@ -1288,7 +1288,7 @@ describe('analytics fan-out (#480)', () => {
       id: projectId,
       name: 'fanout-analytics',
       displayName: 'Fan-out Analytics',
-      canonicalDomain: 'azcoatings.example',
+      canonicalDomain: 'acmecoatings.test',
       country: 'US',
       language: 'en',
       ownedDomains: '[]',
@@ -1319,7 +1319,7 @@ describe('analytics fan-out (#480)', () => {
     // the query is "cited" project-wide but the not-cited michigan snapshot
     // should still surface providers in the cited/gap classification logic.
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: ['acmecoatings.test'], competitorOverlap: [], recommendedCompetitors: [], location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
       { id: crypto.randomUUID(), runId: miLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'michigan answer', citedDomains: [],                       competitorOverlap: [], recommendedCompetitors: [], location: 'michigan', rawResponse: '{}', createdAt: latestCreatedAt },
     ]).run()
   })

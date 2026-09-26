@@ -51,20 +51,20 @@ type NativeOrganicEvidence = OrganicEvidenceDto & {
   measurement: GaMeasurementAnalysisDto
 }
 
-function seedProject(base: ReturnType<typeof buildApp>, name = 'demand-iq') {
+function seedProject(base: ReturnType<typeof buildApp>, name = 'harbor-iq') {
   const projectId = crypto.randomUUID()
   base.db.insert(projects).values({
     id: projectId,
     name,
-    displayName: name === 'demand-iq' ? 'DemandIQ' : 'Legacy Only',
-    canonicalDomain: name === 'demand-iq' ? 'demand-iq.com' : 'legacy.example',
-    ownedDomains: name === 'demand-iq' ? ['demandiq.com'] : [],
-    aliases: name === 'demand-iq' ? ['Demand IQ'] : [],
+    displayName: name === 'harbor-iq' ? 'HarborIQ' : 'Legacy Only',
+    canonicalDomain: name === 'harbor-iq' ? 'harbor-iq.test' : 'legacy.example',
+    ownedDomains: name === 'harbor-iq' ? ['harboriq.test'] : [],
+    aliases: name === 'harbor-iq' ? ['Harbor IQ'] : [],
     country: 'US',
     language: 'en',
     measurement: {
-      marketingHosts: name === 'demand-iq' ? ['offers.example.net'] : [],
-      brandTerms: name === 'demand-iq' ? ['Demand Intelligence'] : [],
+      marketingHosts: name === 'harbor-iq' ? ['offers.example.net'] : [],
+      brandTerms: name === 'harbor-iq' ? ['Harbor Intelligence'] : [],
       leadEventNames: ['generate_lead'],
     },
     createdAt: NOW,
@@ -130,7 +130,7 @@ function insertLead(
     channelGroup: input.channelGroup,
     source: 'google',
     medium: input.channelGroup === 'Paid Search' ? 'cpc' : 'organic',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/quote',
     landingPageNormalized: '/quote',
     attributionScope: 'landing-page',
@@ -196,49 +196,49 @@ function seedNativeMeasurement(ctx: Context) {
   insertAcquisition(ctx, {
     date: '2026-05-20',
     channelGroup: 'Organic Search',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/blog/baseline',
     sessions: 10,
   })
   insertAcquisition(ctx, {
     date: '2026-01-01',
     channelGroup: 'Organic Search',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/blog/ancient',
     sessions: 500,
   })
   insertAcquisition(ctx, {
     date: '2026-06-17',
     channelGroup: 'Organic Search',
-    hostName: 'demandiq.com',
+    hostName: 'harboriq.test',
     landingPage: '/blog/old',
     sessions: 35,
   })
   insertAcquisition(ctx, {
     date: GA_ANCHOR,
     channelGroup: 'Organic Search',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/blog/new',
     sessions: 16,
   })
   insertAcquisition(ctx, {
     date: GA_ANCHOR,
     channelGroup: 'Paid Search',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/quote',
     sessions: 50,
   })
   insertAcquisition(ctx, {
     date: GA_ANCHOR,
     channelGroup: 'Paid Search',
-    hostName: 'demand-iq.com',
+    hostName: 'harbor-iq.test',
     landingPage: '/blog/new',
     sessions: 9,
   })
   insertAcquisition(ctx, {
     date: GA_ANCHOR,
     channelGroup: 'Display',
-    hostName: 'demand-iq.vercel.app',
+    hostName: 'harbor-iq.vercel.app',
     landingPage: '/preview',
     sessions: 999,
   })
@@ -287,13 +287,13 @@ function seedNativeMeasurement(ctx: Context) {
     insertGscProperty(ctx, row)
   }
   for (const row of [
-    { date: '2026-05-20', query: 'demand iq', clicks: 3, impressions: 100 },
+    { date: '2026-05-20', query: 'harbor iq', clicks: 3, impressions: 100 },
     { date: '2026-05-20', query: 'solar estimate software', clicks: 1, impressions: 200 },
-    { date: '2026-06-20', query: 'demand iq platform', clicks: 6, impressions: 120 },
+    { date: '2026-06-20', query: 'harbor iq platform', clicks: 6, impressions: 120 },
     { date: '2026-06-20', query: 'solar proposal tool', clicks: 4, impressions: 193 },
-    { date: GSC_ANCHOR, query: 'demand-iq.com pricing', clicks: 8, impressions: 150 },
+    { date: GSC_ANCHOR, query: 'harbor-iq.test pricing', clicks: 8, impressions: 150 },
     { date: GSC_ANCHOR, query: 'solar sales software', clicks: 2, impressions: 350 },
-    { date: GSC_ANCHOR, query: 'demand intelligence', clicks: 1, impressions: 20 },
+    { date: GSC_ANCHOR, query: 'harbor intelligence', clicks: 1, impressions: 20 },
   ]) {
     insertGscQuery(ctx, row)
   }
@@ -310,25 +310,25 @@ function seedNativeMeasurement(ctx: Context) {
   for (const row of [
     {
       date: '2026-05-20',
-      page: 'https://demand-iq.com/blog/baseline',
+      page: 'https://harbor-iq.test/blog/baseline',
       clicks: 2,
       impressions: 384,
     },
     {
       date: '2026-06-20',
-      page: 'https://www.demand-iq.com/blog/old',
+      page: 'https://www.harbor-iq.test/blog/old',
       clicks: 4,
       impressions: 313,
     },
     {
       date: GSC_ANCHOR,
-      page: 'https://demand-iq.com/blog/new',
+      page: 'https://harbor-iq.test/blog/new',
       clicks: 0,
       impressions: 495,
     },
     {
       date: GSC_ANCHOR,
-      page: 'https://demand-iq.vercel.app/blog/preview',
+      page: 'https://harbor-iq.vercel.app/blog/preview',
       clicks: 100,
       impressions: 500,
     },
@@ -404,7 +404,7 @@ function seedServerAiEvidence(ctx: Context) {
 
 async function getRawEvidence(
   ctx: Context,
-  projectName = 'demand-iq',
+  projectName = 'harbor-iq',
 ): Promise<NativeOrganicEvidence> {
   const response = await ctx.app.inject({
     method: 'GET',
@@ -564,7 +564,7 @@ describe('organic evidence native measurement reconciliation', () => {
       insertAcquisition(ctx, {
         date,
         channelGroup: 'Organic Search',
-        hostName: 'demand-iq.com',
+        hostName: 'harbor-iq.test',
         landingPage: '/blog/flat',
         sessions: 0,
       })
@@ -617,7 +617,7 @@ describe('organic evidence native measurement reconciliation', () => {
     insertAcquisition(ctx, {
       date: GA_ANCHOR,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '/',
       landingPageNormalized: '/',
       sessions: 3,
@@ -625,7 +625,7 @@ describe('organic evidence native measurement reconciliation', () => {
     insertAcquisition(ctx, {
       date: GA_ANCHOR,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '(not set)',
       landingPageNormalized: null,
       sessions: 5,
@@ -633,7 +633,7 @@ describe('organic evidence native measurement reconciliation', () => {
     insertAcquisition(ctx, {
       date: GA_ANCHOR,
       channelGroup: 'Organic Search',
-      hostName: 'demand-iq.com',
+      hostName: 'harbor-iq.test',
       landingPage: '',
       landingPageNormalized: '',
       sessions: 7,
@@ -796,7 +796,7 @@ describe('organic evidence native measurement reconciliation', () => {
       insertAcquisition(ctx, {
         date: GA_ANCHOR,
         channelGroup: 'Organic Search',
-        hostName: 'demand-iq.com',
+        hostName: 'harbor-iq.test',
         landingPage: `/library/page-${index}`,
         sessions: 1,
       })

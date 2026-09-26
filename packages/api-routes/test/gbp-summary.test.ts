@@ -298,7 +298,7 @@ describe('buildGbpSummary (composition)', () => {
       placeActions: [{ placeActionType: 'RESERVATION', providerType: 'MERCHANT' }],
       lodging: [{ locationName: 'locations/1', populatedGroupCount: 0 }],
       locationProfiles: [
-        { additionalCategories: ['Insulation contractor'], description: 'Roof restoration.', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN' },
+        { additionalCategories: ['Insulation contractor'], description: 'Roof restoration.', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(248) 555-0142', openStatus: 'OPEN' },
         { additionalCategories: [], description: null, serviceArea: null, regularHours: null, primaryPhone: null, openStatus: null },
       ],
     })
@@ -364,11 +364,11 @@ describe('summarizeProfileCompleteness', () => {
   it('counts which selected locations have each owner-content field populated', () => {
     const out = summarizeProfileCompleteness([
       // Fully populated.
-      { additionalCategories: ['Insulation contractor', 'Waterproofing service'], description: 'Roof restoration.', serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN' },
+      { additionalCategories: ['Insulation contractor', 'Waterproofing service'], description: 'Roof restoration.', serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 555-0142', openStatus: 'OPEN' },
       // Bare, temporarily closed.
       { additionalCategories: [], description: null, serviceArea: null, regularHours: null, primaryPhone: null, openStatus: 'CLOSED_TEMPORARILY' },
       // Partial: one secondary category, EMPTY description string (not counted), hours + phone, permanently closed.
-      { additionalCategories: ['Event venue'], description: '   ', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(323) 515-1215', openStatus: 'CLOSED_PERMANENTLY' },
+      { additionalCategories: ['Event venue'], description: '   ', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(323) 555-0187', openStatus: 'CLOSED_PERMANENTLY' },
     ])
     expect(out.locationCount).toBe(3)
     expect(out.withSecondaryCategories).toBe(2)
