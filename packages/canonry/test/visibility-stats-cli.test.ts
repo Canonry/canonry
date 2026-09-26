@@ -268,3 +268,23 @@ describe('monthly class metric presentation', () => {
     expect(mockGetVisibilityCompare).toHaveBeenLastCalledWith('acme', '2026-05', '2026-06', { scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', location: undefined })
   })
 })
+
+describe('monthly comparison selection', () => {
+  it('prints the selection a scoped table covers', async () => {
+    const dto = compareData('non-brand')
+    dto.selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'gemini', location: 'Harbor' }
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    expect(human.lines()[1]).toBe('Selection: property harbor · market coastal · engine gemini · location Harbor')
+  })
+
+  it('refuses an unknown scope as a usage error (exit 1) before calling the API', async () => {
+    const { VISIBILITY_STATS_CLI_COMMANDS } = await import('../src/cli-commands/visibility-stats.js')
+    const command = VISIBILITY_STATS_CLI_COMMANDS.find(spec => spec.path.join(' ') === 'visibility-compare')!
+    mockGetVisibilityCompare.mockClear()
+    await expect(command.run({ positionals: ['acme'], values: { from: '2026-05', to: '2026-06', scope: 'region' }, format: 'json', dryRun: false }))
+      .rejects.toMatchObject({ code: 'CLI_USAGE_ERROR', exitCode: 1, message: '--scope must be one of: project, group, market, property' })
+    expect(mockGetVisibilityCompare).not.toHaveBeenCalled()
+  })
+})

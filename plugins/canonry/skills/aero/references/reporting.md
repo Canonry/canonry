@@ -24,6 +24,8 @@ statistically honest comparison. **Share of voice is less exposed to an engine's
 
 A silent upstream version bump under an unchanged configured id is undetectable; the tool does not pretend otherwise. Honor `lowRunCount` (a month under 5 sweeps → intervals too wide to resolve a move; recommend raising the sweep schedule). Report the point with its interval, not a bare number.
 
+The class rates (`mention-rate-branded`, `mention-rate-non-brand`, and their `cited-rate-*` pairs) are separate instruments with their own denominators; `classification-unavailable` means no split was possible, never a zero. On an Advanced project without a scope, those class rates come from the frozen frame in `classComparison`: judge them by `classComparison.continuity`, basket and run counts, not by the top-level `continuity`, which gates the four original metrics only. A Property, group or market scope answers entirely from the frozen frame.
+
 ## Branded and non-brand questions are different instruments
 
 Never pool them into one headline. A branded question ("<brand> reviews") measures demand the brand already created: the answer names the brand because the question did, so a near-100% mention rate is the expected floor, not an achievement. A non-brand question ("best <category> for <use case>") measures demand to win, and it is the number that says whether the work is landing. A pooled figure mostly measures how famous the brand already is and hides whether anything moved.

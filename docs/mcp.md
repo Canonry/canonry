@@ -409,10 +409,15 @@ Shared executions count once per class. Material plan changes are excluded;
 display-only comparable revisions retain continuity. Schema-v1 class metrics
 are unavailable because that history has no frozen class assignments.
 
-Unfiltered project responses preserve the four original metrics and their
-basket. Advanced class metrics use the separate `classComparison` frame,
-including its model-continuity exclusions and monthly run counts. Explicitly
-scoped responses use the top-level frame. All reads use stored evidence.
+Without `scope`/`marketKey`, responses keep the four original metrics and
+their project basket (`provider` and `location` narrow it case-insensitively,
+for Simple and Advanced alike). Advanced class metrics then use the separate
+`classComparison` frame, including its model-continuity exclusions and monthly
+run counts. A `scope` or `marketKey` answers entirely from the frozen frame at
+the top level, and is refused when either month holds runs whose plan cannot
+be reconstructed. On frozen frames, answers with incomplete source capture
+leave every citation figure and are counted in `excludedUnknown`. All reads use
+stored evidence.
 The CLI exposes the same selectors as `--scope`, `--scope-key`, `--market-key`,
 `--provider`, and `--location`, and `--format json` returns the same response.
 

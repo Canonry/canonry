@@ -5,6 +5,7 @@ import {
   type VisibilityStatsDto,
   type VisibilityStatsCounts,
   type VisibilityCompareDto,
+  isVisibilityCompareClassMetric,
   type VisibilityCompareSelection,
   type VisibilityCompareMetric,
   type VisibilityCompareMetricPeriod,
@@ -110,8 +111,21 @@ function metricQueryClassLabel(metric: VisibilityCompareMetric): string {
   return 'all queries'
 }
 
+/** The selection a scoped table is over, so it is never read as the whole project. */
+function selectionLabel(selection: VisibilityCompareSelection | undefined): string | null {
+  if (!selection) return null
+  const parts: string[] = []
+  if (selection.scope && selection.scope !== 'project') parts.push(`${selection.scope} ${selection.scopeKey ?? ''}`.trim())
+  if (selection.marketKey) parts.push(`market ${selection.marketKey}`)
+  if (selection.provider) parts.push(`engine ${selection.provider}`)
+  if (selection.location) parts.push(`location ${selection.location}`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 function printVisibilityCompare(data: VisibilityCompareDto): void {
   console.log(`AEO month over month: ${data.project}   ${data.from.month} -> ${data.to.month}`)
+  const selection = selectionLabel(data.selection)
+  if (selection) console.log(`Selection: ${selection}`)
   const b = data.basket
   const excl: string[] = []
   if (b.excludedFromOnly > 0) excl.push(`${b.excludedFromOnly} only in ${data.from.month}`)
@@ -138,7 +152,7 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
 
   // Column widths.
   const rows = data.metrics.map((m) => ({
-    label: `${m.label} · ${metricQueryClassLabel(m)}${data.classComparison && (m.key.startsWith('mention-rate-') || m.key.startsWith('cited-rate-')) ? ' · class basket' : ''}${m.driftRobust ? ' *' : ''}`,
+    label: `${m.label} · ${metricQueryClassLabel(m)}${data.classComparison && isVisibilityCompareClassMetric(m.key) ? ' · class basket' : ''}${m.driftRobust ? ' *' : ''}`,
     to: periodCell(m.to),
     from: periodCell(m.from),
     verdict: verdictCell(m),
