@@ -219,7 +219,8 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-function normalizeText(value: string): string {
+/** Selection text identity (provider, location, model): compatibility-normalized, trimmed, space-collapsed, case-folded. */
+export function normalizeText(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
@@ -1121,6 +1122,7 @@ export function visibilityComparisonPopulation(run: VisibilityReportRunInput, se
       provider: candidate.slot.provider,
       model: candidate.observation!.model,
       answerMentioned: signals.mention,
+      mentionApplicable: candidate.edges.some(edge => targets.get(edge.targetKey)?.mentionEligible === true),
       citation: citationForCoverage(candidate, targets),
       answerText: candidate.observation!.answerText,
       competitorDomains: [...new Set(candidate.edges.flatMap(edge => edge.competitorDomains))],

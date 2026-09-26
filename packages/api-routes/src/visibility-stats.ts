@@ -11,6 +11,7 @@ import {
   RunKinds,
   RunStatuses,
   validationError,
+  isVisibilityCompareClassMetric,
   visibilityCompareSelectionSchema,
   type VisibilityCompareSelection,
   type VisibilityCompareDto,
@@ -26,7 +27,7 @@ import { notProbeRun, resolveProject } from './helpers.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
-import { visibilityComparisonPopulation, VisibilityReportScopeError } from './visibility-report-reader.js'
+import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError } from './visibility-report-reader.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
 export interface VisibilityStatsSnapshotInput {
@@ -441,6 +442,12 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
     throw validationError('"from" must be a month strictly before "to"')
   }
 
+  // Provider and location match the way the frozen Advanced reader matches
+  // them, so a selection means the same thing for Simple and Advanced frames.
+  const providerKey = filters.provider === undefined ? undefined : normalizeText(filters.provider)
+  const locationKey = filters.location === undefined ? undefined : normalizeText(filters.location)
+  const scoped = scope !== 'project' || filters.marketKey !== undefined
+
   let advancedComparison: VisibilityCompareDto | undefined
   if (activeMeasurementPlan(db, project.id) !== null) {
     const loadAdvancedMonth = (bounds: { since: string; until: string }) => {
@@ -452,7 +459,7 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
         try {
           const population = visibilityComparisonPopulation(run, {
             ...filters, scope, queryClass: 'all',
-            location: filters.location === undefined ? { kind: 'all' } : filters.location === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location },
+            location: locationKey === undefined ? { kind: 'all' } : locationKey === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location! },
             limit: 100,
           })
           const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
@@ -480,9 +487,19 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
       from: { ...fromMonth, month: fromRaw, ...fromBounds },
       to: { ...toMonth, month: toRaw, ...toBounds },
     }), selection: filters }
-    if (scope !== 'project' || filters.marketKey !== undefined || filters.provider !== undefined || filters.location !== undefined) return advancedComparison
+    // Property, group and market exist only in the frozen frame, so a scoped
+    // request answers from it alone. It must not silently drop history that
+    // frame cannot read, which would report fewer sweeps than were measured.
+    if (scoped) {
+      const unreadable = [fromMonth.classificationAvailable ? null : fromRaw, toMonth.classificationAvailable ? null : toRaw]
+        .filter((month): month is string => month !== null)
+      if (unreadable.length > 0) {
+        throw validationError(`Property, group and market comparisons need frozen schema-v2 plan history; ${unreadable.join(' and ')} include runs whose plan cannot be reconstructed.`, { months: unreadable })
+      }
+      return advancedComparison
+    }
   }
-  if (advancedComparison === undefined && (scope !== 'project' || filters.marketKey !== undefined)) throw validationError('Property, group and market comparison scopes require an Advanced portfolio.')
+  if (advancedComparison === undefined && scoped) throw validationError('Property, group and market comparison scopes require an Advanced portfolio.')
   const projectQueries = db
     .select({ id: queries.id, query: queries.query })
     .from(queries)
@@ -526,10 +543,17 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
               location: querySnapshots.location,
             })
             .from(querySnapshots)
-            .where(and(inArray(querySnapshots.runId, runIds), filters.provider === undefined ? undefined : eq(querySnapshots.provider, filters.provider)))
+            .where(inArray(querySnapshots.runId, runIds))
             .all()
         : []
-    return { runCount: monthRuns.length, snapshots: filters.location === undefined ? snapshots : snapshots.filter(snapshot => filters.location === 'none' ? snapshot.location === null : snapshot.location === filters.location) }
+    return {
+      runCount: monthRuns.length,
+      snapshots: snapshots.filter(snapshot =>
+        (providerKey === undefined || normalizeText(snapshot.provider) === providerKey)
+        && (locationKey === undefined || (locationKey === 'none'
+          ? snapshot.location === null
+          : snapshot.location !== null && normalizeText(snapshot.location) === locationKey))),
+    }
   }
 
   const fromMonth = loadMonth(fromBounds)
@@ -545,7 +569,15 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
   })
   if (advancedComparison !== undefined) {
     const { from, to, basket, continuity, modelChanges } = advancedComparison
-    return { ...dto, selection: filters, metrics: [...dto.metrics.slice(0, 4), ...advancedComparison.metrics.slice(4)], classComparison: { from, to, basket, continuity, modelChanges } }
+    return {
+      ...dto,
+      selection: filters,
+      metrics: [
+        ...dto.metrics.filter(metric => !isVisibilityCompareClassMetric(metric.key)),
+        ...advancedComparison.metrics.filter(metric => isVisibilityCompareClassMetric(metric.key)),
+      ],
+      classComparison: { from, to, basket, continuity, modelChanges },
+    }
   }
   return { ...dto, selection: filters }
 }

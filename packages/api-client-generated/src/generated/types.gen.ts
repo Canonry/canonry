@@ -17646,11 +17646,11 @@ export type GetApiV1ProjectsByNameVisibilityCompareData = {
          */
         marketKey?: string;
         /**
-         * Restrict the compared population to one provider.
+         * Restrict both frames to one provider (case-insensitive).
          */
         provider?: string;
         /**
-         * Execution location label, or none for no location.
+         * Execution location label (case-insensitive), or none for no location.
          */
         location?: string;
     };

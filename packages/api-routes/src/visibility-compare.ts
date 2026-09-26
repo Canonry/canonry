@@ -36,6 +36,8 @@ export interface VisibilityCompareSnapshotInput {
   queryClass?: QueryClass | null
   /** Advanced source capture can be incomplete independently of mentions. */
   citationChecked?: boolean
+  /** False when no selected Target is mention-eligible: the row has no mention signal, known or unknown. */
+  mentionApplicable?: boolean
   competitorDomains?: string[]
   competitorMentions?: string[]
   competitorCitations?: string[]
@@ -200,8 +202,12 @@ function metric(
 interface PeriodCounts {
   checked: number // answerMentioned is a boolean (the mention denominator)
   mentioned: number // answerMentioned === true
-  total: number // every snapshot (the citation denominator)
+  total: number // snapshots whose source capture is complete (the citation denominator)
   cited: number // citationState === 'cited'
+  /** Snapshots with incomplete source capture, excluded from every citation figure. */
+  citationUnknown: number
+  /** The frame records capture completeness (Advanced); legacy rows are always complete. */
+  citationEvidence: boolean
   projectCited: number // = cited (project's own citation)
   competitorCited: number // sum over competitors of snapshots citing that competitor
   queriesMentioned: number // distinct basket queries mentioned by >= 1 provider
@@ -221,7 +227,9 @@ function countPeriod(
 ): PeriodCounts {
   let checked = 0
   let mentioned = 0
+  let total = 0
   let cited = 0
+  let citationUnknown = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
   const modelEvidence = new Map<string, Array<string | null>>()
@@ -240,7 +248,12 @@ function countPeriod(
       mentioned += 1
       mentionedQueries.add(snap.queryId)
     }
-    const isCited = snap.citationState === CitationStates.cited
+    // An incomplete source list proves neither a citation nor its absence, for
+    // the project or a competitor, so the row leaves every citation figure.
+    const citationKnown = snap.citationChecked !== false
+    if (citationKnown) total += 1
+    else citationUnknown += 1
+    const isCited = citationKnown && snap.citationState === CitationStates.cited
     if (isCited) cited += 1
 
     const pp = perProvider.get(snap.provider) ?? { checked: 0, mentioned: 0, cited: 0 }
@@ -253,6 +266,7 @@ function countPeriod(
     models.push(snap.model)
     modelEvidence.set(snap.provider, models)
 
+    if (!citationKnown) continue
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
     // competitor counting: a snapshot citing two competitors adds two).
     if (snap.competitorCitations !== undefined) competitorCited += snap.competitorCitations.length
@@ -280,7 +294,9 @@ function countPeriod(
   )
 
   if (snaps.some(snapshot => snapshot.competitorMentions !== undefined)) {
-    const selected = snaps.filter(snapshot => queryClassOf(snapshot) === 'non-brand' && snapshot.answerMentioned !== null)
+    // Same scope as buildMentionShare: non-brand when classified, pooled (and
+    // labelled pooled) only when nothing could be classified.
+    const selected = snaps.filter(snapshot => (!classificationAvailable || queryClassOf(snapshot) === 'non-brand') && snapshot.answerMentioned !== null)
     const perCompetitor = competitors.map(competitor => ({
       domain: competitor.domain,
       mentionSnapshots: selected.filter(snapshot => snapshot.competitorMentions?.includes(competitor.domain)).length,
@@ -295,8 +311,10 @@ function countPeriod(
   return {
     checked,
     mentioned,
-    total: snaps.length,
+    total,
     cited,
+    citationUnknown,
+    citationEvidence: snaps.some(snapshot => snapshot.citationChecked !== undefined),
     projectCited: cited,
     competitorCited,
     queriesMentioned: mentionedQueries.size,
@@ -395,6 +413,11 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromShare = shareCounts(fromShareCounts)
   const toShare = shareCounts(toShareCounts)
 
+  // Frames that record capture completeness say how many rows each citation
+  // figure had to leave out; legacy frames are complete by construction.
+  const citationPeriod = (c: PeriodCounts, value: VisibilityCompareMetricPeriod): VisibilityCompareMetricPeriod =>
+    c.citationEvidence ? { ...value, excludedUnknown: c.citationUnknown } : value
+
   const metrics: VisibilityCompareMetric[] = [
     metric(
       'mention-share-of-voice',
@@ -419,12 +442,12 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       'Cited share of voice',
       'all',
       true,
-      input.competitors.length > 0
+      citationPeriod(fromCounts, input.competitors.length > 0
         ? period(fromCounts.projectCited, fromCounts.projectCited + fromCounts.competitorCited)
-        : unavailableCompetitivePeriod(fromCounts.projectCited),
-      input.competitors.length > 0
+        : unavailableCompetitivePeriod(fromCounts.projectCited)),
+      citationPeriod(toCounts, input.competitors.length > 0
         ? period(toCounts.projectCited, toCounts.projectCited + toCounts.competitorCited)
-        : unavailableCompetitivePeriod(toCounts.projectCited),
+        : unavailableCompetitivePeriod(toCounts.projectCited)),
       continuityBlock,
     ),
     metric(
@@ -441,15 +464,18 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       'Cited rate',
       'all',
       false,
-      period(fromCounts.cited, fromCounts.total),
-      period(toCounts.cited, toCounts.total),
+      citationPeriod(fromCounts, period(fromCounts.cited, fromCounts.total)),
+      citationPeriod(toCounts, period(toCounts.cited, toCounts.total)),
       continuityBlock,
     ),
   ]
 
   const classPeriod = (snapshots: Attributed[], queryClass: QueryClass, signal: 'mention' | 'cited'): VisibilityCompareMetricPeriod => {
     if (!classificationAvailable) return { ...period(0, 0), availability: 'classification-unavailable' }
-    const selected = snapshots.filter(snapshot => queryClassOf(snapshot) === queryClass)
+    // A row whose Targets are all mention-ineligible has no mention signal at
+    // all; it is not an unknown one.
+    const selected = snapshots.filter(snapshot => queryClassOf(snapshot) === queryClass
+      && (signal === 'cited' || snapshot.mentionApplicable !== false))
     const checked = selected.filter(snapshot => signal === 'mention'
       ? typeof snapshot.answerMentioned === 'boolean'
       : snapshot.citationChecked !== false)
