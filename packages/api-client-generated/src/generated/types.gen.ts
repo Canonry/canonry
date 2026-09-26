@@ -2081,6 +2081,23 @@ export type BrandMetricsDto = {
     };
     trend: 'improving' | 'declining' | 'stable';
     mentionTrend: 'improving' | 'declining' | 'stable';
+    windowChange: {
+        citationRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionShare: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+    };
     queryChanges: Array<{
         date: string;
         delta: number;

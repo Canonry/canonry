@@ -23,7 +23,7 @@
  */
 import { z } from 'zod'
 import { actionConfidenceLabel, contentActionLabel, type ContentTargetRowDto } from './content.js'
-import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, formatPointDelta, formatSignedPercent, type DeltaTone } from './formatting.js'
+import { formatAverageDelta, formatDate, formatDateRange, formatNumber, formatPercent, formatPointDelta, formatSignedPercent, formatSignedPointDelta, type DeltaTone } from './formatting.js'
 import { RatioUnits } from './ratio-unit.js'
 import { dedupeReportActions, dedupeReportOpportunities } from './report-dedup.js'
 import {
@@ -251,9 +251,7 @@ function reportPointChangeMagnitude(deltaPoints: number): string {
 
 /** A report rate's change, signed, in percentage points: `+15.0 pts`, `-3.5 pts`, `0 pts`. */
 function reportPointChange(deltaPoints: number): string {
-  const { direction, magnitude } = formatPointDelta(deltaPoints, RatioUnits.percent)
-  const sign = direction === 'up' ? '+' : direction === 'down' ? '-' : ''
-  return `${sign}${magnitude} pts`
+  return formatSignedPointDelta(deltaPoints, RatioUnits.percent)
 }
 
 /** A what's-changed tile value: `65.0%` for a rate, the raw average for a count. */

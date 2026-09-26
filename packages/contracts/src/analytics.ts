@@ -260,6 +260,36 @@ export const timeBucketSchema = z.object({
 export type TimeBucket = z.infer<typeof timeBucketSchema>
 
 /**
+ * One overall trend series' change across the window: the latest bucket's
+ * rate minus the first bucket's, each the bucket's own 0..1 rate. This is the
+ * change the dashboard's trend head prints beside the latest rate, computed
+ * here so the CLI, MCP and Aero read the same number.
+ */
+export const windowRateChangeSchema = z.object({
+  /** The rate of the first bucket that carries this series. */
+  first: fraction(z.number().min(0).max(1)),
+  /** The rate of the latest bucket that carries this series. */
+  latest: fraction(z.number().min(0).max(1)),
+  /** `latest - first` in fraction points, rounded to four decimals like the rates it subtracts. */
+  delta: fraction(z.number().min(-1).max(1)),
+})
+export type WindowRateChange = z.infer<typeof windowRateChangeSchema>
+
+/**
+ * Change across the window for each overall trend series, keyed by the bucket
+ * field it reads. A series is null when fewer than two buckets carry its rate,
+ * because one point is not a change. `mentionShare` reads `mentionShare.rate`
+ * and skips the buckets where that share is undefined (null), exactly as the
+ * chart leaves them unplotted.
+ */
+export const windowChangeSchema = z.object({
+  citationRate: windowRateChangeSchema.nullable(),
+  mentionRate: windowRateChangeSchema.nullable(),
+  mentionShare: windowRateChangeSchema.nullable(),
+})
+export type WindowChange = z.infer<typeof windowChangeSchema>
+
+/**
  * A point where the measured query set actually changed, derived from recorded
  * basket revisions rather than from query row timestamps. Unlike
  * `queryChangeEvent` this survives a rename or a remove-then-re-add, because
@@ -306,6 +336,11 @@ export const brandMetricsDtoSchema = z.object({
   byProvider: z.record(z.string(), providerMetricSchema),
   trend: trendDirectionSchema,
   mentionTrend: trendDirectionSchema,
+  /**
+   * Each overall series' change from its first to its latest bucket in this
+   * window. A server that predates the field reads as no change to compare.
+   */
+  windowChange: windowChangeSchema.default(() => ({ citationRate: null, mentionRate: null, mentionShare: null })),
   queryChanges: z.array(queryChangeEventSchema),
   /**
    * Recorded changes to the measured query set inside this window, newest last.

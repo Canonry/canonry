@@ -2,7 +2,7 @@ import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonr
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, formatSignedPointDelta, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow, PointDeltaDirection } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
@@ -58,6 +58,7 @@ import {
   latestProviderRate,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
+  metricWindowChange,
   normalizeProviderKey,
   partitionModelAttributionEvents,
   plottedMetricRates,
@@ -975,15 +976,6 @@ const POINT_CHANGE_TONE: Record<PointDeltaDirection, string> = {
   none: 'text-muted',
 }
 
-/** The trend head's change across the plotted period, signed since no words surround it. */
-function signedPointChange({ direction, magnitude }: PointChange): string {
-  switch (direction) {
-    case 'up': return `+${magnitude} pts`
-    case 'down': return `-${magnitude} pts`
-    case 'none': return `${magnitude} pts`
-  }
-}
-
 /** The same change in words, for the screen-reader summary. */
 function spokenPointChange({ direction, magnitude }: PointChange): string {
   switch (direction) {
@@ -1480,9 +1472,11 @@ export function VisibilityTrendSection({
   // to the axis: the head formats these, so a rate under a tenth reads <0.1%.
   const plottedRates = data ? plottedMetricRates(data, metric) : []
   const latestRate = plottedRates.at(-1) ?? null
-  const firstRate = plottedRates[0] ?? null
-  const pointChange = latestRate !== null && firstRate !== null && plottedRates.length > 1
-    ? formatPointDelta(latestRate - firstRate)
+  // The change across the window is the server's own first-to-latest delta,
+  // the same figure `canonry analytics` prints; nothing is subtracted here.
+  const windowChange = data ? metricWindowChange(data, metric) : null
+  const pointChange = latestRate !== null && windowChange !== null
+    ? formatPointDelta(windowChange.delta)
     : null
   const competitorCount = competitorDomains.length
 
@@ -1513,9 +1507,9 @@ export function VisibilityTrendSection({
             <span className="visibility-trend-current-label">{currentMetricLabel}</span>
             {byProviderMode && <span className="visibility-trend-current-qualifier">avg</span>}
             <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
-            {pointChange !== null && (
+            {pointChange !== null && windowChange !== null && (
               <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
-                {signedPointChange(pointChange)}
+                {formatSignedPointDelta(windowChange.delta)}
               </span>
             )}
           </div>

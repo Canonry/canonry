@@ -15,6 +15,7 @@ import type {
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent, QueryClass,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
   ModelExposureWindow, ModelPointerChangeDisclosure, ModelServiceMismatch, ExecutionIdentityChangeEvent,
+  WindowChange, WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitorsFromDomains, projectQueryClassifier } from './mention-share-inputs.js'
@@ -74,6 +75,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         byProvider: {},
         trend: 'stable',
         mentionTrend: 'stable',
+        windowChange: { citationRate: null, mentionRate: null, mentionShare: null },
         queryChanges: [],
         basketChanges: [],
         executionIdentityChanges: [],
@@ -439,6 +441,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
+    const windowChange = computeWindowChange(buckets)
 
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
@@ -479,7 +482,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       previousExecutionChecksum = identity.checksum
     }
 
-    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -1295,6 +1298,30 @@ export function pooledRate(buckets: TimeBucket[], rateKey: 'citationRate' | 'men
     denominator += bucket.total
   }
   return denominator > 0 ? numerator / denominator : 0
+}
+
+function windowRateChange(rates: readonly number[]): WindowRateChange | null {
+  const first = rates[0]
+  const latest = rates.at(-1)
+  if (rates.length < 2 || first === undefined || latest === undefined) return null
+  return { first, latest, delta: roundRatio(latest - first, RatioUnits.fraction) }
+}
+
+/**
+ * Each overall series' change across the window: the latest bucket's rate
+ * minus the first bucket's, the change the dashboard's trend head prints.
+ * Citation and mention read every bucket that measured a snapshot; mention
+ * share reads only the buckets whose share is defined, which are the points
+ * its line plots. The rates are already four-decimal, so rounding the
+ * difference to four decimals removes float error and nothing else.
+ */
+export function computeWindowChange(buckets: readonly TimeBucket[]): WindowChange {
+  const measured = buckets.filter(b => b.total > 0)
+  return {
+    citationRate: windowRateChange(measured.map(b => b.citationRate)),
+    mentionRate: windowRateChange(measured.map(b => b.mentionRate)),
+    mentionShare: windowRateChange(buckets.flatMap(b => b.mentionShare.rate === null ? [] : [b.mentionShare.rate])),
+  }
 }
 
 export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
