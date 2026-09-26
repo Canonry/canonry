@@ -26,7 +26,7 @@ export interface SmoothedRunDelta {
    *  threshold (e.g. 3pp for rates) to decide up/down/flat. */
   deltaAbs: number
   /** Signed percent change of `current` vs `prior` (rounded averages), in
-   *  percent units to two decimals (`deltaPercent`). Null when `prior <= 0`.
+   *  percent units at wire precision (`deltaPercent`). Null when `prior <= 0`.
    *  Renderers route count tiles through the "smart %" rule with this. */
   deltaPct: number | null
   /** How many points went into each side of the average. 1 = point-to-point

@@ -2,7 +2,7 @@
  * EXACT BRAND IDENTITY MATCHING.
  *
  * An approved alias matches as one or more COMPLETE adjacent words, so
- * presentation variants (`Demand IQ`, `Demand-IQ`, `DemandIQ`) all match while
+ * presentation variants (`Vexlo IQ`, `Vexlo-IQ`, `VexloIQ`) all match while
  * spelling guesses never do: `acme` does not match `acmeology`, and `prime`
  * does not match `price`. Similarity is not identity, so nothing here uses
  * edit distance or substrings.
@@ -69,9 +69,9 @@ function foldAccents(value: string): string {
 /**
  * Fold presentation variants without changing spelling.
  *
- * ACCENTS ARE A PRESENTATION VARIANT, in the same family as `Demand-IQ` vs
- * `DemandIQ`. A brand written `Totême` or `Éterne` on its own site is written
- * `Toteme` and `Eterne` by half the prose that mentions it, and the alias
+ * ACCENTS ARE A PRESENTATION VARIANT, in the same family as `Vexlo-IQ` vs
+ * `VexloIQ`. A brand written `Solême` or `Élvane` on its own site is written
+ * `Soleme` and `Elvane` by half the prose that mentions it, and the alias
  * derived from its domain has no accents at all, so without folding an accented
  * brand is invisible to every mention metric. Measured on a real run: a
  * competitor named in two answers scored zero, and another was undercounted.
@@ -250,8 +250,8 @@ export function matchedAliasKeys(
 /**
  * Match an approved brand alias as one or more complete adjacent words.
  *
- * This tolerates presentation-only variants (`Demand IQ`, `Demand-IQ`,
- * `DemandIQ`) but never edit-distance or substring guesses (`prime` does not
+ * This tolerates presentation-only variants (`Vexlo IQ`, `Vexlo-IQ`,
+ * `VexloIQ`) but never edit-distance or substring guesses (`prime` does not
  * match `price`, and `acme` does not match `acmeology`).
  */
 export function textContainsBrandAlias(

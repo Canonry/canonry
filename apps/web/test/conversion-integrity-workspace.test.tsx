@@ -14,11 +14,11 @@ const contract = {
   name: 'Payment confirmed',
   eventName: 'purchase',
   googleAds: {
-    customerId: '9557525423',
+    customerId: '5550001234',
     conversionActionId: 'payment-confirmed',
-    conversionId: '16884954130',
-    conversionLabel: 'E1YUCPaVzqIaEJLor_M-',
-    campaignIds: ['g_s_venice-beach-hotels'],
+    conversionId: '12345678901',
+    conversionLabel: 'ExampleLabel0000_X1-',
+    campaignIds: ['g_s_bayside-hotels'],
     requireBiddableGoal: true,
     requirePrimaryAction: true,
   },
@@ -44,7 +44,7 @@ const adsConnection = {
   id: 'ads_connection',
   projectId: 'project_example',
   scopes: ['https://www.googleapis.com/auth/adwords'],
-  selection: { loginCustomerId: null, customerId: '9557525423', selectedAt: capturedAt },
+  selection: { loginCustomerId: null, customerId: '5550001234', selectedAt: capturedAt },
   lastValidatedAt: capturedAt,
   lastInventorySnapshotAt: capturedAt,
   lastMetricsSnapshotAt: null,
@@ -85,8 +85,8 @@ function googleAdsStatus(overrides: Record<string, unknown> = {}) {
     status: 'connected',
     connection: adsConnection,
     selectedCustomer: {
-      resourceName: 'customers/9557525423',
-      customerId: '9557525423',
+      resourceName: 'customers/5550001234',
+      customerId: '5550001234',
       parentCustomerId: null,
       descriptiveName: 'Example Hotel',
       currencyCode: 'USD',
@@ -176,7 +176,7 @@ function installMarketingFetch(fixture: MarketingFixture, requested: string[]) {
     if (path === `${prefix}/conversion-tracking/options`) {
       return jsonResponse({
         googleAds: {
-          customerId: '9557525423',
+          customerId: '5550001234',
           syncedAt: '2026-08-24T23:11:24.362Z',
           conversionActions: [
             { id: 'refund-confirmed', name: 'Refund confirmed', detail: 'PURCHASE', active: true },
@@ -251,8 +251,8 @@ describe('ConversionIntegrityWorkspace', () => {
           status: 'connected',
           connection: adsConnection,
           selectedCustomer: {
-            resourceName: 'customers/9557525423',
-            customerId: '9557525423',
+            resourceName: 'customers/5550001234',
+            customerId: '5550001234',
             parentCustomerId: null,
             descriptiveName: 'Example Hotel',
             currencyCode: 'USD',
@@ -471,7 +471,7 @@ describe('ConversionIntegrityWorkspace', () => {
     const { queryClient } = renderWorkspace()
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh Google Ads evidence' })).toBeTruthy())
-    expect(screen.getByText('Selected customer 9557525423')).toBeTruthy()
+    expect(screen.getByText('Selected customer 5550001234')).toBeTruthy()
 
     const storedReadCount = requested.filter((path) => path.includes('/google-ads/status') || path.includes('/google-ads/snapshots')).length
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Google Ads evidence' }))
@@ -590,13 +590,13 @@ describe('ConversionIntegrityWorkspace', () => {
     const changeSelection = await screen.findByRole('button', { name: 'Change Google Ads account' })
     fireEvent.click(changeSelection)
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Customer discovery unavailable'))
-    expect(screen.getByRole('option', { name: 'Saved customer 9557525423 (access not verified)' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Saved customer 5550001234 (access not verified)' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save customer selection' }).hasAttribute('disabled')).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry customer list' }))
     await waitFor(() => expect(screen.getByText('Incomplete result: showing 1 of 2 accessible customers. Use the CLI or API if the resource is not shown.')).toBeTruthy())
-    expect((screen.getByLabelText('Customer account') as HTMLSelectElement).value).toBe('9557525423')
-    expect(screen.getByRole('option', { name: 'Saved customer 9557525423 (not in the current result)' })).toBeTruthy()
+    expect((screen.getByLabelText('Customer account') as HTMLSelectElement).value).toBe('5550001234')
+    expect(screen.getByRole('option', { name: 'Saved customer 5550001234 (not in the current result)' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save customer selection' }).hasAttribute('disabled')).toBe(false)
     expect(customerReads).toBe(2)
 
@@ -620,7 +620,7 @@ describe('ConversionIntegrityWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Change Google Ads account' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('saved customer is no longer accessible'))
 
-    const savedOption = screen.getByRole('option', { name: 'Saved customer 9557525423 (no longer accessible)' }) as HTMLOptionElement
+    const savedOption = screen.getByRole('option', { name: 'Saved customer 5550001234 (no longer accessible)' }) as HTMLOptionElement
     expect(savedOption.disabled).toBe(true)
     expect(screen.getByText('1 accessible customer found.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save customer selection' }).hasAttribute('disabled')).toBe(true)

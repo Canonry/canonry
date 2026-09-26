@@ -697,7 +697,7 @@ export const schedules = sqliteTable('schedules', {
  * was high or critical. A finding that persists therefore alerted on every run,
  * forever.
  *
- * MEASURED on gjelina-hotel: a GBP keyword drop notified daily at 08:30 for over
+ * MEASURED on a hotel project: a GBP keyword drop notified daily at 08:30 for over
  * a month with byte-identical text, because Google publishes GBP keyword data
  * about a month behind, so the comparison window sat at 2026-06 -> 2026-07 while
  * the calendar moved on. The insights table held ONE row for it: the finding was

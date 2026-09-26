@@ -27,7 +27,7 @@ describe('buildMentionCoverage', () => {
     expect(result.providerCoverage).toBeUndefined()
   })
 
-  it('keeps the share to two decimals in progress and formats value from the unrounded share', () => {
+  it('keeps the share at wire precision in progress and formats value from the unrounded share', () => {
     const snapshots = [
       snap({ queryId: 'q1', answerMentioned: true }),
       snap({ queryId: 'q2', answerMentioned: true }),
@@ -35,7 +35,7 @@ describe('buildMentionCoverage', () => {
     ]
     const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini'] })
     expect(result.value).toBe('66.7%')
-    expect(result.progress).toBe(66.67)
+    expect(result.progress).toBe(66.666667)
     expect(result.delta).toBe('2 of 3 queries mentioned')
   })
 
@@ -77,7 +77,7 @@ describe('buildMentionCoverage', () => {
     ]
     const result = buildMentionCoverage(snapshots, { configuredApiProviders: ['gemini'] })
     expect(result.value).toBe('33.3%')
-    expect(result.progress).toBe(33.33)
+    expect(result.progress).toBe(33.333333)
     expect(result.delta).toBe('1 of 3 queries mentioned')
   })
 

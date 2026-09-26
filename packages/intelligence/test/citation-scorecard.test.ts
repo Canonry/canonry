@@ -107,7 +107,7 @@ describe('buildCitationScorecard', () => {
     })
   })
 
-  it('keeps each provider rate to two decimals, not a whole percent', () => {
+  it('keeps each provider rate at wire precision, not a whole percent', () => {
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'cited' }),
       snap({ queryId: 'q2', citationState: 'cited' }),
@@ -118,7 +118,7 @@ describe('buildCitationScorecard', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 2, mentionedCount: 0, totalCount: 3, citationRate: 66.67, mentionRate: 0 },
+      { provider: 'gemini', citedCount: 2, mentionedCount: 0, totalCount: 3, citationRate: 66.666667, mentionRate: 0 },
     ])
   })
 
@@ -147,7 +147,7 @@ describe('buildCitationScorecard', () => {
     )
 
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 3, citationRate: 33.33, mentionRate: 33.33 },
+      { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 3, citationRate: 33.333333, mentionRate: 33.333333 },
     ])
   })
 

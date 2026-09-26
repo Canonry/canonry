@@ -305,7 +305,7 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
   "service": "canonry",
   "version": "4.193.0",
   "commit": "eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0",
-  "instance": { "name": "gjelina-demo", "role": "client-demo" },
+  "instance": { "name": "acme-demo", "role": "client-demo" },
   "basePath": "/canonry"
 }
 ```

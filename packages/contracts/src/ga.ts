@@ -160,23 +160,23 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   socialUsers: z.number().optional(),
   /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
   channelBreakdown: ga4ChannelBreakdownDtoSchema,
-  /** Organic sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Organic sessions as a percentage of total sessions (0–100, at wire precision). */
   organicSharePct: percent(),
-  /** Deduped AI sessions as a percentage of total sessions (0–100, to two decimals). Cross-cutting: can overlap with Direct/Organic/Social. */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, at wire precision). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: percent(),
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, to two decimals). Can overlap with raw Organic/Social/Direct totals. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, at wire precision). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: percent(),
-  /** Paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   paidAiSharePct: percent(),
-  /** Session-source paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Session-source paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   paidAiSharePctBySession: percent(),
-  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   organicAiSharePct: percent(),
-  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   organicAiSharePctBySession: percent(),
-  /** Direct-channel sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Direct-channel sessions as a percentage of total sessions (0–100, at wire precision). */
   directSharePct: percent(),
-  /** Social sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Social sessions as a percentage of total sessions (0–100, at wire precision). */
   socialSharePct: percent(),
   /** Display string for organicSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: z.string(),
@@ -198,7 +198,7 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   socialSharePctDisplay: z.string(),
   /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
   otherSessions: z.number(),
-  /** Other sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Other sessions as a percentage of total sessions (0–100, at wire precision). */
   otherSharePct: percent(),
   /** Display string for otherSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   otherSharePctDisplay: z.string(),
@@ -378,23 +378,23 @@ export interface GaTrafficResponse {
     ai: GA4ChannelBucketDto
     other: GA4ChannelBucketDto
   }
-  /** Organic sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Organic sessions as a percentage of total sessions (0–100, at wire precision). */
   organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, to two decimals). Cross-cutting: can overlap with Direct/Organic/Social. */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, at wire precision). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, to two decimals). Can overlap with raw Organic/Social/Direct totals. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, at wire precision). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
-  /** Paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   paidAiSharePct: number
-  /** Session-source paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Session-source paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   paidAiSharePctBySession: number
-  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   organicAiSharePct: number
-  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
   organicAiSharePctBySession: number
-  /** Direct-channel sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Direct-channel sessions as a percentage of total sessions (0–100, at wire precision). */
   directSharePct: number
-  /** Social sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Social sessions as a percentage of total sessions (0–100, at wire precision). */
   socialSharePct: number
   /** Display string for organicSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: string
@@ -416,7 +416,7 @@ export interface GaTrafficResponse {
   socialSharePctDisplay: string
   /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
   otherSessions: number
-  /** Other sessions as a percentage of total sessions (0–100, to two decimals). */
+  /** Other sessions as a percentage of total sessions (0–100, at wire precision). */
   otherSharePct: number
   /** Display string for otherSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   otherSharePctDisplay: string

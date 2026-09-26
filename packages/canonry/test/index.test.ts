@@ -1405,7 +1405,7 @@ describe('canonry', () => {
     // Unbundled source carries no tsup build stamp, so CANONRY_COMMIT is the
     // path a test can reach; the stamp source is covered in instance-identity.test.ts.
     vi.stubEnv('CANONRY_COMMIT', 'eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
-    vi.stubEnv('CANONRY_INSTANCE', 'gjelina-demo')
+    vi.stubEnv('CANONRY_INSTANCE', 'acme-demo')
     vi.stubEnv('CANONRY_INSTANCE_ROLE', 'client-demo')
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
@@ -1446,7 +1446,7 @@ describe('canonry', () => {
       }
       expect(body.status).toBe('ok')
       expect(body.commit).toBe('eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
-      expect(body.instance).toEqual({ name: 'gjelina-demo', role: 'client-demo' })
+      expect(body.instance).toEqual({ name: 'acme-demo', role: 'client-demo' })
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

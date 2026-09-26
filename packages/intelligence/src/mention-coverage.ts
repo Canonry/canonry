@@ -21,7 +21,7 @@ export interface MentionCoverageOptions {
  * metric for AEO health. A query counts as mentioned when at least one
  * snapshot for that query has `answerMentioned === true` (i.e. the AI
  * actually said the brand's name or domain in its answer text). The score
- * is the percentage of mentioned queries, 0..100 to two decimals in
+ * is the percentage of mentioned queries, 0..100 at wire precision in
  * `progress`, and `value` is the same share through `formatPercent` ("66.7%").
  *
  * This is the dashboard's *primary* metric — what most operators actually

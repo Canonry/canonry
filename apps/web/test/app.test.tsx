@@ -221,7 +221,7 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">66\.7<span class="text-faint">%<\/span><\/p>/)
   expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">61\.0<span class="text-faint">%<\/span><\/p>/)
   expect(html).not.toMatch(/%<span class="text-faint">%/)
-  // Per-model citation rates are 0..100 at two decimals and read through formatPercent.
+  // Per-model citation rates are 0..100 at wire precision and read through formatPercent.
   expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
   expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
   expect(html).toMatch(/1 query added · 8 comparable queries\./)

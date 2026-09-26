@@ -196,8 +196,8 @@ describe('canonry overview — human output', () => {
 
   it('prints each gauge value as the API sent it, with no sign of its own', () => {
     const overview = makeOverview()
-    // 2 of 3 is 66.67% on the wire and "66.7%" in the gauge's value.
-    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.67 }
+    // 2 of 3 is 66.666667% on the wire and "66.7%" in the gauge's value.
+    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.666667 }
     const lines = captureOutput(() => renderHuman(overview)).split('\n')
     const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
       `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`

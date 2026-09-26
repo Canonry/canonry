@@ -20,54 +20,54 @@ function findMarks(nodes: ReturnType<typeof highlightTermsInText>): MarkProps[] 
 }
 
 describe('highlightTermsInText separator-tolerant matching', () => {
-  it('highlights "Demand IQ" in prose when the term is the slug "demand-iq"', () => {
+  it('highlights "Widget IQ" in prose when the term is the slug "widget-iq"', () => {
     const nodes = highlightTermsInText(
-      'Demand IQ uses AI-driven instant estimates to attract homeowners.',
-      [{ terms: ['demand-iq'], className: 'answer-highlight-brand' }],
+      'Widget IQ builds instant quotes for small shops.',
+      [{ terms: ['widget-iq'], className: 'answer-highlight-brand' }],
     )
     const marks = findMarks(nodes)
     expect(marks).toHaveLength(1)
-    expect(marks[0].children).toBe('Demand IQ')
+    expect(marks[0].children).toBe('Widget IQ')
     expect(marks[0].className).toBe('answer-highlight-brand')
   })
 
-  it('highlights "Demand-IQ" hyphen form when the term is the slug', () => {
+  it('highlights "Widget-IQ" hyphen form when the term is the slug', () => {
     const nodes = highlightTermsInText(
-      'See the Demand-IQ pricing page.',
-      [{ terms: ['demand-iq'], className: 'answer-highlight-brand' }],
+      'See the Widget-IQ pricing page.',
+      [{ terms: ['widget-iq'], className: 'answer-highlight-brand' }],
     )
     const marks = findMarks(nodes)
     expect(marks).toHaveLength(1)
-    expect(marks[0].children).toBe('Demand-IQ')
+    expect(marks[0].children).toBe('Widget-IQ')
   })
 
-  it('highlights "DemandIQ" concatenated form', () => {
+  it('highlights "WidgetIQ" concatenated form', () => {
     const nodes = highlightTermsInText(
-      'Visit DemandIQ for details.',
-      [{ terms: ['demand-iq'], className: 'answer-highlight-brand' }],
+      'Visit WidgetIQ for details.',
+      [{ terms: ['widget-iq'], className: 'answer-highlight-brand' }],
     )
     const marks = findMarks(nodes)
     expect(marks).toHaveLength(1)
-    expect(marks[0].children).toBe('DemandIQ')
+    expect(marks[0].children).toBe('WidgetIQ')
   })
 
   it('highlights every separator variant given a spaced display name', () => {
     const nodes = highlightTermsInText(
-      'AZ Coatings, AZ-Coatings, and AZCoatings are all the same brand.',
-      [{ terms: ['AZ Coatings'], className: 'answer-highlight-brand' }],
+      'Blue Kettle, Blue-Kettle, and BlueKettle are all the same brand.',
+      [{ terms: ['Blue Kettle'], className: 'answer-highlight-brand' }],
     )
     const marks = findMarks(nodes)
-    expect(marks.map(m => m.children)).toEqual(['AZ Coatings', 'AZ-Coatings', 'AZCoatings'])
+    expect(marks.map(m => m.children)).toEqual(['Blue Kettle', 'Blue-Kettle', 'BlueKettle'])
   })
 
   it('still matches a single-word term against itself', () => {
     const nodes = highlightTermsInText(
-      'Roofle ships install quote engines.',
-      [{ terms: ['Roofle'], className: 'answer-highlight-competitor' }],
+      'Harborline ships quote widgets.',
+      [{ terms: ['Harborline'], className: 'answer-highlight-competitor' }],
     )
     const marks = findMarks(nodes)
     expect(marks).toHaveLength(1)
-    expect(marks[0].children).toBe('Roofle')
+    expect(marks[0].children).toBe('Harborline')
     expect(marks[0].className).toBe('answer-highlight-competitor')
   })
 
@@ -85,15 +85,15 @@ describe('highlightTermsInText separator-tolerant matching', () => {
 
   it('routes the matched span back to the right group via brand-key', () => {
     const nodes = highlightTermsInText(
-      'Demand IQ partners with Roofle.',
+      'Widget IQ partners with Harborline.',
       [
-        { terms: ['demand-iq'], className: 'answer-highlight-brand' },
-        { terms: ['roofle'], className: 'answer-highlight-competitor' },
+        { terms: ['widget-iq'], className: 'answer-highlight-brand' },
+        { terms: ['harborline'], className: 'answer-highlight-competitor' },
       ],
     )
     const marks = findMarks(nodes)
     const byText = Object.fromEntries(marks.map(m => [m.children, m.className]))
-    expect(byText['Demand IQ']).toBe('answer-highlight-brand')
-    expect(byText['Roofle']).toBe('answer-highlight-competitor')
+    expect(byText['Widget IQ']).toBe('answer-highlight-brand')
+    expect(byText['Harborline']).toBe('answer-highlight-competitor')
   })
 })

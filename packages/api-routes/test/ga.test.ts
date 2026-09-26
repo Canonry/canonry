@@ -556,8 +556,8 @@ describe('GA4 routes', () => {
         url: '/api/v1/projects/only-social-foundation/ga/traffic?window=30d',
       })
       const traffic = JSON.parse(trafficRes.payload)
-      // 1273 / 30000 = 4.24%: two decimals on the wire, one on display.
-      expect(traffic.socialSharePct).toBe(4.24)
+      // 1273 / 30000 = 4.243333%: six decimals on the wire, one on display.
+      expect(traffic.socialSharePct).toBe(4.243333)
       expect(traffic.socialSharePctDisplay).toBe('4.2%')
     } finally {
       getAccessTokenSpy.mockRestore()
@@ -705,26 +705,26 @@ describe('GA4 routes', () => {
     expect(body.aiSessionsBySession).toBe(17)
     expect(body.paidAiSessionsBySession).toBe(0)
     expect(body.organicAiSessionsBySession).toBe(17)
-    // 17 / 350 = 4.857…%: 4.86 on the wire (a whole percent sent 5).
-    expect(body.aiSharePctBySession).toBe(4.86)
+    // 17 / 350 = 4.857…%: 4.857143 on the wire (a whole percent sent 5).
+    expect(body.aiSharePctBySession).toBe(4.857143)
     expect(body.paidAiSharePctBySession).toBe(0)
-    expect(body.organicAiSharePctBySession).toBe(4.86)
+    expect(body.organicAiSharePctBySession).toBe(4.857143)
     expect(body.socialReferrals).toEqual([])
     expect(body.socialSessions).toBe(0)
     // socialUsers is withdrawn: see the dedicated test below.
     expect(body).not.toHaveProperty('socialUsers')
     expect(body.organicSharePct).toBe(50)
-    expect(body.aiSharePct).toBe(4.86)
+    expect(body.aiSharePct).toBe(4.857143)
     expect(body.socialSharePct).toBe(0)
-    // Displays read the unrounded share: 175/350 = 50%, 17/350 = 4.86%,
-    // and the 158 uncovered sessions are 45.14%.
+    // Displays read the unrounded share: 175/350 = 50%, 17/350 = 4.857143%,
+    // and the 158 uncovered sessions are 45.142857%.
     expect(body.organicSharePctDisplay).toBe('50.0%')
     expect(body.aiSharePctDisplay).toBe('4.9%')
     expect(body.aiSharePctBySessionDisplay).toBe('4.9%')
     expect(body.socialSharePctDisplay).toBe('0%')
     expect(body.directSharePctDisplay).toBe('0%')
     expect(body.otherSessions).toBe(158)
-    expect(body.otherSharePct).toBe(45.14)
+    expect(body.otherSharePct).toBe(45.142857)
     expect(body.otherSharePctDisplay).toBe('45.1%')
     expect(body.lastSyncedAt).toBe(now)
     expect(body.periodStart).toBe('2026-02-19')
@@ -1072,8 +1072,8 @@ describe('GA4 routes', () => {
   it.each([
     // 18 of 6,000 is 0.3%, which a whole percent used to flatten to 0 on the wire.
     { project: 'sub-one-pct', aiSessions: 18, pct: 0.3, display: '0.3%' },
-    // 2 of 6,000 is 0.0333%: 0.03 on the wire, too small for one decimal, and still never "0%".
-    { project: 'sub-tenth-pct', aiSessions: 2, pct: 0.03, display: '<0.1%' },
+    // 2 of 6,000 is 0.0333…%: 0.033333 on the wire, too small for one decimal, and still never "0%".
+    { project: 'sub-tenth-pct', aiSessions: 2, pct: 0.033333, display: '<0.1%' },
   ])('GET /ga/traffic sends $aiSessions AI sessions of 6,000 as $pct and displays $display', async ({ project, aiSessions, pct, display }) => {
     // Seed a fresh project so we don't pollute the shared row counts.
     const now = new Date().toISOString()
@@ -1142,7 +1142,7 @@ describe('GA4 routes', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.aiSessionsBySession).toBe(aiSessions)
-      // The share keeps two decimals on the wire rather than flattening to 0...
+      // The share keeps its wire precision rather than flattening to 0...
       expect(body.aiSharePctBySession).toBe(pct)
       expect(body.aiSharePct).toBe(pct)
       // ...and the display string reads it through formatPercent.
@@ -1464,7 +1464,7 @@ describe('GA4 routes', () => {
       // numerator over its own reported denominator. A share sourced from a
       // different window fails here even if the constants above were updated
       // to match it.
-      // Exactly, at the two decimals the share is sent at.
+      // Exactly, at the wire precision the share is sent at.
       expect(body.directSharePct).toBe(percentOf(body.totalDirectSessions, body.totalSessions))
       expect(body.socialSharePct).toBe(percentOf(body.socialSessions, body.totalSessions))
       expect(body.aiSharePct).toBe(percentOf(body.aiSessionsDeduped, body.totalSessions))
@@ -1491,11 +1491,11 @@ describe('GA4 routes', () => {
       expect(wideBody.socialSessions).toBe(500)
       expect(wideBody.aiSessionsDeduped).toBe(300)
 
-      // 700/3000 = 23.33, 500/3000 = 16.67 and 300/3000 = 10, to two decimals
+      // 700/3000 = 23.333333, 500/3000 = 16.666667 and 300/3000 = 10, at wire precision
       // on the wire (a whole percent sent 23 and 17). The displays keep a tenth.
-      expect(wideBody.directSharePct).toBe(23.33)
+      expect(wideBody.directSharePct).toBe(23.333333)
       expect(wideBody.directSharePctDisplay).toBe('23.3%')
-      expect(wideBody.socialSharePct).toBe(16.67)
+      expect(wideBody.socialSharePct).toBe(16.666667)
       expect(wideBody.socialSharePctDisplay).toBe('16.7%')
       expect(wideBody.aiSharePct).toBe(10)
       expect(wideBody.directSharePct).toBe(percentOf(wideBody.totalDirectSessions, wideBody.totalSessions))
@@ -1768,8 +1768,8 @@ describe('GA4 routes', () => {
         (p: { landingPage: string }) => p.landingPage === '/__direct-test-about',
       )
       expect(about.directSessions).toBe(1)
-      // 41 / 70 = 58.57% ; total here is 60 + 10 = 70 (a whole percent sent 59)
-      expect(body.directSharePct).toBe(58.57)
+      // 41 / 70 = 58.571429% ; total here is 60 + 10 = 70 (a whole percent sent 59)
+      expect(body.directSharePct).toBe(58.571429)
     } finally {
       db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, [idA, idB])).run()
       credentials.delete('test-project')
@@ -2286,14 +2286,14 @@ describe('GA4 routes', () => {
       // sessionSource-only counts, NOT cross-dim MAX (which would be 12 / 8).
       expect(body.ai.sessions7d).toBe(5)
       expect(body.ai.sessionsPrev7d).toBe(3)
-      // (5 - 3) / 3 = 66.67%, two decimals (a whole percent sent 67)
-      expect(body.ai.trend7dPct).toBe(66.67)
+      // (5 - 3) / 3 = 66.666667%, at wire precision (a whole percent sent 67)
+      expect(body.ai.trend7dPct).toBe(66.666667)
       // aiBiggestMover should also report sessionSource-only counts.
       expect(body.aiBiggestMover).toEqual({
         source: 'chatgpt.com',
         sessions7d: 5,
         sessionsPrev7d: 3,
-        changePct: 66.67,
+        changePct: 66.666667,
       })
     } finally {
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [

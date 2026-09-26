@@ -67,7 +67,7 @@ export interface MentionShareOptions {
 export interface MentionShareCompetitorRow {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total, 0..100 to two decimals — sums to ~100 across
+  /** % of competitive total, 0..100 at wire precision — sums to ~100 across
    *  rows when there are any competitor mentions; 0 otherwise. */
   shareOfCompetitiveTotal: number
 }

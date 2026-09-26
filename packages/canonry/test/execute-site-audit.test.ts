@@ -620,9 +620,9 @@ describe('executeSiteAudit', () => {
       ])
   })
 
-  it('stores a cross-cutting issue share to two decimals, not a whole percent', async () => {
+  it('stores a cross-cutting issue share at wire precision, not a whole percent', async () => {
     vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
-      // One of three audited pages fails Structured Data: 33.33% affected, which used to be stored as 33.
+      // One of three audited pages fails Structured Data: 33.333333% affected, which used to be stored as 33.
       const scored = (key: string, url: string, score: number) => {
         const base = page(key, url)
         return { ...base, audit: { ...base.audit, factors: [scoredFactor('sd', 'Structured Data', 12, score)] } }
@@ -646,7 +646,7 @@ describe('executeSiteAudit', () => {
 
     const snapshot = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()
     expect(snapshot?.crossCuttingIssues).toEqual([expect.objectContaining({
-      factorId: 'sd', avgScore: 57, affectedPages: 1, totalPages: 3, affectedPct: 33.33,
+      factorId: 'sd', avgScore: 57, affectedPages: 1, totalPages: 3, affectedPct: 33.333333,
     })])
   })
 

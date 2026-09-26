@@ -67,8 +67,8 @@ describe('backfill answer-mentions', () => {
     db.insert(projects).values({
       id: projectId,
       name: opts.projectName,
-      displayName: 'Demand IQ',
-      canonicalDomain: 'demand-iq.com',
+      displayName: 'Acme IQ',
+      canonicalDomain: 'acme-iq.example.com',
       ownedDomains: '[]',
       country: 'US',
       language: 'en',
@@ -106,13 +106,13 @@ describe('backfill answer-mentions', () => {
   }
 
   it('clears stale competitorOverlap when a stored subdomained competitor caused a brand-token false match', async () => {
-    // Pre-fix data: stored competitor `offers.roofle.com`, the original code
+    // Pre-fix data: stored competitor `offers.quotebird.test`, the original code
     // pulled `offers` as the brand label and word-boundary matched it against
     // the prose word "offers", marking the snapshot as having competitor
-    // overlap when in fact Roofle isn't mentioned at all.
+    // overlap when in fact Quotebird isn't mentioned at all.
     const { runId, queryId } = seedAnswerVisibilityRun({
-      projectName: 'demand-iq',
-      competitorDomains: ['offers.roofle.com'],
+      projectName: 'acme-iq',
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
@@ -125,16 +125,16 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool. Demand IQ uses AI-driven estimates.',
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool. Acme IQ uses AI-driven estimates.',
       citedDomains: [],
-      competitorOverlap: ['offers.roofle.com'],
+      competitorOverlap: ['offers.quotebird.test'],
       recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
     }).run()
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await backfillAnswerMentionsCommand({ project: 'demand-iq', format: 'json' })
+    await backfillAnswerMentionsCommand({ project: 'acme-iq', format: 'json' })
     const result = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'))
 
     expect(result.examined).toBe(1)
@@ -151,8 +151,8 @@ describe('backfill answer-mentions', () => {
 
   it('still flags overlap when the answer text mentions the registrable brand', async () => {
     const { runId, queryId } = seedAnswerVisibilityRun({
-      projectName: 'demand-iq-positive',
-      competitorDomains: ['offers.roofle.com'],
+      projectName: 'acme-iq-positive',
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
@@ -165,7 +165,7 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Brokers turn to Roofle when they need quick install quotes.',
+      answerText: 'Brokers turn to Quotebird when they need quick install quotes.',
       citedDomains: [],
       competitorOverlap: [],
       recommendedCompetitors: [],
@@ -174,14 +174,14 @@ describe('backfill answer-mentions', () => {
     }).run()
 
     vi.spyOn(console, 'log').mockImplementation(() => {})
-    await backfillAnswerMentionsCommand({ project: 'demand-iq-positive', format: 'json' })
+    await backfillAnswerMentionsCommand({ project: 'acme-iq-positive', format: 'json' })
 
     const snapshot = db
       .select()
       .from(querySnapshots)
       .where(eq(querySnapshots.id, snapshotId))
       .get()
-    expect(snapshot!.competitorOverlap).toEqual(['offers.roofle.com'])
+    expect(snapshot!.competitorOverlap).toEqual(['offers.quotebird.test'])
   })
 
   it('updates snapshots from providers without a reparse adapter (covers the gap left by answer-visibility backfill)', async () => {
@@ -191,7 +191,7 @@ describe('backfill answer-mentions', () => {
     // backfill works off stored data and patches that gap.
     const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'cdp-project',
-      competitorDomains: ['offers.roofle.com'],
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
@@ -204,9 +204,9 @@ describe('backfill answer-mentions', () => {
       model: 'chrome',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool.',
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool.',
       citedDomains: [],
-      competitorOverlap: ['offers.roofle.com'],
+      competitorOverlap: ['offers.quotebird.test'],
       recommendedCompetitors: [],
       rawResponse: '{}',
       createdAt: now,
@@ -221,14 +221,14 @@ describe('backfill answer-mentions', () => {
       .where(eq(querySnapshots.id, snapshotId))
       .get()
     expect(snapshot!.competitorOverlap).toEqual([])
-    // answerMentioned remains false — the answer doesn't mention Demand IQ.
+    // answerMentioned remains false — the answer doesn't mention Acme IQ.
     expect(snapshot!.answerMentioned).toBe(false)
   })
 
   it('is idempotent — a second run reports zero updates', async () => {
     const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'idempotent-project',
-      competitorDomains: ['offers.roofle.com'],
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
@@ -240,9 +240,9 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool. Demand IQ uses AI-driven estimates.',
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool. Acme IQ uses AI-driven estimates.',
       citedDomains: [],
-      competitorOverlap: ['offers.roofle.com'],
+      competitorOverlap: ['offers.quotebird.test'],
       recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
@@ -265,13 +265,13 @@ describe('backfill answer-mentions', () => {
     // This backfill must not modify those columns even if it could.
     const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'preserves-citation-state',
-      competitorDomains: ['offers.roofle.com'],
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
     const snapshotId = crypto.randomUUID()
     const originalRawResponse = JSON.stringify({
-      groundingSources: [{ uri: 'https://demand-iq.com/docs', title: 'Demand IQ Docs' }],
+      groundingSources: [{ uri: 'https://acme-iq.example.com/docs', title: 'Acme IQ Docs' }],
       searchQueries: ['instant roof estimate'],
       apiResponse: { foo: 'bar' },
     })
@@ -283,9 +283,9 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool.',
-      citedDomains: ['demand-iq.com'],
-      competitorOverlap: ['offers.roofle.com'],
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool.',
+      citedDomains: ['acme-iq.example.com'],
+      competitorOverlap: ['offers.quotebird.test'],
       recommendedCompetitors: [],
       rawResponse: originalRawResponse,
       createdAt: now,
@@ -300,14 +300,14 @@ describe('backfill answer-mentions', () => {
       .where(eq(querySnapshots.id, snapshotId))
       .get()
     expect(snapshot!.citationState).toBe('cited')
-    expect(snapshot!.citedDomains).toEqual(['demand-iq.com'])
+    expect(snapshot!.citedDomains).toEqual(['acme-iq.example.com'])
     expect(snapshot!.rawResponse).toBe(originalRawResponse)
   })
 
   it('only processes answer-visibility runs', async () => {
     const { projectId, queryId } = seedAnswerVisibilityRun({
       projectName: 'mixed-runs',
-      competitorDomains: ['offers.roofle.com'],
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
@@ -330,9 +330,9 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool.',
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool.',
       citedDomains: [],
-      competitorOverlap: ['offers.roofle.com'],
+      competitorOverlap: ['offers.quotebird.test'],
       recommendedCompetitors: [],
       rawResponse: '{}',
       createdAt: now,
@@ -350,18 +350,18 @@ describe('backfill answer-mentions', () => {
       .from(querySnapshots)
       .where(eq(querySnapshots.id, auditSnapshotId))
       .get()
-    expect(auditSnapshot!.competitorOverlap).toEqual(['offers.roofle.com'])
+    expect(auditSnapshot!.competitorOverlap).toEqual(['offers.quotebird.test'])
   })
 
   it('--dry-run reports would-update count without writing to the DB', async () => {
     const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'dry-run-project',
-      competitorDomains: ['offers.roofle.com'],
+      competitorDomains: ['offers.quotebird.test'],
     })
     const now = new Date().toISOString()
 
     const snapshotId = crypto.randomUUID()
-    const originalCompetitorOverlap = '["offers.roofle.com"]'
+    const originalCompetitorOverlap = '["offers.quotebird.test"]'
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
@@ -370,7 +370,7 @@ describe('backfill answer-mentions', () => {
       model: 'gpt-5',
       citationState: 'not-cited',
       answerMentioned: false,
-      answerText: 'Energy Design Systems offers a white-label lead generation tool.',
+      answerText: 'Northwind Solar Systems offers a white-label lead generation tool.',
       citedDomains: [],
       competitorOverlap: originalCompetitorOverlap,
       recommendedCompetitors: [],

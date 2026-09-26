@@ -20,7 +20,7 @@ export interface GapQueryScoreSnapshot {
  *
  * The gauge value is the gap count itself (so the dashboard reads the magnitude
  * directly), with `progress` set to the 0–100 percentage of tracked queries
- * that are gaps, to two decimals.
+ * that are gaps, at wire precision.
  */
 export function buildGapQueryScore(
   snapshots: readonly GapQueryScoreSnapshot[],

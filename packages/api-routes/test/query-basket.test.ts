@@ -204,12 +204,12 @@ describe('analytics uses the basket instead of query creation dates', () => {
     ensureCurrentQueryBasketRevision(db, projectId, '2026-07-01T00:00:00.000Z')
     sweep('2026-07-01T09:00:00.000Z', [{ id: a, text: 'roof coating contractors' }, { id: b, text: 'best roof coating' }], 1)
 
-    const c = addQuery(db, projectId, 'az coatings reviews', '2026-07-15T12:00:00.000Z')
+    const c = addQuery(db, projectId, 'acme coatings reviews', '2026-07-15T12:00:00.000Z')
     ensureCurrentQueryBasketRevision(db, projectId, '2026-07-15T12:00:00.000Z')
     sweep('2026-07-20T09:00:00.000Z', [
       { id: a, text: 'roof coating contractors' },
       { id: b, text: 'best roof coating' },
-      { id: c, text: 'az coatings reviews' },
+      { id: c, text: 'acme coatings reviews' },
     ], 2)
 
     const body = await metrics()
@@ -352,9 +352,9 @@ describe('deleted-query history rejoins through the basket', () => {
     // cleanup that removed and re-added a question erased months of real
     // measurements from the chart. Identity by text is what makes the old rows
     // recoverable: same question, same history.
-    const a = addQuery(db, projectId, 'az coatings reviews', '2026-03-01T00:00:00.000Z')
+    const a = addQuery(db, projectId, 'acme coatings reviews', '2026-03-01T00:00:00.000Z')
     ensureCurrentQueryBasketRevision(db, projectId, '2026-03-01T00:00:00.000Z')
-    sweep('2026-03-05T09:00:00.000Z', [{ id: a, text: 'az coatings reviews' }], 1)
+    sweep('2026-03-05T09:00:00.000Z', [{ id: a, text: 'acme coatings reviews' }], 1)
 
     // The cleanup: row deleted, snapshots orphaned. Prove the orphaning
     // actually happened so this test cannot pass with intact foreign keys.
@@ -364,9 +364,9 @@ describe('deleted-query history rejoins through the basket', () => {
     for (const o of orphans) expect(o.queryId).toBeNull()
 
     // Re-added months later under a fresh row id, then swept again.
-    const b = addQuery(db, projectId, 'az coatings reviews', '2026-07-01T00:00:00.000Z')
+    const b = addQuery(db, projectId, 'acme coatings reviews', '2026-07-01T00:00:00.000Z')
     ensureCurrentQueryBasketRevision(db, projectId, '2026-07-01T00:00:00.000Z')
-    sweep('2026-07-05T09:00:00.000Z', [{ id: b, text: 'az coatings reviews' }], 2)
+    sweep('2026-07-05T09:00:00.000Z', [{ id: b, text: 'acme coatings reviews' }], 2)
 
     const body = await metrics()
     // Both eras are on the chart: March's 3 mentions came back.
