@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   computeVisibilityCompare,
   type ComputeVisibilityCompareInput,
@@ -406,5 +406,137 @@ describe('computeVisibilityCompare — low run count', () => {
     const dto = computeVisibilityCompare(build([snap({ queryId: 'q1', provider: 'openai' })], [snap({ queryId: 'q1', provider: 'openai' })]))
     expect(dto.from.lowRunCount).toBe(false) // May: 7 sweeps
     expect(dto.to.lowRunCount).toBe(true) // June: 2 sweeps
+  })
+})
+
+describe('computeVisibilityCompare — answer matching', () => {
+  const picks = 'For teams, Demo Co and Rival are strong picks.'
+  const pricing = 'Demo Co pricing starts at $10.'
+  const row = (queryId: string | null, over: Partial<VisibilityCompareSnapshotInput> & { provider: string }) =>
+    snap({ queryId: queryId as string, model: over.provider === 'claude' ? 'claude-a' : `${over.provider}-stable`, ...over })
+  const input = (from: VisibilityCompareSnapshotInput[], to: VisibilityCompareSnapshotInput[]): ComputeVisibilityCompareInput => ({
+    project: 'demo',
+    queries: [
+      { id: 'q-cat', query: 'best project tools' },
+      { id: 'q-alt', query: 'project tools for teams' },
+      { id: 'q-brand', query: 'Demo Co pricing' },
+    ],
+    brandNames: ['Demo Co', 'democo'],
+    competitors: [
+      { domain: 'rival.io', brandTokens: ['rival', 'rival.io'] },
+      { domain: 'https://Other-Tool.com/', brandTokens: ['Other Tool', 'other-tool.com'] },
+    ],
+    from: { month: '2026-05', since: '2026-05-01T00:00:00.000Z', until: '2026-05-31T23:59:59.999Z', runCount: 7, snapshots: from },
+    to: { month: '2026-06', since: '2026-06-01T00:00:00.000Z', until: '2026-06-30T23:59:59.999Z', runCount: 5, snapshots: to },
+  })
+
+  it('pins the whole response across brand variants, near-miss words, text-less rows and an excluded provider', () => {
+    const from = [
+      row('q-cat', { provider: 'openai', answerText: picks, answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com', 'rival.io'] }),
+      row('q-cat', { provider: 'gemini', answerText: 'Consider RIVAL.io or other-tool.com for this.', citedDomains: ['www.other-tool.com'] }),
+      // Accent and hyphen are presentation variants of the alias; `Democracy` is not.
+      row('q-alt', { provider: 'openai', answerText: 'Democracy tools are popular; démo-co is listed too.' }),
+      row('q-alt', { provider: 'gemini', answerText: null, answerMentioned: true }),
+      row('q-brand', { provider: 'openai', answerText: pricing, answerMentioned: true }),
+      row('q-brand', { provider: 'gemini', answerText: '', answerMentioned: null }),
+      row('q-cat', { provider: 'claude', answerText: 'Rival leads.' }),
+      row('q-alt', { provider: 'claude', answerText: 'Nothing here.' }),
+      row('q-cat', { provider: 'openai', answerText: 'Other Tool is fine; DemoCo too.', answerMentioned: true }),
+      row('q-cat', { provider: 'gemini', answerText: picks, answerMentioned: true }),
+      // Attributed by preserved text; `rivalry` is not the competitor `rival`.
+      row(null, { queryText: 'project tools for teams', provider: 'openai', answerText: 'A rivalry is not a competitor mention.' }),
+      row('q-brand', { provider: 'openai', answerText: pricing, answerMentioned: true }),
+      row('q-cat', { provider: 'claude', answerText: 'Demo Co.' }),
+      row('q-gone', { provider: 'openai', answerText: 'Rival and Demo Co.', answerMentioned: true }),
+    ]
+    const to = [
+      row('q-cat', { provider: 'openai', answerText: 'Rival and Other Tool lead; Demo Co trails.', answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com'] }),
+      row('q-cat', { provider: 'gemini', answerText: 'Rival only.', citedDomains: ['rival.io'] }),
+      row('q-alt', { provider: 'openai', answerText: 'DEMO CO is recommended for teams.', answerMentioned: true }),
+      row('q-alt', { provider: 'gemini', answerText: 'No brands.' }),
+      row('q-brand', { provider: 'openai', answerText: 'Demo Co pricing is flexible.', answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com'] }),
+      row('q-brand', { provider: 'gemini', answerText: 'Demo Co vs Rival pricing.', answerMentioned: true }),
+      row('q-cat', { provider: 'claude', model: 'claude-b', answerText: 'Demo Co leads.' }),
+      row('q-alt', { provider: 'claude', model: 'claude-b', answerText: 'Rival.' }),
+    ]
+    const dto = computeVisibilityCompare(input(from, to))
+
+    // Non-brand May answers: the project is named in 4 (Demo Co, démo-co,
+    // DemoCo, Demo Co), Rival in 3 and Other Tool in 2, so share is 4 / 9.
+    // June: project 2, Rival 2, Other Tool 1, so 2 / 5. Claude changed model,
+    // so it is excluded from every metric but still reported.
+    expect(dto).toEqual({
+      project: 'demo',
+      from: { month: '2026-05', since: '2026-05-01T00:00:00.000Z', until: '2026-05-31T23:59:59.999Z', runCount: 7, lowRunCount: false },
+      to: { month: '2026-06', since: '2026-06-01T00:00:00.000Z', until: '2026-06-30T23:59:59.999Z', runCount: 5, lowRunCount: false },
+      basket: { queryCount: 3, excludedFromOnly: 0, excludedToOnly: 0, providers: ['gemini', 'openai'], excludedProviders: ['claude'] },
+      metrics: [
+        {
+          key: 'mention-share-of-voice', label: 'Named share of voice', queryClass: 'non-brand', driftRobust: true,
+          from: { availability: 'available', point: 0.4444, ciLow: 0.1888, ciHigh: 0.7334, numerator: 4, denominator: 9 },
+          to: { availability: 'available', point: 0.4, ciLow: 0.1176, ciHigh: 0.7693, numerator: 2, denominator: 5 },
+          rateRatio: 0.9, direction: 'down', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-share-of-voice', label: 'Cited share of voice', queryClass: 'all', driftRobust: true,
+          from: { availability: 'available', point: 0.3333, ciLow: 0.0615, ciHigh: 0.7923, numerator: 1, denominator: 3 },
+          to: { availability: 'available', point: 0.6667, ciLow: 0.2077, ciHigh: 0.9385, numerator: 2, denominator: 3 },
+          rateRatio: 2, direction: 'up', verdict: 'within-noise',
+        },
+        {
+          key: 'mention-rate', label: 'Named rate', queryClass: 'all', driftRobust: false,
+          from: { availability: 'available', point: 0.6667, ciLow: 0.3542, ciHigh: 0.8794, numerator: 6, denominator: 9 },
+          to: { availability: 'available', point: 0.6667, ciLow: 0.3, ciHigh: 0.9032, numerator: 4, denominator: 6 },
+          rateRatio: 1, direction: 'flat', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-rate', label: 'Cited rate', queryClass: 'all', driftRobust: false,
+          from: { availability: 'available', point: 0.1, ciLow: 0.0179, ciHigh: 0.4042, numerator: 1, denominator: 10 },
+          to: { availability: 'available', point: 0.3333, ciLow: 0.0968, ciHigh: 0.7, numerator: 2, denominator: 6 },
+          rateRatio: 3.33, direction: 'up', verdict: 'within-noise',
+        },
+      ],
+      queriesMentioned: { from: { count: 3, of: 3 }, to: { count: 3, of: 3 } },
+      byProvider: [
+        { provider: 'gemini', from: { checked: 3, mentioned: 2, cited: 0 }, to: { checked: 3, mentioned: 1, cited: 0 } },
+        { provider: 'openai', from: { checked: 6, mentioned: 4, cited: 1 }, to: { checked: 3, mentioned: 3, cited: 2 } },
+      ],
+      modelChanges: [{ provider: 'claude', fromModels: ['claude-a'], toModels: ['claude-b'] }],
+      continuity: {
+        status: 'comparable', comparedProviders: ['gemini', 'openai'],
+        providers: [
+          { provider: 'claude', status: 'model-discontinuous', fromModels: ['claude-a'], toModels: ['claude-b'] },
+          { provider: 'gemini', status: 'included', fromModels: ['gemini-stable'], toModels: ['gemini-stable'] },
+          { provider: 'openai', status: 'included', fromModels: ['openai-stable'], toModels: ['openai-stable'] },
+        ],
+      },
+      competitors: {
+        from: [{ domain: 'rival.io', mentions: 3 }, { domain: 'https://Other-Tool.com/', mentions: 2 }],
+        to: [{ domain: 'rival.io', mentions: 2 }, { domain: 'https://Other-Tool.com/', mentions: 1 }],
+      },
+    })
+  })
+
+  it('walks each compared answer at most twice: once for the project, once for every competitor', () => {
+    // Every answer names the project and both competitors, so each match needs
+    // a full word walk. The pre-continuity basket feeds the model gate only,
+    // so Claude's excluded answers are never matched.
+    const answer = (n: number) => `Answer ${n}: Demo Co, Rival and Other Tool are reviewed here.`
+    const month = (offset: number, model: string) => ['q-cat', 'q-alt'].flatMap((queryId, q) =>
+      ['openai', 'gemini'].map((provider, p) => row(queryId, { provider, model: `${provider}-${model}`, answerText: answer(offset + q * 2 + p) })))
+    const from = [...month(0, 'stable'), row('q-cat', { provider: 'claude', answerText: answer(8) })]
+    const to = [...month(4, 'stable'), row('q-cat', { provider: 'claude', model: 'claude-b', answerText: answer(9) })]
+    const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment')
+    try {
+      const dto = computeVisibilityCompare(input(from, to))
+      // 4 project mentions against 4 Rival + 4 Other Tool mentions per month.
+      expect(metricOf(dto, 'mention-share-of-voice').from).toMatchObject({ numerator: 4, denominator: 12 })
+      const walked = segment.mock.calls.map(([text]) => String(text)).filter(text => text.startsWith('answer '))
+      // 8 compared answers (2 queries x 2 engines x 2 months), 2 walks each.
+      expect(walked.length).toBeLessThanOrEqual(16)
+      expect(walked.some(text => text.startsWith('answer 8:') || text.startsWith('answer 9:'))).toBe(false)
+    } finally {
+      segment.mockRestore()
+    }
   })
 })

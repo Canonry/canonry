@@ -1,11 +1,13 @@
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import {
   CitationStates,
+  compileBrandAliases,
   compileQueryClassifier,
-  determineAnswerMentioned,
   hostOf,
   hostMatchesDomain,
+  matcherMatchesText,
   wilsonInterval,
+  type BrandAliasMatcher,
   type QueryClass,
   type VisibilityCompareDto,
   type VisibilityCompareMetric,
@@ -195,10 +197,19 @@ interface PeriodCounts {
   competitorCited: number // sum over competitors of snapshots citing that competitor
   queriesMentioned: number // distinct basket queries mentioned by >= 1 provider
   perProvider: Map<string, { checked: number; mentioned: number; cited: number }>
-  /** Raw provider evidence; classification stays shared with analytics trends. */
-  modelEvidence: Map<string, Array<string | null>>
   mentionShare: ReturnType<typeof buildMentionShare>
   competitors: VisibilityStatsShareCompetitor[]
+}
+
+/** Raw provider model evidence; classification stays shared with analytics trends. */
+function modelEvidenceOf(snaps: readonly Attributed[]): Map<string, Array<string | null>> {
+  const evidence = new Map<string, Array<string | null>>()
+  for (const snap of snaps) {
+    const models = evidence.get(snap.provider) ?? []
+    models.push(snap.model)
+    evidence.set(snap.provider, models)
+  }
+  return evidence
 }
 
 function countPeriod(
@@ -206,14 +217,13 @@ function countPeriod(
   competitors: VisibilityCompareCompetitorInput[],
   queryClassOf: (snap: Attributed) => QueryClass | null,
   classificationAvailable: boolean,
-  projectBrandNames: readonly string[],
+  projectMatcher: BrandAliasMatcher,
 ): PeriodCounts {
   let checked = 0
   let mentioned = 0
   let cited = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
-  const modelEvidence = new Map<string, Array<string | null>>()
   const mentionedQueries = new Set<string>()
 
   // Normalize competitor hosts once; a competitor with an unparseable domain
@@ -238,10 +248,6 @@ function countPeriod(
     if (isCited) pp.cited += 1
     perProvider.set(snap.provider, pp)
 
-    const models = modelEvidence.get(snap.provider) ?? []
-    models.push(snap.model)
-    modelEvidence.set(snap.provider, models)
-
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
     // competitor counting: a snapshot citing two competitors adds two).
     if (competitorHosts.length > 0 && snap.citedDomains.length > 0) {
@@ -259,7 +265,7 @@ function countPeriod(
       // Share uses current identity; named-rate counts above deliberately keep
       // their historical persisted-boolean semantics.
       projectMentioned: s.answerText
-        ? determineAnswerMentioned(s.answerText, [...projectBrandNames], [])
+        ? matcherMatchesText(projectMatcher, s.answerText)
         : s.answerMentioned === true,
       answerText: s.answerText,
       queryClass: queryClassOf(s),
@@ -276,7 +282,6 @@ function countPeriod(
     competitorCited,
     queriesMentioned: mentionedQueries.size,
     perProvider,
-    modelEvidence,
     mentionShare,
     competitors: mentionShare.breakdown.perCompetitor.map((c) => ({ domain: c.domain, mentions: c.mentionSnapshots })),
   }
@@ -311,6 +316,9 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const queryTextById = new Map(input.queries.map((q) => [q.id, q.query]))
   const queryClassOf = (snap: Attributed): QueryClass | null =>
     classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
+  // Compiled once for every answer; same identity rule as
+  // `determineAnswerMentioned(text, brandNames, [])`.
+  const projectMatcher = compileBrandAliases(input.brandNames ?? [])
 
   const fromObs = observed(input.from.snapshots, attribution)
   const toObs = observed(input.to.snapshots, attribution)
@@ -324,15 +332,15 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const toPairs = observedPairs(input.to.snapshots, attribution, queriesObservedBoth)
   const pairsBoth = new Map([...fromPairs].filter(([key]) => toPairs.has(key)))
   const candidateProviders = new Set([...pairsBoth.values()].map((pair) => pair.provider))
-  const fromCandidateSnaps = restrict(input.from.snapshots, attribution, pairsBoth)
-  const toCandidateSnaps = restrict(input.to.snapshots, attribution, pairsBoth)
-  const fromCandidateCounts = countPeriod(fromCandidateSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
-  const toCandidateCounts = countPeriod(toCandidateSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
+  // The pre-continuity basket decides which providers stay comparable, and that
+  // gate reads model evidence only. Its answers are matched once, below.
+  const fromCandidateModels = modelEvidenceOf(restrict(input.from.snapshots, attribution, pairsBoth))
+  const toCandidateModels = modelEvidenceOf(restrict(input.to.snapshots, attribution, pairsBoth))
   const continuityProviders = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromEvidence = classifyModelEvidence(fromCandidateCounts.modelEvidence.get(provider) ?? [])
-      const toEvidence = classifyModelEvidence(toCandidateCounts.modelEvidence.get(provider) ?? [])
+      const fromEvidence = classifyModelEvidence(fromCandidateModels.get(provider) ?? [])
+      const toEvidence = classifyModelEvidence(toCandidateModels.get(provider) ?? [])
       const fromModels = modelIds(fromEvidence)
       const toModels = modelIds(toEvidence)
       const status: VisibilityCompareProviderContinuityStatus =
@@ -367,8 +375,8 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromSnaps = restrict(input.from.snapshots, attribution, comparedPairs)
   const toSnaps = restrict(input.to.snapshots, attribution, comparedPairs)
 
-  const fromCounts = countPeriod(fromSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
-  const toCounts = countPeriod(toSnaps, input.competitors, queryClassOf, classificationAvailable, input.brandNames ?? [])
+  const fromCounts = countPeriod(fromSnaps, input.competitors, queryClassOf, classificationAvailable, projectMatcher)
+  const toCounts = countPeriod(toSnaps, input.competitors, queryClassOf, classificationAvailable, projectMatcher)
 
   const shareCounts = (c: PeriodCounts): { proj: number; comp: number } => ({
     proj: c.mentionShare.breakdown.projectMentionSnapshots,
@@ -435,8 +443,8 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const modelChanges = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromModels = modelIds(classifyModelEvidence(fromCandidateCounts.modelEvidence.get(provider) ?? []))
-      const toModels = modelIds(classifyModelEvidence(toCandidateCounts.modelEvidence.get(provider) ?? []))
+      const fromModels = modelIds(classifyModelEvidence(fromCandidateModels.get(provider) ?? []))
+      const toModels = modelIds(classifyModelEvidence(toCandidateModels.get(provider) ?? []))
       return { provider, fromModels, toModels }
     })
     .filter(
