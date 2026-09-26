@@ -1,12 +1,14 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, doctorHealthState, siteLivenessState, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import type { NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload } from '@ainyc/canonry-contracts'
+import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
+import { businessProfileReviewsCover } from '@ainyc/canonry-contracts'
 import type { RunCompletionOrigin } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
+import { isWithinAlertWindow } from './gbp-reviews.js'
 import { describeError } from '@ainyc/canonry-contracts'
 
 const log = createLogger('Notifier')
@@ -61,9 +63,13 @@ export const SITE_LIVENESS_MIN_PASS_GAP_MS = 4 * 60_000
  */
 export const SITE_LIVENESS_MAX_PASS_GAP_MS = 45 * 60_000
 
+type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookPayload | RatingWebhookPayload
+
 export class Notifier {
   private db: DatabaseClient
   private serverUrl: string
+  /** Projects with a review dispatch in progress; see {@link dispatchReviewAlerts}. */
+  private reviewDispatchInFlight = new Set<string>()
 
   constructor(db: DatabaseClient, serverUrl: string) {
     this.db = db
@@ -532,6 +538,177 @@ export class Notifier {
     }
   }
 
+  /**
+   * Send what a GBP sync queued: negative reviews (`review.negative`) and
+   * public rating drops (`review.rating-dropped`).
+   *
+   * The queue is the `alert_state` the sync writes, so nothing here decides
+   * what is news. This only decides whether a queued alert can still be sent:
+   *   - a Places signal for a location that Business Profile reviews now cover
+   *     (see `businessProfileReviewsCover`) is `suppressed`, so gaining v4
+   *     access never alerts twice;
+   *   - an alert older than the alert window is `stale`, so a webhook that was
+   *     down for weeks does not replay a month of reviews once it is fixed;
+   *   - with no enabled webhook subscribed, it is `skipped` rather than held,
+   *     so subscribing later starts from new reviews instead of a backlog.
+   * A row becomes `sent` only after a destination accepted it, and stays
+   * `pending` when every delivery failed, so the next sync retries it.
+   */
+  async dispatchReviewAlerts(projectId: string): Promise<{ reviews: number; ratingDrops: number; delivered: number }> {
+    const nothing = { reviews: 0, ratingDrops: 0, delivered: 0 }
+    // Two syncs finishing together would both read the same pending rows
+    // before either marks them sent. The later one skips; anything it queued
+    // stays pending for the next dispatch.
+    if (this.reviewDispatchInFlight.has(projectId)) return nothing
+    this.reviewDispatchInFlight.add(projectId)
+    try {
+      return await this.dispatchQueuedReviewAlerts(projectId)
+    } finally {
+      this.reviewDispatchInFlight.delete(projectId)
+    }
+  }
+
+  private async dispatchQueuedReviewAlerts(projectId: string): Promise<{ reviews: number; ratingDrops: number; delivered: number }> {
+    const pendingReviews = this.db.select().from(gbpReviews)
+      .where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.alertState, 'pending')))
+      .all()
+    const pendingRatings = this.db.select().from(gbpReviewRatings)
+      .where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.alertState, 'pending')))
+      .all()
+    if (pendingReviews.length === 0 && pendingRatings.length === 0) return { reviews: 0, ratingDrops: 0, delivered: 0 }
+
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) return { reviews: 0, ratingDrops: 0, delivered: 0 }
+
+    const now = new Date()
+    const nowIso = now.toISOString()
+    const locations = new Map(
+      this.db.select({
+        locationName: gbpLocations.locationName,
+        displayName: gbpLocations.displayName,
+        mapsUri: gbpLocations.mapsUri,
+        reviewsAccess: gbpLocations.reviewsAccess,
+      }).from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+        .map((loc) => [loc.locationName, loc]),
+    )
+    const v4HasWorked = new Set(
+      this.db.select({ locationName: gbpReviewRatings.locationName }).from(gbpReviewRatings)
+        .where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.origin, 'gbp')))
+        .all()
+        .map((row) => row.locationName),
+    )
+    const coveredByBusinessProfile = (locationName: string): boolean =>
+      businessProfileReviewsCover(locations.get(locationName)?.reviewsAccess ?? null, v4HasWorked.has(locationName))
+    const locationRef = (locationName: string): ReviewAlertLocation => {
+      const loc = locations.get(locationName)
+      return { name: locationName, displayName: loc?.displayName ?? locationName, mapsUri: loc?.mapsUri ?? null }
+    }
+    const setReviewState = (ids: string[], alertState: GbpReviewAlertState): void => {
+      if (ids.length === 0) return
+      this.db.update(gbpReviews).set({ alertState, alertStateAt: nowIso }).where(inArray(gbpReviews.id, ids)).run()
+    }
+    const setRatingState = (ids: string[], alertState: GbpReviewAlertState): void => {
+      if (ids.length === 0) return
+      this.db.update(gbpReviewRatings).set({ alertState, alertStateAt: nowIso }).where(inArray(gbpReviewRatings.id, ids)).run()
+    }
+
+    const reviewsToSend: typeof pendingReviews = []
+    for (const row of pendingReviews) {
+      if (row.origin === 'places' && coveredByBusinessProfile(row.locationName)) setReviewState([row.id], 'suppressed')
+      else if (!isWithinAlertWindow(row.updateTime, now)) setReviewState([row.id], 'stale')
+      else if (row.starRating === null) setReviewState([row.id], 'none')
+      else reviewsToSend.push(row)
+    }
+    const ratingsToSend: typeof pendingRatings = []
+    for (const row of pendingRatings) {
+      if (coveredByBusinessProfile(row.locationName)) setRatingState([row.id], 'suppressed')
+      else if (!isWithinAlertWindow(row.firstObservedAt, now)) setRatingState([row.id], 'stale')
+      else if (row.rating === null || row.previousRating === null) setRatingState([row.id], 'none')
+      else ratingsToSend.push(row)
+    }
+
+    const enabled = this.db.select().from(notifications)
+      .where(eq(notifications.projectId, projectId)).all()
+      .filter((n) => n.enabled && n.config.url)
+    const subscribedTo = (event: NotificationEvent) =>
+      enabled.filter((n) => ((n.config.events ?? []) as string[]).includes(event))
+    const projectRef = { name: project.name, canonicalDomain: project.canonicalDomain }
+    const dashboardUrl = `${this.serverUrl}/projects/${project.name}`
+
+    let delivered = 0
+    const sendAll = async (event: NotificationEvent, payload: ReviewWebhookPayload | RatingWebhookPayload): Promise<number> => {
+      let accepted = 0
+      for (const notif of subscribedTo(event)) {
+        if (await this.sendWebhook(notif.config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)) accepted += 1
+      }
+      return accepted
+    }
+
+    if (reviewsToSend.length > 0) {
+      const ids = reviewsToSend.map((r) => r.id)
+      if (subscribedTo('review.negative').length === 0) {
+        setReviewState(ids, 'skipped')
+      } else {
+        reviewsToSend.sort((a, b) => a.updateTime.localeCompare(b.updateTime))
+        const payload: ReviewWebhookPayload = {
+          source: 'canonry',
+          event: 'review.negative',
+          project: projectRef,
+          reviews: reviewsToSend.map((r) => ({
+            location: locationRef(r.locationName),
+            origin: r.origin,
+            reviewName: r.reviewName,
+            starRating: r.starRating!,
+            comment: r.comment,
+            reviewerName: r.reviewerName,
+            createTime: r.createTime,
+            updateTime: r.updateTime,
+            replied: r.origin === 'places' ? null : r.replyComment !== null,
+            reviewUri: r.reviewUri,
+          })),
+          dashboardUrl,
+        }
+        const accepted = await sendAll('review.negative', payload)
+        if (accepted > 0) setReviewState(ids, 'sent')
+        delivered += accepted
+      }
+    }
+
+    if (ratingsToSend.length > 0) {
+      const ids = ratingsToSend.map((r) => r.id)
+      if (subscribedTo('review.rating-dropped').length === 0) {
+        setRatingState(ids, 'skipped')
+      } else {
+        const payload: RatingWebhookPayload = {
+          source: 'canonry',
+          event: 'review.rating-dropped',
+          project: projectRef,
+          ratings: ratingsToSend.map((r) => ({
+            location: locationRef(r.locationName),
+            origin: r.origin,
+            previousRating: r.previousRating!,
+            rating: r.rating!,
+            previousReviewCount: r.previousReviewCount,
+            reviewCount: r.reviewCount,
+            observedAt: r.firstObservedAt,
+          })),
+          dashboardUrl,
+        }
+        const accepted = await sendAll('review.rating-dropped', payload)
+        if (accepted > 0) setRatingState(ids, 'sent')
+        delivered += accepted
+      }
+    }
+
+    log.info('reviews.dispatched', {
+      projectId,
+      reviews: reviewsToSend.length,
+      ratingDrops: ratingsToSend.length,
+      delivered,
+    })
+    return { reviews: reviewsToSend.length, ratingDrops: ratingsToSend.length, delivered }
+  }
+
   private computeTransitions(runId: string, projectId: string): Array<{
     query: string; from: string; to: string; provider: string; location: string | null
   }> {
@@ -716,7 +893,7 @@ export class Notifier {
   }
 
   /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
-  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
+  private async sendWebhook(url: string, payload: AnyWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
     // A chat webhook IS a webhook whose body has to look a particular way, so
     // the destination is resolved from the URL rather than declared on the
     // stored notification. Discord and Slack both reject arbitrary JSON;

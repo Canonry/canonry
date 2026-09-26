@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
-import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog } from '@ainyc/canonry-db'
+import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 interface StoredConnection {
@@ -499,6 +499,8 @@ describe('GBP routes (Phase 1)', () => {
       ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
       ctx.db.insert(gbpAttributesSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'a1', attributes: [{ name: 'attributes/has_wheelchair_accessible_entrance', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] }], attributeCount: 1, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
       ctx.db.insert(gbpPlaceDetails).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeId: 'ChIJlocation1', contentHash: 'p1', tier: 'atmosphere', attributes: { servesBreakfast: true }, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpReviews).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', origin: 'gbp', reviewName: 'accounts/123/locations/1/reviews/r', starRating: 2, updateTime: '2026-05-01T00:00:00.000Z', firstSeenAt: '2026-05-01T00:00:00.000Z', lastSeenAt: '2026-05-01T00:00:00.000Z', alertState: 'sent' }).run()
+      ctx.db.insert(gbpReviewRatings).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', origin: 'gbp', rating: 4.1, reviewCount: 9, firstObservedAt: '2026-05-01T00:00:00.000Z', observedAt: '2026-05-01T00:00:00.000Z', alertState: 'baseline' }).run()
 
       // Sanity: both locations persisted
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().length).toBe(2)
@@ -519,6 +521,9 @@ describe('GBP routes (Phase 1)', () => {
       // Owner attributes and Places listing snapshots too, or /gbp/attributes and /gbp/places keep serving them.
       expect(ctx.db.select().from(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).all().length).toBe(0)
+      // Reviews and their rating history go too, so a reconnect starts from a fresh baseline.
+      expect(ctx.db.select().from(gbpReviews).where(eq(gbpReviews.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })
@@ -712,6 +717,87 @@ describe('GBP routes (Phase 1)', () => {
       ctx.seedProject('hotels', 'hotels.example.com')
       const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/places' })
       expect(res.json()).toEqual({ places: [], total: 0 })
+    })
+  })
+  describe('GET /gbp/reviews', () => {
+    function seedReviews(projectId: string) {
+      const now = new Date().toISOString()
+      ctx.db.insert(gbpLocations).values([
+        { id: 'l1', projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'Bayport', selected: true, reviewsAccess: 'unavailable', reviewsAccessReason: 'SERVICE_DISABLED', reviewsCheckedAt: now, createdAt: now, updatedAt: now },
+        { id: 'l2', projectId, accountName: 'accounts/1', locationName: 'locations/2', displayName: 'Anchor', selected: true, reviewsAccess: 'ok', reviewsCheckedAt: now, createdAt: now, updatedAt: now },
+        { id: 'l3', projectId, accountName: 'accounts/1', locationName: 'locations/3', displayName: 'Closed', selected: false, createdAt: now, updatedAt: now },
+      ]).run()
+      ctx.db.insert(gbpReviewRatings).values([
+        // locations/1 lost v4 access: the Places row is the one still advancing.
+        { id: 'g1', projectId, locationName: 'locations/1', origin: 'gbp', rating: 4.3, reviewCount: 50, firstObservedAt: '2026-04-01T00:00:00.000Z', observedAt: '2026-04-01T00:00:00.000Z', alertState: 'baseline' },
+        { id: 'p1', projectId, locationName: 'locations/1', origin: 'places', rating: 4.2, reviewCount: 55, firstObservedAt: '2026-05-01T00:00:00.000Z', observedAt: '2026-05-20T00:00:00.000Z', alertState: 'none' },
+        { id: 'g2', projectId, locationName: 'locations/2', origin: 'gbp', rating: 4.9, reviewCount: 12, firstObservedAt: '2026-05-01T00:00:00.000Z', observedAt: '2026-05-21T00:00:00.000Z', alertState: 'baseline' },
+      ]).run()
+      const review = (id: string, locationName: string, origin: 'gbp' | 'places', starRating: number | null, updateTime: string, extra: Record<string, unknown> = {}) => ({
+        id, projectId, locationName, origin, reviewName: `${locationName}/reviews/${id}`, starRating, comment: `Comment ${id}`,
+        reviewerName: null, createTime: updateTime, updateTime, firstSeenAt: updateTime, lastSeenAt: now, alertState: 'none' as const, ...extra,
+      })
+      ctx.db.insert(gbpReviews).values([
+        review('a', 'locations/2', 'gbp', 5, '2026-05-02T00:00:00.000Z'),
+        review('b', 'locations/2', 'gbp', 2, '2026-05-03T00:00:00.000Z', { replyComment: 'Sorry.', alertState: 'sent' }),
+        review('c', 'locations/1', 'places', 1, '2026-05-04T00:00:00.000Z', { reviewUri: 'https://www.google.com/maps/reviews/c', alertState: 'pending' }),
+        review('d', 'locations/1', 'places', null, '2026-05-01T00:00:00.000Z'),
+      ]).run()
+    }
+
+    it('lists reviews newest first with the server-derived fields, and each selected location\'s state', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      seedReviews(projectId)
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews' })
+      expect(res.statusCode).toBe(200)
+      const body = gbpReviewListResponseSchema.parse(res.json())
+      expect(body.total).toBe(4)
+      expect(body.reviews.map((r) => [r.reviewName.split('/').at(-1), r.negative, r.replied])).toEqual([
+        ['c', true, null],
+        ['b', true, true],
+        ['a', false, false],
+        ['d', false, null],
+      ])
+      expect(body.reviews[0]).toMatchObject({ origin: 'places', alertState: 'pending', reviewUri: 'https://www.google.com/maps/reviews/c' })
+      expect(body.locations).toEqual([
+        {
+          locationName: 'locations/2', displayName: 'Anchor', reviewsAccess: 'ok', reviewsAccessReason: null,
+          reviewsCheckedAt: expect.any(String), rating: 4.9, reviewCount: 12, ratingOrigin: 'gbp', ratingObservedAt: '2026-05-21T00:00:00.000Z',
+        },
+        {
+          locationName: 'locations/1', displayName: 'Bayport', reviewsAccess: 'unavailable', reviewsAccessReason: 'SERVICE_DISABLED',
+          reviewsCheckedAt: expect.any(String), rating: 4.2, reviewCount: 55, ratingOrigin: 'places', ratingObservedAt: '2026-05-20T00:00:00.000Z',
+        },
+      ])
+    })
+
+    it('filters to negative reviews, one location, and a limit, counting the total before the limit', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      seedReviews(projectId)
+
+      const negative = (await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews?negative=true&limit=1' })).json() as { total: number; reviews: Array<{ reviewName: string }> }
+      expect(negative.total).toBe(2)
+      expect(negative.reviews.map((r) => r.reviewName)).toEqual(['locations/1/reviews/c'])
+
+      const one = (await ctx.app.inject({ method: 'GET', url: `/projects/hotels/gbp/reviews?locationName=${encodeURIComponent('locations/3')}` })).json() as { total: number; locations: Array<{ locationName: string; reviewsAccess: string | null }> }
+      // An unselected location can still be asked for by name.
+      expect(one.locations).toMatchObject([{ locationName: 'locations/3', reviewsAccess: null }])
+      expect(one.total).toBe(0)
+    })
+
+    it('rejects a malformed limit or flag', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      for (const query of ['limit=0', 'limit=501', 'limit=abc', 'negative=maybe']) {
+        const res = await ctx.app.inject({ method: 'GET', url: `/projects/hotels/gbp/reviews?${query}` })
+        expect(res.statusCode, query).toBe(400)
+      }
+    })
+
+    it('returns empty lists before any sync', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews' })
+      expect(res.json()).toEqual({ locations: [], reviews: [], total: 0 })
     })
   })
 })

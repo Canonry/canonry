@@ -24,6 +24,31 @@ export interface PlaceParkingOptions {
   paidGarageParking?: boolean
 }
 
+/** Review author as the public listing shows it. */
+export interface PlaceAuthorAttribution {
+  displayName?: string
+  uri?: string
+  photoUri?: string
+}
+
+/**
+ * One review from the public listing. `name` is "places/{placeId}/reviews/{id}".
+ * `publishTime` is when it was posted; the listing carries no edit time.
+ * `relativePublishTimeDescription` ("2 weeks ago") changes as time passes, so
+ * nothing should hash or compare on it.
+ */
+export interface PlaceReview {
+  name?: string
+  relativePublishTimeDescription?: string
+  rating?: number
+  text?: PlaceLocalizedText
+  originalText?: PlaceLocalizedText
+  authorAttribution?: PlaceAuthorAttribution
+  publishTime?: string
+  flagContentUri?: string
+  googleMapsUri?: string
+}
+
 /**
  * Place Details (New) response, trimmed to the fields canonry requests. The
  * amenity booleans + `editorialSummary` come from the Enterprise + Atmosphere
@@ -50,6 +75,11 @@ export interface PlaceDetails {
   allowsDogs?: boolean
   outdoorSeating?: boolean
   reservable?: boolean
+  // Review signals (PLACES_REVIEW_SIGNAL_FIELDS), requested separately from
+  // the amenity snapshot.
+  rating?: number
+  userRatingCount?: number
+  reviews?: PlaceReview[]
 }
 
 /**

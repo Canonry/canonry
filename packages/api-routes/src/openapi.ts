@@ -4174,6 +4174,23 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/gbp/reviews',
+    summary: 'List stored Google Business Profile reviews and each location\'s review access and rating',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+      { in: 'query', name: 'negative', required: false, description: 'Only 1-3 star reviews, the review.negative webhook threshold', schema: booleanSchema },
+      { in: 'query', name: 'limit', required: false, description: 'Max reviews, newest first. Default 50, maximum 500.', schema: integerSchema },
+    ],
+    responses: {
+      200: jsonResponse('Reviews returned.', 'GbpReviewListResponse'),
+      400: errorResponse('Invalid negative or limit.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/gbp/summary',
     summary: 'Composite Google Business Profile local-AEO summary (all derived metrics)',
     tags: ['gbp'],

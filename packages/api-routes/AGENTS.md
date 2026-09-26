@@ -429,7 +429,8 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `POST /gbp/locations/discover` (resolves the account: explicit `accountName` > the account the project already tracks > first visible; re-pointing a project at a different account is destructive and requires `switchAccount: true`, which clears the old account's footprint via the shared `clearGbpProjectData` helper) + select/deselect.
 - `POST /gbp/sync` (creates the `gbp-sync` run, fires `onGbpSyncRequested`).
 - The read endpoints `GET /gbp/locations`, `/gbp/metrics`, `/gbp/keywords`, `/gbp/place-actions`, `/gbp/lodging` (collapses to the latest snapshot per location), and `/gbp/summary` (scopes to the project's SELECTED locations — deselected/stale rows never pollute the aggregate, and `locationCount` matches the data covered — passes the server `asOfDate` to `buildGbpSummary`, which derives the complete-day anchor + freshness + daily timeseries from the data).
-- `DELETE /gbp/connection` clears the project's whole GBP footprint (locations + all synced surfaces), not just the connection.
+- `GET /gbp/reviews` (stored reviews newest first, `locationName` / `negative` / `limit` filters, `total` counted before the limit; plus each selected location's v4 `reviewsAccess` and its latest rating from whichever origin was observed most recently). `negative` and `replied` are derived here, with the threshold from `isNegativeReviewRating` in contracts, so no client re-derives them.
+- `DELETE /gbp/connection` clears the project's whole GBP footprint (locations + all synced surfaces, including reviews and rating history), not just the connection.
 
 `src/gbp-summary.ts` — pure GBP summary calculation module (no DB, no I/O):
 

@@ -14,9 +14,11 @@ import {
   gbpPlaceDetails,
   gbpLodgingSnapshots,
   gbpAttributesSnapshots,
+  gbpReviews,
+  gbpReviewRatings,
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
-import { hashLodging, countPopulatedGroups, hashAttributes, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
+import { hashLodging, countPopulatedGroups, hashAttributes, GbpApiError, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -28,6 +30,8 @@ const listPlaceActionLinksMock = vi.fn()
 const getLodgingMock = vi.fn()
 const getAttributesMock = vi.fn()
 const getPlaceDetailsMock = vi.fn()
+const listReviewsMock = vi.fn()
+const getPlaceReviewSignalsMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
 vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
@@ -42,6 +46,7 @@ vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
     listPlaceActionLinks: (...a: unknown[]) => listPlaceActionLinksMock(...a),
     getLodging: (...a: unknown[]) => getLodgingMock(...a),
     getAttributes: (...a: unknown[]) => getAttributesMock(...a),
+    listReviews: (...a: unknown[]) => listReviewsMock(...a),
   }
 })
 vi.mock('@ainyc/canonry-integration-google', async () => {
@@ -55,8 +60,19 @@ vi.mock('@ainyc/canonry-integration-google-places', async () => {
   const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-places')>(
     '@ainyc/canonry-integration-google-places',
   )
-  return { ...actual, getPlaceDetails: (...a: unknown[]) => getPlaceDetailsMock(...a) }
+  return {
+    ...actual,
+    getPlaceDetails: (...a: unknown[]) => getPlaceDetailsMock(...a),
+    getPlaceReviewSignals: (...a: unknown[]) => getPlaceReviewSignalsMock(...a),
+  }
 })
+
+/** The gated-v4 response most installs get: the legacy API is not enabled for the Cloud project. */
+function serviceDisabled(): GbpApiError {
+  return new GbpApiError('Google My Business API has not been used in project 123 before or it is disabled.', 403, 'SERVICE_DISABLED', {
+    error: { code: 403, status: 'PERMISSION_DENIED', details: [{ reason: 'SERVICE_DISABLED' }] },
+  })
+}
 
 const DOMAIN = 'harborline.example.com'
 const LOCATION = 'locations/12345'
@@ -158,6 +174,8 @@ beforeEach(() => {
   getLodgingMock.mockResolvedValue(null)
   getAttributesMock.mockResolvedValue([])
   getPlaceDetailsMock.mockResolvedValue({ id: 'place_default', servesBreakfast: true, allowsDogs: false })
+  listReviewsMock.mockRejectedValue(serviceDisabled())
+  getPlaceReviewSignalsMock.mockResolvedValue({ rating: null, userRatingCount: null, reviews: [] })
   // Month-aware: a per-month call (startMonth === endMonth) returns a count
   // derived from the month so the test can assert which month was stored; the
   // legacy trailing-window call (startMonth !== endMonth) returns one aggregate.
@@ -679,6 +697,284 @@ describe('executeGbpSync — owner-set attributes snapshot', () => {
       ]
       expect(rows).toHaveLength(2)
       expect(rows.map((r) => r.contentHash).sort()).toEqual(expectedHashes.sort())
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync — reviews', () => {
+  const PLACE_ID = 'ChIJharborline'
+  const HOUR = 3_600_000
+  const DAY = 24 * HOUR
+
+  function ago(ms: number): string {
+    return new Date(Date.now() - ms).toISOString()
+  }
+
+  function v4Review(id: string, starRating: number, updateTime: string, extra: Partial<Record<string, unknown>> = {}) {
+    return {
+      reviewName: `accounts/1/${LOCATION}/reviews/${id}`,
+      starRating,
+      comment: `Comment ${id}`,
+      reviewerName: `Reviewer ${id}`,
+      createTime: updateTime,
+      updateTime,
+      replyComment: null,
+      replyUpdateTime: null,
+      ...extra,
+    }
+  }
+
+  function placeReview(id: string, starRating: number, publishTime: string) {
+    return {
+      reviewName: `places/${PLACE_ID}/reviews/${id}`,
+      starRating,
+      comment: `Comment ${id}`,
+      reviewerName: `Reviewer ${id}`,
+      publishTime,
+      googleMapsUri: `https://www.google.com/maps/reviews/${id}`,
+    }
+  }
+
+  function reviewsByName(db: ReturnType<typeof createClient>) {
+    const rows = db.select().from(gbpReviews).where(eq(gbpReviews.projectId, 'proj_gbp')).all()
+    return new Map(rows.map((r) => [r.reviewName.split('/').at(-1)!, r]))
+  }
+
+  function ratingRows(db: ReturnType<typeof createClient>) {
+    return db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, 'proj_gbp')).all()
+      .sort((a, b) => a.firstObservedAt.localeCompare(b.firstObservedAt))
+  }
+
+  function location(db: ReturnType<typeof createClient>) {
+    return db.select().from(gbpLocations).where(eq(gbpLocations.id, 'loc_1')).get()!
+  }
+
+  const placesOn = (): CanonryConfig => ({ ...testConfig(), places: { apiKey: 'K', tier: 'atmosphere' } })
+
+  /** Moves every stored Places fetch a day earlier, as if the next sync ran a day later. Order is preserved. */
+  function aDayPasses(db: ReturnType<typeof createClient>) {
+    for (const row of db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.origin, 'places')).all()) {
+      db.update(gbpReviewRatings)
+        .set({ observedAt: new Date(Date.parse(row.observedAt) - DAY).toISOString() })
+        .where(eq(gbpReviewRatings.id, row.id))
+        .run()
+    }
+  }
+
+  test('the first Business Profile sync records a silent baseline, even for a recent 1-star review', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      listReviewsMock.mockResolvedValue({
+        reviews: [v4Review('bad', 1, ago(2 * HOUR)), v4Review('good', 5, ago(3 * DAY))],
+        averageRating: 4.2,
+        totalReviewCount: 2,
+        stoppedEarly: false,
+      })
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesOn() })
+
+      // Every page is read before a baseline exists.
+      expect(listReviewsMock).toHaveBeenCalledWith('tok', 'accounts/1', LOCATION, { stopBefore: null })
+      const reviews = reviewsByName(db)
+      expect(reviews.get('bad')!.alertState).toBe('baseline')
+      expect(reviews.get('good')!.alertState).toBe('baseline')
+      expect(ratingRows(db)).toMatchObject([{ origin: 'gbp', rating: 4.2, reviewCount: 2, alertState: 'baseline' }])
+      expect(location(db)).toMatchObject({ reviewsAccess: 'ok', reviewsAccessReason: null })
+      // With Business Profile access, the paid Places fallback is not called.
+      expect(getPlaceReviewSignalsMock).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a later sync queues only the new negative review and pages back to a week before the newest stored one', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      const known = v4Review('known', 5, ago(10 * DAY))
+      listReviewsMock.mockResolvedValue({ reviews: [known], averageRating: 5, totalReviewCount: 1, stoppedEarly: false })
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      seedRun(db, 'run_2')
+      listReviewsMock.mockResolvedValue({
+        reviews: [v4Review('bad', 2, ago(HOUR)), v4Review('fine', 4, ago(2 * HOUR)), known],
+        averageRating: 3.7,
+        totalReviewCount: 3,
+        stoppedEarly: false,
+      })
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      const stopBefore = (listReviewsMock.mock.calls[1]![3] as { stopBefore: string }).stopBefore
+      expect(stopBefore).toBe(new Date(Date.parse(known.updateTime) - 7 * DAY).toISOString())
+      const reviews = reviewsByName(db)
+      expect(reviews.get('bad')!.alertState).toBe('pending')
+      expect(reviews.get('fine')!.alertState).toBe('none')
+      expect(reviews.get('known')!.alertState).toBe('baseline')
+      // A falling Business Profile average never alerts on its own: each review already does.
+      expect(ratingRows(db).map((r) => [r.rating, r.alertState])).toEqual([[5, 'baseline'], [3.7, 'none']])
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('an edit that lowers the rating queues an alert; a new timestamp or an owner reply alone does not', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      listReviewsMock.mockResolvedValue({
+        reviews: [v4Review('edited', 5, ago(5 * DAY)), v4Review('replied', 1, ago(6 * DAY))],
+        averageRating: 3,
+        totalReviewCount: 2,
+        stoppedEarly: false,
+      })
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      seedRun(db, 'run_2')
+      listReviewsMock.mockResolvedValue({
+        reviews: [
+          v4Review('edited', 2, ago(HOUR), { comment: 'Changed my mind.' }),
+          v4Review('replied', 1, ago(2 * HOUR), { replyComment: 'We are sorry.', replyUpdateTime: ago(2 * HOUR) }),
+        ],
+        averageRating: 1.5,
+        totalReviewCount: 2,
+        stoppedEarly: false,
+      })
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      const reviews = reviewsByName(db)
+      expect(reviews.get('edited')).toMatchObject({ alertState: 'pending', starRating: 2, comment: 'Changed my mind.' })
+      expect(reviews.get('replied')).toMatchObject({ alertState: 'baseline', replyComment: 'We are sorry.' })
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a negative review first seen after the alert window is recorded as stale', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      listReviewsMock.mockResolvedValue({ reviews: [], averageRating: null, totalReviewCount: null, stoppedEarly: false })
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      seedRun(db, 'run_2')
+      listReviewsMock.mockResolvedValue({ reviews: [v4Review('old', 1, ago(45 * DAY))], averageRating: 1, totalReviewCount: 1, stoppedEarly: false })
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      // A location with no reviews still gets a baseline marker, so its first review is not swallowed as baseline.
+      expect(reviewsByName(db).get('old')!.alertState).toBe('stale')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('gated v4 is recorded on the location, does not fail the run, and falls back to Places', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getPlaceReviewSignalsMock.mockResolvedValue({
+        rating: 4.6,
+        userRatingCount: 212,
+        reviews: [placeReview('p1', 5, ago(20 * DAY))],
+      })
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesOn() })
+
+      expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
+      expect(location(db)).toMatchObject({ reviewsAccess: 'unavailable', reviewsAccessReason: 'SERVICE_DISABLED' })
+      expect(location(db).reviewsCheckedAt).toBeTruthy()
+      expect(getPlaceReviewSignalsMock).toHaveBeenCalledWith(PLACE_ID, 'K')
+      expect(reviewsByName(db).get('p1')).toMatchObject({ origin: 'places', alertState: 'baseline', reviewUri: 'https://www.google.com/maps/reviews/p1' })
+      expect(ratingRows(db)).toMatchObject([{ origin: 'places', rating: 4.6, reviewCount: 212, alertState: 'baseline' }])
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('the Places fallback only runs on the atmosphere tier, with a key, for a location on Maps', async () => {
+    for (const [config, placeId] of [
+      [{ ...testConfig(), places: { apiKey: 'K', tier: 'pro' } }, PLACE_ID],
+      [{ ...testConfig(), places: { tier: 'atmosphere' } }, PLACE_ID],
+      [placesOn(), undefined],
+    ] as Array<[CanonryConfig, string | undefined]>) {
+      const { db, tmpDir } = createTempDb()
+      try {
+        getPlaceReviewSignalsMock.mockClear()
+        seedProject(db, { placeId })
+        seedRun(db, 'run_1')
+        await executeGbpSync(db, 'run_1', 'proj_gbp', { config })
+        expect(getPlaceReviewSignalsMock).not.toHaveBeenCalled()
+        expect(ratingRows(db)).toHaveLength(0)
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test('Places: a falling rating and a new low review are queued; an old one surfacing by relevance is stale', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getPlaceReviewSignalsMock.mockResolvedValue({ rating: 4.6, userRatingCount: 100, reviews: [placeReview('p1', 5, ago(20 * DAY))] })
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesOn() })
+
+      aDayPasses(db)
+      seedRun(db, 'run_2')
+      getPlaceReviewSignalsMock.mockResolvedValue({
+        rating: 4.5,
+        userRatingCount: 101,
+        reviews: [placeReview('p2', 2, ago(3 * HOUR)), placeReview('p1', 5, ago(20 * DAY)), placeReview('p0', 1, ago(200 * DAY))],
+      })
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: placesOn() })
+
+      const reviews = reviewsByName(db)
+      expect(reviews.get('p2')!.alertState).toBe('pending')
+      expect(reviews.get('p0')!.alertState).toBe('stale')
+      expect(reviews.get('p1')!.alertState).toBe('baseline')
+      const ratings = ratingRows(db)
+      expect(ratings).toHaveLength(2)
+      expect(ratings[1]).toMatchObject({
+        rating: 4.5, reviewCount: 101, previousRating: 4.6, previousReviewCount: 100, alertState: 'pending',
+      })
+
+      // A second sync the same day does not call Places again.
+      seedRun(db, 'run_3')
+      await executeGbpSync(db, 'run_3', 'proj_gbp', { config: placesOn() })
+      expect(getPlaceReviewSignalsMock).toHaveBeenCalledTimes(2)
+
+      // The next day, an unchanged rating re-stamps the latest row instead of adding one.
+      aDayPasses(db)
+      seedRun(db, 'run_4')
+      await executeGbpSync(db, 'run_4', 'proj_gbp', { config: placesOn() })
+      expect(getPlaceReviewSignalsMock).toHaveBeenCalledTimes(3)
+      const latest = ratingRows(db)
+      expect(latest).toHaveLength(2)
+      expect(latest[1]).toMatchObject({ rating: 4.5, alertState: 'pending', syncRunId: 'run_4' })
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a transient v4 failure is recorded as an error and leaves the rest of the sync intact', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      listReviewsMock.mockRejectedValue(new GbpApiError('Backend Error', 500, null, {}))
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
+      expect(location(db)).toMatchObject({ reviewsAccess: 'error', reviewsAccessReason: 'HTTP_500' })
+      expect(db.select().from(gbpReviews).all()).toHaveLength(0)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

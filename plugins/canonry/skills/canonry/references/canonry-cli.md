@@ -761,6 +761,11 @@ cnry gbp places <project> [--location locations/{n}]
                                                    # latest Places-API rendered-listing snapshot per location: the
                                                    # server-derived `amenities` the public listing advertises (#648 cross-reference).
                                                    # Needs a Places API key (places.apiKey / GOOGLE_PLACES_API_KEY)
+cnry gbp reviews <project> [--location locations/{n}] [--negative] [--limit N]
+                                                   # stored reviews newest first, plus each location's Business Profile
+                                                   # review access (ok / unavailable + reason / error) and latest rating.
+                                                   # --negative keeps 1-3 star reviews (the review.negative threshold);
+                                                   # each review carries its webhook alertState
 cnry gbp summary <project> [--location locations/{n}]
                                                    # composite scorecard: performance totals + recent-vs-prior 7d
                                                    # deltas (deltaPct null when prior=0), keyword coverage,
@@ -769,7 +774,11 @@ cnry gbp summary <project> [--location locations/{n}]
                                                    # description / service area / hours / phone + closed-status counts)
 ```
 
-`gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). Reviews are **not** synced — the v4 Reviews API is producer-restricted by Google and unavailable on most projects; the Q&A API was retired (2025-11-03).
+`gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). The Q&A API was retired (2025-11-03).
+
+Reviews sync from the v4 Reviews API when Google has enabled it for the Cloud project. Most projects get `403 SERVICE_DISABLED`, which never fails the run: `gbp reviews` shows it per location, and the `gbp.reviews.access` doctor check explains how to request access. Without v4 access, locations fall back to the public Places listing when Places runs on the `atmosphere` tier with a key: the overall rating and at most five reviews chosen by relevance, so a new review can be missed. That fallback is at most one Place Details call per location per day, billed at Enterprise + Atmosphere.
+
+Review webhooks: subscribe with `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. `review.negative` is sent once per new or edited review rated 1-3 stars; `review.rating-dropped` when a location's public rating falls (Places fallback only). A location's first sync records a baseline and sends nothing, a review older than 30 days never alerts, and nothing is held for a webhook added later. Discord and Slack URLs get a formatted message.
 
 ## Google Ads + Google Tag Manager conversion integrity
 

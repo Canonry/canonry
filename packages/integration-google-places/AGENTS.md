@@ -24,6 +24,7 @@ fuzzy text-search step.
 | File | Role |
 |------|------|
 | `src/place-details-client.ts` | `getPlaceDetails(placeId, apiKey, opts)` — GET `/v1/places/{placeId}`; `buildPlaceDetailsFieldMask(tier)` — tier → field mask |
+| `src/review-signals.ts` | `getPlaceReviewSignals(placeId, apiKey)` — Place Details with the `PLACES_REVIEW_SIGNAL_FIELDS` mask (`id,rating,userRatingCount,reviews`), reduced by `toPlaceReviewSignals` to the rating, the count, and at most five reviews (original-language text first, timestamps normalized to millisecond ISO). The review-alert fallback for GBP locations without v4 reviews access. |
 | `src/http.ts` | `placesFetchGet` — shared GET helper: `X-Goog-Api-Key` + `X-Goog-FieldMask` headers, `withRetry` (retries 429/503 only), maps non-2xx → `PlacesApiError` (carries HTTP status + `error.status` reason) |
 | `src/constants.ts` | `PLACES_API_BASE`, request timeout, and the `PlacesTier` field-mask tiers (`PLACES_PRO_FIELDS`, `PLACES_ATMOSPHERE_FIELDS`) |
 | `src/types.ts` | `PlaceDetails` (trimmed to requested fields), `PlacesApiError`, `PlacesFetchOptions` |
@@ -38,6 +39,14 @@ The tiers this package exposes:
 |------|-----|-----------|------|--------|
 | `pro` | Place Details Pro | 5,000 | $17/1k | IDs, types, Maps link, website, `accessibilityOptions` |
 | `atmosphere` | Place Details Enterprise + Atmosphere | **1,000** | $25/1k | Pro **+** amenity booleans (`servesBreakfast`, `allowsDogs`, `parkingOptions`, …) + `editorialSummary` |
+
+The review-signal mask (`PLACES_REVIEW_SIGNAL_FIELDS`) bills at Enterprise +
+Atmosphere too (`reviews` is an Atmosphere field; `rating` and
+`userRatingCount` are Enterprise), which is why the sync only makes that call on
+the `atmosphere` tier. The sync makes it at most once per location per 20 hours, for locations
+without Business Profile review access, and it shares the Atmosphere free tier
+with the amenity refresh: 30 such locations are about 900 calls a month. Keep review fields out of the amenity tiers so their SKU and their
+snapshot hash stay unchanged.
 
 The amenity booleans (the cross-reference signal) only exist at the Atmosphere
 SKU. For a typical operator book — a handful of hotels on a weekly Places refresh

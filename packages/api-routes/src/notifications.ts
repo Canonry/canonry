@@ -3,14 +3,16 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { notifications } from '@ainyc/canonry-db'
 import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
-import { validationError, notFound, deliveryFailed } from '@ainyc/canonry-contracts'
+import { notificationEventSchema, validationError, notFound, deliveryFailed } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 import { toAlertView } from './notifications/alert.js'
 import { resolveDestination } from './notifications/destinations.js'
 
-const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed', 'insight.critical', 'insight.high', 'health.degraded', 'health.recovered']
+// Derived from the contract so a new event cannot be emitted by the notifier
+// yet rejected when someone tries to subscribe to it.
+const VALID_EVENTS: readonly NotificationEvent[] = notificationEventSchema.options
 
 export interface NotificationRoutesOptions {
   /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */

@@ -3657,6 +3657,40 @@ export type GbpPlaceDetailsListResponse = {
     total: number;
 };
 
+export type GbpReviewListResponse = {
+    locations: Array<{
+        locationName: string;
+        displayName: string;
+        reviewsAccess: 'ok' | 'unavailable' | 'error';
+        reviewsAccessReason: string | null;
+        reviewsCheckedAt: string | null;
+        rating: number | null;
+        reviewCount: number | null;
+        ratingOrigin: 'gbp' | 'places';
+        ratingObservedAt: string | null;
+    }>;
+    reviews: Array<{
+        locationName: string;
+        origin: 'gbp' | 'places';
+        reviewName: string;
+        starRating: number | null;
+        negative: boolean;
+        comment: string | null;
+        reviewerName: string | null;
+        createTime: string | null;
+        updateTime: string;
+        replied: boolean | null;
+        replyComment: string | null;
+        replyUpdateTime: string | null;
+        reviewUri: string | null;
+        firstSeenAt: string;
+        lastSeenAt: string;
+        alertState: 'none' | 'baseline' | 'stale' | 'pending' | 'sent' | 'skipped' | 'suppressed';
+        alertStateAt: string | null;
+    }>;
+    total: number;
+};
+
 export type GbpSummaryDto = {
     scope: {
         locationName: string | null;
@@ -8660,7 +8694,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -9118,7 +9152,7 @@ export type ProjectConfig = {
         notifications: Array<{
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
         }>;
         google?: {
             gsc?: {
@@ -21118,6 +21152,53 @@ export type GetApiV1ProjectsByNameGbpPlacesResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpPlacesResponse = GetApiV1ProjectsByNameGbpPlacesResponses[keyof GetApiV1ProjectsByNameGbpPlacesResponses];
+
+export type GetApiV1ProjectsByNameGbpReviewsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+        /**
+         * Only 1-3 star reviews, the review.negative webhook threshold
+         */
+        negative?: boolean;
+        /**
+         * Max reviews, newest first. Default 50, maximum 500.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/gbp/reviews';
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsErrors = {
+    /**
+     * Invalid negative or limit.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsError = GetApiV1ProjectsByNameGbpReviewsErrors[keyof GetApiV1ProjectsByNameGbpReviewsErrors];
+
+export type GetApiV1ProjectsByNameGbpReviewsResponses = {
+    /**
+     * Reviews returned.
+     */
+    200: GbpReviewListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsResponse = GetApiV1ProjectsByNameGbpReviewsResponses[keyof GetApiV1ProjectsByNameGbpReviewsResponses];
 
 export type GetApiV1ProjectsByNameGbpSummaryData = {
     body?: never;
