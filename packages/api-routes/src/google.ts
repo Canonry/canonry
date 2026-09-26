@@ -18,6 +18,7 @@ import {
   calendarDateRange,
   describeError,
   inclusiveDayCount,
+  percentOf,
   shiftIsoCalendarDate,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
@@ -1521,7 +1522,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         indexed,
         notIndexed,
         deindexed: deindexedUrls.length,
-        percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+        percentage: percentOf(indexed, total) ?? 0,
       },
       lastInspectedAt,
       lastSyncedAt,
@@ -2371,7 +2372,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         valueThreshold: r.valueThreshold ?? null,
       })),
       total: rows.length,
-      thresholdedPct: rows.length ? Math.round((thresholded / rows.length) * 100) : 0,
+      thresholdedPct: percentOf(thresholded, rows.length) ?? 0,
     }
   })
 

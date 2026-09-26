@@ -8,6 +8,8 @@ import {
   CitationStates,
   effectiveBrandNames,
   parseInclusiveEndMs,
+  RatioUnits,
+  roundRatio,
   RunKinds,
   RunStatuses,
   validationError,
@@ -48,10 +50,6 @@ export interface ComputeVisibilityStatsResult {
   queries: VisibilityStatsQueryEntry[]
 }
 
-function round4(value: number): number {
-  return Math.round(value * 10000) / 10000
-}
-
 interface Agg {
   total: number
   checked: number
@@ -90,8 +88,8 @@ function counts(agg: Agg): VisibilityStatsCounts {
     cited: agg.cited,
     // mention proportion is over the CHECKED sample; citation proportion is
     // over the full total (every snapshot is checked for citation).
-    mentionRate: agg.checked > 0 ? round4(agg.mentioned / agg.checked) : null,
-    citedRate: agg.total > 0 ? round4(agg.cited / agg.total) : null,
+    mentionRate: agg.checked > 0 ? roundRatio(agg.mentioned / agg.checked, RatioUnits.fraction) : null,
+    citedRate: agg.total > 0 ? roundRatio(agg.cited / agg.total, RatioUnits.fraction) : null,
   }
 }
 

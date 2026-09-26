@@ -130,7 +130,7 @@ test('v55 creates discovery_probes table without (session_id, query) UNIQUE so v
     projectId: 'proj_1',
     query: 'best boutique hotel williamsburg',
     citationState: 'cited',
-    citedDomains: '["gjelinahotel.com","theyellowsign.com"]',
+    citedDomains: '["harborline.example.com","bluekettle-inn.example.com"]',
     bucket: 'cited',
     createdAt: now,
   }).run()
@@ -250,7 +250,7 @@ test('competitors.provenance round-trips', () => {
   db.insert(competitors).values({
     id: 'c_1',
     projectId: 'proj_1',
-    domain: 'theyellowsign.com',
+    domain: 'bluekettle-inn.example.com',
     provenance: 'discovery:sess_1',
     createdAt: now,
   }).run()

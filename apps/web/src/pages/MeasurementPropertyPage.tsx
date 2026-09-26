@@ -26,6 +26,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { safeExternalUrl } from '../lib/safe-url.js'
+import { splitPercentSign } from '../lib/format-helpers.js'
 import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
@@ -421,8 +422,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   }
   // The hero sets the percent sign apart from the figure, as the Simple overview
   // hero does; both halves are the shared format's own output.
-  const percent = formatPercent(metric.value)
-  const figure = percent.endsWith('%') ? percent.slice(0, -1) : percent
+  const { figure, sign } = splitPercentSign(formatPercent(metric.value))
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
@@ -430,7 +430,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>
-      <p className="aeo-hero-row-value text-heading">{figure}{figure === percent ? null : <span className="text-faint">%</span>}</p>
+      <p className="aeo-hero-row-value text-heading">{figure}{sign ? <span className="text-faint">{sign}</span> : null}</p>
       <div className="aeo-hero-row-bar" aria-hidden="true">
         <div className="metric-card-bar-fill progress-fill-neutral" style={{ width: `${metric.value * 100}%` }} />
       </div>

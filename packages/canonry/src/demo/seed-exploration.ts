@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { factorStatusFromScore, siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
+import { factorStatusFromScore, percentOf, siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly,
   discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots, siteCrawlPages,
@@ -60,7 +60,7 @@ function seedPageAudits(db: DatabaseClient, projectId: string, runId: string, ro
   const crossCuttingIssues = factorAverages.filter(factor => factor.pagesPartial + factor.pagesFailing > 0).map(factor => ({
     factorId: factor.id, factorName: factor.name, avgScore: factor.avgScore,
     affectedPages: factor.pagesPartial + factor.pagesFailing, totalPages: pages.length,
-    affectedPct: Math.round((factor.pagesPartial + factor.pagesFailing) / pages.length * 100),
+    affectedPct: percentOf(factor.pagesPartial + factor.pagesFailing, pages.length) ?? 0,
     topRecommendations: [`Complete ${factor.name.toLowerCase()} details on the affected pages.`],
   }))
   db.insert(siteAuditSnapshots).values({

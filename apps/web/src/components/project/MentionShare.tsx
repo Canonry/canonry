@@ -1,6 +1,7 @@
 import React, { useId, useState } from 'react'
-import { formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
+import { splitPercentSign } from '../../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 
@@ -84,7 +85,8 @@ export function mentionClassFigures(
     }
   }
   return {
-    headline: `${breakdown.score}`,
+    // The API's 0..100 share, shown through the one percent format.
+    headline: formatPercent(breakdown.score, RatioUnits.percent),
     numeric: true,
     detail: `${breakdown.projectMentionSnapshots} of ${named} brand mentions`,
     showRows: true,
@@ -199,6 +201,8 @@ export function MentionShare({
     noRun: summary.breakdown.snapshotsTotal === 0 && summary.branded.snapshotsTotal === 0,
     otherClassHasData: other.snapshotsTotal > 0,
   })
+  // The figure and its sign, so the sign can be set apart as the other heroes do.
+  const headline = splitPercentSign(figures.headline)
   // Tone bands are calibrated for competitive placement. Branded sits near 100
   // by construction and pooled is not a competitive read at all, so neither is
   // ever tone-coloured: a structural high number must not render as a green win.
@@ -259,8 +263,8 @@ export function MentionShare({
 
       {figures.numeric ? (
         <p className={`mention-share-value ${toneClass}`}>
-          {figures.headline}
-          <span className="text-faint">%</span>
+          {headline.figure}
+          {headline.sign ? <span className="text-faint">{headline.sign}</span> : null}
         </p>
       ) : (
         <p className="mention-share-value-text">{figures.headline}</p>

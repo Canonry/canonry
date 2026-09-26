@@ -18,7 +18,7 @@ const conversionTag: GtmTag = {
   type: 'awct',
   firingTriggerId: ['8'],
   parameter: [
-    { key: 'conversionId', type: 'template', value: 'AW-16884954130' },
+    { key: 'conversionId', type: 'template', value: 'AW-12345678901' },
     { key: 'conversionLabel', type: 'template', value: 'begin_checkout_label' },
     { key: 'conversionValue', type: 'template', value: '{{DLV - ecommerce.value}}' },
     { key: 'orderId', type: 'template', value: '{{DLV - checkout_id}}' },

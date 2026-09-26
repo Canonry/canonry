@@ -3,16 +3,16 @@ import { linearTrend, wilsonInterval } from '../src/statistics.js'
 
 describe('wilsonInterval', () => {
   // Fixtures verified against the closed-form Wilson score interval (z=1.96).
-  // These are the real May/June DemandIQ proportions the metric will report.
+  // Representative May/June proportions of the kind the metric reports.
   it('matches the exact 95% interval for the mention-rate proportions', () => {
-    expect(wilsonInterval(14, 504)).toEqual({ low: 0.0166, high: 0.0461 })
-    expect(wilsonInterval(1, 164)).toEqual({ low: 0.0011, high: 0.0337 })
+    expect(wilsonInterval(12, 480)).toEqual({ low: 0.0144, high: 0.0432 })
+    expect(wilsonInterval(1, 150)).toEqual({ low: 0.0012, high: 0.0368 })
   })
 
   it('returns a real upper bound at zero successes (not the degenerate [0,0] Wald gives)', () => {
-    // June cited = 0 of 164. A Wald interval would collapse to [0,0] and imply
-    // certainty; Wilson keeps the honest "could be as high as 2.3%".
-    expect(wilsonInterval(0, 164)).toEqual({ low: 0, high: 0.0229 })
+    // June cited = 0 of 150. A Wald interval would collapse to [0,0] and imply
+    // certainty; Wilson keeps the honest "could be as high as 2.5%".
+    expect(wilsonInterval(0, 150)).toEqual({ low: 0, high: 0.025 })
   })
 
   it('returns null over an empty sample (a rate over no data is undefined)', () => {

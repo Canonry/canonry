@@ -6,6 +6,7 @@ import {
   hostOf,
   matchedAliasKeys,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
+  percentOf,
   registrableDomain,
   type BrandAliasMatcher,
   type ShareOfVoiceContext,
@@ -525,19 +526,13 @@ function finalizeRow(
     surfaceClass: row.surfaceClass,
     pinned: row.pinned,
     mentionCount: row.mentionCount,
-    shareOfVoice: competitive
-      ? (mentionCredits > 0 ? roundPercentage((row.mentionCount / mentionCredits) * 100) : null)
-      : null,
+    shareOfVoice: competitive ? percentOf(row.mentionCount, mentionCredits) : null,
     citationCount: row.citationCount,
     answeredResults,
     firstSeenAt: row.firstSeenAt,
     lastSeenAt: row.lastSeenAt,
     sampleUrls: [...row.sampleUrls],
   }
-}
-
-function roundPercentage(value: number): number {
-  return Math.round(value * 10) / 10
 }
 
 function compareCompetitiveRows(a: CompetitorLandscapeHistoryRow, b: CompetitorLandscapeHistoryRow): number {

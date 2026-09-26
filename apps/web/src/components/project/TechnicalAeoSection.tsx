@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import { RunKinds, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, RunKinds, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
@@ -797,7 +797,7 @@ export function TechnicalAeoSection({
                     <span className="text-sm font-medium text-heading">{issue.factorName}</span>
                     <ToneBadge tone={scoreTone(issue.avgScore)}>{statusLabel(issue.avgScore)}</ToneBadge>
                     <span className="text-xs tabular-nums text-muted">
-                      avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({issue.affectedPct}%)
+                      avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({formatPercent(issue.affectedPct, RatioUnits.percent)})
                     </span>
                   </div>
                   {issue.topRecommendations.length > 0 ? (

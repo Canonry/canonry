@@ -465,8 +465,8 @@ describe('api-routes', () => {
       url: '/api/v1/projects/competitor-normalize/competitors',
       payload: {
         competitors: [
-          'offers.roofle.com',
-          'https://www.Roofle.com/pricing',
+          'offers.quotebird.test',
+          'https://www.Quotebird.test/pricing',
           'app.acme.io',
         ],
       },
@@ -474,7 +474,7 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain).sort()).toEqual([
       'acme.io',
-      'roofle.com',
+      'quotebird.test',
     ])
   })
 
@@ -492,15 +492,15 @@ describe('api-routes', () => {
     await app.inject({
       method: 'POST',
       url: '/api/v1/projects/competitor-delete-normalized/competitors',
-      payload: { competitors: ['offers.roofle.com'] },
+      payload: { competitors: ['offers.quotebird.test'] },
     })
 
     // Caller passes the original subdomain form; server normalizes and finds
-    // the stored `roofle.com` row.
+    // the stored `quotebird.test` row.
     const res = await app.inject({
       method: 'DELETE',
       url: '/api/v1/projects/competitor-delete-normalized/competitors',
-      payload: { competitors: ['offers.roofle.com'] },
+      payload: { competitors: ['offers.quotebird.test'] },
     })
 
     expect(res.statusCode).toBe(200)
