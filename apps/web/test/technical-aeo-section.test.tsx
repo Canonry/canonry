@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
@@ -11,7 +11,8 @@ import {
   getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
+import { FACTOR_SHARE_NOT_RECORDED, TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
+import { factorShareOfScoreLabel } from '../src/components/project/PageAuditEvidence.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { heyClient } from '../src/api.js'
 import { resetRunTracker } from '../src/lib/run-tracker-store.js'
@@ -725,4 +726,123 @@ test.each(['running', 'failed'] as const)('managed viewer keeps the scorecard an
   expect(screen.getAllByText('AI Crawler Access').length).toBeGreaterThan(0)
   if (status === 'running') expect(screen.getByText('Results refresh automatically when this audit finishes.')).not.toBeNull()
   expect(screen.queryByRole('button', { name: /Re-run audit|Audit running/ })).toBeNull()
+})
+
+/**
+ * The sixteen core factors with the share of the score the audit engine
+ * records when all of them apply. The weights sum to 111, so a weight shown
+ * with a percent sign overstates every factor; the shares add up to 100.
+ */
+const CORE_FACTOR_SHARES = [
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, sharePct: 10.9, shown: '10.9%' },
+  { id: 'content-depth', name: 'Content Depth', weight: 10, sharePct: 9, shown: '9.0%' },
+  { id: 'citations', name: 'Citations & Authority Signals', weight: 8, sharePct: 7.2, shown: '7.2%' },
+  { id: 'eeat-signals', name: 'E-E-A-T Signals', weight: 8, sharePct: 7.2, shown: '7.2%' },
+  { id: 'faq-content', name: 'FAQ Content', weight: 8, sharePct: 7.2, shown: '7.2%' },
+  { id: 'schema-completeness', name: 'Schema Completeness', weight: 8, sharePct: 7.2, shown: '7.2%' },
+  { id: 'content-freshness', name: 'Content Freshness', weight: 7, sharePct: 6.3, shown: '6.3%' },
+  { id: 'entity-consistency', name: 'Entity Consistency', weight: 7, sharePct: 6.3, shown: '6.3%' },
+  { id: 'content-extractability', name: 'Content Extractability', weight: 6, sharePct: 5.4, shown: '5.4%' },
+  { id: 'definition-blocks', name: 'Definition Blocks', weight: 6, sharePct: 5.4, shown: '5.4%' },
+  { id: 'named-entities', name: 'Named Entities', weight: 6, sharePct: 5.4, shown: '5.4%' },
+  { id: 'snippet-eligibility', name: 'Snippet Eligibility', weight: 6, sharePct: 5.4, shown: '5.4%' },
+  { id: 'ai-access-files', name: 'AI Access Files (llms.txt, sitemap)', weight: 5, sharePct: 4.5, shown: '4.5%' },
+  { id: 'schema-validity', name: 'Schema Validity', weight: 5, sharePct: 4.5, shown: '4.5%' },
+  { id: 'technical-seo', name: 'Technical SEO', weight: 5, sharePct: 4.5, shown: '4.5%' },
+  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, sharePct: 3.6, shown: '3.6%' },
+] as const
+
+/** A weight printed as a percent: `12%`, but not the `2%` inside `7.2%`. */
+const WEIGHT_AS_PERCENT = /(?<![\d.])(?:1[02]|[4-8])%/
+
+function scoreWithCoreFactors(recorded: boolean) {
+  return {
+    ...score('audit_old', 84),
+    factors: CORE_FACTOR_SHARES.map(({ shown: _shown, ...factor }) => ({
+      ...factor,
+      sharePct: recorded ? factor.sharePct : null,
+      avgScore: 84,
+      status: 'pass',
+      pagesPassing: 39,
+      pagesPartial: 0,
+      pagesFailing: 0,
+    })),
+  }
+}
+
+function factorScorecard(): HTMLElement {
+  return screen.getByRole('columnheader', { name: 'Share' }).closest('table')!
+}
+
+function shareCell(table: HTMLElement, factorName: string): HTMLElement {
+  const row = within(table).getByRole('button', { name: factorName }).closest('tr')!
+  return within(row).getAllByRole('cell')[1]!
+}
+
+test('shows each ranking factor share of the site score, and the shares add up to 100%', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, scoreWithCoreFactors(true))
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </QueryClientProvider>,
+  )
+
+  const table = factorScorecard()
+  expect(within(table).queryByRole('columnheader', { name: 'Weight' })).toBeNull()
+  const shown = CORE_FACTOR_SHARES.map((factor) => shareCell(table, factor.name).textContent)
+  expect(shown).toEqual(CORE_FACTOR_SHARES.map((factor) => factor.shown))
+  const total = shown.reduce((sum, text) => sum + Number.parseFloat(text!), 0)
+  expect(Number(total.toFixed(1))).toBe(100)
+  // The raw weights (12, 10, 8, ...) are never printed as percentages.
+  expect(table.textContent).not.toMatch(WEIGHT_AS_PERCENT)
+})
+
+test('shows a dash, never the weight, for a scan that did not record shares', () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, scoreWithCoreFactors(false))
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </QueryClientProvider>,
+  )
+
+  const table = factorScorecard()
+  for (const factor of CORE_FACTOR_SHARES) {
+    const cell = shareCell(table, factor.name)
+    expect(cell.querySelector('[aria-hidden="true"]')?.textContent).toBe('—')
+    expect(within(cell).getByText(FACTOR_SHARE_NOT_RECORDED).className).toContain('sr-only')
+  }
+  expect(table.textContent).not.toMatch(WEIGHT_AS_PERCENT)
+})
+
+test('names the site-score share of an expanded check, and nothing for a scan without shares', () => {
+  const withShare = {
+    ...scoreWithFinding(),
+    factors: [{ ...scoreWithFinding().factors[0], weight: 4, sharePct: 3.6 }],
+  }
+  for (const [data, expected] of [[withShare, 'Worth 3.6% of the site score'], [scoreWithFinding(), null]] as const) {
+    const queryClient = makeClient()
+    queryClient.setQueryData(scoreKey, data)
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'AI Crawler Access' }))
+    expect(screen.getByText('Allow GPTBot in robots.txt')).not.toBeNull()
+    if (expected) {
+      expect(screen.getByText(expected)).not.toBeNull()
+      expect(factorShareOfScoreLabel(3.6, 'site')).toBe(expected)
+    } else {
+      expect(screen.queryByText(/of the site score/)).toBeNull()
+    }
+    // Neither the old "Weight: 4%" line nor the fixture's weight of 20 appears as a percent.
+    expect(screen.queryByText(/Weight:/)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/(?<![\d.])(?:4|20)% of the site score/)
+    cleanup()
+    queryClient.clear()
+  }
 })

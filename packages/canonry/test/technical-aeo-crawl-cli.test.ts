@@ -6,6 +6,7 @@ const mocked = vi.hoisted(() => ({
   getTechnicalAeoCrawl: vi.fn(),
   getTechnicalAeoCrawlPages: vi.fn(),
   getTechnicalAeoPageAudit: vi.fn(),
+  getTechnicalAeoScore: vi.fn(),
   getTechnicalAeoStructure: vi.fn(),
   getTechnicalAeoInternalLinks: vi.fn(),
   getTechnicalAeoInternalLinkNeighbors: vi.fn(),
@@ -27,6 +28,7 @@ import {
   technicalAeoInternalLinks,
   technicalAeoPageAudit,
   technicalAeoProgress,
+  technicalAeoScore,
   technicalAeoStructure,
 } from '../src/commands/technical-aeo.js'
 
@@ -708,5 +710,108 @@ describe('Technical AEO full-crawl CLI', () => {
       limit: undefined,
       format: 'json',
     })
+  })
+})
+
+/**
+ * The sixteen core factors with the share of the score the audit engine
+ * records when all of them apply. The weights sum to 111, so a weight printed
+ * with a percent sign overstates every factor; the shares add up to 100.
+ */
+const CORE_FACTOR_SHARES = [
+  ['Structured Data (JSON-LD)', 12, 10.9, '10.9%'],
+  ['Content Depth', 10, 9, '9.0%'],
+  ['Citations & Authority Signals', 8, 7.2, '7.2%'],
+  ['E-E-A-T Signals', 8, 7.2, '7.2%'],
+  ['FAQ Content', 8, 7.2, '7.2%'],
+  ['Schema Completeness', 8, 7.2, '7.2%'],
+  ['Content Freshness', 7, 6.3, '6.3%'],
+  ['Entity Consistency', 7, 6.3, '6.3%'],
+  ['Content Extractability', 6, 5.4, '5.4%'],
+  ['Definition Blocks', 6, 5.4, '5.4%'],
+  ['Named Entities', 6, 5.4, '5.4%'],
+  ['Snippet Eligibility', 6, 5.4, '5.4%'],
+  ['AI Access Files (llms.txt, sitemap)', 5, 4.5, '4.5%'],
+  ['Schema Validity', 5, 4.5, '4.5%'],
+  ['Technical SEO', 5, 4.5, '4.5%'],
+  ['AI Crawler Access', 4, 3.6, '3.6%'],
+] as const
+
+/** A weight printed as a percent: `12%`, but not the `2%` inside `7.2%`. */
+const WEIGHT_AS_PERCENT = /(?<![\d.])(?:1[02]|[4-8])%/
+
+function coreScore(recorded: boolean) {
+  return {
+    project: 'acme', hasData: true, runId: 'run-1', runStatus: 'completed',
+    sitemapUrl: 'https://acme.test/sitemap.xml', auditedAt: '2026-09-20T12:00:00.000Z',
+    aggregateScore: 84, pagesDiscovered: 40, pagesAudited: 39, pagesSkipped: 1, pagesErrored: 0,
+    deltaScore: null, trend: null, previousScore: null, previousAuditedAt: null,
+    factors: CORE_FACTOR_SHARES.map(([name, weight, sharePct]) => ({
+      id: name.toLowerCase().replace(/[^a-z]+/g, '-'), name, weight,
+      sharePct: recorded ? sharePct : null,
+      avgScore: 84, status: 'pass', pagesPassing: 39, pagesPartial: 0, pagesFailing: 0,
+    })),
+    crossCuttingIssues: [],
+    prioritizedFixes: [],
+  }
+}
+
+describe('Technical AEO factor shares in the CLI', () => {
+  it('prints each factor share of the site score, and the shares add up to 100%', async () => {
+    mocked.getTechnicalAeoScore.mockResolvedValue(coreScore(true))
+    const [output] = await captureConsole(() => technicalAeoScore('acme', {}))
+    const lines = output!.split('\n')
+    const header = lines.find((line) => line.startsWith('Factor'))!
+    expect(header).toMatch(/Factor\s+Share\s+Avg\s+Status\s+Pass\/Part\/Fail/)
+    expect(header).not.toMatch(/\bWt\b/)
+
+    const shown = CORE_FACTOR_SHARES.map(([name, , , formatted]) => {
+      const row = lines.find((line) => line.startsWith(name.slice(0, 31)))!
+      expect(row.slice(32).trim().split(/\s+/)[0], name).toBe(formatted)
+      return Number.parseFloat(formatted)
+    })
+    expect(Number(shown.reduce((sum, share) => sum + share, 0).toFixed(1))).toBe(100)
+    expect(output).not.toMatch(WEIGHT_AS_PERCENT)
+  })
+
+  it('prints a dash, never the weight, for a scan that did not record shares', async () => {
+    mocked.getTechnicalAeoScore.mockResolvedValue(coreScore(false))
+    const [output] = await captureConsole(() => technicalAeoScore('acme', {}))
+    for (const [name] of CORE_FACTOR_SHARES) {
+      const row = output!.split('\n').find((line) => line.startsWith(name.slice(0, 31)))!
+      expect(row.slice(32).trim().split(/\s+/)[0], name).toBe('—')
+    }
+    expect(output).not.toMatch(WEIGHT_AS_PERCENT)
+  })
+
+  it('returns the share and the weight side by side in JSON', async () => {
+    mocked.getTechnicalAeoScore.mockResolvedValue(coreScore(true))
+    const [output] = await captureConsole(() => technicalAeoScore('acme', { format: 'json' }))
+    const parsed = JSON.parse(output!) as { factors: Array<{ name: string; weight: number; sharePct: number | null }> }
+    expect(parsed.factors.map(({ name, weight, sharePct }) => [name, weight, sharePct]))
+      .toEqual(CORE_FACTOR_SHARES.map(([name, weight, sharePct]) => [name, weight, sharePct]))
+  })
+
+  it('prints what share of the page score each audited factor is worth, and nothing when unrecorded', async () => {
+    mocked.getTechnicalAeoPageAudit.mockResolvedValue({
+      state: 'ready', project: 'acme', runId: 'run-1', complete: true, termination: null,
+      nodeKey: 'page:guide', url: 'https://acme.test/guide', auditState: 'success', auditScore: 42,
+      evidenceState: 'complete', criticalDefects: [],
+      factors: [
+        {
+          id: 'content-depth', name: 'Content Depth', weight: 10, score: 20, sharePct: 9.7,
+          status: 'fail', applicable: true, findings: [], recommendations: [],
+        },
+        {
+          id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, score: 55, sharePct: null,
+          status: 'partial', applicable: true, findings: [], recommendations: [],
+        },
+      ],
+    })
+    const [output] = await captureConsole(() => technicalAeoPageAudit('acme', { nodeKey: 'page:guide' }))
+    const lines = output!.split('\n')
+    expect(lines).toContain('  Content Depth: 20/100 (fail) · worth 9.7% of the page score')
+    expect(lines).toContain('  AI Crawler Access: 55/100 (partial)')
+    expect(output).not.toMatch(/(?<![\d.])(?:10|4)%/)
   })
 })

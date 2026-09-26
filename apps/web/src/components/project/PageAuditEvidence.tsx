@@ -1,12 +1,24 @@
-import type {
-  SiteAuditFactorStatus,
-  SiteCrawlPageAuditDto,
+import {
+  formatPercent,
+  RatioUnits,
+  type SiteAuditFactorStatus,
+  type SiteCrawlPageAuditDto,
 } from '@ainyc/canonry-contracts'
 import { ChevronRight } from 'lucide-react'
 
 import type { MetricTone } from '../../view-models.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
+
+/**
+ * "Worth 9.7% of the page score": a factor's share of the score as the audit
+ * engine recorded it. Never built from the factor's weight, which is relative
+ * (the core weights add up to 111), so a weight read as a percent overstates
+ * every factor.
+ */
+export function factorShareOfScoreLabel(sharePct: number, of: 'page' | 'site'): string {
+  return `Worth ${formatPercent(sharePct, RatioUnits.percent)} of the ${of} score`
+}
 
 function scoreTone(score: number): MetricTone {
   if (score >= 70) return 'positive'
@@ -187,7 +199,10 @@ function ReadyPageAudit({ audit }: {
                         : 'No fix suggested here.'}
                     </p>
                   )}
-                  <p className="mt-3 text-xs text-muted">Worth {factor.weight}% of the page score</p>
+                  {/* A scan that did not record the share shows none: the weight is not one. */}
+                  {typeof factor.sharePct === 'number' ? (
+                    <p className="mt-3 text-xs text-muted">{factorShareOfScoreLabel(factor.sharePct, 'page')}</p>
+                  ) : null}
                 </div>
               </div>
             </details>

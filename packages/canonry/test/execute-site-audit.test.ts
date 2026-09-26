@@ -36,10 +36,10 @@ vi.mock('../src/site-audit-root.js', () => ({
   }),
 }))
 import { runSiteCrawl } from '@canonry/aeo-audit'
+import { FACTOR_DEFINITIONS, scoreFactors } from '@canonry/aeo-audit/scoring'
 import { isNonPageMedia,
   clampSiteAuditEdgeLimit,
   clampSiteAuditLimit,
-  computeFactorAverages,
   executeSiteAudit,
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
@@ -175,18 +175,6 @@ async function emitCompleteGraph(
   return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
 }
 
-describe('computeFactorAverages', () => {
-  it('averages successful audit reports and preserves per-band counts', () => {
-    const pages = [
-      { audit: { factors: [scoredFactor('sd', 'Structured Data', 12, 90)] } },
-      { audit: { factors: [scoredFactor('sd', 'Structured Data', 12, 50)] } },
-      { audit: null },
-    ]
-    const [sd] = computeFactorAverages(pages as never)
-    expect(sd).toMatchObject({ id: 'sd', avgScore: 70, pagesPassing: 1, pagesPartial: 1, pagesFailing: 0 })
-  })
-})
-
 describe('clampSiteAuditLimit', () => {
   it('defaults and clamps page budget', () => {
     expect(clampSiteAuditLimit(undefined)).toBe(SITE_AUDIT_DEFAULT_PAGE_LIMIT)
@@ -257,6 +245,8 @@ describe('executeSiteAudit', () => {
         name: 'Structured Data',
         weight: 12,
         score: 88,
+        // This fixture engine records no share, so none is stored: not 12, not 0.
+        sharePct: null,
         status: 'pass',
         applicable: null,
         findings: [{ type: 'info', code: 'sd.test-evidence', message: 'Structured Data evidence.' }],
@@ -505,6 +495,57 @@ describe('executeSiteAudit', () => {
       requestedRootUrl: 'https://example.com/',
       rootUrl: 'https://www.example.com/',
     })
+  })
+
+  it('stores the share of the score the engine recorded for every factor, never the weight', async () => {
+    // Real engine scoring: the root page has an FAQ, so all sixteen core factors
+    // apply; the child page has none, so FAQ reports 0 and the others split its points.
+    const engineAudit = (url: string, faqScore: number) => {
+      const scored = scoreFactors(FACTOR_DEFINITIONS.map((definition) => ({
+        ...definition,
+        score: definition.id === 'faq-content' ? faqScore : 80,
+        findings: [],
+        recommendations: [],
+      })))
+      return { url, finalUrl: url, auditedAt: NOW, overallScore: scored.overallScore, factors: scored.factors, criticalDefects: [] }
+    }
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      const rows = [
+        page('page:root', 'https://example.com/', { audit: engineAudit('https://example.com/', 80) }),
+        page('page:a', 'https://example.com/a', { audit: engineAudit('https://example.com/a', 10) }),
+      ]
+      await options.onEvent?.({ type: 'pages', sequence: 1, batchId: 'pages', checksum: 'pages', rows })
+      const endSummary = summary({ auditRollup: { auditedPages: 2, aggregateScore: 80, factors: [] } })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary', checksum: 'summary', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    const factorOf = (factors: unknown, id: string) => (factors as Array<{ id: string }>).find((factor) => factor.id === id)
+    const crawlPages = db.select().from(siteCrawlPages).where(eq(siteCrawlPages.runId, runId)).all()
+    const crawlRoot = crawlPages.find((row) => row.nodeKey === 'page:root')!.auditFields.factors
+    const crawlChild = crawlPages.find((row) => row.nodeKey === 'page:a')!.auditFields.factors
+    expect(factorOf(crawlRoot, 'structured-data')).toMatchObject({ weight: 12, sharePct: 10.9, applicable: true })
+    expect(factorOf(crawlChild, 'structured-data')).toMatchObject({ weight: 12, sharePct: 11.6, applicable: true })
+    expect(factorOf(crawlChild, 'faq-content')).toMatchObject({ weight: 8, sharePct: 0, applicable: false })
+
+    const legacyPages = db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()
+    const legacyRoot = legacyPages.find((row) => row.url === 'https://example.com/')!.factors
+    const legacyChild = legacyPages.find((row) => row.url === 'https://example.com/a')!.factors
+    expect(factorOf(legacyRoot, 'structured-data')).toEqual({ id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 80, sharePct: 10.9 })
+    expect(factorOf(legacyChild, 'faq-content')).toEqual({ id: 'faq-content', name: 'FAQ Content', weight: 8, score: 10, sharePct: 0 })
+    for (const factors of [legacyRoot, legacyChild]) {
+      expect(Number(factors.reduce((total, factor) => total + (factor.sharePct ?? 0), 0).toFixed(6))).toBe(100)
+    }
+
+    // Site share: each factor's mean page share. Structured data (10.9 + 11.6) / 2
+    // = 11.25 and FAQ (7.2 + 0) / 2 = 3.6; the leftover tenths go by largest
+    // remainder, so the stored rollup adds up to exactly 100.
+    const averages = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()!.factorAverages
+    expect(factorOf(averages, 'structured-data')).toMatchObject({ weight: 12, sharePct: 11.3 })
+    expect(factorOf(averages, 'faq-content')).toMatchObject({ weight: 8, sharePct: 3.6 })
+    expect(Number(averages.reduce((total, factor) => total + (factor.sharePct ?? 0), 0).toFixed(6))).toBe(100)
   })
 
   it('keeps technically indexable HTML in inventory when factor analysis fails', async () => {

@@ -55,6 +55,7 @@ import {
   prepareSiteCrawlGraphLayout,
 } from './site-crawl-graph-layout.js'
 import { classifySiteCrawlTemplateLinks } from './site-crawl-template-links.js'
+import { computeFactorAverages, recordedSharePct } from './site-audit-factors.js'
 
 const log = createLogger('SiteAudit')
 
@@ -147,7 +148,10 @@ export function clampSiteAuditEdgeLimit(limit: number | undefined): number | und
 }
 
 function toPageFactor(factor: AuditFactor): SiteAuditPageFactorDto {
-  return { id: factor.id, name: factor.name, weight: factor.weight, score: factor.score }
+  // Keep the engine's share of the page score beside the weight. The weight is
+  // relative (the core set sums to 111), so without the share every reader had
+  // only a number that overstates the factor when shown as a percent.
+  return { id: factor.id, name: factor.name, weight: factor.weight, score: factor.score, sharePct: recordedSharePct(factor) }
 }
 
 function toCrawlAuditFactor(factor: AuditFactor): SiteCrawlAuditFactorDto {
@@ -170,38 +174,6 @@ function crawlAuditFields(audit: NonNullable<CrawlPageObservation['audit']>): {
     factors: audit.factors.map(toCrawlAuditFactor),
     criticalDefects: audit.criticalDefects,
   }
-}
-
-/** Aggregate the scorecard from crawl observations, not a second full report. */
-export function computeFactorAverages(pages: AuditPage[]): SiteAuditFactorSummaryDto[] {
-  const byId = new Map<string, { name: string; weight: number; scores: number[]; pass: number; partial: number; fail: number }>()
-  for (const page of pages) {
-    if (!page.audit) continue
-    for (const factor of page.audit.factors) {
-      const current = byId.get(factor.id) ?? { name: factor.name, weight: factor.weight, scores: [], pass: 0, partial: 0, fail: 0 }
-      byId.set(factor.id, current)
-      current.scores.push(factor.score)
-      const status = factorStatusFromScore(factor.score)
-      if (status === 'pass') current.pass++
-      else if (status === 'partial') current.partial++
-      else current.fail++
-    }
-  }
-  return [...byId.entries()]
-    .map(([id, value]) => {
-      const avgScore = Math.round(value.scores.reduce((sum, score) => sum + score, 0) / value.scores.length)
-      return {
-        id,
-        name: value.name,
-        weight: value.weight,
-        avgScore,
-        status: factorStatusFromScore(avgScore),
-        pagesPassing: value.pass,
-        pagesPartial: value.partial,
-        pagesFailing: value.fail,
-      }
-    })
-    .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
 }
 
 function pagePath(page: CrawlPageObservation): string {
