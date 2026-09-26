@@ -412,8 +412,8 @@ describe('renderReportHtml', () => {
 	      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
 	      mentionedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
       // Large base (>= MIN_PCT_BASE): signed percentage, no "visits" word.
-      // 382 → 328 is -14.14%, the two-decimal deltaPct the report now sends.
-      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14.14, direction: 'down' },
+      // 382 → 328 is -14.136126%, the deltaPct the report sends at wire precision.
+      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14.136126, direction: 'down' },
     }
 
     const clientHtml = renderReportHtml(report, { audience: 'client' })
