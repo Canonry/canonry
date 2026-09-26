@@ -101,7 +101,7 @@ function node(
     depth: nodeKey === 'home' ? 0 : 1,
     indexabilityState: 'indexable',
     fetchState: 'html',
-    linkScoreNormalized: 0.5,
+    linkScoreNormalized: 50,
     x: nodeKey === 'home' ? 0 : 100,
     y: 0,
     ...overrides,

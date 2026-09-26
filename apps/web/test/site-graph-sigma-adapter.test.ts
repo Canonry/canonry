@@ -11,6 +11,7 @@ import {
   SITE_GRAPH_EDGE_TOKEN,
   SITE_GRAPH_FOCUSED_NEIGHBOR_LABEL_LIMIT,
   SITE_GRAPH_LABEL_BUDGETS,
+  SITE_GRAPH_NODE_MIN_SIZE,
   SITE_GRAPH_OVERVIEW_LABEL_BUDGET,
   siteGraphLabelBudget,
   siteGraphMaxNodeSize,
@@ -56,7 +57,7 @@ function node(
     depth: 1,
     indexabilityState: 'indexable',
     fetchState: 'html',
-    linkScoreNormalized: 0.5,
+    linkScoreNormalized: 50,
     x: 10,
     y: 20,
     ...overrides,
@@ -157,7 +158,7 @@ describe('buildSigmaSiteGraph', () => {
   it('uses the server-published positions without running a browser layout', () => {
     const result = buildSigmaSiteGraph(
       [
-        node('home', { path: '/', depth: 0, x: -91.25, y: 43.5, linkScoreNormalized: 1 }),
+        node('home', { path: '/', depth: 0, x: -91.25, y: 43.5, linkScoreNormalized: 100 }),
         node('pricing', { x: 122.75, y: -8.25, indexabilityState: 'noindex' }),
       ],
       [edge('home-pricing', 'home', 'pricing')],
@@ -170,7 +171,7 @@ describe('buildSigmaSiteGraph', () => {
     expect(result.graph.getNodeAttributes('home')).toMatchObject({
       x: -91.25,
       y: 43.5,
-      size: siteGraphNodeSize(node('home', { path: '/', depth: 0, linkScoreNormalized: 1 })),
+      size: siteGraphNodeSize(node('home', { path: '/', depth: 0, linkScoreNormalized: 100 })),
       status: 'eligible',
     })
     expect(result.graph.getNodeAttributes('pricing')).toMatchObject({
@@ -246,7 +247,7 @@ describe('buildSigmaSiteGraph', () => {
     const pages = Array.from({ length: 40 }, (_, index) => node(`p${String(index).padStart(2, '0')}`, {
       path: `/p${index}`,
       depth: 1 + (index % 3),
-      linkScoreNormalized: index / 39,
+      linkScoreNormalized: index * 100 / 39,
     }))
     const result = buildSigmaSiteGraph(
       [node('home', { path: '/', depth: 0, linkScoreNormalized: 0 }), ...pages],
@@ -289,24 +290,45 @@ describe('buildSigmaSiteGraph', () => {
 
     // Importance still reads monotonically at any density.
     for (const count of [50, 5_000]) {
-      const low = siteGraphNodeSize(node('low', { linkScoreNormalized: 0.1 }), false, count)
-      const high = siteGraphNodeSize(node('high', { linkScoreNormalized: 0.9 }), false, count)
+      const low = siteGraphNodeSize(node('low', { linkScoreNormalized: 10 }), false, count)
+      const high = siteGraphNodeSize(node('high', { linkScoreNormalized: 90 }), false, count)
       expect(high).toBeGreaterThan(low)
       expect(high).toBeLessThanOrEqual(siteGraphMaxNodeSize(count))
     }
     // A denser map never draws a bigger dot for the same importance.
-    expect(siteGraphNodeSize(node('x', { linkScoreNormalized: 1 }), false, 5_000))
-      .toBeLessThan(siteGraphNodeSize(node('x', { linkScoreNormalized: 1 }), false, 50))
+    expect(siteGraphNodeSize(node('x', { linkScoreNormalized: 100 }), false, 5_000))
+      .toBeLessThan(siteGraphNodeSize(node('x', { linkScoreNormalized: 100 }), false, 50))
+  })
+
+  it('sizes a node from the 0 to 100 link score every crawl writes', () => {
+    // A crawl scores its top page 100 and most pages well above 1, so reading
+    // the score as 0 to 1 drew nearly every page at the largest size.
+    const size = (linkScoreNormalized: number | null) => siteGraphNodeSize(node('page', { linkScoreNormalized }), false, 50)
+    const range = siteGraphMaxNodeSize(50) - SITE_GRAPH_NODE_MIN_SIZE
+    expect(size(5)).toBeCloseTo(SITE_GRAPH_NODE_MIN_SIZE + Math.sqrt(0.05) * range, 12)
+    expect(size(50)).toBeCloseTo(SITE_GRAPH_NODE_MIN_SIZE + Math.sqrt(0.5) * range, 12)
+    expect(size(95)).toBeCloseTo(SITE_GRAPH_NODE_MIN_SIZE + Math.sqrt(0.95) * range, 12)
+    expect(size(5)).toBeLessThan(size(50))
+    expect(size(50)).toBeLessThan(size(95))
+    expect(size(95)).toBeLessThan(size(100))
+
+    // The top page fills the range, an unlinked or unscored page sits at its
+    // floor, and a value outside 0 to 100 is held to the range.
+    expect(size(100)).toBe(siteGraphMaxNodeSize(50))
+    expect(size(0)).toBe(SITE_GRAPH_NODE_MIN_SIZE)
+    expect(size(null)).toBe(SITE_GRAPH_NODE_MIN_SIZE)
+    expect(size(140)).toBe(siteGraphMaxNodeSize(50))
+    expect(size(-3)).toBe(SITE_GRAPH_NODE_MIN_SIZE)
   })
 
   it('bounds collision-safe label candidates around a high-degree focused page by link importance', () => {
     const neighbors = Array.from({ length: 24 }, (_, index) => node(`article-${String(index).padStart(2, '0')}`, {
       path: `/blog/article-${String(index).padStart(2, '0')}`,
       depth: 2,
-      linkScoreNormalized: index / 23,
+      linkScoreNormalized: index * 100 / 23,
     }))
     const result = buildSigmaSiteGraph(
-      [node('blog', { path: '/blog', depth: 1, linkScoreNormalized: 1 }), ...neighbors],
+      [node('blog', { path: '/blog', depth: 1, linkScoreNormalized: 100 }), ...neighbors],
       [
         edge('blog-self', 'blog', 'blog'),
         ...neighbors.map((neighbor) => edge(`blog-${neighbor.nodeKey}`, 'blog', neighbor.nodeKey)),
@@ -353,7 +375,7 @@ describe('buildSigmaSiteGraph', () => {
     })
 
     const reversed = buildSigmaSiteGraph(
-      [...neighbors].reverse().concat(node('blog', { path: '/blog', depth: 1, linkScoreNormalized: 1 })),
+      [...neighbors].reverse().concat(node('blog', { path: '/blog', depth: 1, linkScoreNormalized: 100 })),
       [
         edge('blog-self', 'blog', 'blog'),
         ...[...neighbors].reverse().map((neighbor) => edge(`blog-${neighbor.nodeKey}`, 'blog', neighbor.nodeKey)),
@@ -397,7 +419,7 @@ describe('the crawl root', () => {
   const graphWithRoot = () => buildSigmaSiteGraph(
     [
       node('home', { path: '/', depth: 0, linkScoreNormalized: 0 }),
-      node('services', { path: '/services', depth: 1, linkScoreNormalized: 1 }),
+      node('services', { path: '/services', depth: 1, linkScoreNormalized: 100 }),
       node('deep', { path: '/blog/guides/article', depth: 3 }),
     ],
     [edge('home-services', 'home', 'services'), edge('services-deep', 'services', 'deep')],
@@ -468,7 +490,7 @@ describe('a real template-mesh site (canonry.ai shape: 50 pages, ~1,259 links)',
       path: index === 0 ? '/' : `/page-${index}`,
       depth: index === 0 ? 0 : 1 + (index % 3),
       // A shared header links everywhere, so link scores bunch near the top.
-      linkScoreNormalized: 0.7 + (index % 10) / 33,
+      linkScoreNormalized: 70 + (index % 10) * 100 / 33,
       x: Math.cos(index) * 50,
       y: Math.sin(index * 1.7) * 50,
     }))
