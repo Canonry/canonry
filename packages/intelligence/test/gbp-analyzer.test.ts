@@ -197,12 +197,12 @@ describe('analyzeGbp', () => {
       expect(drop[0]!.title.toLowerCase()).toContain('call')
     })
 
-    it('states the two-decimal delta through formatPercent in the title', () => {
-      // 30 → 17 is a 43.33% drop, which the summary now sends unrounded.
+    it('states the wire delta through formatPercent in the title', () => {
+      // 30 → 17 is a 43.333333% drop, which the summary now sends unrounded.
       const insights = analyzeGbp([healthy({
         metricPrior7d: { WEBSITE_CLICKS: 30 },
         metricRecent7d: { WEBSITE_CLICKS: 17 },
-        metricDeltaPct: { WEBSITE_CLICKS: -43.33 },
+        metricDeltaPct: { WEBSITE_CLICKS: -43.333333 },
       })])
       const drop = insights.find((i) => i.type === 'gbp-metric-drop')
       expect(drop?.title).toBe('Test Hotel: Website clicks down 43.3% week-over-week')

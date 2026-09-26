@@ -19,7 +19,7 @@ export interface VisibilityScoreOptions {
  * Computes the "Citation Coverage" score gauge — the headline metric for the
  * project page. A query counts as cited when at least one snapshot for that
  * query has `citationState === 'cited'`. The score is the percentage of cited
- * queries, 0..100 to two decimals in `progress`, and `value` is the same share
+ * queries, 0..100 at wire precision in `progress`, and `value` is the same share
  * through `formatPercent` ("66.7%").
  *
  * Label history: this gauge was previously labelled "Answer Visibility". The

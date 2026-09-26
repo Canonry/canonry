@@ -318,7 +318,7 @@ describe("what's changed", () => {
     expect(tile(section, agency.tiles.citationRate)).toEqual({ value: '65.0% ↑', subtitle: '+15.0 pts vs 50.0%' })
     expect(tile(section, agency.tiles.mentionRate)).toEqual({ value: '40.0% ↓', subtitle: '-5.0 pts vs 45.0%' })
     expect(tile(section, agency.tiles.citedQueryCount)).toEqual({ value: '3.3 ↑', subtitle: '+0.6 vs 2.7' })
-    // 480 → 520 clicks is +8.33% and 90 → 110 sessions +22.22%: two decimals on the wire, one on the page.
+    // 480 → 520 clicks is +8.333333% and 90 → 110 sessions +22.222222%: six decimals on the wire, one on the page.
     expect(tile(section, agency.tiles.gscClicks)).toEqual({ value: '520 ↑', subtitle: '+8.3% vs prior 14 days' })
     expect(tile(section, agency.tiles.aiReferrals)).toEqual({ value: '110 ↑', subtitle: '+22.2% vs prior 14 days' })
   })

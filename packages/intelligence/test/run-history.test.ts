@@ -113,12 +113,12 @@ describe('buildRunHistory', () => {
       ]],
     ])
     const result = buildRunHistory(runs, snapshots)
-    // Cited: q1, q3 → 2/3 = 66.67%. Mentioned: q2 only → 1/3 = 33.33%.
+    // Cited: q1, q3 → 2/3 = 66.666667%. Mentioned: q2 only → 1/3 = 33.333333%.
     expect(result[0]?.citedCount).toBe(2)
     expect(result[0]?.mentionedCount).toBe(1)
     expect(result[0]?.totalCount).toBe(3)
-    expect(result[0]?.citationRate).toBe(66.67)
-    expect(result[0]?.mentionRate).toBe(33.33)
+    expect(result[0]?.citationRate).toBe(66.666667)
+    expect(result[0]?.mentionRate).toBe(33.333333)
   })
 
   it('returns a zero-rate point for runs with no snapshots', () => {
@@ -146,7 +146,7 @@ describe('buildRunHistory', () => {
     expect(result.map(p => p.status)).toEqual(['completed', 'partial', 'failed'])
   })
 
-  it('keeps the citation rate to two decimals, not a whole percent', () => {
+  it('keeps the citation rate at wire precision, not a whole percent', () => {
     const runs = [run('r1', '2026-01-01T00:00:00Z')]
     const snapshots = new Map([
       ['r1', [
@@ -156,7 +156,7 @@ describe('buildRunHistory', () => {
       ]],
     ])
     const result = buildRunHistory(runs, snapshots)
-    expect(result[0]?.citationRate).toBe(66.67)
+    expect(result[0]?.citationRate).toBe(66.666667)
   })
 
   it('keeps the rates a whole percent used to flatten to 0 and 100', () => {

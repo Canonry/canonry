@@ -996,8 +996,8 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     expect(body.lastSyncedAt).toBe(latestSync)
   })
 
-  it('sends the indexed percentage to two decimals, not a tenth', async () => {
-    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.33%.
+  it('sends the indexed percentage at wire precision, not a tenth', async () => {
+    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.333333%.
     for (const [id, url] of [['i2', 'https://coverage.com/page-2'], ['i3', 'https://coverage.com/page-3']] as const) {
       db.insert(gscUrlInspections).values({
         id,
@@ -1025,7 +1025,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
-    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.33 })
+    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.333333 })
   })
 })
 

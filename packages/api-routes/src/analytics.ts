@@ -1167,7 +1167,7 @@ function computeBuckets(
       const basketRevision = revisions.size === 1 ? [...revisions][0]! : null
       // Per-provider breakdown over the SAME normalized `usable` set, so the
       // dashboard can plot a line per provider over time. Reusing
-      // computeProviderMetric inherits the 4dp rounding and probe exclusion,
+      // computeProviderMetric inherits the wire rounding and probe exclusion,
       // so a provider line can never drift from the bucket overall.
       const byProvider: Record<string, ProviderMetric> = {}
       const modelEvidenceByProvider: TimeBucket['modelEvidenceByProvider'] = {}

@@ -58,29 +58,29 @@ describe('ratio units', () => {
 })
 
 describe('ratio wire precision', () => {
-  test('a fraction keeps four decimals and a percent two: the same hundredth of a point', () => {
-    expect(RATIO_WIRE_DECIMALS).toEqual({ fraction: 4, percent: 2 })
-    expect(roundRatio(2 / 3, 'fraction')).toBe(0.6667)
-    expect(roundRatio((2 / 3) * 100, 'percent')).toBe(66.67)
-    expect(roundRatio(0.00004, 'fraction')).toBe(0)
-    expect(roundRatio(0.004, 'percent')).toBe(0)
+  test('a fraction keeps eight decimals and a percent six: the precision formatPercent reads at', () => {
+    expect(RATIO_WIRE_DECIMALS).toEqual({ fraction: 8, percent: 6 })
+    expect(roundRatio(2 / 3, 'fraction')).toBe(0.66666667)
+    expect(roundRatio((2 / 3) * 100, 'percent')).toBe(66.666667)
+    expect(roundRatio(0.000000004, 'fraction')).toBe(0)
+    expect(roundRatio(0.0000004, 'percent')).toBe(0)
   })
 
   test('rounds half up and never returns a negative zero', () => {
-    expect(roundRatio(12.345, 'percent')).toBe(12.35)
-    expect(roundRatio(-66.666, 'percent')).toBe(-66.67)
-    expect(Object.is(roundRatio(-0.001, 'percent'), 0)).toBe(true)
+    expect(roundRatio(12.3456785, 'percent')).toBe(12.345679)
+    expect(roundRatio(-66.6666666, 'percent')).toBe(-66.666667)
+    expect(Object.is(roundRatio(-0.0000001, 'percent'), 0)).toBe(true)
   })
 
   test('a half is judged on the decimal value, not the float the scaling leaves', () => {
-    // 1.005 * 100 is 100.49999999999999 in binary, which would round down.
-    expect(roundRatio(1.005, 'percent')).toBe(1.01)
-    expect(roundRatio(0.00125, 'fraction')).toBe(0.0013)
+    // 0.0001245 * 1e6 is 124.49999999999999 in binary, which would round down.
+    expect(roundRatio(0.0001245, 'percent')).toBe(0.000125)
+    expect(roundRatio(0.000000015, 'fraction')).toBe(0.00000002)
   })
 
-  test('percentOf is part / whole as 0..100 at two decimals', () => {
-    expect(percentOf(2, 3)).toBe(66.67)
-    expect(percentOf(1, 3)).toBe(33.33)
+  test('percentOf is part / whole as 0..100 at the percent wire precision', () => {
+    expect(percentOf(2, 3)).toBe(66.666667)
+    expect(percentOf(1, 3)).toBe(33.333333)
     expect(percentOf(3, 3)).toBe(100)
     expect(percentOf(0, 3)).toBe(0)
     expect(percentOf(57, 200)).toBe(28.5)
@@ -97,10 +97,30 @@ describe('ratio wire precision', () => {
     expect(formatPercent(percentOf(2, 3), 'percent')).toBe('66.7%')
     // Near the edges the display keeps its inexact markers: 1 of 3,000 is 0.03%
     // and 2,999 of 3,000 is 99.97%, never an exact-looking 0% or 100%.
-    expect(percentOf(1, 3000)).toBe(0.03)
+    expect(percentOf(1, 3000)).toBe(0.033333)
     expect(formatPercent(percentOf(1, 3000), 'percent')).toBe('<0.1%')
-    expect(percentOf(2999, 3000)).toBe(99.97)
+    expect(percentOf(2999, 3000)).toBe(99.966667)
     expect(formatPercent(percentOf(2999, 3000), 'percent')).toBe('>99.9%')
+  })
+
+  test('a wire value reads the same as the exact ratio, never a tenth off', () => {
+    // Two decimals rounded twice: 6 of 11 (54.5454…%) went out as 54.55 and read 54.6%.
+    expect(percentOf(6, 11)).toBe(54.545455)
+    expect(formatPercent(percentOf(6, 11), 'percent')).toBe('54.5%')
+    expect(formatPercent(roundRatio(6 / 11, 'fraction'))).toBe('54.5%')
+    // Every ratio of counts up to 300, and every part of one large whole, in both units.
+    const wholes = [...Array.from({ length: 300 }, (_, i) => i + 1), 20_011]
+    const misread: string[] = []
+    for (const whole of wholes) {
+      for (let part = 0; part <= whole; part++) {
+        const exact = formatPercent(part / whole)
+        if (formatPercent(percentOf(part, whole), 'percent') !== exact
+          || formatPercent(roundRatio(part / whole, 'fraction')) !== exact) {
+          misread.push(`${part}/${whole}`)
+        }
+      }
+    }
+    expect(misread).toEqual([])
   })
 
   test('an empty or invalid whole is not a measured 0%', () => {

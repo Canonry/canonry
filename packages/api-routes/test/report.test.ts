@@ -810,8 +810,8 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     const brandRow = body.gsc!.categoryBreakdown.find(c => c.category === 'brand')
     expect(brandRow?.clicks).toBe(100)
-    // 100 and 30 of 130 clicks: 76.92% and 23.08% (a whole percent sent 77 and 23).
-    expect(body.gsc!.categoryBreakdown.map(c => [c.clicks, c.sharePct])).toEqual([[100, 76.92], [30, 23.08]])
+    // 100 and 30 of 130 clicks: 76.923077% and 23.076923% (a whole percent sent 77 and 23).
+    expect(body.gsc!.categoryBreakdown.map(c => [c.clicks, c.sharePct])).toEqual([[100, 76.923077], [30, 23.076923]])
 
     expect(body.executiveSummary.gsc).toMatchObject({
       clicks: 130,
@@ -1259,7 +1259,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     })
   })
 
-  test('GA report channel shares keep two decimals', async () => {
+  test('GA report channel shares keep wire precision', async () => {
     const projectId = insertProject(ctx.db, 'ga-ninety')
     const now = new Date().toISOString()
     // 90 sessions: 30 organic, 20 direct (5 of them organic AI), 10 paid AI.
@@ -1288,13 +1288,13 @@ describe('GET /api/v1/projects/:name/report', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ga-ninety/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
-    // Each share is its sessions over 90, to two decimals; a whole percent sent 33, 17, 11, 6, 33.
+    // Each share is its sessions over 90, at wire precision; a whole percent sent 33, 17, 11, 6, 33.
     expect(body.ga!.channelBreakdown).toEqual([
-      { channel: 'Organic Search', sessions: 30, sharePct: 33.33 },
-      { channel: 'Direct', sessions: 15, sharePct: 16.67 },
-      { channel: 'Paid AI', sessions: 10, sharePct: 11.11 },
-      { channel: 'Organic AI referrals', sessions: 5, sharePct: 5.56 },
-      { channel: 'Other', sessions: 30, sharePct: 33.33 },
+      { channel: 'Organic Search', sessions: 30, sharePct: 33.333333 },
+      { channel: 'Direct', sessions: 15, sharePct: 16.666667 },
+      { channel: 'Paid AI', sessions: 10, sharePct: 11.111111 },
+      { channel: 'Organic AI referrals', sessions: 5, sharePct: 5.555556 },
+      { channel: 'Other', sessions: 30, sharePct: 33.333333 },
     ])
     // 10 paid and 5 organic of 15 AI referral sessions.
     expect(body.aiReferrals!.bySource).toEqual([expect.objectContaining({ source: 'chatgpt.com', sessions: 15, sharePct: 100 })])
@@ -1462,10 +1462,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.socialReferrals!.totalSessions).toBe(120)
     expect(body.socialReferrals!.organicSessions).toBe(80)
     expect(body.socialReferrals!.paidSessions).toBe(40)
-    // 80 and 40 of 120 sessions: 66.67% and 33.33%, two decimals (a whole percent sent 67 and 33).
+    // 80 and 40 of 120 sessions: 66.666667% and 33.333333%, at wire precision (a whole percent sent 67 and 33).
     expect(body.socialReferrals!.channels).toEqual([
-      { channelGroup: 'Organic Social', sessions: 80, sharePct: 66.67 },
-      { channelGroup: 'Paid Social', sessions: 40, sharePct: 33.33 },
+      { channelGroup: 'Organic Social', sessions: 80, sharePct: 66.666667 },
+      { channelGroup: 'Paid Social', sessions: 40, sharePct: 33.333333 },
     ])
     expect(body.aiReferrals!.bySource[0]!.sharePct).toBe(100)
   })
@@ -1610,7 +1610,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.indexingHealth!.indexedPct).toBe(80)
   })
 
-  test('indexing health keeps the indexed share to two decimals', async () => {
+  test('indexing health keeps the indexed share at wire precision', async () => {
     const projectId = insertProject(ctx.db, 'idx-thirds')
     const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
     ctx.db.insert(gscCoverageSnapshots).values({
@@ -1621,8 +1621,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     await ctx.app.ready()
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/idx-thirds/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
-    // 2 of 3 is 66.67%, which a whole percent sent as 67 and every renderer showed as 67.0%.
-    expect(body.indexingHealth).toMatchObject({ provider: 'google', total: 3, indexed: 2, indexedPct: 66.67 })
+    // 2 of 3 is 66.666667%, which a whole percent sent as 67 and every renderer showed as 67.0%.
+    expect(body.indexingHealth).toMatchObject({ provider: 'google', total: 3, indexed: 2, indexedPct: 66.666667 })
   })
 
   test('citations trend returns one point per completed visibility run', async () => {
@@ -1853,7 +1853,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     )
   })
 
-  test('every report rate keeps two decimals, so 2 of 3 reads 66.7% rather than 67.0%', async () => {
+  test('every report rate keeps wire precision, so 2 of 3 reads 66.7% rather than 67.0%', async () => {
     const projectId = insertProject(ctx.db, 'rate-thirds')
     const [a, b, c] = ['q1', 'q2', 'q3'].map(text => insertQuery(ctx.db, projectId, text))
     const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
@@ -1865,14 +1865,14 @@ describe('GET /api/v1/projects/:name/report', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/rate-thirds/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
-    expect(body.executiveSummary).toMatchObject({ citationRate: 66.67, citedQueryCount: 2, mentionRate: 33.33, mentionedQueryCount: 1, totalQueryCount: 3 })
+    expect(body.executiveSummary).toMatchObject({ citationRate: 66.666667, citedQueryCount: 2, mentionRate: 33.333333, mentionedQueryCount: 1, totalQueryCount: 3 })
     expect(body.citationsTrend).toEqual([expect.objectContaining({
-      citationRate: 66.67,
-      mentionRate: 33.33,
-      providerRates: [{ provider: 'gemini', citationRate: 66.67, mentionRate: 33.33 }],
+      citationRate: 66.666667,
+      mentionRate: 33.333333,
+      providerRates: [{ provider: 'gemini', citationRate: 66.666667, mentionRate: 33.333333 }],
     })])
     expect(body.citationScorecard.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 2, mentionedCount: 1, totalCount: 3, citationRate: 66.67, mentionRate: 33.33 },
+      { provider: 'gemini', citedCount: 2, mentionedCount: 1, totalCount: 3, citationRate: 66.666667, mentionRate: 33.333333 },
     ])
     expect(body.executiveSummary.findings.map(f => f.title)).toContain('Citation rate at 66.7% (2 of 3 queries cited)')
   })
@@ -1880,7 +1880,7 @@ describe('GET /api/v1/projects/:name/report', () => {
   test('whatsChanged keeps rate averages and provider moves at the percent wire precision', async () => {
     const projectId = insertProject(ctx.db, 'wc-thirds')
     const [a, b, c] = ['q1', 'q2', 'q3'].map(text => insertQuery(ctx.db, projectId, text))
-    // Cited queries per run: 1, 1, 2, 2 of 3 → 33.33, 33.33, 66.67, 66.67.
+    // Cited queries per run: 1, 1, 2, 2 of 3 → 33.333333, 33.333333, 66.666667, 66.666667.
     for (const [index, cited] of [1, 1, 2, 2].entries()) {
       const day = String(index + 1).padStart(2, '0')
       const runId = insertRun(ctx.db, projectId, { createdAt: `2026-04-${day}T00:00:00Z`, finishedAt: `2026-04-${day}T00:01:00Z` })
@@ -1894,15 +1894,15 @@ describe('GET /api/v1/projects/:name/report', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
 
     expect(body.whatsChanged.enoughHistory).toBe(true)
-    // Window 2: runs 3-4 average 66.67 against runs 1-2 at 33.33; one decimal would have sent 66.7 and 33.3.
-    expect(body.whatsChanged.citationRate).toMatchObject({ current: 66.67, prior: 33.33, window: 2, direction: 'up' })
-    expect(body.whatsChanged.citationRate!.deltaAbs).toBeCloseTo(33.34, 10)
-    // (66.67 - 33.33) / 33.33 = +100.03%, two decimals.
-    expect(body.whatsChanged.citationRate!.deltaPct).toBe(100.03)
+    // Window 2: runs 3-4 average 66.666667 against runs 1-2 at 33.333333; one decimal would have sent 66.7 and 33.3.
+    expect(body.whatsChanged.citationRate).toMatchObject({ current: 66.666667, prior: 33.333333, window: 2, direction: 'up' })
+    expect(body.whatsChanged.citationRate!.deltaAbs).toBeCloseTo(33.333334, 10)
+    // (66.666667 - 33.333333) / 33.333333 = +100.000003%, taken from the kept averages.
+    expect(body.whatsChanged.citationRate!.deltaPct).toBe(100.000003)
     // Counts keep one decimal: 2 and 1 cited queries on average.
     expect(body.whatsChanged.citedQueryCount).toMatchObject({ current: 2, prior: 1 })
-    // Run 4 against run 3 for the one engine: 66.67 both times, a move of exactly 0.
-    expect(body.whatsChanged.providerMovements).toEqual([{ provider: 'gemini', current: 66.67, prior: 66.67, deltaAbs: 0, direction: 'flat' }])
+    // Run 4 against run 3 for the one engine: 66.666667 both times, a move of exactly 0.
+    expect(body.whatsChanged.providerMovements).toEqual([{ provider: 'gemini', current: 66.666667, prior: 66.666667, deltaAbs: 0, direction: 'flat' }])
     expect(body.whatsChanged.headline).toMatch(/^Citation rate rose 33\.3% ↑ 66\.7% \(avg of last 2 checks\)/)
   })
 

@@ -79,13 +79,13 @@ describe('computeWindowDelta', () => {
     expect(halved.deltaPct).toEqual({ X: -50 })
   })
 
-  it('keeps deltaPct to two decimals, not a whole percent', () => {
-    // recent 10, prior 3 → (10-3)/3*100 = 233.33, not 233
+  it('keeps deltaPct at wire precision, not a whole percent', () => {
+    // recent 10, prior 3 → (10-3)/3*100 = 233.333333, not 233
     const out = computeWindowDelta([
       { metric: 'X', date: '2026-05-10', value: 10 },
       { metric: 'X', date: '2026-05-04', value: 3 },
     ], ref)
-    expect(out.deltaPct).toEqual({ X: 233.33 })
+    expect(out.deltaPct).toEqual({ X: 233.333333 })
   })
 
   it('keeps a small change a whole percent flattened to 0', () => {
@@ -103,22 +103,22 @@ describe('computeWindowDelta', () => {
 })
 
 describe('computeKeywordCoverage', () => {
-  it('counts thresholded rows and keeps the share to two decimals', () => {
-    // 1 exact + 2 thresholded of 3 → 66.67%, not 67
+  it('counts thresholded rows and keeps the share at wire precision', () => {
+    // 1 exact + 2 thresholded of 3 → 66.666667%, not 67
     const out = computeKeywordCoverage([
       { valueCount: 100, valueThreshold: null },
       { valueCount: null, valueThreshold: 15 },
       { valueCount: null, valueThreshold: 15 },
     ])
-    expect(out).toEqual({ total: 3, thresholdedCount: 2, thresholdedPct: 66.67 })
+    expect(out).toEqual({ total: 3, thresholdedCount: 2, thresholdedPct: 66.666667 })
   })
 
-  it('keeps 1/3 as 33.33, not 33', () => {
+  it('keeps 1/3 as 33.333333, not 33', () => {
     expect(computeKeywordCoverage([
       { valueCount: null, valueThreshold: 15 },
       { valueCount: 5, valueThreshold: null },
       { valueCount: 5, valueThreshold: null },
-    ]).thresholdedPct).toBe(33.33)
+    ]).thresholdedPct).toBe(33.333333)
   })
 
   it('keeps a share a whole percent used to round to 0', () => {
