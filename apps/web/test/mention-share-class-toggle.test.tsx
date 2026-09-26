@@ -96,7 +96,7 @@ describe('MentionShare class control', () => {
   })
 
   it('shows the API share to one decimal, with the sign set apart and never doubled', () => {
-    // 1 of 3 named brands is 33.33 on the wire.
+    // 1 of 3 named brands is 33.333333 on the wire.
     renderShare({
       breakdown: breakdown({
         projectMentionSnapshots: 1,
@@ -104,7 +104,7 @@ describe('MentionShare class control', () => {
         perCompetitor: [{ domain: 'rival-one.example', mentionSnapshots: 2, shareOfCompetitiveTotal: 100 }],
         snapshotsWithAnswerText: 3,
         snapshotsTotal: 3,
-        score: 33.33,
+        score: 33.333333,
       }),
     })
     const value = block().querySelector('.mention-share-value')!

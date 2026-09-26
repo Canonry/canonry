@@ -214,8 +214,8 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
           },
         ],
         total: 3,
-        // 1 of 3 keywords redacted: 33.33 on the wire.
-        thresholdedPct: 33.33,
+        // 1 of 3 keywords redacted: 33.333333 on the wire.
+        thresholdedPct: 33.333333,
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/lodging')) {

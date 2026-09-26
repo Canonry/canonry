@@ -388,9 +388,9 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.scores.indexCoverage.description).not.toMatch(/deindexed/)
   })
 
-  it('sends the index-coverage share unrounded: value formatted, progress to two decimals', async () => {
+  it('sends the index-coverage share unrounded: value formatted, progress at wire precision', async () => {
     const { app, db, projectId } = seedProjectWithRuns()
-    // 2 of 3 indexed is 66.67%, which the gauge used to send as "67" and 67.
+    // 2 of 3 indexed is 66.666667%, which the gauge used to send as "67" and 67.
     db.insert(gscCoverageSnapshots).values({
       id: crypto.randomUUID(),
       projectId,
@@ -408,7 +408,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
     expect(body.scores.indexCoverage).toMatchObject({
       value: '66.7%',
-      progress: 66.67,
+      progress: 66.666667,
       delta: 'Google · 2 of 3 indexed',
       tone: 'negative',
     })

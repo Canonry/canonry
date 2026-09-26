@@ -148,8 +148,8 @@ test('does not report unconfigured providers to a viewer whose settings are unav
 
 test('shows each project mention rate through formatPercent, not as a bare number', async () => {
   const doc = await renderOverview(fixture => {
-    // 2 of 3 queries mentioned is 66.67 on the wire; the others are whole.
-    fixture.dashboard.portfolioOverview.projects[0]!.mentionScore = 66.67
+    // 2 of 3 queries mentioned is 66.666667 on the wire; the others are whole.
+    fixture.dashboard.portfolioOverview.projects[0]!.mentionScore = 66.666667
   })
   const mentioned = [...doc.querySelectorAll('.project-row')]
     .map(row => statBlocks(row)[0]!.querySelector('.metric-inline-value')?.textContent)

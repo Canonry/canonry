@@ -33,7 +33,7 @@ describe('buildVisibilityScore', () => {
     expect(result.providerCoverage).toBeUndefined()
   })
 
-  it('keeps the share to two decimals in progress and formats value from the unrounded share', () => {
+  it('keeps the share at wire precision in progress and formats value from the unrounded share', () => {
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'cited' }),
       snap({ queryId: 'q2', citationState: 'cited' }),
@@ -41,7 +41,7 @@ describe('buildVisibilityScore', () => {
     ]
     const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
     expect(result.value).toBe('66.7%')
-    expect(result.progress).toBe(66.67)
+    expect(result.progress).toBe(66.666667)
     // Delta vocabulary tracks the label vocabulary — "cited", not "visible".
     expect(result.delta).toBe('2 of 3 queries cited')
   })

@@ -20,13 +20,13 @@ function snapshot(
 }
 
 describe('buildShareOfVoiceFrame', () => {
-  it('scores the project share to two decimals, not a tenth', () => {
-    // 1 of 3 named credits is 33.33%; a tenth rounding sent 33.3.
+  it('scores the project share at wire precision, not a tenth', () => {
+    // 1 of 3 named credits is 33.333333%; a tenth rounding sent 33.3.
     const frame = buildShareOfVoiceFrame({
       tracked: true, classSelected: true, projectMentions: 1, answeredResults: 3,
       competitors: [{ domain: 'rival.example', mentions: 2 }],
     })
-    expect([frame.availability, frame.denominator, frame.score]).toEqual(['measured', 3, 33.33])
+    expect([frame.availability, frame.denominator, frame.score]).toEqual(['measured', 3, 33.333333])
   })
 
   it('keeps a share a coarser rounding sent as 0, and scores nothing without mentions', () => {
@@ -45,7 +45,7 @@ describe('buildShareOfVoiceFrame', () => {
 })
 
 describe('buildCompetitorLandscapeHistory', () => {
-  it('keeps each share of voice to two decimals, and the shares sum to about 100', () => {
+  it('keeps each share of voice at wire precision, and the shares sum to about 100', () => {
     const result = buildCompetitorLandscapeHistory({
       project: { domain: 'acme.example', label: 'Acme', domains: ['acme.example'] },
       pinned: [{ domain: 'rival.example', label: 'Rival' }],
@@ -57,9 +57,9 @@ describe('buildCompetitorLandscapeHistory', () => {
         snapshot({ id: 'c', answerText: 'Rival again.' }),
       ],
     })
-    // 1 of 3 and 2 of 3 credits: 33.33 and 66.67, where a tenth rounding sent 33.3 and 66.7.
-    expect(result.project).toMatchObject({ mentionCount: 1, shareOfVoice: 33.33 })
-    expect(result.pinned).toEqual([expect.objectContaining({ domain: 'rival.example', mentionCount: 2, shareOfVoice: 66.67 })])
+    // 1 of 3 and 2 of 3 credits: 33.333333 and 66.666667, where a tenth rounding sent 33.3 and 66.7.
+    expect(result.project).toMatchObject({ mentionCount: 1, shareOfVoice: 33.333333 })
+    expect(result.pinned).toEqual([expect.objectContaining({ domain: 'rival.example', mentionCount: 2, shareOfVoice: 66.666667 })])
     expect(result.evidence.mentionCredits).toBe(3)
   })
 

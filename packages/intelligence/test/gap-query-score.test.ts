@@ -112,15 +112,15 @@ describe('buildGapQueryScore', () => {
     expect(result.progress).toBe(50)
   })
 
-  it('keeps progress to two decimals and the value a count', () => {
-    // 1 gap of 3 queries is 33.33%, not 33; the gauge value stays the gap count.
+  it('keeps progress at wire precision and the value a count', () => {
+    // 1 gap of 3 queries is 33.333333%, not 33; the gauge value stays the gap count.
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'not-cited', citedCompetitorDomains: ['rival.com'] }),
       snap({ queryId: 'q2', citationState: 'cited' }),
       snap({ queryId: 'q3', citationState: 'cited' }),
     ]
     const result = buildGapQueryScore(snapshots)
-    expect([result.value, result.progress]).toEqual(['1', 33.33])
+    expect([result.value, result.progress]).toEqual(['1', 33.333333])
   })
 
   it('uses the "Citation Gaps" label so the dashboard can pair it with a mention card', () => {
@@ -147,15 +147,15 @@ describe('buildMentionGapScore', () => {
     expect(result.delta).toBe('1 of 1 queries at risk')
   })
 
-  it('keeps mention-gap progress to two decimals', () => {
-    // 2 gaps of 3 queries is 66.67%, not 67.
+  it('keeps mention-gap progress at wire precision', () => {
+    // 2 gaps of 3 queries is 66.666667%, not 67.
     const snapshots = [
       snap({ queryId: 'q1', answerMentioned: false, mentionedCompetitorDomains: ['rival.com'] }),
       snap({ queryId: 'q2', answerMentioned: false, mentionedCompetitorDomains: ['rival.com'] }),
       snap({ queryId: 'q3', answerMentioned: true, mentionedCompetitorDomains: [] }),
     ]
     const result = buildMentionGapScore(snapshots)
-    expect([result.value, result.progress]).toEqual(['2', 66.67])
+    expect([result.value, result.progress]).toEqual(['2', 66.666667])
   })
 
   it('does not count a query as a gap when mentioned, even if competitors are present', () => {
