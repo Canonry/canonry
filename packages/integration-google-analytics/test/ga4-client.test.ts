@@ -704,15 +704,15 @@ describe('listProperties', () => {
       new Response(JSON.stringify({
         accountSummaries: [
           {
-            displayName: 'Tank Air',
+            displayName: 'Acme Widgets',
             propertySummaries: [
-              { property: 'properties/375386317', displayName: 'Tank Air - GA4' },
-              { property: 'properties/496422710', displayName: 'Dummy Account' },
+              { property: 'properties/123456789', displayName: 'Acme Widgets - GA4' },
+              { property: 'properties/234567890', displayName: 'Dummy Account' },
             ],
           },
           {
-            displayName: 'Studio Otto',
-            propertySummaries: [{ property: 'properties/384772186', displayName: 'Studio Otto - GA4' }],
+            displayName: 'Blue Kettle',
+            propertySummaries: [{ property: 'properties/345678901', displayName: 'Blue Kettle - GA4' }],
           },
         ],
       }), { status: 200 }),
@@ -721,9 +721,9 @@ describe('listProperties', () => {
     const result = await listProperties('valid-token')
 
     expect(result).toEqual([
-      { propertyId: '375386317', displayName: 'Tank Air - GA4', accountName: 'Tank Air' },
-      { propertyId: '496422710', displayName: 'Dummy Account', accountName: 'Tank Air' },
-      { propertyId: '384772186', displayName: 'Studio Otto - GA4', accountName: 'Studio Otto' },
+      { propertyId: '123456789', displayName: 'Acme Widgets - GA4', accountName: 'Acme Widgets' },
+      { propertyId: '234567890', displayName: 'Dummy Account', accountName: 'Acme Widgets' },
+      { propertyId: '345678901', displayName: 'Blue Kettle - GA4', accountName: 'Blue Kettle' },
     ])
 
     const [url, init] = fetchSpy.mock.calls[0]!

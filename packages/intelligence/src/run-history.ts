@@ -26,7 +26,7 @@ export const DEFAULT_RUN_HISTORY_LIMIT = 12
  * level: a query is "cited" for a run if any snapshot in that run has
  * citationState='cited', and "mentioned" if any snapshot has
  * answerMentioned===true. The two are never derived from each other. Rates
- * are 0..100 to two decimals (2 of 3 is 66.67). Runs without any snapshots
+ * are 0..100 at wire precision (2 of 3 is 66.666667). Runs without any snapshots
  * produce a zero-rate point.
  */
 export function buildRunHistory(

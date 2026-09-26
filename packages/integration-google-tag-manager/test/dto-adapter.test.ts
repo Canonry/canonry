@@ -39,7 +39,7 @@ const conversionTag: GtmTag = {
   paused: true,
   firingTriggerId: ['trigger_purchase'],
   parameter: [
-    { key: 'conversionId', type: 'template', value: 'AW-16884954130' },
+    { key: 'conversionId', type: 'template', value: 'AW-12345678901' },
     { key: 'conversionLabel', type: 'template', value: 'purchase_label' },
     { key: 'conversionValue', type: 'template', value: '{{DLV - ecommerce.value}}' },
     { key: 'orderId', type: 'template', value: '{{DLV - ecommerce.transaction_id}}' },
@@ -181,7 +181,7 @@ describe('contract DTO adapters', () => {
       type: 'awct',
       firingTriggerId: ['trigger_url'],
       parameter: [
-        { key: 'conversionId', type: 'template', value: 'AW-16884954130' },
+        { key: 'conversionId', type: 'template', value: 'AW-12345678901' },
         { key: 'conversionLabel', type: 'template', value: 'booking_label' },
       ],
     }
@@ -202,7 +202,7 @@ describe('contract DTO adapters', () => {
     const tag: GtmTag = {
       ...conversionTag,
       parameter: [
-        { key: 'conversionId', type: 'template', value: 'aw-16884954130' },
+        { key: 'conversionId', type: 'template', value: 'aw-12345678901' },
         { key: 'conversionLabel', type: 'template', value: 'purchase_label' },
         { key: 'conversionValue', type: 'template', value: '125.5000' },
         { key: 'orderId', type: 'template', value: ' {{ DLV - ecommerce.transaction_id }} ' },
@@ -213,7 +213,7 @@ describe('contract DTO adapters', () => {
     const dto = toGtmGoogleAdsTagAssessmentDto(tag, [trigger])
 
     expect(dto).toMatchObject({
-      conversionId: { source: 'literal', literal: 'AW-16884954130', variableRef: null },
+      conversionId: { source: 'literal', literal: 'AW-12345678901', variableRef: null },
       conversionLabel: { source: 'literal', literal: 'purchase_label', variableRef: null },
       value: { source: 'literal', literal: '125.5', variableRef: null },
       transactionId: {
@@ -234,7 +234,7 @@ describe('contract DTO adapters', () => {
       tagId: 'tag_unsafe_literals',
       name: 'Google Ads - unsafe test',
       parameter: [
-        { key: 'conversionId', type: 'template', value: `AW-16884954130-${secret}` },
+        { key: 'conversionId', type: 'template', value: `AW-12345678901-${secret}` },
         { key: 'conversionLabel', type: 'template', value: `purchase_${email}` },
         { key: 'conversionValue', type: 'template', value: `125.50 ${secret}` },
         { key: 'orderId', type: 'template', value: email },

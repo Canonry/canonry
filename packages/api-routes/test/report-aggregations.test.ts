@@ -325,7 +325,7 @@ describe('mentionLandscape', () => {
     expect(byDomain['rival-b.com']!.sharePct).toBe(20)
   })
 
-  test('keeps each mention share and the share of voice to two decimals, not a tenth', async () => {
+  test('keeps each mention share and the share of voice at wire precision, not a tenth', async () => {
     const projectId = insertProject(ctx.db, 'thirds', 'thirds.example.com')
     insertCompetitor(ctx.db, projectId, 'rival-a.com')
     insertCompetitor(ctx.db, projectId, 'rival-b.com')
@@ -343,10 +343,10 @@ describe('mentionLandscape', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
 
     const byDomain = Object.fromEntries(body.mentionLandscape.competitors.map(c => [c.domain, c]))
-    // 33.33, where the two producers used to send 33 and 33.3.
-    expect(byDomain['rival-a.com']).toMatchObject({ mentionCount: 1, sharePct: 33.33 })
-    expect(byDomain['rival-b.com']).toMatchObject({ mentionCount: 1, sharePct: 33.33 })
-    expect(body.mentionLandscape.shareOfVoice).toMatchObject({ projectMentions: 1, competitorMentions: 2, percent: 33.33 })
+    // 33.333333, where the two producers used to send 33 and 33.3.
+    expect(byDomain['rival-a.com']).toMatchObject({ mentionCount: 1, sharePct: 33.333333 })
+    expect(byDomain['rival-b.com']).toMatchObject({ mentionCount: 1, sharePct: 33.333333 })
+    expect(body.mentionLandscape.shareOfVoice).toMatchObject({ projectMentions: 1, competitorMentions: 2, percent: 33.333333 })
   })
 
   test('splits branded out of the competitive figure, keeping it visible and separate', async () => {

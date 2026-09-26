@@ -47,31 +47,34 @@ export function percent(schema: z.ZodNumber = z.number()): z.ZodNumber {
 }
 
 /**
- * Decimal places a ratio keeps on the wire: four for a 0..1 fraction and two
- * for a 0..100 percent, the same resolution (a hundredth of a point).
+ * Decimal places a ratio keeps on the wire: eight for a 0..1 fraction and six
+ * for a 0..100 percent, the same resolution (a millionth of a point).
  *
- * A producer rounds to this and no coarser. `formatPercent` shows one decimal
- * and prints `0%` or `100%` only for an exact 0 or 100, so a value rounded to a
- * whole percent before it is sent shows a decimal nobody measured: 2 of 3
- * arrives as 67 and reads `67.0%` instead of `66.7%`, 0.4% reads `0%`, and
- * 99.6% reads `100%`.
+ * That is the precision `formatPercent` reads at: it cuts a percent to six
+ * decimals before rounding it to one, so showing a wire value reads exactly as
+ * showing the exact ratio would. A coarser value is rounded twice and can read
+ * a tenth off: at two decimals, 6 of 11 (54.5454…%) went out as 54.55 and read
+ * `54.6%`, one ratio in twenty. And since `formatPercent` prints `0%` or `100%`
+ * only for an exact 0 or 100, a value rounded to a whole percent shows a
+ * decimal nobody measured: 2 of 3 arrives as 67 and reads `67.0%`, 0.4% reads
+ * `0%`, and 99.6% reads `100%`. A producer rounds to this and no coarser.
  */
 export const RATIO_WIRE_DECIMALS: Readonly<Record<RatioUnit, number>> = {
-  [RatioUnits.fraction]: 4,
-  [RatioUnits.percent]: 2,
+  [RatioUnits.fraction]: 8,
+  [RatioUnits.percent]: 6,
 }
 
-/** A ratio rounded half up to its unit's wire precision: `roundRatio(66.6667, 'percent')` is `66.67`. */
+/** A ratio rounded half up to its unit's wire precision: `roundRatio(200 / 3, 'percent')` is `66.666667`. */
 export function roundRatio(value: number, unit: RatioUnit): number {
   const factor = 10 ** RATIO_WIRE_DECIMALS[unit]
   // Cut the float error the scaling leaves before rounding, as `formatPercent`
-  // does (1.005 * 100 is 100.49999999999999). `+ 0` turns a negative zero into 0.
+  // does (0.0001245 * 1e6 is 124.49999999999999). `+ 0` turns a negative zero into 0.
   return (Math.round(Number((value * factor).toFixed(6))) + 0) / factor
 }
 
 /**
  * `part / whole` as a 0..100 percent at wire precision: `percentOf(2, 3)` is
- * `66.67` and `percentOf(1, 250)` is `0.4`. Null when `whole` is not positive,
+ * `66.666667` and `percentOf(1, 250)` is `0.4`. Null when `whole` is not positive,
  * since a share of nothing is not a measured 0%; a field that reports an empty
  * denominator as 0 says so at the call site with `?? 0`.
  */

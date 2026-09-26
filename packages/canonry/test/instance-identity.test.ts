@@ -58,8 +58,8 @@ describe('resolveBuildCommit', () => {
 describe('resolveInstanceIdentity', () => {
   it('returns name and role when both env vars are set', () => {
     expect(
-      resolveInstanceIdentity({ CANONRY_INSTANCE: 'gjelina-demo', CANONRY_INSTANCE_ROLE: 'client-demo' }),
-    ).toEqual({ name: 'gjelina-demo', role: 'client-demo' })
+      resolveInstanceIdentity({ CANONRY_INSTANCE: 'acme-demo', CANONRY_INSTANCE_ROLE: 'client-demo' }),
+    ).toEqual({ name: 'acme-demo', role: 'client-demo' })
   })
 
   it('omits role when CANONRY_INSTANCE_ROLE is unset or blank', () => {

@@ -42,7 +42,7 @@ describe('insight identity', () => {
   })
 
   it('distinguishes two different keywords on the same type', () => {
-    const other = TITLE.replace('santa monica hotels', 'venice beach hotels')
+    const other = TITLE.replace('santa monica hotels', 'bayport hotels')
     expect(fingerprint(TITLE)).not.toBe(fingerprint(other))
   })
 })

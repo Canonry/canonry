@@ -96,12 +96,12 @@ test('discoveryProbeDtoSchema parses a cited probe with cited domains', () => {
     projectId: 'proj_1',
     query: 'best boutique hotel williamsburg',
     citationState: 'cited',
-    citedDomains: ['gjelinahotel.com', 'theyellowsign.com'],
+    citedDomains: ['vantrellhotel.example.com', 'harborinn.example.com'],
     bucket: 'cited',
     createdAt: '2026-05-11T12:00:00.000Z',
   })
   expect(probe.citationState).toBe('cited')
-  expect(probe.citedDomains).toEqual(['gjelinahotel.com', 'theyellowsign.com'])
+  expect(probe.citedDomains).toEqual(['vantrellhotel.example.com', 'harborinn.example.com'])
   expect(probe.bucket).toBe('cited')
 })
 
@@ -159,7 +159,7 @@ test('discoverySessionDtoSchema parses an in-flight session with pre/post dedup 
     seedCount: 48,
     dedupThreshold: 0.85,
     probeCount: 12,
-    competitorMap: [{ domain: 'theyellowsign.com', hits: 4, competitorType: 'direct-competitor' }],
+    competitorMap: [{ domain: 'harborinn.example.com', hits: 4, competitorType: 'direct-competitor' }],
     createdAt: '2026-05-11T12:00:00.000Z',
   })
   expect(session.status).toBe('probing')
@@ -167,7 +167,7 @@ test('discoverySessionDtoSchema parses an in-flight session with pre/post dedup 
   expect(session.seedCount).toBe(48)
   expect(session.dedupThreshold).toBeCloseTo(0.85)
   expect(session.competitorMap).toEqual([
-    { domain: 'theyellowsign.com', hits: 4, competitorType: 'direct-competitor' },
+    { domain: 'harborinn.example.com', hits: 4, competitorType: 'direct-competitor' },
   ])
 })
 
@@ -649,12 +649,12 @@ test('buildHarvestAnchorTerms folds in domain labels with the public suffix stri
 })
 
 test('buildHarvestAnchorTerms folds in EVERY owned domain, not just the canonical one', () => {
-  // An abstract canonical brand ("demand-iq") yields no subject term, but a
+  // An abstract canonical brand ("vexlo-iq") yields no subject term, but a
   // descriptive OWNED domain ("solar-leads.com") does — so folding in every
   // effectiveDomains() entry is what keeps the anchor from over-dropping
   // on-subject candidates on an abstract-brand project (issue #713 review).
-  expect(buildHarvestAnchorTerms([], ['demand-iq.com', 'solar-leads.com']).sort()).toEqual([
-    'demand', 'leads', 'solar',
+  expect(buildHarvestAnchorTerms([], ['vexlo-iq.test', 'solar-leads.com']).sort()).toEqual([
+    'leads', 'solar', 'vexlo',
   ])
   // Blank / unparseable domain entries are skipped, not thrown on.
   expect(buildHarvestAnchorTerms(['solar panels'], ['', '   ']).sort()).toEqual(['panels', 'solar'])
@@ -756,21 +756,21 @@ test('aggregateHarvestedQueries skips non-string elements without throwing', () 
 test('filterBrandedSeedCandidates drops phrase-brand, squashed-brand, and domain candidates', () => {
   const { kept, droppedBranded } = filterBrandedSeedCandidates({
     candidates: [
-      'AZ Coatings reviews',
-      'azcoatings phoenix reviews',
-      'is azcoatings.com legit',
-      'visit www.azcoatings.com for quotes',
+      'Zyloq Coatings reviews',
+      'zyloqcoatings phoenix reviews',
+      'is zyloqcoatings.example.com legit',
+      'visit www.zyloqcoatings.example.com for quotes',
       'best roof coating contractors phoenix',
       'TPO roof repair vs coating phoenix',
     ],
-    brandNames: ['AZ Coatings'],
-    canonicalDomains: ['azcoatings.com'],
+    brandNames: ['Zyloq Coatings'],
+    canonicalDomains: ['zyloqcoatings.example.com'],
   })
   expect(droppedBranded).toEqual([
-    'AZ Coatings reviews',
-    'azcoatings phoenix reviews',
-    'is azcoatings.com legit',
-    'visit www.azcoatings.com for quotes',
+    'Zyloq Coatings reviews',
+    'zyloqcoatings phoenix reviews',
+    'is zyloqcoatings.example.com legit',
+    'visit www.zyloqcoatings.example.com for quotes',
   ])
   expect(kept).toEqual([
     'best roof coating contractors phoenix',
@@ -780,21 +780,21 @@ test('filterBrandedSeedCandidates drops phrase-brand, squashed-brand, and domain
 
 test('filterBrandedSeedCandidates is case-insensitive and whitespace-normalizing', () => {
   const { kept, droppedBranded } = filterBrandedSeedCandidates({
-    candidates: ['aZ   cOATINGS   pricing', 'roof coating pricing'],
-    brandNames: ['AZ Coatings'],
+    candidates: ['zYLOQ   cOATINGS   pricing', 'roof coating pricing'],
+    brandNames: ['Zyloq Coatings'],
     canonicalDomains: [],
   })
-  expect(droppedBranded).toEqual(['aZ   cOATINGS   pricing'])
+  expect(droppedBranded).toEqual(['zYLOQ   cOATINGS   pricing'])
   expect(kept).toEqual(['roof coating pricing'])
 })
 
 test('filterBrandedSeedCandidates matches whole tokens only, never substrings of other words', () => {
   const { kept, droppedBranded } = filterBrandedSeedCandidates({
-    candidates: ['azcoatingspro llc reviews', 'subclassing in python'],
-    brandNames: ['AZ Coatings', 'class'],
+    candidates: ['zyloqcoatingspro llc reviews', 'subclassing in python'],
+    brandNames: ['Zyloq Coatings', 'class'],
     canonicalDomains: [],
   })
-  // 'azcoatingspro' is a different word; 'subclassing' contains 'class' mid-word.
+  // 'zyloqcoatingspro' is a different word; 'subclassing' contains 'class' mid-word.
   expect(droppedBranded).toEqual([])
   expect(kept.length).toBe(2)
 })
@@ -812,15 +812,15 @@ test('filterBrandedSeedCandidates never uses the bare domain label (generic-word
 
 test('filterBrandedSeedCandidates drops branded comparatives too (buyer already knows the name)', () => {
   const { droppedBranded } = filterBrandedSeedCandidates({
-    candidates: ['azcoatings vs polyglass', 'gaco vs polyglass roof coating'],
-    brandNames: ['AZ Coatings'],
-    canonicalDomains: ['azcoatings.com'],
+    candidates: ['zyloqcoatings vs tarvella', 'coatrix vs tarvella roof coating'],
+    brandNames: ['Zyloq Coatings'],
+    canonicalDomains: ['zyloqcoatings.example.com'],
   })
-  expect(droppedBranded).toEqual(['azcoatings vs polyglass'])
+  expect(droppedBranded).toEqual(['zyloqcoatings vs tarvella'])
 })
 
 test('filterBrandedSeedCandidates with no brand identities is a no-op', () => {
-  const input = ['anything at all', 'azcoatings reviews']
+  const input = ['anything at all', 'zyloqcoatings reviews']
   const { kept, droppedBranded } = filterBrandedSeedCandidates({
     candidates: input,
     brandNames: [],

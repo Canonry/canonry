@@ -12,9 +12,9 @@ import {
 
 describe('brand identity matching', () => {
   it('folds casing, punctuation, and spacing without changing spelling', () => {
-    expect(brandKeyFromText('Demand-IQ')).toBe('demandiq')
-    expect(textContainsBrandAlias('Demand IQ pricing', 'DemandIQ')).toBe(true)
-    expect(textContainsBrandAlias('Try DemandIQ today', 'Demand IQ')).toBe(true)
+    expect(brandKeyFromText('Vexlo-IQ')).toBe('vexloiq')
+    expect(textContainsBrandAlias('Vexlo IQ pricing', 'VexloIQ')).toBe(true)
+    expect(textContainsBrandAlias('Try VexloIQ today', 'Vexlo IQ')).toBe(true)
   })
 
   it('matches complete adjacent words, not substrings', () => {
@@ -35,8 +35,8 @@ describe('brand identity matching', () => {
   })
 
   it('never treats edit-distance neighbors as the same identity', () => {
-    expect(textContainsBrandAlias('gelina venice', 'Gjelina')).toBe(false)
-    expect(textContainsBrandAlias('selina venice', 'Gjelina')).toBe(false)
+    expect(textContainsBrandAlias('vantell harborview', 'Vantrell')).toBe(false)
+    expect(textContainsBrandAlias('santell harborview', 'Vantrell')).toBe(false)
   })
 })
 
@@ -45,16 +45,16 @@ describe('one segmentation for the whole alias set', () => {
   // alias separately re-walked the entire text every time, so cost grew with
   // the alias count, which is exactly where an approval-driven design adds
   // them. Measured on a real corpus: 4,711ms -> 430ms at eight aliases.
-  const aliases = ['Demand IQ', 'DemandIQ Inc', 'Demand Intelligence', 'Acme', 'Gjelina Hotel']
+  const aliases = ['Vexlo IQ', 'VexloIQ Inc', 'Vexlo Intelligence', 'Acme', 'Vantrell Hotel']
 
   it('is identical to asking each alias on its own', () => {
     const texts = [
-      'We use Demand IQ for solar quotes.',
-      'demand-iq is a lead platform.',
+      'We use Vexlo IQ for solar quotes.',
+      'vexlo-iq is a lead platform.',
       'Nothing relevant here at all.',
       'Acmeology is a different company.', // substring, must NOT match
-      'Stayed at the Gjelina Hotel in Venice.',
-      'Gjelina is a restaurant on Abbot Kinney.', // the bare name is NOT an alias
+      'Stayed at the Vantrell Hotel in Harborview.',
+      'Vantrell is a restaurant on Mill Street.', // the bare name is NOT an alias
     ]
     for (const text of texts) {
       const oneByOne = aliases.some(alias => textContainsBrandAlias(text, alias))
@@ -71,17 +71,17 @@ describe('one segmentation for the whole alias set', () => {
 
   it('a compiled matcher gives the same answer as the one-shot helper', () => {
     const matcher = compileBrandAliases(aliases)
-    for (const text of ['Demand IQ rocks', 'nothing', 'the Gjelina Hotel']) {
+    for (const text of ['Vexlo IQ rocks', 'nothing', 'the Vantrell Hotel']) {
       expect(matcherMatchesText(matcher, text)).toBe(textContainsAnyBrandAlias(text, aliases))
     }
   })
 
   it('reuses one prepared answer across competitor matchers without changing matches', () => {
-    const answer = 'Totême works with Demand-IQ; acmeology is unrelated.'
+    const answer = 'Solême works with Vexlo-IQ; acmeology is unrelated.'
     const prepared = prepareBrandMatchText(answer)
     const matchers = [
-      compileBrandAliases(['Toteme']),
-      compileBrandAliases(['Demand IQ']),
+      compileBrandAliases(['Soleme']),
+      compileBrandAliases(['Vexlo IQ']),
       compileBrandAliases(['Acme']),
     ]
 
@@ -92,45 +92,45 @@ describe('one segmentation for the whole alias set', () => {
   })
 
   it('reports every alias that matched, not just the first', () => {
-    const matcher = compileBrandAliases(['Acme', 'Gjelina Hotel'])
-    const hits = matchedAliasKeys(matcher, 'Acme partnered with the Gjelina Hotel.')
-    expect([...hits].sort()).toEqual(['acme', 'gjelinahotel'])
+    const matcher = compileBrandAliases(['Acme', 'Vantrell Hotel'])
+    const hits = matchedAliasKeys(matcher, 'Acme partnered with the Vantrell Hotel.')
+    expect([...hits].sort()).toEqual(['acme', 'vantrellhotel'])
   })
 
   it('pins the segmenter locale so a KPI does not depend on the host', () => {
     // `undefined` resolves to the machine's default locale, which would let the
     // same answer segment one way on a laptop and another in a container.
-    expect(brandWords('Gjelina Hotel')).toEqual(['gjelina', 'hotel'])
-    expect(brandWords('DEMAND-IQ')).toEqual(['demand', 'iq'])
+    expect(brandWords('Vantrell Hotel')).toEqual(['vantrell', 'hotel'])
+    expect(brandWords('VEXLO-IQ')).toEqual(['vexlo', 'iq'])
   })
 })
 
 describe('accent folding', () => {
   // An accented brand used to be invisible to every mention metric: the alias
-  // derived from its domain carries no accents, so `eterne` never matched
-  // `Éterne`. Measured on a real run, one competitor scored 0 against 2 real
+  // derived from its domain carries no accents, so `elvane` never matched
+  // `Élvane`. Measured on a real run, one competitor scored 0 against 2 real
   // mentions and another was undercounted by one.
   it('matches an accented brand from its unaccented domain alias', () => {
-    expect(textContainsBrandAlias('Éterne 90s Ribbed Tank', 'eterne')).toBe(true)
-    expect(textContainsBrandAlias('Totême is minimal', 'toteme')).toBe(true)
-    expect(textContainsBrandAlias('Loewe and Lóewe', 'loewe')).toBe(true)
+    expect(textContainsBrandAlias('Élvane Ribbed Knit Top', 'elvane')).toBe(true)
+    expect(textContainsBrandAlias('Solême is minimal', 'soleme')).toBe(true)
+    expect(textContainsBrandAlias('Novae and Nóvae', 'novae')).toBe(true)
   })
 
   it('matches in both directions, so an accented alias finds unaccented prose', () => {
-    expect(textContainsBrandAlias('Eterne makes ribbed tanks', 'Éterne')).toBe(true)
-    expect(textContainsBrandAlias('Toteme is minimal', 'Totême')).toBe(true)
+    expect(textContainsBrandAlias('Elvane makes ribbed knits', 'Élvane')).toBe(true)
+    expect(textContainsBrandAlias('Soleme is minimal', 'Solême')).toBe(true)
   })
 
   it('folds accents into the brand key, so the two spellings share one identity', () => {
-    expect(brandKeyFromText('Totême')).toBe(brandKeyFromText('Toteme'))
-    expect(brandKeyFromText('Éterne')).toBe('eterne')
+    expect(brandKeyFromText('Solême')).toBe(brandKeyFromText('Soleme'))
+    expect(brandKeyFromText('Élvane')).toBe('elvane')
     // Presentation folding still composes with the punctuation/spacing rules.
     expect(brandKeyFromText('Café-Noir')).toBe(brandKeyFromText('Cafe Noir'))
   })
 
   it('still refuses substrings and spelling guesses', () => {
     // Folding widens what counts as the SAME spelling, never as a similar one.
-    expect(textContainsBrandAlias('Eterneless brands', 'eterne')).toBe(false)
+    expect(textContainsBrandAlias('Elvaneless brands', 'elvane')).toBe(false)
     expect(textContainsBrandAlias('acmeology', 'acme')).toBe(false)
     expect(textContainsBrandAlias('price', 'prime')).toBe(false)
   })
@@ -160,8 +160,8 @@ describe('accent folding', () => {
     expect(brandKeyFromText('삼성')).toHaveLength(2)
     expect(brandKeyFromText('한')).toHaveLength(1)
     // Latin accents fold without changing length either.
-    expect(brandKeyFromText('Totême')).toHaveLength(6)
-    expect(brandKeyFromText('Éterne')).toHaveLength(6)
+    expect(brandKeyFromText('Solême')).toHaveLength(6)
+    expect(brandKeyFromText('Élvane')).toHaveLength(6)
   })
 
   it('confines the fold to accent-bearing scripts, leaving other scripts as they already were', () => {
