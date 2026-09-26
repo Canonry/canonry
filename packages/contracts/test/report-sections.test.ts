@@ -49,6 +49,7 @@ import {
   reportProviderDisplayName,
   reportProviderRateLabel,
   reportRateDeltaCopy,
+  reportRateDeltaValue,
   reportReferralRedirectNote,
   reportSectionIdSchema,
   reportSectionOrder,
@@ -176,14 +177,32 @@ describe('shared report helpers', () => {
   test('delta arrows, tones and change copy', () => {
     expect((['up', 'down', 'flat'] as const).map(reportDeltaArrow)).toEqual(['↑', '↓', '→'])
     expect((['up', 'down', 'flat'] as const).map(reportDirectionTone)).toEqual(['positive', 'negative', 'neutral'])
-    expect(reportRateDeltaCopy({ current: 65, prior: 50, deltaAbs: 15, deltaPct: 30, direction: 'up' }, '%')).toBe('+15.0% vs 50%')
-    expect(reportRateDeltaCopy({ current: 40, prior: 45, deltaAbs: -5, deltaPct: -11, direction: 'down' }, '%')).toBe('-5.0% vs 45%')
-    expect(reportRateDeltaCopy({ current: 40, prior: 40, deltaAbs: 0, deltaPct: 0, direction: 'flat' }, '%')).toBe('0.0% vs 40%')
+    // A rate's change is in percentage points, and its prior value is a percent: both 0..100 on the wire.
+    expect(reportRateDeltaCopy({ current: 65, prior: 50, deltaAbs: 15, deltaPct: 30, direction: 'up' }, '%')).toBe('+15.0 pts vs 50.0%')
+    expect(reportRateDeltaCopy({ current: 40, prior: 45, deltaAbs: -5, deltaPct: -11, direction: 'down' }, '%')).toBe('-5.0 pts vs 45.0%')
+    expect(reportRateDeltaCopy({ current: 40, prior: 40, deltaAbs: 0, deltaPct: 0, direction: 'flat' }, '%')).toBe('0 pts vs 40.0%')
+    // The smoothed delta is an unrounded average difference; the prior average is rounded to a tenth.
+    expect(reportRateDeltaCopy({ current: 36.7, prior: 33.3, deltaAbs: 3.3333333333333357, deltaPct: 10, direction: 'up', window: 3 }, '%')).toBe('+3.3 pts vs 33.3%')
+    // A real movement too small for one decimal never reads as no change, and exact edges keep no decimal.
+    expect(reportRateDeltaCopy({ current: 0.04, prior: 0, deltaAbs: 0.04, deltaPct: null, direction: 'flat' }, '%')).toBe('+<0.1 pts vs 0%')
+    expect(reportRateDeltaCopy({ current: 99.96, prior: 100, deltaAbs: -0.04, deltaPct: 0, direction: 'flat' }, '%')).toBe('-<0.1 pts vs 100%')
     // Counts route through the shared smart-% rule: a small base shows a rounded raw delta, a large one a percentage.
     expect(reportRateDeltaCopy({ current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 }, 'count')).toBe('+0.3 vs 3.3')
-    expect(reportRateDeltaCopy({ current: 40, prior: 30, deltaAbs: 10, deltaPct: 33, direction: 'up' }, 'count')).toBe('+33% vs prior')
-    expect(reportMovementChangeCopy({ provider: 'gemini', prior: 50, current: 65, deltaAbs: 15, direction: 'up' })).toBe('+15.0% ↑')
-    expect(reportMovementChangeCopy({ provider: 'openai', prior: 50, current: 46.5, deltaAbs: -3.5, direction: 'down' })).toBe('-3.5% ↓')
+    // The percentage is the API's two-decimal deltaPct through formatPercent: 30 -> 40 is +33.33%.
+    expect(reportRateDeltaCopy({ current: 40, prior: 30, deltaAbs: 10, deltaPct: 33.33, direction: 'up' }, 'count')).toBe('+33.3% vs prior')
+    expect(reportMovementChangeCopy({ provider: 'gemini', prior: 50, current: 65, deltaAbs: 15, direction: 'up' })).toBe('+15.0 pts ↑')
+    expect(reportMovementChangeCopy({ provider: 'openai', prior: 50, current: 46.5, deltaAbs: -3.5, direction: 'down' })).toBe('-3.5 pts ↓')
+    expect(reportMovementChangeCopy({ provider: 'claude', prior: 50, current: 50, deltaAbs: 0, direction: 'flat' })).toBe('0 pts →')
+  })
+
+  test("a what's-changed tile shows a rate as a percent and a count as its raw average", () => {
+    expect(reportRateDeltaValue({ current: 65 }, '%')).toBe('65.0%')
+    expect(reportRateDeltaValue({ current: 33.3 }, '%')).toBe('33.3%')
+    expect(reportRateDeltaValue({ current: 0 }, '%')).toBe('0%')
+    expect(reportRateDeltaValue({ current: 100 }, '%')).toBe('100%')
+    expect(reportRateDeltaValue({ current: 99.96 }, '%')).toBe('>99.9%')
+    expect(reportRateDeltaValue({ current: 3.3 }, 'count')).toBe('3.3')
+    expect(reportRateDeltaValue({ current: 2 }, 'count')).toBe('2')
   })
 })
 
@@ -211,11 +230,16 @@ describe('client summary copy', () => {
   test('trend copy names rolling averages and single checks differently', () => {
     expect(reportClientTrendCopy(null)).toBeNull()
     expect(reportClientTrendCopy({ current: 65, prior: 50, deltaAbs: 15, deltaPct: 30, direction: 'up', window: 3 }))
-      .toEqual({ text: 'Up 15.0 points vs prior 3 checks (avg 50%)', tone: 'positive', arrow: '↑' })
+      .toEqual({ text: 'Up 15.0 points vs prior 3 checks (avg 50.0%)', tone: 'positive', arrow: '↑' })
     expect(reportClientTrendCopy({ current: 40, prior: 45, deltaAbs: -5, deltaPct: -11, direction: 'down' }))
-      .toEqual({ text: 'Down 5.0 points since last check (was 45%)', tone: 'negative', arrow: '↓' })
+      .toEqual({ text: 'Down 5.0 points since last check (was 45.0%)', tone: 'negative', arrow: '↓' })
     expect(reportClientTrendCopy({ current: 40, prior: 40, deltaAbs: 0, deltaPct: 0, direction: 'flat', window: 1 }))
-      .toEqual({ text: 'Holding steady since last check (was 40%)', tone: 'neutral', arrow: '→' })
+      .toEqual({ text: 'Holding steady since last check (was 40.0%)', tone: 'neutral', arrow: '→' })
+    // An averaged prior keeps its tenth, and an unrounded average change reads one decimal.
+    expect(reportClientTrendCopy({ current: 36.7, prior: 33.3, deltaAbs: 3.3333333333333357, deltaPct: 10, direction: 'up', window: 2 })?.text)
+      .toBe('Up 3.3 points vs prior 2 checks (avg 33.3%)')
+    expect(reportClientTrendCopy({ current: 0, prior: 0, deltaAbs: 0, deltaPct: null, direction: 'flat' })?.text)
+      .toBe('Holding steady since last check (was 0%)')
   })
 })
 
@@ -279,7 +303,7 @@ describe('report slice S1: agency overview copy', () => {
       trendLabel: '↑ Up',
       trendTone: 'positive',
       title: '3 of 5 tracked queries cite Rich Project',
-      subtitle: '65% citation coverage and 40% mention coverage across 2 providers.',
+      subtitle: '65.0% citation coverage and 40.0% mention coverage across 2 providers.',
       citedFragment: '3/5 queries cited',
       mentionedFragment: '2/5 queries mentioned',
       prioritizedActionCount: 2,
@@ -317,7 +341,7 @@ describe('report slice S1: agency overview copy', () => {
       trendLabel: '↓ Down',
       trendTone: 'negative',
       title: '1 of 1 tracked query cite Rich Project',
-      subtitle: '65% citation coverage and 40% mention coverage across 1 provider.',
+      subtitle: '65.0% citation coverage and 40.0% mention coverage across 1 provider.',
       citedFragment: '1/1 query cited',
       mentionedFragment: '0/1 query mentioned',
       prioritizedActionCount: 2,
@@ -387,7 +411,9 @@ describe('report slice S1: agency overview copy', () => {
 
 describe('report slice S2: competitive evidence copy', () => {
   test('provider rate label', () => {
-    expect(reportProviderRateLabel({ citationRate: 50, citedCount: 1, totalCount: 2 })).toBe('50% (1/2)')
+    expect(reportProviderRateLabel({ citationRate: 50, citedCount: 1, totalCount: 2 })).toBe('50.0% (1/2)')
+    expect(reportProviderRateLabel({ citationRate: 100, citedCount: 2, totalCount: 2 })).toBe('100% (2/2)')
+    expect(reportProviderRateLabel({ citationRate: 0, citedCount: 0, totalCount: 2 })).toBe('0% (0/2)')
   })
 
   test('mention scope label, including a scope from an older server', () => {
@@ -413,9 +439,9 @@ describe('report slice S2: competitive evidence copy', () => {
 
   test('cited URL count and source origin headline', () => {
     expect([reportCitedUrlCount(1), reportCitedUrlCount(2)]).toEqual(['1 cited URL', '2 cited URLs'])
-    expect(reportSourceOriginHeadline(fullReport().aiSourceOrigin.categories)).toEqual({ share: '20%', detail: 'of citations went to tracked competitors (2 of 10).' })
+    expect(reportSourceOriginHeadline(fullReport().aiSourceOrigin.categories)).toEqual({ share: '20.0%', detail: 'of citations went to tracked competitors (2 of 10).' })
     expect(reportSourceOriginHeadline(richReport().aiSourceOrigin.categories)).toBeNull()
-    expect(reportSourceCategoryShareLabel(20)).toBe('(20%)')
+    expect([20, 0, 100, 12.5].map(reportSourceCategoryShareLabel)).toEqual(['(20.0%)', '(0%)', '(100%)', '(12.5%)'])
   })
 })
 
@@ -440,7 +466,9 @@ describe('report slice S3: search and traffic copy', () => {
   })
 
   test('share bar share label', () => {
-    expect(reportShareBarShareLabel('clicks', 80)).toBe('clicks · 80%')
+    expect(reportShareBarShareLabel('clicks', 80)).toBe('clicks · 80.0%')
+    expect(reportShareBarShareLabel('sessions', 0)).toBe('sessions · 0%')
+    expect(reportShareBarShareLabel('sessions', 100)).toBe('sessions · 100%')
   })
 })
 
@@ -478,8 +506,10 @@ describe('report slice S4: server-side, indexing and trend copy', () => {
     expect(reportReferralRedirectNote(0)).toBe('')
   })
 
-  test('an operator delta is signed as the API sent it, and a missing delta is a dash', () => {
-    expect([75, -30, 0, 12.5, null].map(delta => reportServerActivityOperatorDelta(delta))).toEqual(['+75%', '-30%', '0%', '+12.5%', '—'])
+  test('an operator delta is signed and shown through formatPercent, and a missing delta is a dash', () => {
+    // deltaPct is percent units at two decimals: 4 against 3 is 33.33, 1,001 against 1,000 is 0.1.
+    expect([75, -30, 0, 12.5, 33.33, -66.67, 0.1, 0.04, 100, null].map(delta => reportServerActivityOperatorDelta(delta)))
+      .toEqual(['+75.0%', '-30.0%', '0%', '+12.5%', '+33.3%', '-66.7%', '+0.1%', '+<0.1%', '+100%', '—'])
   })
 
   test('a crawled path counts its unverified hits with its verified hits, and adds none when they were never recorded', () => {
@@ -499,7 +529,8 @@ describe('report slice S4: server-side, indexing and trend copy', () => {
 
   test('citations trend baseline and per-engine rates', () => {
     expect(reportCitationsTrendBaseline(2)).toBe('Building baseline (2 of 4 checks completed). Trend will appear once more checks are recorded.')
-    expect(reportTrendProviderRates([{ provider: 'gemini', citationRate: 65 }, { provider: 'openai', citationRate: 50 }])).toBe('gemini: 65% · openai: 50%')
+    expect(reportTrendProviderRates([{ provider: 'gemini', citationRate: 65 }, { provider: 'openai', citationRate: 50 }])).toBe('gemini: 65.0% · openai: 50.0%')
+    expect(reportTrendProviderRates([{ provider: 'gemini', citationRate: 100 }, { provider: 'openai', citationRate: 0 }])).toBe('gemini: 100% · openai: 0%')
     expect(reportTrendProviderRates([])).toBe('')
   })
 })
@@ -508,27 +539,27 @@ describe('report slice S5: insights and content copy', () => {
   test('opportunity action line and miss rate', () => {
     expect(reportOpportunityActionLine({ action: 'create', actionConfidence: 'high' })).toBe('Create · High confidence')
     expect(reportOpportunityActionLine({ action: 'add-schema', actionConfidence: 'low' })).toBe('Add schema · Low confidence')
-    expect([0.5, 1, 0, 0.125].map(reportMissRateLabel)).toEqual(['50%', '100%', '0%', '13%'])
+    expect([0.5, 1, 0, 0.125].map(reportMissRateLabel)).toEqual(['50.0%', '100%', '0%', '12.5%'])
   })
 
-  // The producer hands over an unrounded `1 - cited/total`, so the half-percent
-  // boundaries land on values binary floating point puts a hair below the
-  // boundary (0.575 is 57.49999999999999 once multiplied). Rounding that
-  // product directly reported a gap missed on 23 of 40 checks as 57%.
-  test('a half-percent miss rate rounds up, not down', () => {
-    expect(reportMissRateLabel(1 - 17 / 40)).toBe('58%')
-    expect(reportMissRateLabel(1 - 27 / 40)).toBe('33%')
-    expect(reportMissRateLabel(1 - 31 / 40)).toBe('23%')
-    expect(reportMissRateLabel(1 - 37 / 40)).toBe('8%')
+  // The producer hands over an unrounded `1 - cited/total`, which binary
+  // floating point puts a hair off its exact tenth (0.575 is 57.49999999999999
+  // once multiplied). A gap missed on 23 of 40 checks must still read 57.5%.
+  test('a miss rate on a 40-snapshot basket reads its exact tenth', () => {
+    expect(reportMissRateLabel(1 - 17 / 40)).toBe('57.5%')
+    expect(reportMissRateLabel(1 - 27 / 40)).toBe('32.5%')
+    expect(reportMissRateLabel(1 - 31 / 40)).toBe('22.5%')
+    expect(reportMissRateLabel(1 - 37 / 40)).toBe('7.5%')
   })
 
-  test('every miss rate a 40-snapshot basket can produce reads as its half-up percent', () => {
+  test('every miss rate a 40-snapshot basket can produce reads as its exact percent', () => {
     // The oracle scales BEFORE it divides, so `missed * 100 / 40` lands on an
     // exact 57.5 where `(missed / 40) * 100` lands on 57.49999999999999. Do not
-    // "simplify" it back: the ratio-first form is the defect under test, and an
-    // oracle written that way agrees with the bug on all ten half-percent
-    // baskets a 40-snapshot query produces.
-    const expected = Array.from({ length: 41 }, (_, cited) => `${Math.round(((40 - cited) * 100) / 40)}%`)
+    // "simplify" it back: the ratio-first form is the float error under test.
+    const expected = Array.from({ length: 41 }, (_, cited) => {
+      const percent = ((40 - cited) * 100) / 40
+      return percent === 0 || percent === 100 ? `${percent}%` : `${percent.toFixed(1)}%`
+    })
     expect(Array.from({ length: 41 }, (_, cited) => reportMissRateLabel(1 - cited / 40))).toEqual(expected)
   })
 })

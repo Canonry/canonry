@@ -1,4 +1,4 @@
-import type { ShareOfVoiceContext } from '@ainyc/canonry-contracts'
+import { percentOf, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 
 // Three rivals seen in three distinct answers each rules out a lone alternative
 // or a one-answer list. This is a publication floor, not a confidence interval.
@@ -31,7 +31,7 @@ export function buildShareOfVoiceFrame(input: {
           : denominator === 0 ? 'no-mentions' : null
   return {
     basis, reason, availability: reason === null ? 'measured' : 'not-measured',
-    score: reason === null ? Math.round(input.projectMentions / denominator * 1000) / 10 : null,
+    score: reason === null ? percentOf(input.projectMentions, denominator) : null,
     denominator, competitorMentions, domains,
   }
 }

@@ -15,7 +15,8 @@ import {
   readModelAttribution,
   trendToTone,
   formatQueryChangeCaption,
-  latestSeriesValue,
+  latestProviderRate,
+  plottedMetricRates,
   CITED_KEY,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
@@ -314,35 +315,66 @@ describe('buildSelectedTrendRows', () => {
   })
 })
 
-describe('latestSeriesValue', () => {
-  it('returns the most recent plotted value (right end of the line)', () => {
+describe('latestProviderRate', () => {
+  it('returns the API rate behind the right end of the line, unrounded', () => {
     const d = dto([
       bucket('2026-04-01', { gemini: provider(0.25, 0.1), openai: provider(0.5, 0.4) }),
-      bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
+      bucket('2026-04-08', { gemini: provider(0.7504, 0.5) }),
     ])
-    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
-    // gemini is in both buckets → its latest cited value is bucket 2 (75).
-    expect(latestSeriesValue(rows, 'gemini')).toBe(75)
+    // gemini is in both buckets → its latest cited rate is bucket 2's. The
+    // chart row for that point is rounded to the axis (75); the rate is not.
+    expect(buildTrendRows(d, 'cited', 'byProvider').rows[1]!.gemini).toBe(75)
+    expect(latestProviderRate(d, 'gemini', 'cited')).toBe(0.7504)
+    expect(latestProviderRate(d, 'gemini', 'mentioned')).toBe(0.5)
   })
 
-  it('skips trailing nulls so the value matches the visible line end', () => {
+  it('skips buckets the engine is missing from, so the value matches the visible line end', () => {
     const d = dto([
       bucket('2026-04-01', { openai: provider(0.5, 0.4) }),
       bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
     ])
-    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
-    // openai only has data in bucket 1; bucket 2 is null. Latest = 50, not null.
-    expect(latestSeriesValue(rows, 'openai')).toBe(50)
+    // openai only has data in bucket 1; its bucket 2 row is null. Latest = 0.5, not null.
+    expect(buildTrendRows(d, 'cited', 'byProvider').rows[1]!.openai).toBeNull()
+    expect(latestProviderRate(d, 'openai', 'cited')).toBe(0.5)
   })
 
-  it('returns null for a series that never appears', () => {
+  it('returns null for an engine that never appears', () => {
     const d = dto([bucket('2026-04-01', { gemini: provider(0.5, 0.5) })])
-    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
-    expect(latestSeriesValue(rows, 'claude')).toBeNull()
+    expect(latestProviderRate(d, 'claude', 'cited')).toBeNull()
   })
 
-  it('returns null for empty rows', () => {
-    expect(latestSeriesValue([], 'gemini')).toBeNull()
+  it('returns null for empty buckets', () => {
+    expect(latestProviderRate(dto([]), 'gemini', 'cited')).toBeNull()
+  })
+})
+
+describe('plottedMetricRates', () => {
+  it('returns each bucket overall rate for the selected presence metric, oldest first and unrounded', () => {
+    const d = dto([
+      bucket('2026-04-01', {}, { citationRate: 0.0004, mentionRate: 0.3333 }),
+      bucket('2026-04-08', {}, { citationRate: 0.9996, mentionRate: 0 }),
+    ])
+    // The chart rows round these to the axis (0 and 100); the rates keep what
+    // the API sent, so text can still read <0.1% and >99.9%.
+    expect(buildTrendRows(d, 'cited', 'overall').rows.map(row => row[CITED_KEY])).toEqual([0, 100])
+    expect(plottedMetricRates(d, 'cited')).toEqual([0.0004, 0.9996])
+    expect(plottedMetricRates(d, 'mentioned')).toEqual([0.3333, 0])
+  })
+
+  it('returns only the buckets that plot a mention-share point', () => {
+    const d = dto([
+      { ...bucket('2026-04-01', {}), mentionShare: { scope: 'non-brand' as const, rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 } },
+      { ...bucket('2026-04-08', {}), mentionShare: { scope: 'non-brand' as const, rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 } },
+      { ...bucket('2026-04-15', {}), mentionShare: { scope: 'non-brand' as const, rate: 0.6667, projectMentionSnapshots: 2, competitorMentionSnapshots: 1 } },
+    ])
+    const plotted = buildMentionShareTrendRows(d).rows.filter(row => typeof row[MENTION_SHARE_KEY] === 'number')
+    expect(plottedMetricRates(d, 'mentionShare')).toEqual([0.25, 0.6667])
+    expect(plotted).toHaveLength(plottedMetricRates(d, 'mentionShare').length)
+  })
+
+  it('returns nothing for empty buckets', () => {
+    expect(plottedMetricRates(dto([]), 'cited')).toEqual([])
+    expect(plottedMetricRates(dto([]), 'mentionShare')).toEqual([])
   })
 })
 

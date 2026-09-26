@@ -23,8 +23,9 @@ import {
   formatDeltaCopy,
   formatIsoDate,
   formatNumber,
-  formatRatio,
+  formatPercent,
   formatWindowCountDelta,
+  RatioUnits,
   reportActionCategoryLabel,
   reportActionTone,
   reportSeverityLabel,
@@ -81,6 +82,7 @@ import {
   reportProviderDisplayName,
   reportProviderRateLabel,
   reportRateDeltaCopy,
+  reportRateDeltaValue,
   reportReferralRedirectNote,
   reportServerActivityAgencyOperatorHeaders,
   reportServerActivityAgencyTiles,
@@ -1000,7 +1002,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       </div>
       <div class="hero-proof">
         <div class="mini-label">${copy.proofTiles.mentionCoverage}</div>
-        <div class="mini-value">${s.mentionRate}%</div>
+        <div class="mini-value">${formatPercent(s.mentionRate, RatioUnits.percent)}</div>
         <div class="mini-copy">${escapeHtml(headline.mentionedFragment)}</div>
       </div>
       <div class="hero-proof">
@@ -1013,12 +1015,12 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const metrics: Array<{ label: string; value: string; delta: string }> = [
     {
       label: copy.tiles.citationRate,
-      value: `${s.citationRate}%`,
+      value: formatPercent(s.citationRate, RatioUnits.percent),
       delta: `<span class="tone-${headline.trendTone}">${headline.trendLabel}</span> · ${headline.citedFragment} · ${headline.providerCountLabel}`,
     },
     {
       label: copy.tiles.mentionRate,
-      value: `${s.mentionRate}%`,
+      value: formatPercent(s.mentionRate, RatioUnits.percent),
       delta: headline.mentionedFragment,
     },
     {
@@ -1086,14 +1088,13 @@ function renderRateDeltaTile(
   if (!delta) {
     return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">${REPORT_SECTION_COPY['whats-changed'].rateTileEmpty}</div></div>`
   }
-  const valueSuffix = unit === '%' ? '%' : ''
   // unit='%' keeps its percentage-point copy; unit='count' routes through the
   // shared "smart %" formatter (big base → %, small base → rounded raw delta).
-  // The SPA calls the same helper, so both surfaces print the same words.
+  // The SPA calls the same helpers, so both surfaces print the same words.
   const deltaText = reportRateDeltaCopy(delta, unit)
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
-    <div class="value ${deltaToneClass(delta.direction)}">${delta.current}${valueSuffix} <span style="font-size:14px;font-weight:500;">${reportDeltaArrow(delta.direction)}</span></div>
+    <div class="value ${deltaToneClass(delta.direction)}">${reportRateDeltaValue(delta, unit)} <span style="font-size:14px;font-weight:500;">${reportDeltaArrow(delta.direction)}</span></div>
     <div class="delta">${deltaText}</div>
   </div>`
 }
@@ -1128,8 +1129,8 @@ function renderProviderMovements(
   const rows = meaningful.map(m => {
     return `<tr>
       <td>${escapeHtml(isClient ? reportProviderDisplayName(m.provider) : m.provider)}</td>
-      <td class="numeric">${m.prior}%</td>
-      <td class="numeric">${m.current}%</td>
+      <td class="numeric">${formatPercent(m.prior, RatioUnits.percent)}</td>
+      <td class="numeric">${formatPercent(m.current, RatioUnits.percent)}</td>
       <td class="numeric ${deltaToneClass(m.direction)}">${reportMovementChangeCopy(m)}</td>
     </tr>`
   }).join('')
@@ -1372,7 +1373,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
       <td><span class="badge tone-${tone}">${escapeHtml(c.pressureLabel)}</span></td>
       <td class="numeric">${c.citationCount} / ${c.totalCount}</td>
       <td class="numeric">${mentionCount} / ${mentionTotal}</td>
-      <td class="numeric">${c.sharePct}%</td>
+      <td class="numeric">${formatPercent(c.sharePct, RatioUnits.percent)}</td>
       <td>${escapeHtml(reportTruncatedList(c.citedQueries, 5))}${pagesDisclosure}</td>
     </tr>`
   }).join('')
@@ -1524,7 +1525,17 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
   )
 }
 
-function renderLineChart(points: Array<{ x: string; y: number; label?: string }>, color: string, title: string, height = 200): string {
+/**
+ * `formatValue` writes the y-axis labels: a count by default, the percent rule
+ * for a rate chart, which is the formatter the SPA chart gives its ticks.
+ */
+function renderLineChart(
+  points: Array<{ x: string; y: number; label?: string }>,
+  color: string,
+  title: string,
+  height = 200,
+  formatValue: (value: number) => string = formatNumber,
+): string {
   if (points.length === 0) return ''
   const width = 600
   const padX = 32
@@ -1551,8 +1562,8 @@ function renderLineChart(points: Array<{ x: string; y: number; label?: string }>
     <h3>${escapeHtml(title)}</h3>
     <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${escapeHtml(reportLineChartLabel(title))}">
       <line x1="${padX}" y1="${padY + usableH}" x2="${padX + usableW}" y2="${padY + usableH}" stroke="${COLORS.border}" stroke-width="1" />
-      <text x="${padX - 6}" y="${(padY + 4).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">${formatNumber(max)}</text>
-      <text x="${padX - 6}" y="${(padY + usableH).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">0</text>
+      <text x="${padX - 6}" y="${(padY + 4).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">${formatValue(max)}</text>
+      <text x="${padX - 6}" y="${(padY + usableH).toFixed(1)}" fill="${COLORS.textFaint}" font-size="9" text-anchor="end">${formatValue(0)}</text>
       <path d="${path}" stroke="${color}" stroke-width="2" fill="none" />
       ${dots}
       ${xLabels}
@@ -1575,7 +1586,7 @@ function renderGsc(report: ProjectReportDto): string {
       <td>${escapeHtml(q.query)}</td>
       <td class="numeric">${formatNumber(q.clicks)}</td>
       <td class="numeric">${formatNumber(q.impressions)}</td>
-      <td class="numeric">${formatRatio(q.ctr)}</td>
+      <td class="numeric">${formatPercent(q.ctr)}</td>
       <td class="numeric">${q.avgPosition.toFixed(1)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(q.category)}</span></td>
     </tr>`).join('')
@@ -1618,7 +1629,7 @@ function renderGsc(report: ProjectReportDto): string {
     `<div class="metric-grid">
       <div class="metric"><div class="label">${copy.tiles.clicks}</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
       <div class="metric"><div class="label">${copy.tiles.impressions}</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
-      <div class="metric"><div class="label">${copy.tiles.ctr}</div><div class="value">${formatRatio(gsc.ctr)}</div></div>
+      <div class="metric"><div class="label">${copy.tiles.ctr}</div><div class="value">${formatPercent(gsc.ctr)}</div></div>
       <div class="metric"><div class="label">${copy.tiles.position}</div><div class="value">${gsc.avgPosition.toFixed(1)}</div></div>
     </div>
     ${trendChart}
@@ -2030,7 +2041,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
     `<div class="metric-grid">
       <div class="metric"><div class="label">${copy.tiles.indexed}</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
       <div class="metric"><div class="label">${copy.tiles.total}</div><div class="value">${formatNumber(ih.total)}</div></div>
-      <div class="metric"><div class="label">${copy.tiles.share}</div><div class="value">${ih.indexedPct}%</div></div>
+      <div class="metric"><div class="label">${copy.tiles.share}</div><div class="value">${formatPercent(ih.indexedPct, RatioUnits.percent)}</div></div>
     </div>
     <div class="chart-card">
       <h3>${copy.coverageHeading}</h3>
@@ -2062,12 +2073,13 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     COLORS.positive,
     copy.chartTitle,
     220,
+    value => formatPercent(value, RatioUnits.percent),
   )
 
   const rows = trend.map((t: CitationsTrendPoint) => `
     <tr>
       <td>${formatDate(t.date)}</td>
-      <td class="numeric">${t.citationRate}% <span class="cell-pending">(${t.citedQueryCount}/${t.totalQueryCount})</span></td>
+      <td class="numeric">${formatPercent(t.citationRate, RatioUnits.percent)} <span class="cell-pending">(${t.citedQueryCount}/${t.totalQueryCount})</span></td>
       <td>${escapeHtml(reportTrendProviderRates(t.providerRates))}</td>
     </tr>`).join('')
 
@@ -2292,7 +2304,7 @@ function renderClientSummary(report: ProjectReportDto): string {
   const sc = report.citationScorecard
   const copy = REPORT_SECTION_COPY['client-summary']
   const totalQ = s.totalQueryCount ?? 0
-  const heroNumber = totalQ > 0 ? `${s.mentionRate}%` : '—'
+  const heroNumber = totalQ > 0 ? formatPercent(s.mentionRate, RatioUnits.percent) : '—'
   const heroSentence = reportClientHeroSentence(totalQ, s.mentionedQueryCount)
   const trend = reportClientTrendCopy(report.whatsChanged.mentionRate)
   const heroTrend = trend
@@ -2310,12 +2322,12 @@ function renderClientSummary(report: ProjectReportDto): string {
   const tiles = `<div class="client-metric-grid">
     <div class="client-metric-tile">
       <div class="label">${copy.tiles.mentioned}</div>
-      <div class="value">${s.mentionRate}%</div>
+      <div class="value">${formatPercent(s.mentionRate, RatioUnits.percent)}</div>
       <div class="subtitle">${reportClientMentionedSubtitle(s.mentionedQueryCount, totalQ)}</div>
     </div>
     <div class="client-metric-tile">
       <div class="label">${copy.tiles.cited}</div>
-      <div class="value">${s.citationRate}%</div>
+      <div class="value">${formatPercent(s.citationRate, RatioUnits.percent)}</div>
       <div class="subtitle">${reportClientCitedSubtitle(s.citedQueryCount, totalQ)}</div>
     </div>
     <div class="client-metric-tile">
@@ -2353,7 +2365,7 @@ function renderClientSummary(report: ProjectReportDto): string {
             return `<div class="client-bar-row">
               <span class="bar-label">${escapeHtml(reportProviderDisplayName(r.provider))}</span>
               <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-              <span class="bar-value">${r.mentionRate}% <span class="bar-value-sub">(${r.mentionedCount}/${r.totalCount})</span></span>
+              <span class="bar-value">${formatPercent(r.mentionRate, RatioUnits.percent)} <span class="bar-value-sub">(${r.mentionedCount}/${r.totalCount})</span></span>
             </div>`
           }).join('')}
         </div>
@@ -2403,7 +2415,7 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
     cards.push(`<div class="client-card">
       <h3>${copy.indexing.heading}</h3>
       <p class="card-subtitle">${copy.indexing.subtitle}</p>
-      <div class="client-progress-number tone-${tone}">${indexing.indexedPct}%</div>
+      <div class="client-progress-number tone-${tone}">${formatPercent(indexing.indexedPct, RatioUnits.percent)}</div>
       <div style="font-size:12px;color:${COLORS.textMuted};">${reportClientIndexedPages(indexing.indexed, indexing.total)}</div>
       <div class="client-progress-bar"><div class="client-progress-fill tone-${tone}" style="width:${fillPct}%"></div></div>
       <p style="margin:0;font-size:12px;color:${COLORS.textMuted};"><strong style="color:${COLORS.text};">${formatNumber(indexing.notIndexed)}</strong> ${reportClientNotIndexedTail(indexing.notIndexed)}</p>

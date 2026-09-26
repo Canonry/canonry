@@ -25,7 +25,7 @@ import {
   formatChartDateTick,
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
-import { calendarDateRange, type GscPeriodComparison } from '@ainyc/canonry-contracts'
+import { calendarDateRange, formatPercent, type GscPeriodComparison } from '@ainyc/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -103,7 +103,7 @@ const GSC_CHART_METRICS = [
     key: 'ctr' as const,
     label: 'CTR',
     color: CHART_TONE.caution,
-    format: (v: number) => `${(v * 100).toFixed(1)}%`,
+    format: (v: number) => formatPercent(v),
   },
   {
     key: 'position' as const,
@@ -117,10 +117,6 @@ const GSC_CHART_METRICS = [
 type GscChartMetric = (typeof GSC_CHART_METRICS)[number]['key']
 const COVERAGE_PAGE_SIZE = 25
 const GOOGLE_OAUTH_COMPLETE_MESSAGE = 'canonry:google-oauth-complete'
-
-const GSC_TREND_PERCENT_FORMATTER = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 1,
-})
 
 /**
  * Express the trailing period's change against the equal period before it.
@@ -174,13 +170,10 @@ export function formatGscPeriodChange(
 
   if (ratio === 0) return `→ no change vs prior ${days}d`
 
-  const percent = Math.abs(ratio * 100)
-  // Rounding must not turn a real movement into a flat reading.
-  const formatted = percent < 0.1
-    ? '<0.1%'
-    : `${GSC_TREND_PERCENT_FORMATTER.format(percent)}%`
+  // The arrow carries the direction, so the size is formatted unsigned. A real
+  // movement never reads as flat: `formatPercent` prints `<0.1%` below a tenth.
   const improving = inverted ? ratio < 0 : ratio > 0
-  return `${improving ? '↑' : '↓'} ${formatted} vs prior ${days}d`
+  return `${improving ? '↑' : '↓'} ${formatPercent(Math.abs(ratio))} vs prior ${days}d`
 }
 
 /**
@@ -1443,7 +1436,7 @@ export function GscSection({
                               </td>
                               <td className="text-right tabular-nums text-neutral">{row.clicks.toLocaleString()}</td>
                               <td className="text-right tabular-nums text-secondary">{row.impressions.toLocaleString()}</td>
-                              <td className="text-right tabular-nums text-secondary">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                              <td className="text-right tabular-nums text-secondary">{formatPercent(row.ctr)}</td>
                               <td className="text-right tabular-nums text-secondary">{row.position.toFixed(1)}</td>
                             </tr>
                           ))}
@@ -1549,7 +1542,7 @@ export function GscSection({
                                 )}
                               </svg>
                               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-3xl font-bold tabular-nums text-primary">{(pct * 100).toFixed(0)}%</span>
+                                <span className="text-3xl font-bold tabular-nums text-primary">{formatPercent(pct)}</span>
                                 <span className="text-xs uppercase tracking-widest text-muted mt-0.5">Indexed</span>
                               </div>
                             </div>

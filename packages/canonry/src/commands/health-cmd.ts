@@ -1,3 +1,4 @@
+import { formatPercent } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 
@@ -31,9 +32,9 @@ export async function showHealth(
     console.log('Date                      Mention Rate  Mentioned/Total   Cited Rate   Cited/Total')
     console.log('─'.repeat(86))
     for (const snap of snapshots) {
-      const mRate = (snap.overallMentionRate * 100).toFixed(1).padStart(5) + '%'
+      const mRate = formatPercent(snap.overallMentionRate).padStart(6)
       const mRatio = `${snap.mentionedPairs}/${snap.totalPairs}`.padEnd(15)
-      const cRate = (snap.overallCitedRate * 100).toFixed(1).padStart(5) + '%'
+      const cRate = formatPercent(snap.overallCitedRate).padStart(6)
       const cRatio = `${snap.citedPairs}/${snap.totalPairs}`
       const date = snap.createdAt.slice(0, 19).padEnd(25)
       console.log(`${date} ${mRate}        ${mRatio}   ${cRate}        ${cRatio}`)
@@ -57,18 +58,14 @@ export async function showHealth(
   }
 
   // Mention leads, cited second — two independent signals, both surfaced.
-  const mentionRate = (health.overallMentionRate * 100).toFixed(1)
-  const citedRate = (health.overallCitedRate * 100).toFixed(1)
-  console.log(`Health: ${mentionRate}% mentioned (${health.mentionedPairs}/${health.totalPairs} pairs)`)
-  console.log(`        ${citedRate}% cited (${health.citedPairs}/${health.totalPairs} pairs)`)
+  console.log(`Health: ${formatPercent(health.overallMentionRate)} mentioned (${health.mentionedPairs}/${health.totalPairs} pairs)`)
+  console.log(`        ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs} pairs)`)
   console.log('')
 
   if (health.providerBreakdown && Object.keys(health.providerBreakdown).length > 0) {
     console.log('Provider Breakdown:')
     for (const [provider, stats] of Object.entries(health.providerBreakdown)) {
-      const pMention = (stats.mentionRate * 100).toFixed(1)
-      const pCited = (stats.citedRate * 100).toFixed(1)
-      console.log(`  ${provider.padEnd(15)} ${pMention}% mentioned (${stats.mentioned}/${stats.total})   ${pCited}% cited (${stats.cited}/${stats.total})`)
+      console.log(`  ${provider.padEnd(15)} ${formatPercent(stats.mentionRate)} mentioned (${stats.mentioned}/${stats.total})   ${formatPercent(stats.citedRate)} cited (${stats.cited}/${stats.total})`)
     }
   }
 }

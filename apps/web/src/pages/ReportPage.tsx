@@ -20,7 +20,9 @@ import {
   formatDate,
   formatDeltaCopy,
   formatNumber,
+  formatPercent,
   formatWindowCountDelta,
+  RatioUnits,
   REPORT_DEFAULT_PERIOD_DAYS,
   REPORT_HEADER_COPY,
   REPORT_PERIOD_OPTIONS,
@@ -55,6 +57,7 @@ import {
   reportPriorWindowLabel,
   reportProviderDisplayName,
   reportRateDeltaCopy,
+  reportRateDeltaValue,
   reportReferralRedirectNote,
   ReportSectionIds,
   reportSectionOrder,
@@ -119,7 +122,7 @@ import {
 // ── end report slice S2 imports ──
 
 // ── report slice S3 imports: search and traffic ──
-import { formatRatio, reportGaIntro, reportGscIntro, reportShareBarShareLabel } from '@ainyc/canonry-contracts'
+import { reportGaIntro, reportGscIntro, reportShareBarShareLabel } from '@ainyc/canonry-contracts'
 // ── end report slice S3 imports ──
 
 // ── report slice S4 imports: server-side, indexing and trend ──
@@ -604,7 +607,7 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   const sc = report.citationScorecard
   const copy = REPORT_SECTION_COPY['client-summary']
   const totalQ = exec.totalQueryCount ?? 0
-  const heroNumber = totalQ > 0 ? `${exec.mentionRate}%` : '—'
+  const heroNumber = totalQ > 0 ? formatPercent(exec.mentionRate, RatioUnits.percent) : '—'
   const trend = reportClientTrendCopy(report.whatsChanged.mentionRate)
   const { lead, mention, link, closing } = copy.explainer
 
@@ -622,8 +625,8 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
-        <BigMetricTile label={copy.tiles.mentioned} value={`${exec.mentionRate}%`} subtitle={reportClientMentionedSubtitle(exec.mentionedQueryCount, totalQ)} />
-        <BigMetricTile label={copy.tiles.cited} value={`${exec.citationRate}%`} subtitle={reportClientCitedSubtitle(exec.citedQueryCount, totalQ)} />
+        <BigMetricTile label={copy.tiles.mentioned} value={formatPercent(exec.mentionRate, RatioUnits.percent)} subtitle={reportClientMentionedSubtitle(exec.mentionedQueryCount, totalQ)} />
+        <BigMetricTile label={copy.tiles.cited} value={formatPercent(exec.citationRate, RatioUnits.percent)} subtitle={reportClientCitedSubtitle(exec.citedQueryCount, totalQ)} />
         <BigMetricTile label={copy.tiles.providers} value={formatNumber(exec.providerCount)} subtitle={reportClientProvidersSubtitle(sc.providers, exec.queryCount)} />
       </div>
 
@@ -664,7 +667,7 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
                   <div className="h-full rounded-full bg-positive-500/70" style={{ width: `${Math.max(r.mentionRate, 1.5)}%` }} />
                 </div>
                 <span className="text-right text-sm font-semibold text-heading">
-                  {r.mentionRate}% <span className="font-normal text-muted">({r.mentionedCount}/{r.totalCount})</span>
+                  {formatPercent(r.mentionRate, RatioUnits.percent)} <span className="font-normal text-muted">({r.mentionedCount}/{r.totalCount})</span>
                 </span>
               </div>
             ))}
@@ -841,7 +844,7 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
               <h3 className="text-sm font-semibold text-heading" data-report-heading>{copy.indexing.heading}</h3>
               <p className="mt-1 text-[13px] text-secondary" data-report-note>{copy.indexing.subtitle}</p>
               <p className={`mt-4 text-5xl font-bold tracking-tight ${TONE_TEXT_CLASS[indexingTone]}`}>
-                {indexing.indexedPct}%
+                {formatPercent(indexing.indexedPct, RatioUnits.percent)}
               </p>
               <p className="mt-1 text-[13px] text-secondary">{reportClientIndexedPages(indexing.indexed, indexing.total)}</p>
               <div className="mt-3 h-3 overflow-hidden rounded-full bg-mono-800/80">
@@ -917,12 +920,11 @@ function RateDeltaTile({
       </div>
     )
   }
-  const valueSuffix = unit === '%' ? '%' : ''
   return (
     <div className="rounded-xl border border-default bg-surface px-4 py-3">
       <p className="eyebrow-soft" data-report-tile>{label}</p>
       <p className={`text-2xl font-semibold tracking-tight ${TONE_TEXT_CLASS[reportDirectionTone(delta.direction)]}`}>
-        {delta.current}{valueSuffix} <span className="text-sm font-medium">{reportDeltaArrow(delta.direction)}</span>
+        {reportRateDeltaValue(delta, unit)} <span className="text-sm font-medium">{reportDeltaArrow(delta.direction)}</span>
       </p>
       {/* Rates keep percentage-point copy; counts take the shared smart-% copy the HTML report prints. */}
       <p className="mt-1 text-[13px] text-secondary">{reportRateDeltaCopy(delta, unit)}</p>
@@ -985,8 +987,8 @@ function ProviderMovementsTable({
         return (
           <tr key={m.provider}>
             <td>{isClient ? reportProviderDisplayName(m.provider) : m.provider}</td>
-            <td className="text-right tabular-nums">{m.prior}%</td>
-            <td className="text-right tabular-nums">{m.current}%</td>
+            <td className="text-right tabular-nums">{formatPercent(m.prior, RatioUnits.percent)}</td>
+            <td className="text-right tabular-nums">{formatPercent(m.current, RatioUnits.percent)}</td>
             <td className={`text-right tabular-nums ${tone === 'neutral' ? 'text-neutral' : TONE_TEXT_CLASS[tone]}`}>
               {reportMovementChangeCopy(m)}
             </td>
@@ -1109,13 +1111,13 @@ function AgencyExecutiveSummary({ report }: { report: ProjectReportDto }) {
   const headline = reportExecutiveHeadline(report)
   const proofTiles: ReportTile[] = [
     { label: copy.proofTiles.citationTrend, value: headline.trendLabel, tone: headline.trendTone, subtitle: headline.citedFragment },
-    { label: copy.proofTiles.mentionCoverage, value: `${summary.mentionRate}%`, subtitle: headline.mentionedFragment },
+    { label: copy.proofTiles.mentionCoverage, value: formatPercent(summary.mentionRate, RatioUnits.percent), subtitle: headline.mentionedFragment },
     { label: copy.proofTiles.prioritizedActions, value: formatNumber(headline.prioritizedActionCount), subtitle: copy.prioritizedActionsCopy },
   ]
   const metricTiles: ReportTile[] = [
     {
       label: copy.tiles.citationRate,
-      value: `${summary.citationRate}%`,
+      value: formatPercent(summary.citationRate, RatioUnits.percent),
       subtitle: (
         <>
           <span className={TONE_INLINE_TEXT_CLASS[headline.trendTone] || undefined}>{headline.trendLabel}</span>
@@ -1123,7 +1125,7 @@ function AgencyExecutiveSummary({ report }: { report: ProjectReportDto }) {
         </>
       ),
     },
-    { label: copy.tiles.mentionRate, value: `${summary.mentionRate}%`, subtitle: headline.mentionedFragment },
+    { label: copy.tiles.mentionRate, value: formatPercent(summary.mentionRate, RatioUnits.percent), subtitle: headline.mentionedFragment },
     { label: copy.tiles.queriesTracked, value: formatNumber(summary.queryCount), subtitle: headline.competitorCountLabel },
   ]
   if (summary.gsc && headline.gscDelta !== null) {
@@ -1438,7 +1440,7 @@ function LandscapeTable({ report, mentionCopy }: { report: ProjectReportDto; men
             <td><ToneBadge tone={reportPressureTone(competitor.pressureLabel)}>{competitor.pressureLabel}</ToneBadge></td>
             <td className="whitespace-nowrap text-right tabular-nums">{competitor.citationCount} / {competitor.totalCount}</td>
             <td className="whitespace-nowrap text-right tabular-nums">{mention?.mentionCount ?? 0} / {mention?.totalCount ?? mentions.totalAnswerSnapshots}</td>
-            <td className="text-right tabular-nums">{competitor.sharePct}%</td>
+            <td className="text-right tabular-nums">{formatPercent(competitor.sharePct, RatioUnits.percent)}</td>
             <td className="min-w-48">
               {reportTruncatedList(competitor.citedQueries, 5)}
               {competitor.theirCitedPages.length > 0 ? <LandscapeCitedPages pages={competitor.theirCitedPages} /> : null}
@@ -1550,7 +1552,7 @@ function AgencyGscPerformance({ report }: { report: ProjectReportDto }) {
         tiles={[
           { label: copy.tiles.clicks, value: formatNumber(gsc.totalClicks) },
           { label: copy.tiles.impressions, value: formatNumber(gsc.totalImpressions) },
-          { label: copy.tiles.ctr, value: formatRatio(gsc.ctr) },
+          { label: copy.tiles.ctr, value: formatPercent(gsc.ctr) },
           { label: copy.tiles.position, value: gsc.avgPosition.toFixed(1) },
         ]}
       />
@@ -1579,7 +1581,7 @@ function AgencyGscPerformance({ report }: { report: ProjectReportDto }) {
             <td className="evidence-query-cell">{row.query}</td>
             <td className="text-right tabular-nums">{formatNumber(row.clicks)}</td>
             <td className="text-right tabular-nums">{formatNumber(row.impressions)}</td>
-            <td className="text-right tabular-nums">{formatRatio(row.ctr)}</td>
+            <td className="text-right tabular-nums">{formatPercent(row.ctr)}</td>
             <td className="text-right tabular-nums">{row.avgPosition.toFixed(1)}</td>
             <td><ToneBadge tone="neutral">{row.category}</ToneBadge></td>
           </tr>
@@ -1750,7 +1752,7 @@ function AgencyAiReferrals({ report }: { report: ProjectReportDto }) {
  * Share bars for a traffic breakdown, drawn the way the HTML report draws them:
  * each row keeps the series color of its position in the breakdown (starting
  * `colorOffset` colors in), so dropping an empty row never recolors the rest,
- * and the text after the bar reads `8.0K sessions · 67%`.
+ * and the text after the bar reads `8.0K sessions · 67.0%`.
  */
 function searchTrafficShareBarRows(
   rows: readonly { label: string; count: number; sharePct: number }[],
@@ -1940,7 +1942,7 @@ function AgencyIndexingHealth({ report }: { report: ProjectReportDto }) {
         tiles={[
           { label: copy.tiles.indexed, value: formatNumber(health.indexed), tone: 'positive' },
           { label: copy.tiles.total, value: formatNumber(health.total) },
-          { label: copy.tiles.share, value: `${health.indexedPct}%` },
+          { label: copy.tiles.share, value: formatPercent(health.indexedPct, RatioUnits.percent) },
         ]}
       />
       <ReportCard title={copy.coverageHeading}>
@@ -2000,7 +2002,7 @@ function AgencyCitationsTrend({ report }: { report: ProjectReportDto }) {
         dataKey="citationRate"
         color={REPORT_CHART_COLORS.tone.positive}
         height={220}
-        formatValue={value => `${value}%`}
+        formatValue={value => formatPercent(value, RatioUnits.percent)}
         dates="observed"
       />
       <ReportTableBlock title={copy.breakdownHeading} headers={[checkHeader, { label: citedQueriesHeader, numeric: true }, engineRatesHeader]}>
@@ -2008,7 +2010,7 @@ function AgencyCitationsTrend({ report }: { report: ProjectReportDto }) {
           <tr key={point.runId}>
             <td>{formatDate(point.date)}</td>
             <td className="text-right tabular-nums">
-              {point.citationRate}% <span className="text-muted">({point.citedQueryCount}/{point.totalQueryCount})</span>
+              {formatPercent(point.citationRate, RatioUnits.percent)} <span className="text-muted">({point.citedQueryCount}/{point.totalQueryCount})</span>
             </td>
             <td>{reportTrendProviderRates(point.providerRates)}</td>
           </tr>
@@ -2387,7 +2389,7 @@ export interface ShareBarRow {
   sharePct: number
   /** A CHART_SERIES_COLORS or CHART_TONE entry. */
   color: string
-  /** The text after the bar, e.g. `8.0K sessions · 67%`. */
+  /** The text after the bar, e.g. `8.0K sessions · 67.0%`. */
   valueLabel: ReactNode
 }
 
@@ -2515,7 +2517,7 @@ export interface ReportBarChartRow {
   value: number
   /** A CHART_SERIES_COLORS or CHART_TONE entry. */
   color: string
-  /** Drawn at the end of the bar, e.g. `50% (1/2)`. */
+  /** Drawn at the end of the bar, e.g. `50.0% (1/2)`. */
   valueLabel: string
 }
 

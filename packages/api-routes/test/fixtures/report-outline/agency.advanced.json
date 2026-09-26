@@ -161,7 +161,7 @@
           "text": "By source type"
         },
         {
-          "text": "Forums & Q&A 5 (50%) News & Media 3 (30%)"
+          "text": "Forums & Q&A 5 (50.0%) News & Media 3 (30.0%)"
         }
       ]
     },
@@ -246,7 +246,7 @@
           "text": "Search demand by intent"
         },
         {
-          "text": "brand 800 clicks · 80% industry 200 clicks · 20%"
+          "text": "brand 800 clicks · 80.0% industry 200 clicks · 20.0%"
         }
       ]
     },
@@ -303,7 +303,7 @@
           "text": "Channel mix"
         },
         {
-          "text": "Organic Search 8.0K sessions · 67% Direct 4.0K sessions · 33%"
+          "text": "Organic Search 8.0K sessions · 66.7% Direct 4.0K sessions · 33.3%"
         }
       ]
     },
@@ -350,7 +350,7 @@
           "text": "Social channel mix"
         },
         {
-          "text": "Organic Social 1.0K sessions · 67% Paid Social 500 sessions · 33%"
+          "text": "Organic Social 1.0K sessions · 66.7% Paid Social 500 sessions · 33.3%"
         },
         {
           "text": "Top campaigns"
@@ -400,7 +400,7 @@
           "text": "AI sessions by source"
         },
         {
-          "text": "chatgpt.com 150 sessions · 75% gemini.google.com 50 sessions · 25%"
+          "text": "chatgpt.com 150 sessions · 75.0% gemini.google.com 50 sessions · 25.0%"
         },
         {
           "text": "Top AI landing pages"
@@ -493,10 +493,10 @@
           "tile": "Verified crawler hits (7d) 234 «positive|Up 100% vs prior 7 days (117 hits)»"
         },
         {
-          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200% vs prior 7 days (5 hits)»"
+          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200.0% vs prior 7 days (5 hits)»"
         },
         {
-          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133% vs prior 7 days (18 hits)»"
+          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133.3% vs prior 7 days (18 hits)»"
         },
         {
           "tile": "AI-referral sessions (7d) 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1"
@@ -517,7 +517,7 @@
             "10",
             "32",
             "8",
-            "«positive|+75%»"
+            "«positive|+75.0%»"
           ]
         },
         {
@@ -527,7 +527,7 @@
             "0",
             "0",
             "3",
-            "«positive|+40%»"
+            "«positive|+40.0%»"
           ]
         },
         {
@@ -631,7 +631,7 @@
           "tile": "Total inspected 100"
         },
         {
-          "tile": "Indexed share 80%"
+          "tile": "Indexed share 80.0%"
         },
         {
           "text": "Coverage breakdown"

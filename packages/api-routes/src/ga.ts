@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { classifyAiReferralTrafficClass, deltaPercent, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import { classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
 import type { GA4ChannelBreakdownDto, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
@@ -35,9 +35,10 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
   stream.write(JSON.stringify(entry) + '\n')
 }
 
-// Format a session-share as a display string. Returns "<1%" for non-zero shares
-// that round below 1%, so 18 AI sessions out of 6000 reads "<1%" instead of
-// "0%" — the display matches the integer pct field exactly otherwise.
+// Format a session-share as a display string through the shared percent rule:
+// one decimal from the unrounded ratio, so 18 AI sessions out of 6000 reads
+// "0.3%" and a share too small for one decimal reads "<0.1%", never "0%". The
+// integer `*SharePct` field beside it stays the rounded wire value.
 //
 // When the numerator is positive but the total is zero, the share is
 // undefined — typically a partial-sync state where social/AI referral rows
@@ -47,10 +48,7 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
 function formatSharePct(numerator: number, total: number): string {
   if (numerator > 0 && total <= 0) return '—'
   if (total <= 0 || numerator <= 0) return '0%'
-  const pct = (numerator / total) * 100
-  const rounded = Math.round(pct)
-  if (rounded === 0) return '<1%'
-  return `${rounded}%`
+  return formatPercent(numerator / total)
 }
 
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
@@ -90,7 +88,7 @@ function buildChannelBreakdown(input: {
 
   const bucket = (sessions: number) => ({
     sessions,
-    sharePct: input.totalSessions > 0 ? Math.round((sessions / input.totalSessions) * 100) : 0,
+    sharePct: percentOf(sessions, input.totalSessions) ?? 0,
     sharePctDisplay: formatSharePct(sessions, input.totalSessions),
   })
 
@@ -101,7 +99,7 @@ function buildChannelBreakdown(input: {
     ai: bucket(aiSessions),
     other: {
       sessions: otherSessions,
-      sharePct: input.totalSessions > 0 ? Math.round((otherSessions / input.totalSessions) * 100) : 0,
+      sharePct: percentOf(otherSessions, input.totalSessions) ?? 0,
       sharePctDisplay: input.totalSessions <= 0 && coveredSessions > 0 ? '—' : formatSharePct(otherSessions, input.totalSessions),
     },
   }
@@ -1462,15 +1460,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       socialSessions,
       channelBreakdown,
-      organicSharePct: total > 0 ? Math.round((totalOrganicSessions / total) * 100) : 0,
-      aiSharePct: total > 0 ? Math.round((aiSummary.deduped.sessions / total) * 100) : 0,
-      aiSharePctBySession: total > 0 ? Math.round((aiSummary.bySession.sessions / total) * 100) : 0,
-      paidAiSharePct: total > 0 ? Math.round((aiSummary.paidDeduped.sessions / total) * 100) : 0,
-      paidAiSharePctBySession: total > 0 ? Math.round((aiSummary.paidBySession.sessions / total) * 100) : 0,
-      organicAiSharePct: total > 0 ? Math.round((aiSummary.organicDeduped.sessions / total) * 100) : 0,
-      organicAiSharePctBySession: total > 0 ? Math.round((aiSummary.organicBySession.sessions / total) * 100) : 0,
-      directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
-      socialSharePct: total > 0 ? Math.round((socialSessions / total) * 100) : 0,
+      organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,
+      aiSharePct: percentOf(aiSummary.deduped.sessions, total) ?? 0,
+      aiSharePctBySession: percentOf(aiSummary.bySession.sessions, total) ?? 0,
+      paidAiSharePct: percentOf(aiSummary.paidDeduped.sessions, total) ?? 0,
+      paidAiSharePctBySession: percentOf(aiSummary.paidBySession.sessions, total) ?? 0,
+      organicAiSharePct: percentOf(aiSummary.organicDeduped.sessions, total) ?? 0,
+      organicAiSharePctBySession: percentOf(aiSummary.organicBySession.sessions, total) ?? 0,
+      directSharePct: percentOf(totalDirectSessions, total) ?? 0,
+      socialSharePct: percentOf(socialSessions, total) ?? 0,
       otherSessions: channelBreakdown.other.sessions,
       otherSharePct: channelBreakdown.other.sharePct,
       otherSharePctDisplay: channelBreakdown.other.sharePctDisplay,

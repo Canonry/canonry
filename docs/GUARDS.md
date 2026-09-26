@@ -9,6 +9,7 @@ Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. All guards
 | `canonry-vocabulary/no-banned-metric-literal` | `packages/canonry/src/commands`, `…/cli-commands`, `packages/api-routes/src`, `apps/web/src`, `packages/contracts/src/report-sections.ts` | Legacy/conflated AEO metric literals ("Vocabulary (Critical)" rule 7) |
 | `canonry-vocabulary/no-question-ui-copy` | `apps/web/src`, `packages/contracts/src/report-sections.ts` | "question" in UI copy ("Query vs question") |
 | `canonry-guards/no-inline-ai-hostname` | `packages/canonry`, `api-routes`, `provider-*`, `integration-*`, `intelligence`, `apps/*` src | Raw AI-provider hostnames — use `AI_ENGINE_DOMAINS` |
+| `canonry-guards/no-inline-percent` | `packages/canonry/src/commands`, `…/cli-commands`, `…/agent`, `apps/web/src`, `packages/api-routes/src`, `packages/intelligence/src`, `packages/contracts/src` (not `formatting.ts`) | A `%` right after a number rounded inline — show it with `formatPercent` |
 | `canonry-guards/no-inline-ga4-dimension` | `packages/integration-google-analytics/src` | Raw GA4 dimension names — use `GA4_DIMENSIONS` |
 | `canonry-guards/no-raw-http-web` | `apps/web/src` | `fetch()` / `XMLHttpRequest` — use the generated SDK |
 | `canonry-guards/no-raw-http-cli` | `packages/canonry/src` | `fetch()` — use `ApiClient` / `createApiClient()` |

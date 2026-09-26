@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { linearTrendSchema } from './statistics.js'
 
 export const googleConnectionTypeSchema = z.enum(['gsc', 'ga4', 'gbp'])
@@ -24,7 +25,7 @@ export const gscSearchDataDtoSchema = z.object({
   device: z.string().nullable().optional(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   position: z.number(),
 })
 export type GscSearchDataDto = z.infer<typeof gscSearchDataDtoSchema>
@@ -62,7 +63,7 @@ export const gscPerformanceDailyPointSchema = z.object({
   date: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   /**
    * Average ranking position for the day, or `null` on a date served by the
    * dimensioned fallback. Summing `gsc_search_data` cannot produce a property
@@ -125,7 +126,7 @@ const gscPeriodTotalsSchema = z.object({
   clicks: z.number(),
   impressions: z.number(),
   /** The period's own `clicks / impressions`, never a mean of daily ratios. */
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   /** Impression-weighted mean position, or null when no day carried one. */
   position: z.number().nullable(),
   /**
@@ -198,10 +199,10 @@ export const gscPeriodComparisonSchema = z.object({
    * worse. Desirability is the renderer's call.
    */
   change: z.object({
-    clicks: z.number().nullable(),
-    impressions: z.number().nullable(),
-    ctr: z.number().nullable(),
-    position: z.number().nullable(),
+    clicks: fraction().nullable(),
+    impressions: fraction().nullable(),
+    ctr: fraction().nullable(),
+    position: fraction().nullable(),
   }),
 })
 export type GscPeriodComparison = z.infer<typeof gscPeriodComparisonSchema>
@@ -210,7 +211,7 @@ export const gscPerformanceDailyDtoSchema = z.object({
   totals: z.object({
     clicks: z.number(),
     impressions: z.number(),
-    ctr: z.number(),
+    ctr: fraction(),
     /**
      * Impression-weighted mean position over the window, or `null` when no day
      * carried a property-level position. Weighted, not a plain mean of the
@@ -252,7 +253,7 @@ export const gscTopPageRowSchema = z.object({
   page: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
 })
 export type GscTopPageRow = z.infer<typeof gscTopPageRowSchema>
 
@@ -277,7 +278,7 @@ export const gscTopPagesDtoSchema = z.object({
   totals: z.object({
     clicks: z.number(),
     impressions: z.number(),
-    ctr: z.number(),
+    ctr: fraction(),
     days: z.number(),
     /** First date the property-level totals actually cover. */
     coveredFrom: z.string().nullable(),
@@ -346,7 +347,7 @@ export const gscCoverageSummaryDtoSchema = z.object({
     indexed: z.number(),
     notIndexed: z.number(),
     deindexed: z.number(),
-    percentage: z.number(),
+    percentage: percent(),
   }),
   lastInspectedAt: z.string().nullable(),
   lastSyncedAt: z.string().nullable(),

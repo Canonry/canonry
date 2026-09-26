@@ -199,12 +199,23 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) {
       return jsonResponse({
-        keywords: [{
-          locationName: 'locations/123', periodStart: '2026-04', periodEnd: '2026-04',
-          keyword: 'bayside boutique hotel', valueCount: 50, valueThreshold: null,
-        }],
-        total: 1,
-        thresholdedPct: 0,
+        keywords: [
+          {
+            locationName: 'locations/123', periodStart: '2026-04', periodEnd: '2026-04',
+            keyword: 'bayside boutique hotel', valueCount: 50, valueThreshold: null,
+          },
+          {
+            locationName: 'locations/123', periodStart: '2026-04', periodEnd: '2026-04',
+            keyword: 'boutique hotel bayside', valueCount: 20, valueThreshold: null,
+          },
+          {
+            locationName: 'locations/123', periodStart: '2026-04', periodEnd: '2026-04',
+            keyword: 'hotel near the pier', valueCount: null, valueThreshold: 15,
+          },
+        ],
+        total: 3,
+        // 1 of 3 keywords redacted: 33.33 on the wire.
+        thresholdedPct: 33.33,
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/lodging')) {
@@ -260,8 +271,9 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
   expect(screen.getByText(/Data through/)).toBeTruthy()
   // All-zero series (bookings) collapse to a footnote instead of occupying a tile.
   expect(screen.getByText(/Not active:/)).toBeTruthy()
-  // Keyword row.
+  // Keyword row, and the redacted share through the shared percent format.
   expect(screen.getByText('bayside boutique hotel')).toBeTruthy()
+  expect(screen.getByText('33.3% privacy-thresholded')).toBeTruthy()
   // Owner-only surfaces are back in the dashboard, but source-labeled and
   // neutral when the API simply returned no owner-controlled value.
   expect(screen.getByText('Owner profile · Business Information')).toBeTruthy()

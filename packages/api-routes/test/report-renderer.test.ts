@@ -285,8 +285,8 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(richReport(), { audience: 'agency' })
     // Headline tile for the new disjoint signal
     expect(html).toContain('AI user-fetch hits (7d)')
-    // 7d delta against prior 7d, computed in formatDeltaCopy from the fixture
-    expect(html).toContain('Up 133% vs prior 7 days (18 hits)')
+    // 7d delta against prior 7d: 18 → 42 is +133.33% on the wire, one decimal on the page
+    expect(html).toContain('Up 133.3% vs prior 7 days (18 hits)')
     // Operator table gains a "User fetches" column
     expect(html).toContain('<th class="numeric">User fetches</th>')
     // A user-fetch-only operator (Perplexity in fixture) is sorted into the
@@ -382,15 +382,17 @@ describe('renderReportHtml', () => {
   // HTML wraps it in a tone span but emits the same human-readable copy.
   test('server-activity metric subtitle uses the shared formatDeltaCopy text', () => {
     const agencyHtml = renderReportHtml(richReport(), { audience: 'agency' })
+    // An exact 100% keeps no decimal; any other percent shows one.
     expect(agencyHtml).toContain('Up 100% vs prior 7 days (117 hits)')
-    expect(agencyHtml).toContain('Up 200% vs prior 7 days (5 hits)')
+    expect(agencyHtml).toContain('Up 200.0% vs prior 7 days (5 hits)')
     expect(agencyHtml).toContain('Up 100% vs prior 7 days (6 sessions)')
     // Tone class wraps the copy
     expect(agencyHtml).toMatch(/<span class="tone-positive">Up 100% vs prior 7 days/)
 
     const clientHtml = renderReportHtml(richReport(), { audience: 'client' })
     expect(clientHtml).toContain('234 verified · 15 unverified')
-    expect(clientHtml).toContain('Up 104% vs prior 7 days (122 requests)')
+    // 122 → 249 crawler requests is +104.10%, which a whole percent read as 104.
+    expect(clientHtml).toContain('Up 104.1% vs prior 7 days (122 requests)')
     expect(clientHtml).toContain('Up 100% vs prior 7 days (6 sessions)')
   })
 
@@ -410,7 +412,8 @@ describe('renderReportHtml', () => {
 	      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
 	      mentionedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
       // Large base (>= MIN_PCT_BASE): signed percentage, no "visits" word.
-      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14, direction: 'down' },
+      // 382 → 328 is -14.14%, the two-decimal deltaPct the report now sends.
+      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14.14, direction: 'down' },
     }
 
     const clientHtml = renderReportHtml(report, { audience: 'client' })
@@ -424,14 +427,14 @@ describe('renderReportHtml', () => {
     expect(clientHtml).not.toContain('<div class="delta">+0.33333')
     // Visitors from Google (GSC clicks) → percentage, not an absolute count.
     expect(clientHtml).toContain('Visitors from Google')
-    expect(clientHtml).toContain('<div class="delta">-14% vs prior 14 days</div>')
+    expect(clientHtml).toContain('<div class="delta">-14.1% vs prior 14 days</div>')
     expect(clientHtml).not.toContain('-54 visits')
 
     const agencyHtml = renderReportHtml(report, { audience: 'agency' })
     expect(agencyHtml).toContain('Cited queries')
     expect(agencyHtml).toContain('<div class="delta">+0.3 vs 3.3</div>')
     expect(agencyHtml).toContain('GSC clicks')
-    expect(agencyHtml).toContain('<div class="delta">-14% vs prior 14 days</div>')
+    expect(agencyHtml).toContain('<div class="delta">-14.1% vs prior 14 days</div>')
   })
 
   // Small-base path for the traffic tile too: when the prior window total is
@@ -445,7 +448,7 @@ describe('renderReportHtml', () => {
     }
     const clientHtml = renderReportHtml(report, { audience: 'client' })
     expect(clientHtml).toContain('<div class="delta">+4 visits vs prior 14 days</div>')
-    expect(clientHtml).not.toContain('+40% vs prior 14 days')
+    expect(clientHtml).not.toMatch(/<div class="delta">[^<]*% vs prior 14 days<\/div>/)
   })
 
   test('client view of empty server-activity uses the friendly heading, not "Section 10"', () => {
@@ -851,8 +854,8 @@ describe('renderReportHtml', () => {
     const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
     expect(landscape).toContain('Citation share')
     expect(landscape).not.toContain('>SOV<')
-    expect(landscape).toContain('75%')
-    expect(landscape).toContain('25%')
+    expect(landscape).toContain('<td class="numeric">75.0%</td>')
+    expect(landscape).toContain('<td class="numeric">25.0%</td>')
   })
 
   test('renders cited URLs from theirCitedPages as a disclosure', () => {
@@ -1128,7 +1131,9 @@ test.each(['client', 'agency'] as const)('shows share of voice basis and the unm
   expect(html).toContain('Share of voice · non-brand queries: 25.0% · observed competitors')
   expect(html).toContain('Share of voice · branded queries: Not measured')
   expect(html).toContain('No competitors configured.')
-  expect(html).not.toContain('100.0%')
+  // 34 branded mentions against no competitor must never read as a share, in
+  // either the one-decimal form or the exact-100 form the shared rule prints.
+  expect(html).not.toMatch(/Share of voice · branded queries: 100(\.0)?%/)
 })
 
 test('does not call an observed comparison below the floor a zero denominator', () => {

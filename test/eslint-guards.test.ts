@@ -26,10 +26,20 @@ import { createRestrictedSyntaxRule } from '../eslint-rules/restricted-syntax.js
 /** Rule ids expected at `error` severity for a representative file in each guarded tree. */
 const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
+    // Aero's tool text and the server-side insight copy show percentages too.
+    file: 'packages/canonry/src/agent/tool-result-units.ts',
+    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname'],
+  },
+  {
+    file: 'packages/intelligence/src/mention-share.ts',
+    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname'],
+  },
+  {
     // Three guards overlap here, plus the two web-only ratchets. This is the
     // tree where the clobbering was worst — only the raw-HTTP guard survived.
     file: 'apps/web/src/pages/ProjectPage.tsx',
     rules: [
+      'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-vocabulary/no-question-ui-copy',
       'canonry-guards/no-inline-ai-hostname',
@@ -40,6 +50,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
     file: 'packages/api-routes/src/report-renderer.ts',
     rules: [
+      'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
     ],
@@ -49,6 +60,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     // it carries the vocabulary guards the web tree does.
     file: 'packages/contracts/src/report-sections.ts',
     rules: [
+      'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-vocabulary/no-question-ui-copy',
     ],
@@ -56,6 +68,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
     file: 'packages/canonry/src/commands/run.ts',
     rules: [
+      'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
       'canonry-guards/no-raw-http-cli',
@@ -64,6 +77,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
     file: 'packages/canonry/src/cli-commands/query.ts',
     rules: [
+      'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
       'canonry-guards/no-raw-http-cli',
@@ -90,6 +104,7 @@ const GUARD_EXEMPTIONS: Array<{ file: string, rule: string }> = [
   { file: 'packages/canonry/src/client.ts', rule: 'canonry-guards/no-raw-http-cli' },
   { file: 'packages/integration-google-analytics/src/constants.ts', rule: 'canonry-guards/no-inline-ga4-dimension' },
   { file: 'packages/contracts/src/ai-engines.ts', rule: 'canonry-guards/no-inline-ai-hostname' },
+  { file: 'packages/contracts/src/formatting.ts', rule: 'canonry-guards/no-inline-percent' },
 ]
 
 const severityOf = (entry: unknown): number | undefined => {

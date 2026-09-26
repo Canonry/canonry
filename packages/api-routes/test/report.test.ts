@@ -275,7 +275,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     const diag = body.agencyDiagnostics.diagnostics.find((d) => d.title === 'Indexing health')
     expect(diag).toBeDefined()
     expect(diag!.severity).toBe('negative')
-    expect(diag!.detail).toMatch(/0% of inspected URLs are indexed/)
+    expect(diag!.detail).toBe('0% of inspected URLs are indexed in google.')
     expect(diag!.evidence.join(' ')).toContain('0/12 indexed')
   })
 
@@ -536,7 +536,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'agency')).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'content' && a.title.includes('best industrial coatings'))).toBe(true)
-    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.some(e => e.includes('20% indexed')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.includes('20.0% indexed (2/10)'))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'provider' && a.evidence.some(e => e.includes('openai: 0/2')))).toBe(true)
     expect(body.actionPlan.some(a => a.category === 'search-demand' && a.evidence.some(e => e.includes('epoxy floor coatings contractors')))).toBe(true)
     expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
@@ -810,6 +810,8 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     const brandRow = body.gsc!.categoryBreakdown.find(c => c.category === 'brand')
     expect(brandRow?.clicks).toBe(100)
+    // 100 and 30 of 130 clicks: 76.92% and 23.08% (a whole percent sent 77 and 23).
+    expect(body.gsc!.categoryBreakdown.map(c => [c.clicks, c.sharePct])).toEqual([[100, 76.92], [30, 23.08]])
 
     expect(body.executiveSummary.gsc).toMatchObject({
       clicks: 130,
@@ -1257,6 +1259,47 @@ describe('GET /api/v1/projects/:name/report', () => {
     })
   })
 
+  test('GA report channel shares keep two decimals', async () => {
+    const projectId = insertProject(ctx.db, 'ga-ninety')
+    const now = new Date().toISOString()
+    // 90 sessions: 30 organic, 20 direct (5 of them organic AI), 10 paid AI.
+    ctx.db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(), projectId, windowKey: '30d', periodStart: '2026-04-01', periodEnd: '2026-04-30',
+      totalSessions: 90, totalOrganicSessions: 30, totalDirectSessions: 20, totalUsers: 70, syncedAt: now,
+    }).run()
+    ctx.db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(), projectId, date: '2026-04-30', landingPage: '/pricing', landingPageNormalized: '/pricing',
+      sessions: 90, organicSessions: 30, directSessions: 20, users: 70, syncedAt: now,
+    }).run()
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(), projectId, date: '2026-04-30', source: 'chatgpt.com', medium: 'cpc', trafficClass: 'paid',
+        sourceDimension: 'session', channelGroup: 'Paid Other', landingPage: '/pricing', landingPageNormalized: '/pricing',
+        sessions: 10, users: 8, syncedAt: now,
+      },
+      {
+        id: crypto.randomUUID(), projectId, date: '2026-04-30', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic',
+        sourceDimension: 'session', channelGroup: 'Direct', landingPage: '/guide', landingPageNormalized: '/guide',
+        sessions: 5, users: 4, syncedAt: now,
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ga-ninety/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // Each share is its sessions over 90, to two decimals; a whole percent sent 33, 17, 11, 6, 33.
+    expect(body.ga!.channelBreakdown).toEqual([
+      { channel: 'Organic Search', sessions: 30, sharePct: 33.33 },
+      { channel: 'Direct', sessions: 15, sharePct: 16.67 },
+      { channel: 'Paid AI', sessions: 10, sharePct: 11.11 },
+      { channel: 'Organic AI referrals', sessions: 5, sharePct: 5.56 },
+      { channel: 'Other', sessions: 30, sharePct: 33.33 },
+    ])
+    // 10 paid and 5 organic of 15 AI referral sessions.
+    expect(body.aiReferrals!.bySource).toEqual([expect.objectContaining({ source: 'chatgpt.com', sessions: 15, sharePct: 100 })])
+  })
+
   test('AI referral section does not inflate totals when a source is paid under one lens and organic under another', async () => {
     // Same (date, source, medium) with a paid 'session'-lens row and a larger
     // organic 'first_user'-lens row — overlapping lenses on the same visits.
@@ -1419,6 +1462,12 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.socialReferrals!.totalSessions).toBe(120)
     expect(body.socialReferrals!.organicSessions).toBe(80)
     expect(body.socialReferrals!.paidSessions).toBe(40)
+    // 80 and 40 of 120 sessions: 66.67% and 33.33%, two decimals (a whole percent sent 67 and 33).
+    expect(body.socialReferrals!.channels).toEqual([
+      { channelGroup: 'Organic Social', sessions: 80, sharePct: 66.67 },
+      { channelGroup: 'Paid Social', sessions: 40, sharePct: 33.33 },
+    ])
+    expect(body.aiReferrals!.bySource[0]!.sharePct).toBe(100)
   })
 
   test('AI referrals dedupe overlapping attribution dimensions per (date, source, medium)', async () => {
@@ -1561,6 +1610,21 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.indexingHealth!.indexedPct).toBe(80)
   })
 
+  test('indexing health keeps the indexed share to two decimals', async () => {
+    const projectId = insertProject(ctx.db, 'idx-thirds')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+    ctx.db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(), projectId, syncRunId, date: '2026-04-30', indexed: 2, notIndexed: 1, reasonBreakdown: {},
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/idx-thirds/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    // 2 of 3 is 66.67%, which a whole percent sent as 67 and every renderer showed as 67.0%.
+    expect(body.indexingHealth).toMatchObject({ provider: 'google', total: 3, indexed: 2, indexedPct: 66.67 })
+  })
+
   test('citations trend returns one point per completed visibility run', async () => {
     const projectId = insertProject(ctx.db, 'trend')
     const kw = insertQuery(ctx.db, projectId, 'kw')
@@ -1665,7 +1729,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.whatsChanged.providerMovements[0]!.provider).toBe('gemini')
     expect(body.whatsChanged.providerMovements[0]!.direction).toBe('up')
     // Headline reports the smoothed numbers, not run-3-vs-run-4.
-    expect(body.whatsChanged.headline).toMatch(/Citation rate rose 0% .* 25%/)
+    expect(body.whatsChanged.headline).toMatch(/^Citation rate rose 0% ↑ 25\.0% \(avg of last 2 checks\)/)
     expect(body.whatsChanged.headline).toMatch(/avg of last 2 checks/)
   })
 
@@ -1760,8 +1824,86 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     const trendFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
     expect(trendFinding).toBeDefined()
+    // An exact 100 keeps no decimal under the shared percent rule.
+    expect(trendFinding!.title).toBe('Citation rate at 100% (1 of 1 query cited)')
     expect(trendFinding!.detail).toMatch(/Building baseline/i)
     expect(trendFinding!.tone).toBe('neutral')
+  })
+
+  test('server-built sentences print the 0..100 rates through the shared percent rule', async () => {
+    const projectId = insertProject(ctx.db, 'rate-copy')
+    const [citedMentioned, citedOnly, neitherA, neitherB] = ['q1', 'q2', 'q3', 'q4'].map(text => insertQuery(ctx.db, projectId, text))
+    const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    insertSnapshot(ctx.db, runId, citedMentioned!, { citationState: 'cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, citedOnly!, { citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, neitherA!, { citationState: 'not-cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, neitherB!, { citationState: 'not-cited', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/rate-copy/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // 2 of 4 cited and 1 of 4 mentioned: the wire rates stay 50 and 25.
+    expect(body.executiveSummary.citationRate).toBe(50)
+    expect(body.executiveSummary.mentionRate).toBe(25)
+    expect(body.executiveSummary.findings.map(f => f.title)).toContain('Citation rate at 50.0% (2 of 4 queries cited)')
+    expect(body.clientSummary.overview).toBe(
+      'rate-copy.example.com is mentioned on 25.0% of tracked queries and cited on 50.0% of tracked queries. '
+      + 'There is not enough comparable run history yet to call a mention trend.',
+    )
+  })
+
+  test('every report rate keeps two decimals, so 2 of 3 reads 66.7% rather than 67.0%', async () => {
+    const projectId = insertProject(ctx.db, 'rate-thirds')
+    const [a, b, c] = ['q1', 'q2', 'q3'].map(text => insertQuery(ctx.db, projectId, text))
+    const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    insertSnapshot(ctx.db, runId, a!, { citationState: 'cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, b!, { citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, c!, { citationState: 'not-cited', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/rate-thirds/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.executiveSummary).toMatchObject({ citationRate: 66.67, citedQueryCount: 2, mentionRate: 33.33, mentionedQueryCount: 1, totalQueryCount: 3 })
+    expect(body.citationsTrend).toEqual([expect.objectContaining({
+      citationRate: 66.67,
+      mentionRate: 33.33,
+      providerRates: [{ provider: 'gemini', citationRate: 66.67, mentionRate: 33.33 }],
+    })])
+    expect(body.citationScorecard.providerRates).toEqual([
+      { provider: 'gemini', citedCount: 2, mentionedCount: 1, totalCount: 3, citationRate: 66.67, mentionRate: 33.33 },
+    ])
+    expect(body.executiveSummary.findings.map(f => f.title)).toContain('Citation rate at 66.7% (2 of 3 queries cited)')
+  })
+
+  test('whatsChanged keeps rate averages and provider moves at the percent wire precision', async () => {
+    const projectId = insertProject(ctx.db, 'wc-thirds')
+    const [a, b, c] = ['q1', 'q2', 'q3'].map(text => insertQuery(ctx.db, projectId, text))
+    // Cited queries per run: 1, 1, 2, 2 of 3 → 33.33, 33.33, 66.67, 66.67.
+    for (const [index, cited] of [1, 1, 2, 2].entries()) {
+      const day = String(index + 1).padStart(2, '0')
+      const runId = insertRun(ctx.db, projectId, { createdAt: `2026-04-${day}T00:00:00Z`, finishedAt: `2026-04-${day}T00:01:00Z` })
+      for (const [position, queryId] of [a!, b!, c!].entries()) {
+        insertSnapshot(ctx.db, runId, queryId, { citationState: position < cited ? 'cited' : 'not-cited' })
+      }
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/wc-thirds/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.whatsChanged.enoughHistory).toBe(true)
+    // Window 2: runs 3-4 average 66.67 against runs 1-2 at 33.33; one decimal would have sent 66.7 and 33.3.
+    expect(body.whatsChanged.citationRate).toMatchObject({ current: 66.67, prior: 33.33, window: 2, direction: 'up' })
+    expect(body.whatsChanged.citationRate!.deltaAbs).toBeCloseTo(33.34, 10)
+    // (66.67 - 33.33) / 33.33 = +100.03%, two decimals.
+    expect(body.whatsChanged.citationRate!.deltaPct).toBe(100.03)
+    // Counts keep one decimal: 2 and 1 cited queries on average.
+    expect(body.whatsChanged.citedQueryCount).toMatchObject({ current: 2, prior: 1 })
+    // Run 4 against run 3 for the one engine: 66.67 both times, a move of exactly 0.
+    expect(body.whatsChanged.providerMovements).toEqual([{ provider: 'gemini', current: 66.67, prior: 66.67, deltaAbs: 0, direction: 'flat' }])
+    expect(body.whatsChanged.headline).toMatch(/^Citation rate rose 33\.3% ↑ 66\.7% \(avg of last 2 checks\)/)
   })
 
   test('partial runs power the scorecard but are excluded from the trend line', async () => {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
 
 // Keep this as an explicit union instead of `.nullable()`: OpenAPI 3.0 emits
@@ -72,8 +73,12 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
   avgScore: z.number(),
   affectedPages: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
-  /** `round(affectedPages / totalPages * 100)`, `0` when `totalPages` is `0`. Computed by canonry, not aeo-audit. */
-  affectedPct: z.number().int().nonnegative(),
+  /**
+   * `affectedPages / totalPages * 100` to two decimals, `0` when `totalPages`
+   * is `0`. Computed by canonry, not aeo-audit. Audits stored by earlier
+   * versions carry a whole number.
+   */
+  affectedPct: percent(z.number().nonnegative()),
   topRecommendations: z.array(z.string()).default([]),
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
@@ -1186,7 +1191,7 @@ export const siteCrawlEdgeSchema = z.object({
    * the threshold means every anchor on the link is chrome. Present exactly
    * when `templateSource` is `ubiquity`, because it is that rule's evidence.
    */
-  templateRatio: z.union([z.number(), z.null()]),
+  templateRatio: z.union([fraction(), z.null()]),
   /**
    * Which rule decided `isTemplate`. Read this before comparing counts across
    * scans: `placement` and `ubiquity` do not measure the same thing.

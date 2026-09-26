@@ -14,8 +14,8 @@ import {
   inclusiveDayCount,
   formatNumber,
   formatPointDelta,
-  formatRatio,
-  formatWholePercent,
+  formatPercent,
+  formatSignedPercent,
   formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
   parseInclusiveEndMs,
@@ -24,47 +24,72 @@ import {
   startOfNextDayHourInTimeZone,
 } from '../src/formatting.js'
 
-describe('formatRatio', () => {
-  test('zero and non-finite values render as 0%', () => {
-    expect(formatRatio(0)).toBe('0%')
-    expect(formatRatio(Number.NaN)).toBe('0%')
-    expect(formatRatio(Number.POSITIVE_INFINITY)).toBe('0%')
+describe('formatPercent', () => {
+  test('a fraction renders as a percent with one decimal', () => {
+    // The Aero eval's misread: a 0.0207 share is 2.1%, never "0.02%".
+    expect(formatPercent(0.0207)).toBe('2.1%')
+    expect(formatPercent(0.5)).toBe('50.0%')
+    expect(formatPercent(0.123)).toBe('12.3%')
+    expect(formatPercent(0.998)).toBe('99.8%')
   })
 
-  test('fractions render as percent with one decimal', () => {
-    expect(formatRatio(0.5)).toBe('50.0%')
-    expect(formatRatio(0.123)).toBe('12.3%')
-    expect(formatRatio(1)).toBe('100.0%')
-  })
-})
-
-describe('formatWholePercent', () => {
-  test('rounds to a whole percent, half away from zero', () => {
-    expect(formatWholePercent(0)).toBe('0%')
-    expect(formatWholePercent(0.334)).toBe('33%')
-    expect(formatWholePercent(0.125)).toBe('13%')
-    expect(formatWholePercent(1)).toBe('100%')
+  test('a value already in percent units renders the same way', () => {
+    expect(formatPercent(2.07, 'percent')).toBe('2.1%')
+    expect(formatPercent(57.5, 'percent')).toBe('57.5%')
+    expect(formatPercent(0, 'percent')).toBe('0%')
+    expect(formatPercent(100, 'percent')).toBe('100%')
   })
 
-  // `ratio * 100` is not exact in binary: 0.575 * 100 is 57.49999999999999, so
-  // rounding the product directly loses the half-percent boundary and reports
-  // one percent too few.
-  test('a ratio whose percent is exactly a half still rounds up', () => {
-    expect(formatWholePercent(0.575)).toBe('58%')
-    expect(formatWholePercent(1 - 17 / 40)).toBe('58%')
-    expect(formatWholePercent(1 - 27 / 40)).toBe('33%')
-    expect(formatWholePercent(0.225)).toBe('23%')
-    expect(formatWholePercent(0.075)).toBe('8%')
+  test('only an exact 0% or 100% drops the decimal', () => {
+    expect(formatPercent(0)).toBe('0%')
+    expect(formatPercent(-0)).toBe('0%')
+    expect(formatPercent(1)).toBe('100%')
   })
 
-  test('a ratio a hair under the boundary is not lifted over it', () => {
-    expect(formatWholePercent(0.5749)).toBe('57%')
-    expect(formatWholePercent(0.57499)).toBe('57%')
+  test('a non-zero value too small to show reads <0.1%, never 0%', () => {
+    expect(formatPercent(0.0004)).toBe('<0.1%')
+    expect(formatPercent(0.000001)).toBe('<0.1%')
+    // Exactly 0.05 points is on the boundary and rounds up to a real 0.1%.
+    expect(formatPercent(0.0005)).toBe('0.1%')
   })
 
-  test('non-finite values render as 0%, matching formatRatio', () => {
-    expect(formatWholePercent(Number.NaN)).toBe('0%')
-    expect(formatWholePercent(Number.POSITIVE_INFINITY)).toBe('0%')
+  test('a value short of 100% that would round to it reads >99.9%, never 100%', () => {
+    // Keeps a branded change like 99.6% -> 99.8% readable at the top of the range.
+    expect(formatPercent(0.9996)).toBe('>99.9%')
+    expect(formatPercent(0.99949)).toBe('99.9%')
+    expect(formatPercent(99.96, 'percent')).toBe('>99.9%')
+  })
+
+  // `fraction * 100` is not exact in binary, and neither is a half tenth:
+  // 0.0045 * 100 is 0.44999999999999996 and 0.15 is stored a hair under 0.15,
+  // so `(x * 100).toFixed(1)` rounds 410 of every 1,000 half-tenth percents down.
+  test('a percent exactly on a half-tenth boundary rounds up', () => {
+    expect(formatPercent(0.0015)).toBe('0.2%')
+    expect(formatPercent(0.0045)).toBe('0.5%')
+    expect(formatPercent(0.0115)).toBe('1.2%')
+    expect(formatPercent(0.0215)).toBe('2.2%')
+    expect(formatPercent(1 - 17 / 40)).toBe('57.5%')
+  })
+
+  test('a percent a hair under the boundary is not lifted over it', () => {
+    expect(formatPercent(0.01249)).toBe('1.2%')
+    expect(formatPercent(0.12345)).toBe('12.3%')
+  })
+
+  test('a missing or non-finite value renders as a dash, not 0%', () => {
+    expect(formatPercent(null)).toBe('—')
+    expect(formatPercent(undefined)).toBe('—')
+    expect(formatPercent(Number.NaN)).toBe('—')
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe('—')
+  })
+
+  test('a share past 100% is shown as it is, not clamped into range', () => {
+    expect(formatPercent(1.2)).toBe('120.0%')
+  })
+
+  test('a negative value keeps its sign and the same edges', () => {
+    expect(formatPercent(-0.025)).toBe('-2.5%')
+    expect(formatPercent(-0.0004)).toBe('-<0.1%')
   })
 })
 
@@ -519,12 +544,39 @@ describe('deltaPercent', () => {
     expect(deltaPercent(50, -1)).toBeNull()
   })
 
-  test('rounds to nearest integer percent', () => {
+  test('keeps the percent wire precision of two decimals', () => {
     expect(deltaPercent(150, 100)).toBe(50)
     expect(deltaPercent(50, 100)).toBe(-50)
     expect(deltaPercent(100, 100)).toBe(0)
     expect(deltaPercent(101, 100)).toBe(1)
-    expect(deltaPercent(102, 99)).toBe(3) // (102-99)/99 = 0.0303 → 3
+    expect(deltaPercent(102, 99)).toBe(3.03) // (102-99)/99 = 0.030303 → 3.03, not 3
+    expect(deltaPercent(4, 3)).toBe(33.33) // 1/3 → 33.33, not 33
+    expect(deltaPercent(1, 3)).toBe(-66.67) // -2/3 → -66.67, not -67
+    expect(deltaPercent(250, 100)).toBe(150)
+  })
+
+  test('a change a whole-percent rounding used to hide survives', () => {
+    // +0.4% used to arrive as 0 and read as no change at all.
+    expect(deltaPercent(1004, 1000)).toBe(0.4)
+    expect(deltaPercent(996, 1000)).toBe(-0.4)
+    expect(deltaTone(deltaPercent(1004, 1000))).toBe('positive')
+    // Below the wire precision it is 0, with no negative zero.
+    expect(Object.is(deltaPercent(99_999, 100_000), 0)).toBe(true)
+  })
+})
+
+describe('formatSignedPercent', () => {
+  test('signs a positive value, keeps the minus of a negative one, and leaves an exact zero unsigned', () => {
+    expect(formatSignedPercent(33.33, 'percent')).toBe('+33.3%')
+    expect(formatSignedPercent(-66.67, 'percent')).toBe('-66.7%')
+    expect(formatSignedPercent(0, 'percent')).toBe('0%')
+    expect(formatSignedPercent(100, 'percent')).toBe('+100%')
+    expect(formatSignedPercent(0.04, 'percent')).toBe('+<0.1%')
+  })
+
+  test('defaults to a fraction, like formatPercent', () => {
+    expect(formatSignedPercent(0.125)).toBe('+12.5%')
+    expect(formatSignedPercent(-0.5)).toBe('-50.0%')
   })
 })
 
@@ -562,7 +614,17 @@ describe('formatDeltaCopy', () => {
 
   test('negative delta uses Down phrasing with absolute value', () => {
     expect(formatDeltaCopy({ current: 50, prior: 100, deltaPct: -50 }, 'arrivals'))
-      .toBe('Down 50% vs prior 7 days (100 arrivals)')
+      .toBe('Down 50.0% vs prior 7 days (100 arrivals)')
+  })
+
+  test('the percentage is the two-decimal deltaPct through formatPercent', () => {
+    // 3 → 4 is +33.33%; 1,000 → 1,004 is +0.4%, which a whole-percent delta flattened to "Flat".
+    expect(formatDeltaCopy({ current: 4, prior: 3, deltaPct: deltaPercent(4, 3) }, 'crawls'))
+      .toBe('Up 33.3% vs prior 7 days (3 crawls)')
+    expect(formatDeltaCopy({ current: 2, prior: 3, deltaPct: deltaPercent(2, 3) }, 'crawls'))
+      .toBe('Down 33.3% vs prior 7 days (3 crawls)')
+    expect(formatDeltaCopy({ current: 1004, prior: 1000, deltaPct: deltaPercent(1004, 1000) }, 'hits'))
+      .toBe('Up 0.4% vs prior 7 days (1.0K hits)')
   })
 
   test('zero delta uses Flat phrasing', () => {
@@ -578,11 +640,13 @@ describe('formatDeltaCopy', () => {
 
 describe('formatAverageDelta', () => {
   test('large base renders a signed percentage vs prior', () => {
-    expect(formatAverageDelta({ deltaAbs: 4.2, prior: 30, deltaPct: 14 })).toBe('+14% vs prior')
+    expect(formatAverageDelta({ deltaAbs: 4.2, prior: 30, deltaPct: 14 })).toBe('+14.0% vs prior')
+    // 30 → 34.2 is +14%; 35 → 40 is +14.29%, shown to one decimal.
+    expect(formatAverageDelta({ deltaAbs: 5, prior: 35, deltaPct: deltaPercent(40, 35) })).toBe('+14.3% vs prior')
   })
 
   test('large base with a negative delta keeps the sign from deltaPct', () => {
-    expect(formatAverageDelta({ deltaAbs: -6, prior: 50, deltaPct: -12 })).toBe('-12% vs prior')
+    expect(formatAverageDelta({ deltaAbs: -6, prior: 50, deltaPct: -12 })).toBe('-12.0% vs prior')
   })
 
   test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded raw delta`, () => {
@@ -611,13 +675,13 @@ describe('formatAverageDelta', () => {
 
 describe('formatWindowCountDelta', () => {
   test('large base renders a signed percentage with the window label, no count word', () => {
-    expect(formatWindowCountDelta({ deltaAbs: -54, prior: 382, deltaPct: -14 }, 'visits', 'vs prior 14 days'))
-      .toBe('-14% vs prior 14 days')
+    expect(formatWindowCountDelta({ deltaAbs: -54, prior: 382, deltaPct: deltaPercent(328, 382) }, 'visits', 'vs prior 14 days'))
+      .toBe('-14.1% vs prior 14 days')
   })
 
   test('large base positive delta gets a plus sign', () => {
     expect(formatWindowCountDelta({ deltaAbs: 60, prior: 300, deltaPct: 20 }, 'clicks', 'vs prior 14 days'))
-      .toBe('+20% vs prior 14 days')
+      .toBe('+20.0% vs prior 14 days')
   })
 
   test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded absolute delta with the count label`, () => {
@@ -670,7 +734,21 @@ describe('formatPointDelta', () => {
     expect(formatPointDelta(24 / 36 - 0.5)).toEqual({ direction: 'up', magnitude: '16.7' })
   })
 
-  test('keeps a trailing .0, matching formatRatio', () => {
+  test('rounds a half tenth up, exactly like formatPercent', () => {
+    // 0.0045 * 100 is 0.44999999999999996: formatPercent reads 0.5%, so the change does too.
+    expect(formatPointDelta(0.0045)).toEqual({ direction: 'up', magnitude: '0.5' })
+    expect(formatPercent(0.0045)).toBe('0.5%')
+    expect(formatPointDelta(-0.0015)).toEqual({ direction: 'down', magnitude: '0.2' })
+  })
+
+  test('reads a change already in 0..100 points with unit percent', () => {
+    expect(formatPointDelta(15, 'percent')).toEqual({ direction: 'up', magnitude: '15.0' })
+    expect(formatPointDelta(-3.5, 'percent')).toEqual({ direction: 'down', magnitude: '3.5' })
+    expect(formatPointDelta(0.04, 'percent')).toEqual({ direction: 'up', magnitude: '<0.1' })
+    expect(formatPointDelta(0, 'percent')).toEqual({ direction: 'none', magnitude: '0' })
+  })
+
+  test('keeps a trailing .0, matching formatPercent', () => {
     expect(formatPointDelta(0.1)).toEqual({ direction: 'up', magnitude: '10.0' })
     expect(formatPointDelta(-1)).toEqual({ direction: 'down', magnitude: '100.0' })
   })

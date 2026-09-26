@@ -383,7 +383,7 @@ describe('shared production visibility view', () => {
     fireEvent.change(within(breakdown).getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'Property 224' } })
     expect(within(breakdown).getByRole('button', { name: 'Property 224', exact: true })).toBeTruthy()
     expect(within(breakdown).getAllByRole('row')).toHaveLength(2)
-    expect(screen.getAllByText('43%').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('43.0%').length).toBeGreaterThan(0)
     expect(screen.getByText('1 query · 3 answers')).toBeTruthy()
   })
 
@@ -404,8 +404,10 @@ describe('shared production visibility view', () => {
   })
   it('renders server rates without dividing counts and keeps unavailable values explicit', () => {
     const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
-    expect(html).toContain('43%')
+    expect(html).toContain('43.0%')
     expect(html).toContain('1 of 3')
+    // 1 of 3 divided in the UI would read 33.3% in the shared format (33% before it).
+    expect(html).not.toContain('33.3%')
     expect(html).not.toContain('33%')
     expect(html).toContain('Not measured')
     expect(html).toContain('Query results')

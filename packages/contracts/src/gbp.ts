@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { percent } from './ratio-unit.js'
 
 // One GBP account the OAuth user can access. `name` is the resource name
 // ("accounts/{n}") used to list that account's locations; the rest are
@@ -137,8 +138,8 @@ export type GbpKeywordImpressionDto = z.infer<typeof gbpKeywordImpressionDtoSche
 export const gbpKeywordImpressionListResponseSchema = z.object({
   keywords: z.array(gbpKeywordImpressionDtoSchema),
   total: z.number().int().nonnegative(),
-  /** Share of returned keywords that are privacy-thresholded (0–100, rounded). */
-  thresholdedPct: z.number().int().min(0).max(100),
+  /** Share of returned keywords that are privacy-thresholded (0–100, to two decimals). */
+  thresholdedPct: percent(z.number().min(0).max(100)),
 })
 export type GbpKeywordImpressionListResponse = z.infer<typeof gbpKeywordImpressionListResponseSchema>
 
@@ -244,10 +245,11 @@ export const gbpSummaryDtoSchema = z.object({
     totals: z.record(z.string(), z.number()),
     recent7d: z.record(z.string(), z.number()),
     prior7d: z.record(z.string(), z.number()),
-    // Per-metric % change recent-vs-prior, computed over COMPLETE days only
-    // (the windows anchor to `freshness.dataThroughDate`, never the lagging
-    // tail), so a reporting-lag artifact is never shown as a real delta.
-    deltaPct: z.record(z.string(), z.number().nullable()),
+    // Per-metric % change recent-vs-prior (percent units, two decimals: 12.5
+    // is +12.5%), computed over COMPLETE days only (the windows anchor to
+    // `freshness.dataThroughDate`, never the lagging tail), so a
+    // reporting-lag artifact is never shown as a real delta.
+    deltaPct: z.record(z.string(), percent().nullable()),
   }),
   // GBP Performance data lags a few days; the most recent stored days can be
   // not-yet-reported zeros. `freshness` lets every renderer mark the trailing
@@ -271,7 +273,8 @@ export const gbpSummaryDtoSchema = z.object({
   keywords: z.object({
     total: z.number().int().nonnegative(),
     thresholdedCount: z.number().int().nonnegative(),
-    thresholdedPct: z.number().int().min(0).max(100),
+    /** `thresholdedCount / total` as 0–100, to two decimals; 0 when there are no keywords. */
+    thresholdedPct: percent(z.number().min(0).max(100)),
   }),
   placeActions: z.object({
     total: z.number().int().nonnegative(),

@@ -13,6 +13,7 @@ import type {
   AdsGeoSearchResponse,
   AdsOperationReconcileResponse,
   AdsOperationResponse,
+  AdsSummaryDto,
   AdsUnresolvedOperationListResponse,
 } from '@ainyc/canonry-contracts'
 
@@ -31,6 +32,7 @@ const mockResumeAdsActivation = vi.fn()
 const mockCreateAdsActivationGrant = vi.fn()
 const mockRevokeAdsActivationGrant = vi.fn()
 const mockActivateAdsCampaignTree = vi.fn()
+const mockGetAdsSummary = vi.fn()
 
 function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: () => string[] } {
   let output = ''
@@ -61,6 +63,7 @@ vi.mock('../src/client.js', () => ({
     createAdsActivationGrant: mockCreateAdsActivationGrant,
     revokeAdsActivationGrant: mockRevokeAdsActivationGrant,
     activateAdsCampaignTree: mockActivateAdsCampaignTree,
+    getAdsSummary: mockGetAdsSummary,
   }),
 }))
 
@@ -80,6 +83,7 @@ const {
   adsOperationReconcile,
   adsOperationResumeActivation,
   adsOperationsUnresolved,
+  adsSummary,
 } = await import('../src/commands/ads.js')
 const { ADS_CLI_COMMANDS } = await import('../src/cli-commands/ads.js')
 
@@ -779,5 +783,41 @@ describe('ads lifecycle commands', () => {
     ]) {
       expect(paths).toContain(command)
     }
+  })
+})
+
+describe('ads summary', () => {
+  const summary: AdsSummaryDto = {
+    connected: true,
+    displayName: 'Harbor Hotel',
+    currencyCode: 'USD',
+    lastSyncedAt: '2026-08-25T12:00:00.000Z',
+    campaignCount: 1,
+    adGroupCount: 2,
+    adCount: 3,
+    window: { from: '2026-08-01', to: '2026-08-24', inProgressDate: null },
+    totals: { impressions: 440, clicks: 20, spendMicros: 6_000_000, conversions: 1, ctr: 20 / 440, cpcMicros: 300_000 },
+  }
+
+  async function summaryLines(dto: AdsSummaryDto): Promise<string[]> {
+    mockGetAdsSummary.mockResolvedValue(dto)
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { lines.push(args.join(' ')) })
+    try {
+      await adsSummary('demo')
+    } finally {
+      log.mockRestore()
+    }
+    return lines
+  }
+
+  it('prints the 0..1 CTR through formatPercent', async () => {
+    // 20 / 440 is 4.545...%: one decimal, half up on the tenth.
+    expect(await summaryLines(summary)).toContain('Clicks:       20 (CTR 4.5%)')
+  })
+
+  it('omits the CTR when there were no impressions to divide by', async () => {
+    const lines = await summaryLines({ ...summary, totals: { ...summary.totals, impressions: 0, clicks: 0, ctr: null } })
+    expect(lines).toContain('Clicks:       0')
   })
 })

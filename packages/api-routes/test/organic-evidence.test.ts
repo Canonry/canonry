@@ -134,7 +134,7 @@ describe('organic evidence composite', () => {
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'positive',
       title: 'Search visibility increased',
-      detail: expect.stringContaining('1100 in the latest cohort versus 1000 prior (+10%)'),
+      detail: expect.stringContaining('1100 in the latest cohort versus 1000 prior (+10.0%)'),
     }))
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'caution',

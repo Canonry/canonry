@@ -1,22 +1,44 @@
-export function formatRatio(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return '0%'
-  return `${(value * 100).toFixed(1)}%`
+import { RatioUnits, roundRatio, type RatioUnit } from './ratio-unit.js'
+
+/** A ratio in percent units (or a change in points), with the float error of the scaling removed. */
+function inPercentUnits(value: number, unit: RatioUnit): number {
+  return Number((unit === RatioUnits.percent ? value : value * 100).toFixed(6))
+}
+
+/** A non-negative percent rounded half up to one decimal, after removing the float error of `* 10`. */
+function roundedTenths(size: number): number {
+  return Math.round(Number((size * 10).toFixed(4))) / 10
 }
 
 /**
- * A ratio as a whole percent: `0.575` → `58%`.
+ * The one way a ratio is shown: a percent with one decimal, `0.0207` → `2.1%`.
  *
- * `Math.round(ratio * 100)` alone loses every half-percent boundary that binary
- * floating point puts a hair below it — `0.575 * 100` is `57.49999999999999`,
- * so a content gap missed on 23 of 40 snapshots printed `57%`. Callers hand in
- * an unrounded `cited / total`, which lands on those boundaries constantly, so
- * the error is removed before the rounding decision rather than after it. Six
- * decimals is far finer than any ratio these reports carry and cannot lift a
- * value that is genuinely under the boundary over it.
+ * `unit` is what the number is on the wire (declared on its schema, see
+ * `ratio-unit.ts`): a 0..1 `fraction` (the default) or a 0..100 `percent`.
+ *
+ * Neither end ever shows a value that is not exact: only a true 0 reads `0%`
+ * and only a true 100% reads `100%`. A non-zero value that rounds to 0.0 reads
+ * `<0.1%`, and one short of 100% that rounds to 100.0 reads `>99.9%`, so a
+ * branded rate moving from 99.6% to 99.8% stays visible. A missing or
+ * non-finite value reads `—`, never `0%`. A value past 100% is shown as it is.
+ *
+ * Rounding is half up on the tenth. Neither `fraction * 100` nor a half tenth
+ * is exact in binary (`0.0045 * 100` is `0.44999999999999996`), so both
+ * products are cut to a few decimals before the rounding decision; that
+ * removes the float error without lifting a value that is genuinely under
+ * the boundary.
  */
-export function formatWholePercent(ratio: number): string {
-  if (!Number.isFinite(ratio)) return '0%'
-  return `${Math.round(Number((ratio * 100).toFixed(6)))}%`
+export function formatPercent(value: number | null | undefined, unit: RatioUnit = RatioUnits.fraction): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  const percent = inPercentUnits(value, unit)
+  if (percent === 0) return '0%'
+  const sign = percent < 0 ? '-' : ''
+  const size = Math.abs(percent)
+  if (size === 100) return `${sign}100%`
+  const tenths = roundedTenths(size)
+  if (tenths === 0) return `${sign}<0.1%`
+  if (tenths === 100 && size < 100) return `${sign}>99.9%`
+  return `${sign}${tenths.toFixed(1)}%`
 }
 
 export function formatNumber(value: number): string {
@@ -410,9 +432,25 @@ export function relativeChangeRatio(current: number, baseline: number): number |
   return Number.isFinite(ratio) ? ratio : null
 }
 
+/**
+ * Signed relative change from `prior` to `current` in percent units (50 is
+ * +50%), at the percent wire precision of two decimals: 150 against 100 is
+ * `50`, 4 against 3 is `33.33`. Null when the change is undefined (see
+ * `relativeChangeRatio`). Show it with `formatSignedPercent` or
+ * `formatPercent(value, 'percent')`.
+ */
 export function deltaPercent(current: number, prior: number): number | null {
   const ratio = relativeChangeRatio(current, prior)
-  return ratio === null ? null : Math.round(ratio * 100)
+  return ratio === null ? null : roundRatio(ratio * 100, RatioUnits.percent)
+}
+
+/**
+ * A signed percent through `formatPercent`: `+33.3%`, `-50.0%`, and `0%` with
+ * no sign for no change. `unit` is the value's wire unit, as for
+ * `formatPercent`.
+ */
+export function formatSignedPercent(value: number, unit: RatioUnit = RatioUnits.fraction): string {
+  return `${value > 0 ? '+' : ''}${formatPercent(value, unit)}`
 }
 
 export type DeltaTone = 'positive' | 'negative' | 'neutral'
@@ -424,13 +462,13 @@ export function deltaTone(deltaPct: number | null): DeltaTone {
 
 // Canonical subtitle copy for a "current vs prior window" tile. Used by
 // both the SPA and the HTML renderer so they stay verbatim-identical per
-// the report-parity rule.
+// the report-parity rule. `deltaPct` is in percent units (`deltaPercent`).
 export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'vs prior 7 days'): string {
   if (d.deltaPct === null) {
     return d.prior === 0 ? 'First baseline week' : ''
   }
-  if (d.deltaPct > 0) return `Up ${d.deltaPct}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
-  if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  if (d.deltaPct > 0) return `Up ${formatPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  if (d.deltaPct < 0) return `Down ${formatPercent(Math.abs(d.deltaPct), RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
   return `Flat ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
 }
 
@@ -452,16 +490,15 @@ function round1(value: number): number {
  * over a rolling window). When the prior average is a large-enough base
  * (`prior >= MIN_PCT_BASE`) and a percentage is computable, render the signed
  * percent — otherwise fall back to a clean rounded raw delta vs the prior
- * average. `deltaPct` is already signed (negative = down); we only add a '+'
- * for positive values.
+ * average. `deltaPct` is already signed (negative = down) and in percent
+ * units; `formatSignedPercent` adds the '+' for positive values.
  *
  * Pure. Shared by the report SPA and HTML renderer so both surfaces produce
  * byte-identical copy per the report-parity rule.
  */
 export function formatAverageDelta(d: { deltaAbs: number; prior: number; deltaPct: number | null }): string {
   if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    const sign = d.deltaPct > 0 ? '+' : ''
-    return `${sign}${d.deltaPct}% vs prior`
+    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} vs prior`
   }
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${round1(d.deltaAbs)} vs ${round1(d.prior)}`
@@ -482,8 +519,7 @@ export function formatWindowCountDelta(
   windowLabel: string,
 ): string {
   if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    const sign = d.deltaPct > 0 ? '+' : ''
-    return `${sign}${d.deltaPct}% ${windowLabel}`
+    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel}`
   }
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
@@ -492,17 +528,20 @@ export function formatWindowCountDelta(
 export type PointDeltaDirection = 'up' | 'down' | 'none'
 
 /**
- * A server rate delta (a fraction in [-1, 1]) as percentage points for a change
- * line. Formats only: the delta is the server's own `current - previous`.
+ * A server rate delta as percentage points for a change line. Formats only:
+ * the delta is the server's own `current - previous`. `unit` is the delta's
+ * wire unit: a 0..1 `fraction` change (the default) or a change already in
+ * 0..100 points (`percent`).
  *
  * A non-zero change below 0.05 points reads `<0.1`, so a real movement never
- * rounds to a misleading `0.0`. One decimal keeps its trailing `.0`, matching
- * `formatRatio`.
+ * rounds to a misleading `0.0`. It rounds exactly like `formatPercent` (one
+ * decimal, half up, float-safe) and keeps the trailing `.0` it keeps.
  */
-export function formatPointDelta(delta: number): { direction: PointDeltaDirection; magnitude: string } {
-  if (delta === 0) return { direction: 'none', magnitude: '0' }
-  const points = Math.abs(delta) * 100
-  return { direction: delta > 0 ? 'up' : 'down', magnitude: points < 0.05 ? '<0.1' : points.toFixed(1) }
+export function formatPointDelta(delta: number, unit: RatioUnit = RatioUnits.fraction): { direction: PointDeltaDirection; magnitude: string } {
+  const points = inPercentUnits(delta, unit)
+  if (points === 0) return { direction: 'none', magnitude: '0' }
+  const tenths = roundedTenths(Math.abs(points))
+  return { direction: points > 0 ? 'up' : 'down', magnitude: tenths === 0 ? '<0.1' : tenths.toFixed(1) }
 }
 
 /**

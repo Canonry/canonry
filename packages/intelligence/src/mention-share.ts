@@ -1,7 +1,9 @@
 import {
   brandKeyFromText,
   compileBrandAliases,
+  formatPercent,
   matcherMatchesText,
+  percentOf,
   type BrandAliasMatcher,
   type MetricTone,
   type QueryClass,
@@ -65,8 +67,8 @@ export interface MentionShareOptions {
 export interface MentionShareCompetitorRow {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total — sums to 100 across rows when there are any
-   *  competitor mentions; 0 otherwise. */
+  /** % of competitive total, 0..100 to two decimals — sums to ~100 across
+   *  rows when there are any competitor mentions; 0 otherwise. */
   shareOfCompetitiveTotal: number
 }
 
@@ -77,9 +79,9 @@ export interface MentionShareBreakdown {
   snapshotsWithAnswerText: number
   snapshotsTotal: number
   /**
-   * `projectMentionSnapshots / (project + competitor)` as a 0..100 integer, or
-   * `null` when nothing in this class was mentioned at all. Null rather than 0
-   * because "no brand was named" is not "you lost every naming".
+   * `projectMentionSnapshots / (project + competitor)` as 0..100 to two
+   * decimals, or `null` when nothing in this class was mentioned at all. Null
+   * rather than 0 because "no brand was named" is not "you lost every naming".
    */
   score: number | null
 }
@@ -130,9 +132,7 @@ function toBreakdown(tally: ClassTally, competitors: readonly MentionShareCompet
     .map(c => ({
       domain: c.domain,
       mentionSnapshots: tally.competitorCounts.get(c.domain) ?? 0,
-      shareOfCompetitiveTotal: competitorMentionSnapshots > 0
-        ? Math.round(((tally.competitorCounts.get(c.domain) ?? 0) / competitorMentionSnapshots) * 1000) / 10
-        : 0,
+      shareOfCompetitiveTotal: percentOf(tally.competitorCounts.get(c.domain) ?? 0, competitorMentionSnapshots) ?? 0,
     }))
     .filter(row => row.mentionSnapshots > 0)
     .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
@@ -143,7 +143,7 @@ function toBreakdown(tally: ClassTally, competitors: readonly MentionShareCompet
     perCompetitor,
     snapshotsWithAnswerText: tally.snapshotsWithAnswerText,
     snapshotsTotal: tally.snapshotsTotal,
-    score: denom > 0 ? Math.round((tally.projectMentionSnapshots / denom) * 100) : null,
+    score: percentOf(tally.projectMentionSnapshots, denom),
   }
 }
 
@@ -301,7 +301,7 @@ export function buildMentionShare(
       value: 'No mentions',
       delta: scopeLabel(scope, 'No brand mentions in this run'),
       tone: 'neutral',
-      description: describe({ scope, score, breakdown: headline, branded: brandedBreakdown }),
+      description: describe({ scope, breakdown: headline, branded: brandedBreakdown }),
       tooltip,
       trend: [],
       scope,
@@ -312,10 +312,10 @@ export function buildMentionShare(
 
   return {
     label: 'Mention Share',
-    value: `${score}`,
+    value: formatPercent(headline.projectMentionSnapshots / denom),
     delta: scopeLabel(scope, `${headline.projectMentionSnapshots} of ${denom} brand mentions`),
     tone: mentionShareTone(score),
-    description: describe({ scope, score, breakdown: headline, branded: brandedBreakdown }),
+    description: describe({ scope, breakdown: headline, branded: brandedBreakdown }),
     tooltip,
     trend: [],
     progress: score,
@@ -352,11 +352,10 @@ function mentionShareTone(score: number): MetricTone {
 
 function describe(parts: {
   scope: MentionShareScope
-  score: number | null
   breakdown: MentionShareBreakdown
   branded: MentionShareBreakdown
 }): string {
-  const { scope, score, breakdown, branded } = parts
+  const { scope, breakdown, branded } = parts
   const { projectMentionSnapshots, competitorMentionSnapshots, perCompetitor } = breakdown
   const where = scope === 'non-brand' ? 'on non-brand queries' : 'across your tracked queries'
   // Branded recall is the sentence that stops a 3% category number reading as a
@@ -374,8 +373,10 @@ function describe(parts: {
   }
   const top = perCompetitor[0]
   const total = projectMentionSnapshots + competitorMentionSnapshots
+  // The unrounded share, so the sentence and the gauge's `value` read alike.
+  const share = formatPercent(projectMentionSnapshots / total)
   if (!top) {
-    return `${score}% of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
+    return `${share} of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
   }
-  return `${score}% of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
+  return `${share} of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
 }

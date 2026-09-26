@@ -178,6 +178,54 @@ describe('Google Marketing CLI', () => {
     expect(output).toContain('unavailable (insufficient-history)')
   })
 
+  it('prints CTR, conversion rate and the prior-period change through formatPercent', async () => {
+    const withComparison = {
+      ...performanceDto,
+      comparison: {
+        days: 7,
+        prior: { startDate: '2026-08-11', endDate: '2026-08-17', days: 7, totals: performanceDto.totals },
+        change: { impressions: 0.1, clicks: -0.0004, costMicros: 0, conversions: null, ctr: 0.1, conversionRate: null },
+      },
+      comparisonUnavailableReason: null,
+    }
+    const client = {
+      getGoogleAdsPerformance: vi.fn().mockResolvedValue(withComparison),
+    } as unknown as GoogleMarketingCliClient
+    const commands = createGoogleMarketingCliCommands(() => client)
+
+    const lines = (await captureStdout(async () => {
+      await dispatchRegisteredCommand(['google-ads', 'performance', 'example'], 'text', commands)
+    })).split('\n')
+
+    // 20 / 440 is 4.545...%: one decimal, rounded half up on the tenth.
+    expect(lines).toContain('Impressions:  440 (+10.0% vs prior period)')
+    expect(lines).toContain('Clicks:       20 (CTR 4.5%) (-<0.1% vs prior period)')
+    expect(lines).toContain('Cost:         $6.00 (CPC $0.30) (0% vs prior period)')
+    expect(lines).toContain('Conversions:  2.5 (rate 12.5%, cost/conv $2.40)')
+  })
+
+  it('prints an undefined 0/0 ratio as a dash, never as 0%', async () => {
+    const noDelivery = {
+      ...performanceDto,
+      totals: {
+        ...performanceDto.totals,
+        impressions: 0, clicks: 0, costMicros: 0, conversions: 0,
+        ctr: null, cpcMicros: null, conversionRate: null, costPerConversionMicros: null,
+      },
+    }
+    const client = {
+      getGoogleAdsPerformance: vi.fn().mockResolvedValue(noDelivery),
+    } as unknown as GoogleMarketingCliClient
+    const commands = createGoogleMarketingCliCommands(() => client)
+
+    const lines = (await captureStdout(async () => {
+      await dispatchRegisteredCommand(['google-ads', 'performance', 'example'], 'text', commands)
+    })).split('\n')
+
+    expect(lines).toContain('Clicks:       0 (CTR —)')
+    expect(lines).toContain('Conversions:  0 (rate —, cost/conv —)')
+  })
+
   it('refuses a window the stored snapshot cannot serve', async () => {
     const client = { getGoogleAdsPerformance: vi.fn() } as unknown as GoogleMarketingCliClient
     const commands = createGoogleMarketingCliCommands(() => client)

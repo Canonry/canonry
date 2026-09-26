@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 
 export const bingConnectionDtoSchema = z.object({
   id: z.string(),
@@ -30,7 +31,7 @@ export const bingCoverageSummaryDtoSchema = z.object({
     indexed: z.number(),
     notIndexed: z.number(),
     unknown: z.number().optional(),
-    percentage: z.number(),
+    percentage: percent(),
   }),
   lastInspectedAt: z.string().nullable(),
   indexed: z.array(bingUrlInspectionDtoSchema).default([]),
@@ -43,7 +44,7 @@ export const bingKeywordStatsDtoSchema = z.object({
   query: z.string(),
   impressions: z.number(),
   clicks: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   averagePosition: z.number(),
 })
 export type BingKeywordStatsDto = z.infer<typeof bingKeywordStatsDtoSchema>

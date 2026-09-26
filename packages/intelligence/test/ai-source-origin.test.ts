@@ -76,15 +76,22 @@ describe('buildAiSourceOrigin', () => {
     expect(result.topDomains).toHaveLength(20)
   })
 
-  it('rounds category sharePct to integer percent', () => {
+  it('keeps category sharePct to two decimals, not a whole percent', () => {
     const snapshots = [
       snap(['wikipedia.org', 'wikipedia.org', 'reddit.com']),
     ]
     const result = buildAiSourceOrigin(snapshots, PROJECT_DOMAINS, COMPETITOR_DOMAINS)
-    // The exact category names are owned by categorizeSource — assert that sharePct sums sensibly
+    // The exact category names are owned by categorizeSource; 2 of 3 and 1 of 3 citations are 66.67 and 33.33.
+    expect(result.categories.map(c => [c.count, c.sharePct])).toEqual([[2, 66.67], [1, 33.33]])
     const totalShare = result.categories.reduce((s, c) => s + c.sharePct, 0)
-    expect(totalShare).toBeGreaterThanOrEqual(99)
-    expect(totalShare).toBeLessThanOrEqual(101)
+    expect(totalShare).toBeCloseTo(100, 10)
+  })
+
+  it('keeps a category a whole percent used to round to 0', () => {
+    // 1 of 250 citations is 0.4%.
+    const snapshots = [snap(['reddit.com', ...Array.from({ length: 249 }, () => 'wikipedia.org')])]
+    const result = buildAiSourceOrigin(snapshots, PROJECT_DOMAINS, COMPETITOR_DOMAINS)
+    expect(result.categories.map(c => [c.count, c.sharePct])).toEqual([[249, 99.6], [1, 0.4]])
   })
 
   it('sorts categories by count descending', () => {
