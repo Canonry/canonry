@@ -1,5 +1,5 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -100,6 +100,7 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Providers:        ${(project.providers ?? []).length > 0 ? project.providers.join(', ') : 'all configured'}`)
   const providerModels = Object.entries(project.providerModels ?? {})
   console.log(`  Model overrides:  ${providerModels.length > 0 ? providerModels.map(([provider, model]) => `${provider}=${model}`).join(', ') : '(none; instance settings inherited)'}`)
+  console.log(`  Negative reviews: ${resolveNegativeReviewMaxStars(project.negativeReviewMaxStars)} stars or fewer${project.negativeReviewMaxStars == null ? ' (default)' : ''}`)
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -123,6 +124,8 @@ export async function updateProjectSettings(
     providers?: string[]
     providerModels?: Record<string, string>
     clearProviderModels?: string[]
+    /** 1-4 sets the negative-review threshold, null resets it to the default of 3, undefined leaves it. */
+    negativeReviewMaxStars?: number | null
     format?: string
   },
 ): Promise<void> {
@@ -189,6 +192,9 @@ export async function updateProjectSettings(
     locations: project.locations,
     defaultLocation: project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
+    // Sent only when asked for: the server keeps the stored threshold when the
+    // field is absent, so a stale read cannot overwrite a newer setting.
+    ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
   })
 
   if (isMachineFormat(opts.format)) {

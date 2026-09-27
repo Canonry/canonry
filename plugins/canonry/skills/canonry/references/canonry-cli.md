@@ -50,6 +50,7 @@ cnry project list                              # list all projects
 cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
+cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
 cnry project delete <name>                     # delete a project
 cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
 cnry status <project>                          # mention + citation summary + domain info
@@ -764,7 +765,8 @@ cnry gbp places <project> [--location locations/{n}]
 cnry gbp reviews <project> [--location locations/{n}] [--negative] [--limit N]
                                                    # stored reviews newest first, plus each location's Business Profile
                                                    # review access (ok / unavailable + reason / error) and latest rating.
-                                                   # --negative keeps 1-3 star reviews (the review.negative threshold);
+                                                   # --negative keeps reviews at or below the project's threshold
+                                                   # (the review.negative threshold, 3 stars by default);
                                                    # each review carries its webhook alertState
 cnry gbp summary <project> [--location locations/{n}]
                                                    # composite scorecard: performance totals + recent-vs-prior 7d
@@ -778,7 +780,7 @@ cnry gbp summary <project> [--location locations/{n}]
 
 Reviews sync from the v4 Reviews API when Google has enabled it for the Cloud project. Most projects get `403 SERVICE_DISABLED`, which never fails the run: `gbp reviews` shows it per location, and the `gbp.reviews.access` doctor check explains how to request access. Without v4 access, locations fall back to the public Places listing when Places runs on the `atmosphere` tier with a key: the overall rating and at most five reviews chosen by relevance, so a new review can be missed. That fallback is at most one Place Details call per location per day, billed at Enterprise + Atmosphere.
 
-Review webhooks: subscribe with `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. `review.negative` is sent once per new or edited review rated 1-3 stars; `review.rating-dropped` when a location's public rating falls (Places fallback only). A location's first sync records a baseline and sends nothing, a review older than 30 days never alerts, and nothing is held for a webhook added later. Discord and Slack URLs get a formatted message.
+Review webhooks: subscribe with `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. `review.negative` is sent once per new or edited review at or below the project's threshold, 3 stars by default (`cnry project update <project> --negative-review-max-stars <1-4|default>`, or `spec.negativeReviewMaxStars` in `canonry apply`); `review.rating-dropped` when a location's public rating falls (Places fallback only). Lowering the threshold also stops alerts already queued; raising it applies to new and edited reviews only. A location's first sync records a baseline and sends nothing, a review older than 30 days never alerts, and nothing is held for a webhook added later. Discord and Slack URLs get a formatted message.
 
 ## Google Ads + Google Tag Manager conversion integrity
 

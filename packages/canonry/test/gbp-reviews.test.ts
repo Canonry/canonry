@@ -66,12 +66,23 @@ beforeEach(() => {
 describe('alert rules', () => {
   test('a review alerts only after the baseline, when negative, and while recent', () => {
     const recent = daysBefore(1)
-    expect(reviewAlertState({ starRating: 1, updateTime: recent }, { baseline: true, now: NOW })).toBe('baseline')
-    expect(reviewAlertState({ starRating: 1, updateTime: recent }, { baseline: false, now: NOW })).toBe('pending')
-    expect(reviewAlertState({ starRating: 3, updateTime: daysBefore(30) }, { baseline: false, now: NOW })).toBe('pending')
-    expect(reviewAlertState({ starRating: 3, updateTime: daysBefore(31) }, { baseline: false, now: NOW })).toBe('stale')
-    expect(reviewAlertState({ starRating: 4, updateTime: recent }, { baseline: false, now: NOW })).toBe('none')
-    expect(reviewAlertState({ starRating: null, updateTime: recent }, { baseline: false, now: NOW })).toBe('none')
+    const ctx = { baseline: false, now: NOW, negativeMaxStars: 3 }
+    expect(reviewAlertState({ starRating: 1, updateTime: recent }, { ...ctx, baseline: true })).toBe('baseline')
+    expect(reviewAlertState({ starRating: 1, updateTime: recent }, ctx)).toBe('pending')
+    expect(reviewAlertState({ starRating: 3, updateTime: daysBefore(30) }, ctx)).toBe('pending')
+    expect(reviewAlertState({ starRating: 3, updateTime: daysBefore(31) }, ctx)).toBe('stale')
+    expect(reviewAlertState({ starRating: 4, updateTime: recent }, ctx)).toBe('none')
+    expect(reviewAlertState({ starRating: null, updateTime: recent }, ctx)).toBe('none')
+  })
+
+  test("the project's threshold decides what is negative", () => {
+    const recent = daysBefore(1)
+    const strict = { baseline: false, now: NOW, negativeMaxStars: 2 }
+    expect(reviewAlertState({ starRating: 2, updateTime: recent }, strict)).toBe('pending')
+    expect(reviewAlertState({ starRating: 3, updateTime: recent }, strict)).toBe('none')
+    const wide = { baseline: false, now: NOW, negativeMaxStars: 4 }
+    expect(reviewAlertState({ starRating: 4, updateTime: recent }, wide)).toBe('pending')
+    expect(reviewAlertState({ starRating: 5, updateTime: recent }, wide)).toBe('none')
   })
 
   test('only a falling Places rating alerts, and float noise is not a fall', () => {
@@ -170,7 +181,7 @@ describe('persistReviewObservation', () => {
     }
     const result = persistReviewObservation(db, 'proj', 'run_1', {
       locationName: 'locations/1', origin: 'gbp', rating: 2, reviewCount: 1, reviews: [review, { ...review, comment: 'older copy' }],
-    }, NOW)
+    }, { now: NOW, negativeMaxStars: 3 })
     expect(result).toEqual({ baseline: true, inserted: 1, queuedReviews: 0, queuedRatingDrop: false })
     const rows = db.select().from(gbpReviews).all()
     expect(rows).toHaveLength(1)

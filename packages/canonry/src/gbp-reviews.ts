@@ -50,14 +50,14 @@ export function isWithinAlertWindow(timestamp: string, now: Date): boolean {
  * Alert state for a review seen for the first time, or whose rating or text
  * changed since it was last seen. A location's first observation is the
  * baseline: its reviews are recorded and never sent, so connecting a listing
- * does not replay its history.
+ * does not replay its history. `negativeMaxStars` is the project's threshold.
  */
 export function reviewAlertState(
   review: { starRating: number | null; updateTime: string },
-  ctx: { baseline: boolean; now: Date },
+  ctx: { baseline: boolean; now: Date; negativeMaxStars: number },
 ): GbpReviewAlertState {
   if (ctx.baseline) return 'baseline'
-  if (!isNegativeReviewRating(review.starRating)) return 'none'
+  if (!isNegativeReviewRating(review.starRating, ctx.negativeMaxStars)) return 'none'
   return isWithinAlertWindow(review.updateTime, ctx.now) ? 'pending' : 'stale'
 }
 
@@ -275,8 +275,9 @@ export function persistReviewObservation(
   projectId: string,
   runId: string,
   obs: ReviewObservation,
-  now: Date,
+  ctx: { now: Date; negativeMaxStars: number },
 ): PersistedReviewObservation {
+  const { now, negativeMaxStars } = ctx
   const nowIso = now.toISOString()
   const latestRating = tx.select().from(gbpReviewRatings)
     .where(and(
@@ -367,7 +368,7 @@ export function persistReviewObservation(
       syncRunId: runId,
     }
     if (!stored) {
-      const alertState = reviewAlertState(review, { baseline, now })
+      const alertState = reviewAlertState(review, { baseline, now, negativeMaxStars })
       if (alertState === 'pending') queuedReviews++
       tx.insert(gbpReviews).values({
         id: crypto.randomUUID(),
@@ -381,7 +382,7 @@ export function persistReviewObservation(
       }).run()
       inserted++
     } else if (stored.starRating !== review.starRating || stored.comment !== review.comment) {
-      const alertState = reviewAlertState(review, { baseline, now })
+      const alertState = reviewAlertState(review, { baseline, now, negativeMaxStars })
       if (alertState === 'pending') queuedReviews++
       tx.update(gbpReviews)
         .set({ ...content, alertState, alertStateAt: nowIso })

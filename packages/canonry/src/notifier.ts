@@ -1,9 +1,9 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@ainyc/canonry-db'
 import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
-import { businessProfileReviewsCover } from '@ainyc/canonry-contracts'
+import { businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
 import type { RunCompletionOrigin } from '@ainyc/canonry-contracts'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -550,7 +550,11 @@ export class Notifier {
    *   - an alert older than the alert window is `stale`, so a webhook that was
    *     down for weeks does not replay a month of reviews once it is fixed;
    *   - with no enabled webhook subscribed, it is `skipped` rather than held,
-   *     so subscribing later starts from new reviews instead of a backlog.
+   *     so subscribing later starts from new reviews instead of a backlog;
+   *   - a review above the project's threshold is `none`, so lowering the
+   *     threshold also stops reviews queued before the change.
+   * Raising the threshold does not reach back: reviews already recorded as
+   * `none` stay that way, and only new or edited ones use the new value.
    * A row becomes `sent` only after a destination accepted it, and stays
    * `pending` when every delivery failed, so the next sync retries it.
    */
@@ -582,6 +586,7 @@ export class Notifier {
 
     const now = new Date()
     const nowIso = now.toISOString()
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(this.db, projectId))
     const locations = new Map(
       this.db.select({
         locationName: gbpLocations.locationName,
@@ -616,7 +621,7 @@ export class Notifier {
     for (const row of pendingReviews) {
       if (row.origin === 'places' && coveredByBusinessProfile(row.locationName)) setReviewState([row.id], 'suppressed')
       else if (!isWithinAlertWindow(row.updateTime, now)) setReviewState([row.id], 'stale')
-      else if (row.starRating === null) setReviewState([row.id], 'none')
+      else if (!isNegativeReviewRating(row.starRating, negativeMaxStars)) setReviewState([row.id], 'none')
       else reviewsToSend.push(row)
     }
     const ratingsToSend: typeof pendingRatings = []

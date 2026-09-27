@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -797,7 +797,21 @@ describe('GBP routes (Phase 1)', () => {
     it('returns empty lists before any sync', async () => {
       ctx.seedProject('hotels', 'hotels.example.com')
       const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews' })
-      expect(res.json()).toEqual({ locations: [], reviews: [], total: 0 })
+      expect(res.json()).toEqual({ negativeMaxStars: 3, locations: [], reviews: [], total: 0 })
+    })
+
+    it("applies the project's own threshold to the negative flag and filter", async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      seedReviews(projectId)
+      writeNegativeReviewMaxStars(ctx.db, projectId, 1, new Date().toISOString())
+
+      const body = gbpReviewListResponseSchema.parse((await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews?negative=true' })).json())
+      expect(body.negativeMaxStars).toBe(1)
+      expect(body.total).toBe(1)
+      expect(body.reviews.map((r) => [r.reviewName.split('/').at(-1), r.starRating, r.negative])).toEqual([['c', 1, true]])
+
+      const all = gbpReviewListResponseSchema.parse((await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/reviews' })).json())
+      expect(all.reviews.find((r) => r.reviewName.endsWith('/b'))).toMatchObject({ starRating: 2, negative: false })
     })
   })
 })

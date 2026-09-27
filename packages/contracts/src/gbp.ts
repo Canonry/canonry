@@ -240,11 +240,25 @@ export type GbpPlaceDetailsListResponse = z.infer<typeof gbpPlaceDetailsListResp
 export const gbpReviewOriginSchema = z.enum(['gbp', 'places'])
 export type GbpReviewOrigin = z.infer<typeof gbpReviewOriginSchema>
 
-/** Reviews rated this many stars or fewer are negative: the `review.negative` threshold. */
+/**
+ * Reviews rated this many stars or fewer are negative: the `review.negative`
+ * threshold when a project has not set its own `negativeReviewMaxStars`.
+ */
 export const GBP_NEGATIVE_REVIEW_MAX_STARS = 3
 
-export function isNegativeReviewRating(starRating: number | null): boolean {
-  return starRating !== null && starRating >= 1 && starRating <= GBP_NEGATIVE_REVIEW_MAX_STARS
+/**
+ * A project's own threshold. 5 is excluded: it would make every review
+ * "negative", which is a different alert from the one this event promises.
+ */
+export const gbpNegativeReviewMaxStarsSchema = z.number().int().min(1).max(4)
+
+/** The threshold in force for a project, from its stored setting (null = default). */
+export function resolveNegativeReviewMaxStars(setting: number | null | undefined): number {
+  return setting ?? GBP_NEGATIVE_REVIEW_MAX_STARS
+}
+
+export function isNegativeReviewRating(starRating: number | null, maxStars: number = GBP_NEGATIVE_REVIEW_MAX_STARS): boolean {
+  return starRating !== null && starRating >= 1 && starRating <= maxStars
 }
 
 /** Business Profile v4 reviews access for a location, as of its last sync. */
@@ -283,7 +297,7 @@ export const gbpReviewDtoSchema = z.object({
   reviewName: z.string(),
   /** 1-5, or null when Google reports no rating. */
   starRating: z.number().int().min(1).max(5).nullable(),
-  /** True for a 1-3 star review, the threshold the `review.negative` webhook uses. */
+  /** At or below the project's negative-review threshold, the one the `review.negative` webhook uses. */
   negative: z.boolean(),
   comment: z.string().nullable(),
   reviewerName: z.string().nullable(),
@@ -320,6 +334,8 @@ export const gbpReviewLocationDtoSchema = z.object({
 export type GbpReviewLocationDto = z.infer<typeof gbpReviewLocationDtoSchema>
 
 export const gbpReviewListResponseSchema = z.object({
+  /** The project's negative-review threshold in stars: what `negative` and the `negative` filter mean. */
+  negativeMaxStars: z.number().int().min(1).max(4),
   locations: z.array(gbpReviewLocationDtoSchema),
   /** Newest update first. */
   reviews: z.array(gbpReviewDtoSchema),

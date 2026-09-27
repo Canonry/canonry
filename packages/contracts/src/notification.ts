@@ -22,7 +22,8 @@ export const notificationEventSchema = z.enum([
   'health.recovered',
   /**
    * Google Business Profile reviews. `review.negative` is sent once for each
-   * new or edited review rated 1-3 stars. `review.rating-dropped` is sent when
+   * new or edited review at or below the project's `negativeReviewMaxStars`
+   * (1-3 stars by default). `review.rating-dropped` is sent when
    * a location's public Google rating falls, a fallback signal for locations
    * without Business Profile reviews access. A location's first sync records a
    * baseline and sends neither, so connecting never replays old reviews.
@@ -146,7 +147,7 @@ export interface ReviewWebhookPayload {
     origin: GbpReviewOrigin
     /** Provider resource name, stable per origin. */
     reviewName: string
-    /** 1-3. */
+    /** At or below the project's negative-review threshold (3 by default). */
     starRating: number
     comment: string | null
     reviewerName: string | null

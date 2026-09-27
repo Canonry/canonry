@@ -571,7 +571,7 @@ const gbpLocationScopedInputSchema = z.object({
 const gbpReviewsInputSchema = z.object({
   project: projectNameSchema,
   locationName: z.string().optional(),
-  negative: z.boolean().optional().describe('Only 1-3 star reviews, the threshold the review.negative webhook uses.'),
+  negative: z.boolean().optional().describe("Only reviews at or below the project's negative-review threshold (negativeReviewMaxStars, 3 stars by default), the one the review.negative webhook uses."),
   limit: z.number().int().positive().max(500).optional().describe('Max reviews, newest first. Default 50.'),
 })
 
@@ -2225,7 +2225,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_reviews',
     title: 'Get GBP reviews',
-    description: "List stored Google Business Profile reviews newest first, with each location's review access and latest rating. Reviews come from the Business Profile v4 API when Google has enabled it for the Cloud project (every review), otherwise from the public Places listing (at most five, chosen by relevance). `negative` marks 1-3 star reviews, the threshold the `review.negative` webhook uses; `alertState` says whether each one alerted. Empty until a gbp sync runs.",
+    description: "List stored Google Business Profile reviews newest first, with each location's review access and latest rating. Reviews come from the Business Profile v4 API when Google has enabled it for the Cloud project (every review), otherwise from the public Places listing (at most five, chosen by relevance). `negative` marks reviews at or below the project's threshold (`negativeMaxStars` in the response; set per project with `negativeReviewMaxStars`, 3 stars by default), the one the `review.negative` webhook uses; `alertState` says whether each one alerted. Empty until a gbp sync runs.",
     access: 'read',
     tier: 'gbp',
     inputSchema: gbpReviewsInputSchema,

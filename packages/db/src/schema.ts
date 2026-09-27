@@ -2802,6 +2802,16 @@ export const gbpReviews = sqliteTable('gbp_reviews', {
   index('idx_gbp_reviews_alert').on(table.projectId, table.alertState),
 ])
 
+// Per-project settings for Google Business Profile review alerts. A row exists
+// only while a project overrides a default; no row means the default (3 stars
+// for `review.negative`). Kept off `projects` on purpose: the root table stays
+// unchanged, so code that writes projects rows on an older schema keeps working.
+export const gbpReviewSettings = sqliteTable('gbp_review_settings', {
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  negativeReviewMaxStars: integer('negative_review_max_stars').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 // GBP review ratings: a location's average rating and review count per origin,
 // snapshotted on change (a repeat of the same values re-stamps `observed_at`).
 // The first row for a (location, origin) is the baseline marker: the review

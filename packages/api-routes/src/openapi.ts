@@ -4180,7 +4180,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       nameParameter,
       { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
-      { in: 'query', name: 'negative', required: false, description: 'Only 1-3 star reviews, the review.negative webhook threshold', schema: booleanSchema },
+      { in: 'query', name: 'negative', required: false, description: 'Only reviews at or below the project negative-review threshold (negativeReviewMaxStars, 3 stars by default), the one the review.negative webhook uses', schema: booleanSchema },
       { in: 'query', name: 'limit', required: false, description: 'Max reviews, newest first. Default 50, maximum 500.', schema: integerSchema },
     ],
     responses: {

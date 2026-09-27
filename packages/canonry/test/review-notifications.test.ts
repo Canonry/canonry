@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import type { GbpReviewAlertState, GbpReviewOrigin, RatingWebhookPayload, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
 
@@ -172,6 +172,20 @@ test('Places signals are suppressed once Business Profile reviews cover the loca
   expect(db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.id, 'rating_1')).get()!.alertState).toBe('suppressed')
   expect(sent.map((p) => p.event)).toEqual(['review.negative'])
   expect((sent[0] as ReviewWebhookPayload).reviews.map((r) => r.origin)).toEqual(['gbp'])
+})
+
+test('lowering the threshold also stops reviews queued before the change', async () => {
+  const { db, projectId, notifier, sent } = harness()
+  addReview(db, projectId, 'three', { starRating: 3 })
+  addReview(db, projectId, 'two', { starRating: 2 })
+  writeNegativeReviewMaxStars(db, projectId, 2, new Date().toISOString())
+
+  const result = await notifier.dispatchReviewAlerts(projectId)
+
+  expect(result.reviews).toBe(1)
+  expect((sent[0] as ReviewWebhookPayload).reviews.map((r) => r.starRating)).toEqual([2])
+  expect(reviewState(db, 'three')).toBe('none')
+  expect(reviewState(db, 'two')).toBe('sent')
 })
 
 test('a transient v4 error keeps a location covered once v4 has worked there', async () => {

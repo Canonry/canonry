@@ -21,6 +21,7 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+import { gbpNegativeReviewMaxStarsSchema } from '@ainyc/canonry-contracts'
 
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -58,7 +59,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -74,12 +75,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'all-providers': { type: 'boolean' },
       'provider-model': multiStringOption(),
       'clear-provider-model': multiStringOption(),
+      'negative-review-max-stars': stringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
@@ -103,6 +105,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         providers: allProviders ? [] : providers,
         providerModels,
         clearProviderModels,
+        negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
         format: input.format,
       })
     },
@@ -231,4 +234,18 @@ export function parseProviderModelAssignments(assignments: readonly string[] | u
     result[provider] = model
   }
   return result
+}
+
+/** `1`-`4` sets the threshold, `default` resets it to 3, absent leaves it. */
+function parseNegativeReviewMaxStars(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined
+  if (raw === 'default') return null
+  const parsed = gbpNegativeReviewMaxStarsSchema.safeParse(Number(raw))
+  if (!parsed.success) {
+    throw usageError('Error: --negative-review-max-stars must be 1, 2, 3, 4, or "default" (3)', {
+      message: '--negative-review-max-stars must be 1-4 or "default"',
+      details: { command: 'project.update', value: raw },
+    })
+  }
+  return parsed.data
 }

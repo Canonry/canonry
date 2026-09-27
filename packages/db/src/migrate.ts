@@ -4242,8 +4242,9 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   {
     // Negative-review webhooks for Google Business Profile: every review seen
     // per location and origin (Business Profile v4 or the public Places
-    // listing), the rating history that marks each location's baseline, and
-    // the v4 access state the doctor check reads without a live call.
+    // listing), the rating history that marks each location's baseline, the
+    // v4 access state the doctor check reads without a live call, and each
+    // project's negative-review threshold (no row = the default of 3 stars).
     version: 162,
     name: 'gbp-review-alerts',
     statements: [
@@ -4290,6 +4291,11 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE gbp_locations ADD COLUMN reviews_access TEXT`,
       `ALTER TABLE gbp_locations ADD COLUMN reviews_access_reason TEXT`,
       `ALTER TABLE gbp_locations ADD COLUMN reviews_checked_at TEXT`,
+      `CREATE TABLE IF NOT EXISTS gbp_review_settings (
+        project_id                TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        negative_review_max_stars INTEGER NOT NULL,
+        updated_at                TEXT NOT NULL
+      )`,
     ],
   },
 ]

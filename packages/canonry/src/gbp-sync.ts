@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots } from '@ainyc/canonry-db'
-import { buildRunErrorFromMessages, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { buildRunErrorFromMessages, serializeRunError, describeError, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
   listLocations,
@@ -158,6 +158,7 @@ export async function executeGbpSync(
 
     log.info('sync.start', { runId, projectId, locations: locationRows.length, daysOfMetrics, monthsOfKeywords })
 
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(db, projectId))
     const reviewContext: ReviewFetchContext = {
       runId,
       now: new Date(),
@@ -423,7 +424,7 @@ export async function executeGbpSync(
             // Reviews: store what each origin returned and queue alerts for
             // the notifier. A location's first observation is a silent baseline.
             for (const observation of reviewFetch.observations) {
-              const persisted = persistReviewObservation(tx, projectId, runId, observation, reviewNow)
+              const persisted = persistReviewObservation(tx, projectId, runId, observation, { now: reviewNow, negativeMaxStars })
               if (persisted.queuedReviews > 0 || persisted.queuedRatingDrop) {
                 log.info('reviews.queued', {
                   runId,

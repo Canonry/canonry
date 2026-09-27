@@ -66,6 +66,7 @@ erDiagram
   projects ||--o{ gbp_place_details : has
   projects ||--o{ gbp_reviews : has
   projects ||--o{ gbp_review_ratings : has
+  projects ||--o| gbp_review_settings : has
 
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_daily_totals : has
@@ -309,6 +310,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **gbp_attributes_snapshots** | Owner-set Business Profile attributes (Business Information API `getAttributes`), snapshot-on-change. The generic, any-category amenity / service / accessibility / identity / social-URL tags the owner has set (e.g. `has_onsite_services`, `offers_online_estimates`, `is_owned_by_women`, `url_instagram`). `attribute_count` is the count of set attributes (the API returns only set ones), so unlike lodging this is a reliable owner-readable completeness signal. Works for every business type, not just hotels. |
 | **gbp_place_details** | Places (New) rendered-listing snapshots (amenities, accessibility, editorial summary) for lodging locations, fetched via the Places API key and snapshot-on-changed. `tier` records the field-mask SKU. Cross-referenced against the lodging profile for the `gbp-listing-discrepancy` insight (#648). |
 | **gbp_reviews** | One row per review per origin: `gbp` (Business Profile v4, every review) or `places` (public listing, at most five by relevance). Upserted on `(project_id, origin, review_name)`; timestamps normalized to millisecond ISO. `alert_state` (`none`, `baseline`, `stale`, `pending`, `sent`, `skipped`, `suppressed`) is the `review.negative` webhook queue. |
+| **gbp_review_settings** | Per-project review alert settings: `negative_review_max_stars`, the highest star rating that counts as negative for `review.negative` (1-4). A row exists only while a project overrides the default of 3; served as `ProjectDto.negativeReviewMaxStars`. Kept off `projects` so the root table stays unchanged. PK and cascade FK: `project_id`. |
 | **gbp_review_ratings** | Average rating and review count per location and origin, snapshot-on-change (`observed_at` re-stamped when unchanged), with the replaced values in `previous_*`. The first row per location and origin is the baseline marker for review alerts; a falling Places rating queues `review.rating-dropped` through `alert_state`. |
 
 ### Integrations — OpenAI Ads (ChatGPT ads)

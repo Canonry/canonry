@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
   authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
@@ -12,8 +12,8 @@ import {
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
   type GbpPlaceDetailsListResponse,
   type GbpReviewListResponse,
-  GBP_NEGATIVE_REVIEW_MAX_STARS,
   isNegativeReviewRating,
+  resolveNegativeReviewMaxStars,
   gscSubmitSitemapsRequestDtoSchema,
   gscPerformanceOrderBySchema,
   formatIsoDateInTimeZone,
@@ -2500,8 +2500,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // GET /projects/:name/gbp/reviews — stored reviews newest first, from the
   // Business Profile v4 API or the public Places fallback, plus each location's
-  // v4 access state and latest rating. `negative=true` keeps 1-3 star reviews,
-  // the threshold the `review.negative` webhook uses.
+  // v4 access state and latest rating. `negative` means at or below the
+  // project's threshold (`negativeReviewMaxStars`, 3 by default), the one the
+  // `review.negative` webhook uses, so reads and alerts never disagree.
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string; negative?: string; limit?: string }
@@ -2510,6 +2511,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const { locationName } = request.query
     const negativeOnly = parseReviewNegativeFlag(request.query.negative)
     const limit = parseReviewLimit(request.query.limit)
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(app.db, project.id))
 
     // Selected locations, or the one asked for even if it is no longer selected.
     const locationRows = app.db.select().from(gbpLocations)
@@ -2545,7 +2547,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const conditions = [eq(gbpReviews.projectId, project.id)]
     if (locationName) conditions.push(eq(gbpReviews.locationName, locationName))
-    if (negativeOnly) conditions.push(sql`${gbpReviews.starRating} BETWEEN 1 AND ${GBP_NEGATIVE_REVIEW_MAX_STARS}`)
+    if (negativeOnly) conditions.push(sql`${gbpReviews.starRating} BETWEEN 1 AND ${negativeMaxStars}`)
     const total = app.db.select({ n: sql<number>`count(*)` }).from(gbpReviews).where(and(...conditions)).get()?.n ?? 0
     const reviews = app.db.select().from(gbpReviews)
       .where(and(...conditions))
@@ -2557,7 +2559,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         origin: r.origin,
         reviewName: r.reviewName,
         starRating: r.starRating,
-        negative: isNegativeReviewRating(r.starRating),
+        negative: isNegativeReviewRating(r.starRating, negativeMaxStars),
         comment: r.comment,
         reviewerName: r.reviewerName,
         createTime: r.createTime,
@@ -2572,7 +2574,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         alertState: r.alertState,
         alertStateAt: r.alertStateAt,
       }))
-    return { locations, reviews, total }
+    return { negativeMaxStars, locations, reviews, total }
   })
 
   // GET /projects/:name/gbp/summary — composite, all derived numbers server-side.

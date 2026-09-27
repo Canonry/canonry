@@ -3658,6 +3658,7 @@ export type GbpPlaceDetailsListResponse = {
 };
 
 export type GbpReviewListResponse = {
+    negativeMaxStars: number;
     locations: Array<{
         locationName: string;
         displayName: string;
@@ -9028,6 +9029,7 @@ export type ProjectCreateRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -9063,6 +9065,7 @@ export type ProjectDto = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -9098,6 +9101,7 @@ export type ProjectUpsertRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
@@ -9164,6 +9168,7 @@ export type ProjectConfig = {
             };
         };
         autoExtractBacklinks: boolean;
+        negativeReviewMaxStars?: number;
     };
 };
 
@@ -9199,6 +9204,7 @@ export type ProjectOverviewDto = {
             leadEventNames: Array<string>;
         };
         autoExtractBacklinks: boolean;
+        negativeReviewMaxStars?: number | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -21167,7 +21173,7 @@ export type GetApiV1ProjectsByNameGbpReviewsData = {
          */
         locationName?: string;
         /**
-         * Only 1-3 star reviews, the review.negative webhook threshold
+         * Only reviews at or below the project negative-review threshold (negativeReviewMaxStars, 3 stars by default), the one the review.negative webhook uses
          */
         negative?: boolean;
         /**

@@ -98,7 +98,7 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'insight.high': 'A high-severity insight was generated',
   'health.degraded': 'A scheduled health check found the measurement degraded, daily data stopped arriving, or the website stopped answering (sent on change, not every pass)',
   'health.recovered': 'A degraded health check is passing again, or a website that was paged as down answers again',
-  'review.negative': 'A new or edited Google review rated 1-3 stars (Business Profile reviews, or the public listing when Google has not enabled review access)',
+  'review.negative': "A new or edited Google review at or below the project's negative-review threshold, 3 stars by default (Business Profile reviews, or the public listing when Google has not enabled review access)",
   'review.rating-dropped': "A location's public Google rating fell (sent for locations without Business Profile review access)",
 }
 

@@ -130,3 +130,26 @@ describe('updateProjectSettings — provider model overrides', () => {
     expect(mockPutProject).not.toHaveBeenCalled()
   })
 })
+
+describe('updateProjectSettings — negative review threshold', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetProject.mockResolvedValue({ ...project, negativeReviewMaxStars: 2 })
+    mockPutProject.mockImplementation(async (name: string, body: Record<string, unknown>) => ({ ...project, ...body, name }))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  it('sends a new threshold, and null to reset it', async () => {
+    await updateProjectSettings('acme', { negativeReviewMaxStars: 4 })
+    expect(putBody().negativeReviewMaxStars).toBe(4)
+    mockPutProject.mockClear()
+    await updateProjectSettings('acme', { negativeReviewMaxStars: null })
+    expect(putBody().negativeReviewMaxStars).toBeNull()
+  })
+
+  it('omits the field otherwise, so the server keeps the stored threshold', async () => {
+    await updateProjectSettings('acme', { country: 'US' })
+    expect(putBody()).not.toHaveProperty('negativeReviewMaxStars')
+  })
+})
+

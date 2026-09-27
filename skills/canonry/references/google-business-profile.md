@@ -12,7 +12,7 @@ Canonry integrates with the Google Business Profile (GBP) API to surface local A
 - For hotels: sync lodging attributes (amenities, accessibility, pets, etc.) and place action links (booking CTAs)
 - Roll the above into a composite summary scorecard (`canonry gbp summary`)
 - Sync reviews per location from the v4 API **where Google has granted v4 access** (gated; unavailable on most projects, see below). Elsewhere, fall back to the public Places listing: the overall rating and at most five reviews by relevance (`atmosphere` Places tier with a key)
-- Alert on negative reviews: `review.negative` webhooks for new or edited 1-3 star reviews, `review.rating-dropped` when the public rating falls (see "Review alerts" below)
+- Alert on negative reviews: `review.negative` webhooks for new or edited reviews at or below the project's threshold (1-3 stars by default), `review.rating-dropped` when the public rating falls (see "Review alerts" below)
 
 ## What Stays Manual
 
@@ -91,8 +91,10 @@ What we confirmed, with a project approved and running the v1 family at 300 QPM,
 | | Business Profile v4 | Places fallback |
 |---|---|---|
 | Reviews seen | Every review, including edits and owner replies | At most five, chosen by relevance, no replies |
-| `review.negative` | Each new or edited 1-3 star review | A 1-3 star review that appears among the five |
+| `review.negative` | Each new or edited review at or below the threshold | A review at or below the threshold that appears among the five |
 | `review.rating-dropped` | Never (each review alerts on its own) | When the one-decimal public rating falls |
+
+The threshold is per project: 3 stars by default, set with `cnry project update <project> --negative-review-max-stars <1-4|default>` or `spec.negativeReviewMaxStars` in `canonry apply`. A hotel with hundreds of reviews may want 2; a small business may want every 3-star review.
 
 Rules that hold for both sources:
 

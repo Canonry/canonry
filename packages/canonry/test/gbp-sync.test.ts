@@ -16,6 +16,7 @@ import {
   gbpAttributesSnapshots,
   gbpReviews,
   gbpReviewRatings,
+  writeNegativeReviewMaxStars,
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { hashLodging, countPopulatedGroups, hashAttributes, GbpApiError, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
@@ -850,6 +851,32 @@ describe('executeGbpSync — reviews', () => {
       const reviews = reviewsByName(db)
       expect(reviews.get('edited')).toMatchObject({ alertState: 'pending', starRating: 2, comment: 'Changed my mind.' })
       expect(reviews.get('replied')).toMatchObject({ alertState: 'baseline', replyComment: 'We are sorry.' })
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test("the project's threshold decides which new reviews queue an alert", async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      writeNegativeReviewMaxStars(db, 'proj_gbp', 2, new Date().toISOString())
+      seedRun(db, 'run_1')
+      listReviewsMock.mockResolvedValue({ reviews: [], averageRating: null, totalReviewCount: 0, stoppedEarly: false })
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      seedRun(db, 'run_2')
+      listReviewsMock.mockResolvedValue({
+        reviews: [v4Review('three', 3, ago(HOUR)), v4Review('two', 2, ago(2 * HOUR))],
+        averageRating: 2.5,
+        totalReviewCount: 2,
+        stoppedEarly: false,
+      })
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      const reviews = reviewsByName(db)
+      expect(reviews.get('two')!.alertState).toBe('pending')
+      expect(reviews.get('three')!.alertState).toBe('none')
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
