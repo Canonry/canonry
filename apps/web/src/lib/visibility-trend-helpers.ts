@@ -8,6 +8,7 @@ import type {
   QueryChangeEvent,
   ServedModelAttribution,
   TrendDirection,
+  WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
@@ -415,6 +416,22 @@ export function plottedMetricRates(dto: BrandMetricsDto, metric: MetricChoice): 
   }
   const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
   return dto.buckets.map(b => b[field])
+}
+
+/**
+ * The server's change across the window for the selected metric: its first
+ * and latest bucket rates and the difference between them, or null when fewer
+ * than two buckets carry the rate. Selects the API's value, never subtracts.
+ */
+export function metricWindowChange(dto: BrandMetricsDto, metric: MetricChoice): WindowRateChange | null {
+  // A response that predates the field has no change to show, never a zero.
+  const windowChange = (dto as { windowChange?: BrandMetricsDto['windowChange'] }).windowChange
+  if (!windowChange) return null
+  switch (metric) {
+    case 'cited': return windowChange.citationRate
+    case 'mentioned': return windowChange.mentionRate
+    case 'mentionShare': return windowChange.mentionShare
+  }
 }
 
 /**

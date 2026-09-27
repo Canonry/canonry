@@ -16,6 +16,7 @@ import {
   trendToTone,
   formatQueryChangeCaption,
   latestProviderRate,
+  metricWindowChange,
   plottedMetricRates,
   CITED_KEY,
   MENTION_SHARE_KEY,
@@ -375,6 +376,32 @@ describe('plottedMetricRates', () => {
   it('returns nothing for empty buckets', () => {
     expect(plottedMetricRates(dto([]), 'cited')).toEqual([])
     expect(plottedMetricRates(dto([]), 'mentionShare')).toEqual([])
+  })
+})
+
+describe('metricWindowChange', () => {
+  it('selects the server change for the chosen series and never subtracts the bucket rates', () => {
+    const d = {
+      ...dto([
+        bucket('2026-04-01', {}, { citationRate: 0.25, mentionRate: 0.5 }),
+        bucket('2026-04-08', {}, { citationRate: 0.75, mentionRate: 0.5 }),
+      ]),
+      // Deliberately unlike the buckets' own difference (+0.5 cited).
+      windowChange: {
+        citationRate: { first: 0.25, latest: 0.75, delta: 0.1234 },
+        mentionRate: { first: 0.5, latest: 0.5, delta: 0 },
+        mentionShare: null,
+      },
+    }
+    expect(metricWindowChange(d, 'cited')).toEqual({ first: 0.25, latest: 0.75, delta: 0.1234 })
+    expect(metricWindowChange(d, 'mentioned')).toEqual({ first: 0.5, latest: 0.5, delta: 0 })
+    expect(metricWindowChange(d, 'mentionShare')).toBeNull()
+  })
+
+  it('reads no change, never a zero, from a response without the field', () => {
+    const d = dto([bucket('2026-04-01', {}), bucket('2026-04-08', {})])
+    expect(metricWindowChange(d, 'cited')).toBeNull()
+    expect(metricWindowChange(d, 'mentionShare')).toBeNull()
   })
 })
 

@@ -545,6 +545,17 @@ export function formatPointDelta(delta: number, unit: RatioUnit = RatioUnits.fra
 }
 
 /**
+ * A server rate delta as signed percentage points, for a change with no words
+ * around it: `+15.0 pts`, `-3.5 pts`, `+<0.1 pts`, or `0 pts`. Formats only,
+ * rounding exactly like `formatPointDelta`; `unit` is the delta's wire unit.
+ */
+export function formatSignedPointDelta(delta: number, unit: RatioUnit = RatioUnits.fraction): string {
+  const { direction, magnitude } = formatPointDelta(delta, unit)
+  const sign = direction === 'up' ? '+' : direction === 'down' ? '-' : ''
+  return `${sign}${magnitude} pts`
+}
+
+/**
  * Convert a compact `YYYYMMDD` calendar date to ISO `YYYY-MM-DD`.
  *
  * Google's reporting APIs return the `date` dimension in the compact form
