@@ -596,7 +596,9 @@ function emptyMentionShareBreakdown(): MentionShareBreakdownDto {
   return {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    combinedMentionSnapshots: 0,
     perCompetitor: [],
+    ranking: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: 0,
     score: null,
