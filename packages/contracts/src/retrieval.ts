@@ -53,9 +53,11 @@ export type RetrievalContract = z.infer<typeof retrievalContractSchema>
 export const RetrievalContracts = retrievalContractSchema.enum
 
 /**
- * Rows written before retrieval was recorded carry no contract. They were all
- * produced under provider-native behaviour, but nothing in the store says so,
- * and inventing a value for them would launder an assumption into an
- * observation. Readers must treat a null contract as "predates the field".
+ * Rows written before retrieval was recorded carry no contract. The policy that
+ * produced them varied by provider and release (OpenAI requests already forced
+ * search, but early releases also wrapped the query in a prompt), nothing in
+ * the store says which release wrote a row, and inventing a value would launder
+ * an assumption into an observation. Readers must treat a null contract as
+ * "predates the field".
  */
 export const RETRIEVAL_CONTRACT_UNRECORDED = null
