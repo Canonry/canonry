@@ -1,7 +1,10 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult, extractServedModel } from '../src/index.js'
+import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult, extractServedModel, OPENAI_RETRIEVAL_CONTRACT } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
+
+/** What executeTrackedQuery recorded live; normalizeResult re-derives the status from output. */
+const RECORDED_RETRIEVAL = { retrievalStatus: 'unknown', retrievalContract: OPENAI_RETRIEVAL_CONTRACT } as const
 
 const validConfig = {
   apiKey: 'openai-key',
@@ -34,6 +37,7 @@ test('validateConfig uses custom model when specified', () => {
 test('normalizeResult extracts answer text from output', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-4o',
     rawResponse: {
       output: [
@@ -89,11 +93,14 @@ test('normalizeResult extracts answer text from output', () => {
   expect(result.citedDomains).toEqual(['example.com', 'blog.ainyc.ai'])
   expect(result.groundingSources.length).toBe(2)
   expect(result.searchQueries).toEqual(['answer engine optimization'])
+  // Re-derived from the web_search_call item, not copied from the recorded value.
+  expect(result.retrievalStatus).toBe('used')
 })
 
 test('normalizeResult strips www. from domains', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-4o',
     rawResponse: {
       output: [
@@ -128,6 +135,7 @@ test('normalizeResult strips www. from domains', () => {
 test('normalizeResult deduplicates domains', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-4o',
     rawResponse: {
       output: [
@@ -174,6 +182,7 @@ test('normalizeResult deduplicates domains', () => {
 test('normalizeResult handles empty response gracefully', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-4o',
     rawResponse: {},
     groundingSources: [],
@@ -184,11 +193,14 @@ test('normalizeResult handles empty response gracefully', () => {
   expect(result.answerText).toBe('')
   expect(result.citedDomains).toEqual([])
   expect(result.groundingSources).toEqual([])
+  // No output to read, so the recorded observation stands; it is never upgraded to not-used.
+  expect(result.retrievalStatus).toBe('unknown')
 })
 
 test('normalizeResult handles invalid grounding URIs', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-4o',
     rawResponse: {
       output: [
@@ -291,6 +303,7 @@ test('reparseStoredResult uses final url citations instead of web_search_call so
 test('normalizeResult prefers reparsed citations over stale extracted fields when response content is present', () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
+    ...RECORDED_RETRIEVAL,
     model: 'gpt-5.4',
     rawResponse: {
       output: [
