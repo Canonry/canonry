@@ -3,6 +3,7 @@ import {
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
+  OPERATIONAL_LOG_FIELDS_HEADER,
   runKindSchema,
   runStatusSchema,
 } from '@ainyc/canonry-contracts'
@@ -3030,6 +3031,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'level', in: 'query', required: false, description: 'Exact log level.', schema: { type: 'string', enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] } },
       ...['module', 'runId', 'projectId', 'actor', 'requestId'].map(name => ({ name, in: 'query' as const, required: false, description: `Exact ${name} filter (does not grant project-scoped log access).`, schema: { type: 'string', minLength: 1, maxLength: name === 'actor' ? 512 : 256 } })),
       ...['since', 'until'].map(name => ({ name, in: 'query' as const, required: false, description: `Inclusive ${name} event timestamp.`, schema: { type: 'string', format: 'date-time' } })),
+      { name: OPERATIONAL_LOG_FIELDS_HEADER, in: 'header', required: false, description: 'Comma-separated opt-in context fields to return. `provider` adds `context.provider`, the answer engine an entry came from. Unknown names are ignored. Without this header, entries omit opt-in fields, so a client built before a field existed can still read the page with its strict schema.', schema: { type: 'string' } },
     ],
     responses: {
       200: jsonResponse('Runtime log page with retention and capture-loss metadata.', 'OperationalLogListDto'),

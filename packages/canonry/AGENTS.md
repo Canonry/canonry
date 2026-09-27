@@ -140,7 +140,7 @@ The event catalog and envelope are under "Telemetry events" below.
 ### Logging and runtime diagnostics
 
 - `src/logger.ts` — compatibility exports of the shared runtime logger in api-routes. Application and Fastify logging use the same pure redaction policy before stdout/stderr and durable capture. Do not add a second sanitizer or raw request logger.
-- `src/commands/logs.ts` — `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires host-approved operator authority plus instance-wide `logs.read`; customer admin roles and project scope are insufficient.
+- `src/commands/logs.ts` — `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires host-approved operator authority plus instance-wide `logs.read`; customer admin roles and project scope are insufficient. `ApiClient.listOperationalLogs` (shared with `canonry_logs_list`) asks for the opt-in context fields through `x-canonry-log-fields` and reads the page with the tolerant `operationalLogListReadSchema`, so a newer server's extra fields are dropped rather than failing the page.
 
 ### API key commands
 

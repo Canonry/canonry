@@ -11698,6 +11698,7 @@ export type OperationalLogListDto = {
             jobId?: string;
             taskId?: string;
             traceId?: string;
+            provider?: string;
             errorCode?: string;
             attempt?: number;
             count?: number;
@@ -18464,6 +18465,12 @@ export type PostApiV1ProjectsByNameNotificationsByIdTestResponse = PostApiV1Proj
 
 export type GetApiV1OperationsLogsData = {
     body?: never;
+    headers?: {
+        /**
+         * Comma-separated opt-in context fields to return. `provider` adds `context.provider`, the answer engine an entry came from. Unknown names are ignored. Without this header, entries omit opt-in fields, so a client built before a field existed can still read the page with its strict schema.
+         */
+        'x-canonry-log-fields'?: string;
+    };
     path?: never;
     query?: {
         /**

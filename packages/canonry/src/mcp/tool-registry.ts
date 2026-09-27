@@ -48,7 +48,7 @@ import {
   settingsDtoSchema,
   telemetryStatusDtoSchema,
   logQuerySchema,
-  operationalLogListDtoSchema,
+  operationalLogListReadSchema,
   providerSummaryEntryDtoSchema,
   providerQuotaPolicySchema,
   snapshotRequestInputSchema,
@@ -1792,7 +1792,8 @@ export const canonryMcpTools = [
     access: 'read',
     tier: 'setup',
     inputSchema: logQuerySchema,
-    outputSchema: operationalLogListDtoSchema,
+    // Tolerant on purpose: a field a newer server adds is dropped, not a rejected page.
+    outputSchema: operationalLogListReadSchema,
     annotations: readAnnotations(false),
     openApiOperations: ['GET /api/v1/operations/logs'],
     handler: async (client, input) => client.listOperationalLogs(input),

@@ -10,6 +10,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -2396,8 +2397,18 @@ export class ApiClient {
     return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => getApiV1Telemetry({ client: this.heyClient })))
   }
 
+  /**
+   * Asks for every opt-in context field this build can read (older servers
+   * ignore the header), then reads the page with the tolerant schema, so a
+   * field added by a newer server is dropped rather than rejecting the page.
+   */
   async listOperationalLogs(query: Partial<LogQuery> = {}): Promise<OperationalLogListDto> {
-    return this.invoke<OperationalLogListDto>(() => getApiV1OperationsLogs({ client: this.heyClient, query }))
+    const page = await this.invoke<unknown>(() => getApiV1OperationsLogs({
+      client: this.heyClient,
+      query,
+      headers: { [OPERATIONAL_LOG_FIELDS_HEADER]: OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS.join(',') },
+    }))
+    return operationalLogListReadSchema.parse(page)
   }
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
