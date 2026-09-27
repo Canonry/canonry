@@ -90,6 +90,17 @@ describe('ratio units on the wire', () => {
     expect(unitAt('ProjectReportDto', 'whatsChanged', 'citationRate', 'deltaPct')).toBe('percent')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'ctr')).toBe('fraction')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'clicks')).toBe('fraction')
+    // GA trends and movers are whole-percent changes (`150` = +150%).
+    expect(unitAt('GaAttributionTrendResponse', 'aiBiggestMover', 'changePct')).toBe('percent')
+    expect(unitAt('GaAttributionTrendResponse', 'organic', 'trend30dPct')).toBe('percent')
+    expect(unitAt('GaSocialReferralTrendResponse', 'biggestMover', 'changePct')).toBe('percent')
+    expect(unitAt('GaSocialReferralTrendResponse', 'trend7dPct')).toBe('percent')
+    // One DTO, two units: /ga/traffic's row shares are fractions, its channel shares whole percents.
+    expect(unitAt('GaTrafficResponse', 'aiReferrals', '[]', 'share')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'socialReferrals', '[]', 'share')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'topPages', '[]', 'organicShare')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'organicSharePct')).toBe('percent')
+    expect(unitAt('GaTrafficResponse', 'channelBreakdown', 'ai', 'sharePct')).toBe('percent')
 
     // An audit factor's share of the score is a 0..100 percent on every Site
     // Health read. Its weight is relative (the core set sums to 111), not a ratio.

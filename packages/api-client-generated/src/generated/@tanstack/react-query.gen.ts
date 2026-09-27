@@ -6081,6 +6081,8 @@ export const getApiV1ProjectsByNameGaTrafficQueryKey = (options: Options<GetApiV
 
 /**
  * Get GA4 landing page traffic, channel breakdown, and AI referral landing pages
+ *
+ * Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table's sessions, so a table's shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.
  */
 export const getApiV1ProjectsByNameGaTrafficOptions = (options: Options<GetApiV1ProjectsByNameGaTrafficData>) => {
     return queryOptions({
@@ -6165,6 +6167,8 @@ export const getApiV1ProjectsByNameGaSocialReferralTrendQueryKey = (options: Opt
 
 /**
  * Get social referral trend (7d/30d) with biggest mover
+ *
+ * A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. Below 30 prior sessions changeBasis is small-base and changeSessions is the figure to state.
  */
 export const getApiV1ProjectsByNameGaSocialReferralTrendOptions = (options: Options<GetApiV1ProjectsByNameGaSocialReferralTrendData>) => {
     return queryOptions({
@@ -6185,6 +6189,8 @@ export const getApiV1ProjectsByNameGaAttributionTrendQueryKey = (options: Option
 
 /**
  * Get per-channel attribution trends (7d/30d) for organic, AI, and social
+ *
+ * A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. Below 30 prior sessions changeBasis is small-base and changeSessions is the figure to state.
  */
 export const getApiV1ProjectsByNameGaAttributionTrendOptions = (options: Options<GetApiV1ProjectsByNameGaAttributionTrendData>) => {
     return queryOptions({

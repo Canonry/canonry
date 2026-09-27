@@ -3517,6 +3517,191 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GaAttributionTrendResponse = {
+    organic: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    ai: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    social: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    direct: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    total: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    aiBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+    socialBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaSocialReferralTrendResponse = {
+    socialSessions7d: number;
+    socialSessionsPrev7d: number;
+    trend7dPct: number | null;
+    socialSessions30d: number;
+    socialSessionsPrev30d: number;
+    trend30dPct: number | null;
+    biggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaTrafficResponse = {
+    totalSessions: number;
+    totalOrganicSessions: number;
+    totalDirectSessions: number;
+    totalUsers: number | null;
+    topPages: Array<{
+        landingPage: string;
+        sessions: number;
+        organicSessions: number;
+        directSessions: number;
+        users: number;
+        organicShare: number | null;
+    }>;
+    aiReferrals: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sessions: number;
+        users?: number;
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        share: number;
+    }>;
+    aiReferralLandingPages: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        landingPage: string;
+        sessions: number;
+        users?: number;
+    }>;
+    aiSessionsDeduped: number;
+    aiUsersDeduped?: number;
+    paidAiSessionsDeduped: number;
+    paidAiUsersDeduped?: number;
+    organicAiSessionsDeduped: number;
+    organicAiUsersDeduped?: number;
+    aiSessionsBySession: number;
+    aiUsersBySession?: number;
+    paidAiSessionsBySession: number;
+    paidAiUsersBySession?: number;
+    organicAiSessionsBySession: number;
+    organicAiUsersBySession?: number;
+    socialReferrals: Array<{
+        source: string;
+        medium: string;
+        sessions: number;
+        users?: number;
+        channelGroup: string;
+        share: number;
+    }>;
+    socialSessions: number;
+    socialUsers?: number;
+    channelBreakdown: {
+        organic: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        social: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        direct: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        ai: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        other: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+    };
+    organicSharePct: number;
+    aiSharePct: number;
+    aiSharePctBySession: number;
+    paidAiSharePct: number;
+    paidAiSharePctBySession: number;
+    organicAiSharePct: number;
+    organicAiSharePctBySession: number;
+    directSharePct: number;
+    socialSharePct: number;
+    organicSharePctDisplay: string;
+    aiSharePctDisplay: string;
+    aiSharePctBySessionDisplay: string;
+    paidAiSharePctDisplay: string;
+    paidAiSharePctBySessionDisplay: string;
+    organicAiSharePctDisplay: string;
+    organicAiSharePctBySessionDisplay: string;
+    directSharePctDisplay: string;
+    socialSharePctDisplay: string;
+    otherSessions: number;
+    otherSharePct: number;
+    otherSharePctDisplay: string;
+    lastSyncedAt: string | null;
+    windowStart: string | null;
+    windowEnd: string | null;
+    windowDays: number | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+};
+
 export type GbpAccountListResponse = {
     accounts: Array<{
         name: string;
@@ -24476,9 +24661,7 @@ export type GetApiV1ProjectsByNameGaTrafficResponses = {
     /**
      * GA4 traffic data returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaTrafficResponse;
 };
 
 export type GetApiV1ProjectsByNameGaTrafficResponse = GetApiV1ProjectsByNameGaTrafficResponses[keyof GetApiV1ProjectsByNameGaTrafficResponses];
@@ -24653,9 +24836,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralTrendResponses = {
     /**
      * Social referral trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaSocialReferralTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaSocialReferralTrendResponse = GetApiV1ProjectsByNameGaSocialReferralTrendResponses[keyof GetApiV1ProjectsByNameGaSocialReferralTrendResponses];
@@ -24689,9 +24870,7 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
     /**
      * Attribution trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaAttributionTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];

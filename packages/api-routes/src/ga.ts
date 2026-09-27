@@ -3,11 +3,12 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
-import type { GA4ChannelBreakdownDto, ResolvedDateRange } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
 import { buildSessionHistory } from './ga-session-history.js'
+import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import {
   getAccessToken,
@@ -43,12 +44,18 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
 // When the numerator is positive but the total is zero, the share is
 // undefined — typically a partial-sync state where social/AI referral rows
 // exist but the traffic snapshots/summary that drive the denominator have not
-// been synced. We return "—" rather than "0%" so the UI doesn't claim a 0%
-// share for 1.3K social sessions.
+// been synced. `shareOf` returns null there, which reads "—" rather than "0%"
+// so the UI doesn't claim a 0% share for 1.3K social sessions.
 function formatSharePct(numerator: number, total: number): string {
-  if (numerator > 0 && total <= 0) return '—'
-  if (total <= 0 || numerator <= 0) return '0%'
-  return formatPercent(numerator / total)
+  return formatPercent(shareOf(numerator, total))
+}
+
+// Each row with its 0..1 share of the rows' own sessions, so the shares of one
+// breakdown table add up to 1. Computed here so the dashboard, CLI, MCP and
+// Aero all read the same share instead of each dividing counts.
+function withSessionShares<T extends { sessions: number }>(rows: readonly T[]): Array<T & { share: number }> {
+  const shares = breakdownShares(rows.map((row) => row.sessions))
+  return rows.map((row, index) => ({ ...row, share: shares[index] ?? 0 }))
 }
 
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
@@ -1424,6 +1431,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         organicSessions: r.organicSessions ?? 0,
         directSessions: r.directSessions ?? 0,
         users: r.users ?? 0,
+        organicShare: shareOf(r.organicSessions ?? 0, r.sessions ?? 0),
       })),
       // No `users` on either referral row type, and no `ai*Users*` totals: GA
       // reports users as a COUNT DISTINCT at the grain requested, so summing
@@ -1431,13 +1439,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // every date in the window) counted one visitor once per row. Withdrawn
       // in 4.135.0; see `ga-ai-referral-aggregation.ts` for why no correct
       // figure can be computed or fetched.
-      aiReferrals: aiReferrals.map((r) => ({
+      // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
+      // keeps the winning lens per day, these rows one lens per source over the
+      // window, so it can exceed what the rows add up to.
+      aiReferrals: withSessionShares(aiReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
         trafficClass: normalizeAiTrafficClass(r.trafficClass),
         sourceDimension: r.sourceDimension,
         sessions: r.sessions ?? 0,
-      })),
+      }))),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -1452,12 +1463,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSessionsBySession: aiSummary.bySession.sessions,
       paidAiSessionsBySession: aiSummary.paidBySession.sessions,
       organicAiSessionsBySession: aiSummary.organicBySession.sessions,
-      socialReferrals: socialReferrals.map((r) => ({
+      // These rows partition `socialSessions` (same window, one lens), so each
+      // share is also the row's share of that total.
+      socialReferrals: withSessionShares(socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
         channelGroup: r.channelGroup,
         sessions: r.sessions ?? 0,
-      })),
+      }))),
       socialSessions,
       channelBreakdown,
       organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,
@@ -1640,7 +1653,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const current30d = sumSocial(daysAgo(30), fmt(today))
     const prev30d = sumSocial(daysAgo(60), daysAgo(30))
 
-    // Biggest mover: source with largest absolute session change in 7d vs prev 7d
+    // Biggest mover: the source whose sessions changed most, in either
+    // direction, 7d vs prev 7d. See `findBiggestMover`.
     const sourceCurrent = app.db
       .select({
         source: gaSocialReferrals.source,
@@ -1669,32 +1683,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaSocialReferrals.source)
       .all()
 
-    const prevMap = new Map(sourcePrev.map((r) => [r.source, r.sessions]))
-    let biggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null = null
-    let maxDelta = 0
-    for (const row of sourceCurrent) {
-      const prev = prevMap.get(row.source) ?? 0
-      const delta = Math.abs(row.sessions - prev)
-      if (delta > maxDelta) {
-        maxDelta = delta
-        biggestMover = {
-          source: row.source,
-          sessions7d: row.sessions,
-          sessionsPrev7d: prev,
-          changePct: deltaPercent(row.sessions, prev) ?? (row.sessions > 0 ? 100 : 0),
-        }
-      }
-    }
-
-    return {
+    const response: GaSocialReferralTrendResponse = {
       socialSessions7d: current7d?.sessions ?? 0,
       socialSessionsPrev7d: prev7d?.sessions ?? 0,
       trend7dPct: deltaPercent(current7d?.sessions ?? 0, prev7d?.sessions ?? 0),
       socialSessions30d: current30d?.sessions ?? 0,
       socialSessionsPrev30d: prev30d?.sessions ?? 0,
       trend30dPct: deltaPercent(current30d?.sessions ?? 0, prev30d?.sessions ?? 0),
-      biggestMover,
+      biggestMover: findBiggestMover(sourceCurrent, sourcePrev),
     }
+    return response
   })
 
   // GET /projects/:name/ga/attribution-trend
@@ -1784,24 +1782,6 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaAiReferrals.source)
       .all()
 
-    const findBiggestMover = (
-      current: Array<{ source: string; sessions: number }>,
-      prev: Array<{ source: string; sessions: number }>,
-    ) => {
-      const prevMap = new Map(prev.map((r) => [r.source, r.sessions]))
-      let mover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null = null
-      let maxDelta = 0
-      for (const row of current) {
-        const p = prevMap.get(row.source) ?? 0
-        const delta = Math.abs(row.sessions - p)
-        if (delta > maxDelta) {
-          maxDelta = delta
-          mover = { source: row.source, sessions7d: row.sessions, sessionsPrev7d: p, changePct: deltaPercent(row.sessions, p) ?? (row.sessions > 0 ? 100 : 0) }
-        }
-      }
-      return mover
-    }
-
     // --- Biggest movers (Social) ---
     const socialSourceCurrent = app.db
       .select({ source: gaSocialReferrals.source, sessions: sql<number>`SUM(${gaSocialReferrals.sessions})` })
@@ -1817,7 +1797,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(gaSocialReferrals.source)
       .all()
 
-    return {
+    const response: GaAttributionTrendResponse = {
       total: buildTrend(sumTotal),
       organic: buildTrend(sumOrganic),
       ai: buildTrend(sumAi),
@@ -1826,6 +1806,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiBiggestMover: findBiggestMover(aiSourceCurrent, aiSourcePrev),
       socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
     }
+    return response
   })
 
   // GET /projects/:name/ga/session-history

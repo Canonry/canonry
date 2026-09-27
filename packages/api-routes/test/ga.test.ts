@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { percentOf, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema } from '@ainyc/canonry-contracts'
 import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
@@ -693,7 +693,7 @@ describe('GA4 routes', () => {
     // and the response must not report it. toEqual is exact, so an extra key
     // fails here.
     expect(body.aiReferrals).toEqual([
-      { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 17 },
+      { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 17, share: 1 },
     ])
     expect(body.aiReferralLandingPages).toEqual([
       { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/page-a', sessions: 17 },
@@ -2189,8 +2189,8 @@ describe('GA4 routes', () => {
       // Per-row sessions still sum landing pages and dates inside one lens,
       // then keep the winning lens — exactly as before.
       expect(body.aiReferrals).toEqual([
-        { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 15 },
-        { source: 'chatgpt.com', medium: 'cpc', trafficClass: 'paid', sourceDimension: 'session', sessions: 8 },
+        { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 15, share: 15 / 23 },
+        { source: 'chatgpt.com', medium: 'cpc', trafficClass: 'paid', sourceDimension: 'session', sessions: 8, share: 8 / 23 },
       ])
       expect(body.aiReferralLandingPages).toEqual(expect.arrayContaining([
         { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/a', sessions: 11 },
@@ -2202,6 +2202,140 @@ describe('GA4 routes', () => {
       credentials.delete('ai-users-withdrawn')
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, seeded.map((r) => r.id))).run()
       db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, withdrawnProjectId)).run()
+    }
+  })
+
+  it('GET /ga/traffic gives each referral row its share of its table and each top page its organic share', async () => {
+    const now = new Date().toISOString()
+    const projectRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/ga-row-shares',
+      payload: { displayName: 'GA Row Shares', canonicalDomain: 'row-shares.example', country: 'US', language: 'en' },
+    })
+    const sharesProjectId = JSON.parse(projectRes.payload).id as string
+    credentials.set('ga-row-shares', {
+      projectName: 'ga-row-shares',
+      propertyId: '555111',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const D1 = '2026-06-01'
+    const D2 = '2026-06-02'
+    try {
+      db.insert(gaTrafficSummaries).values({
+        id: crypto.randomUUID(), projectId: sharesProjectId, periodStart: D1, periodEnd: D2,
+        totalSessions: 200, totalOrganicSessions: 60, totalUsers: 150, syncedAt: now,
+      }).run()
+      db.insert(gaTrafficSnapshots).values([
+        { landingPage: '/pricing', sessions: 80, organicSessions: 50 },
+        { landingPage: '/blog', sessions: 40, organicSessions: 0 },
+        // Organic sessions with no session count behind them: a share nobody can know.
+        { landingPage: '/ghost', sessions: 0, organicSessions: 3 },
+      ].map(row => ({ id: crypto.randomUUID(), projectId: sharesProjectId, date: D1, users: row.sessions, syncedAt: now, ...row }))).run()
+      // chatgpt.com flips lens across the two days: the session lens wins D1
+      // (5 vs 3) and first_user wins D2 (4 vs 1), while first_user wins the
+      // window (7 vs 6). The table keeps first_user's 7; `aiSessionsDeduped`
+      // keeps each day's winner, 5 + 4, and so runs above what the rows add up to.
+      db.insert(gaAiReferrals).values([
+        { date: D1, source: 'chatgpt.com', sourceDimension: 'session', sessions: 5 },
+        { date: D1, source: 'chatgpt.com', sourceDimension: 'first_user', sessions: 3 },
+        { date: D2, source: 'chatgpt.com', sourceDimension: 'session', sessions: 1 },
+        { date: D2, source: 'chatgpt.com', sourceDimension: 'first_user', sessions: 4 },
+        { date: D1, source: 'perplexity.ai', sourceDimension: 'session', sessions: 3 },
+      ].map(row => ({ id: crypto.randomUUID(), projectId: sharesProjectId, medium: 'referral', landingPage: '/pricing', users: row.sessions, syncedAt: now, ...row }))).run()
+      db.insert(gaSocialReferrals).values([
+        { date: D1, source: 'facebook.com', sessions: 4 },
+        { date: D2, source: 'facebook.com', sessions: 2 },
+        { date: D1, source: 'linkedin.com', sessions: 3 },
+        { date: D2, source: 'x.com', sessions: 1 },
+      ].map(row => ({ id: crypto.randomUUID(), projectId: sharesProjectId, medium: 'social', channelGroup: 'Organic Social', users: row.sessions, syncedAt: now, ...row }))).run()
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/ga-row-shares/ga/traffic' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(gaTrafficResponseSchema.safeParse(body).success).toBe(true)
+
+      // AI table: each row over the rows' own sum (7 + 3 = 10), not over aiSessionsDeduped (12).
+      expect(body.aiSessionsDeduped).toBe(12)
+      expect(body.aiReferrals).toEqual([
+        { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', sessions: 7, share: 0.7 },
+        { source: 'perplexity.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 3, share: 0.3 },
+      ])
+      expect(body.aiReferrals.map((row: { share: number }) => formatPercent(row.share))).toEqual(['70.0%', '30.0%'])
+      expect(body.aiReferrals.reduce((sum: number, row: { share: number }) => sum + row.share, 0)).toBeCloseTo(1, 12)
+
+      // Social table: the rows partition socialSessions, so each share is the row over that total.
+      expect(body.socialSessions).toBe(10)
+      expect(body.socialReferrals).toEqual([
+        { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 6, share: 0.6 },
+        { source: 'linkedin.com', medium: 'social', channelGroup: 'Organic Social', sessions: 3, share: 0.3 },
+        { source: 'x.com', medium: 'social', channelGroup: 'Organic Social', sessions: 1, share: 0.1 },
+      ])
+      for (const row of body.socialReferrals as Array<{ sessions: number; share: number }>) {
+        expect(row.share).toBe(row.sessions / body.socialSessions)
+      }
+      expect(body.socialReferrals.map((row: { share: number }) => formatPercent(row.share))).toEqual(['60.0%', '30.0%', '10.0%'])
+      expect(body.socialReferrals.reduce((sum: number, row: { share: number }) => sum + row.share, 0)).toBeCloseTo(1, 12)
+
+      // Top pages: organic sessions over the page's own sessions.
+      expect(body.topPages.map((page: { landingPage: string; sessions: number; organicSessions: number; organicShare: number | null }) => [page.landingPage, page.sessions, page.organicSessions, page.organicShare])).toEqual([
+        ['/pricing', 80, 50, 0.625],
+        ['/blog', 40, 0, 0],
+        ['/ghost', 0, 3, null],
+      ])
+      expect(body.topPages.map((page: { organicShare: number | null }) => formatPercent(page.organicShare))).toEqual(['62.5%', '0%', '—'])
+    } finally {
+      credentials.delete('ga-row-shares')
+      for (const table of [gaTrafficSummaries, gaTrafficSnapshots, gaAiReferrals, gaSocialReferrals] as const) {
+        db.delete(table).where(eq(table.projectId, sharesProjectId)).run()
+      }
+    }
+  })
+
+  it('GET /ga/traffic reads a referral table with no sessions as 0% shares, never NaN', async () => {
+    const now = new Date().toISOString()
+    const projectRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/ga-zero-shares',
+      payload: { displayName: 'GA Zero Shares', canonicalDomain: 'zero-shares.example', country: 'US', language: 'en' },
+    })
+    const zeroProjectId = JSON.parse(projectRes.payload).id as string
+    credentials.set('ga-zero-shares', {
+      projectName: 'ga-zero-shares',
+      propertyId: '555222',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+    try {
+      db.insert(gaAiReferrals).values({
+        id: crypto.randomUUID(), projectId: zeroProjectId, date: '2026-06-01', source: 'chatgpt.com', medium: 'referral',
+        sourceDimension: 'session', landingPage: '/', sessions: 0, users: 0, syncedAt: now,
+      }).run()
+      db.insert(gaSocialReferrals).values({
+        id: crypto.randomUUID(), projectId: zeroProjectId, date: '2026-06-01', source: 'reddit.com', medium: 'social',
+        channelGroup: 'Organic Social', sessions: 0, users: 0, syncedAt: now,
+      }).run()
+      db.insert(gaTrafficSnapshots).values({
+        id: crypto.randomUUID(), projectId: zeroProjectId, date: '2026-06-01', landingPage: '/', sessions: 0, organicSessions: 0, users: 0, syncedAt: now,
+      }).run()
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/ga-zero-shares/ga/traffic' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(gaTrafficResponseSchema.safeParse(body).success).toBe(true)
+      expect(body.aiReferrals.map((row: { sessions: number; share: number }) => [row.sessions, row.share])).toEqual([[0, 0]])
+      expect(body.socialReferrals.map((row: { sessions: number; share: number }) => [row.sessions, row.share])).toEqual([[0, 0]])
+      expect(body.topPages.map((page: { sessions: number; organicShare: number | null }) => [page.sessions, page.organicShare])).toEqual([[0, 0]])
+    } finally {
+      credentials.delete('ga-zero-shares')
+      for (const table of [gaTrafficSnapshots, gaAiReferrals, gaSocialReferrals] as const) {
+        db.delete(table).where(eq(table.projectId, zeroProjectId)).run()
+      }
     }
   })
 
@@ -2288,12 +2422,15 @@ describe('GA4 routes', () => {
       expect(body.ai.sessionsPrev7d).toBe(3)
       // (5 - 3) / 3 = 66.666667%, at wire precision (a whole percent sent 67)
       expect(body.ai.trend7dPct).toBe(66.666667)
-      // aiBiggestMover should also report sessionSource-only counts.
+      // aiBiggestMover should also report sessionSource-only counts. A prior
+      // base of 3 is below MIN_PCT_BASE, so the session change is what to state.
       expect(body.aiBiggestMover).toEqual({
         source: 'chatgpt.com',
         sessions7d: 5,
         sessionsPrev7d: 3,
+        changeSessions: 2,
         changePct: 66.666667,
+        changeBasis: 'small-base',
       })
     } finally {
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [
@@ -2360,6 +2497,107 @@ describe('GA4 routes', () => {
       expect(body.direct.trend7dPct).toBe(100)
     } finally {
       db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, [idCurrent, idPrev])).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/social-referral-trend and /ga/attribution-trend call a source with no prior sessions new, never +100%', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // tiktok.com appears this week with 4 sessions and none the week before;
+    // facebook.com moves 1 -> 2, a smaller change.
+    const rows = [
+      { source: 'tiktok.com', date: daysAgo(3), sessions: 4 },
+      { source: 'facebook.com', date: daysAgo(3), sessions: 2 },
+      { source: 'facebook.com', date: daysAgo(10), sessions: 1 },
+    ].map(row => ({ id: crypto.randomUUID(), projectId, medium: 'social', channelGroup: 'Organic Social', users: row.sessions, syncedAt: now, ...row }))
+    db.insert(gaSocialReferrals).values(rows).run()
+
+    const expectedMover = {
+      source: 'tiktok.com',
+      sessions7d: 4,
+      sessionsPrev7d: 0,
+      changeSessions: 4,
+      changePct: null,
+      changeBasis: 'new',
+    }
+    try {
+      const socialRes = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/social-referral-trend' })
+      expect(socialRes.statusCode).toBe(200)
+      // The raw body, not a parsed copy: parsing would strip a stray field.
+      const social = JSON.parse(socialRes.payload)
+      expect(gaSocialReferralTrendResponseSchema.safeParse(social).success).toBe(true)
+      expect(social.biggestMover).toEqual(expectedMover)
+      expect(social.socialSessions7d).toBe(6)
+      expect(social.socialSessionsPrev7d).toBe(1)
+
+      const attributionRes = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/attribution-trend' })
+      expect(attributionRes.statusCode).toBe(200)
+      const attribution = JSON.parse(attributionRes.payload)
+      expect(gaAttributionTrendResponseSchema.safeParse(attribution).success).toBe(true)
+      expect(attribution.socialBiggestMover).toEqual(expectedMover)
+      expect(attribution.aiBiggestMover).toBeNull()
+    } finally {
+      db.delete(gaSocialReferrals).where(inArray(gaSocialReferrals.id, rows.map(row => row.id))).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/attribution-trend reads an AI source that stopped sending sessions as -100%', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // perplexity.ai sent 40 sessions last week and none this week, so it has
+    // no row in the current period at all; chatgpt.com moves 3 -> 5.
+    const rows = [
+      { source: 'perplexity.ai', date: daysAgo(10), sessions: 40 },
+      { source: 'chatgpt.com', date: daysAgo(3), sessions: 5 },
+      { source: 'chatgpt.com', date: daysAgo(10), sessions: 3 },
+    ].map(row => ({ id: crypto.randomUUID(), projectId, medium: 'referral', sourceDimension: 'session', users: row.sessions, syncedAt: now, ...row }))
+    db.insert(gaAiReferrals).values(rows).run()
+
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/ga/attribution-trend' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(gaAttributionTrendResponseSchema.safeParse(body).success).toBe(true)
+      expect(body.aiBiggestMover).toEqual({
+        source: 'perplexity.ai',
+        sessions7d: 0,
+        sessionsPrev7d: 40,
+        changeSessions: -40,
+        changePct: -100,
+        changeBasis: 'percent',
+      })
+      // (5 - 43) / 43 = -88.372093%, at wire precision.
+      expect(body.ai).toMatchObject({ sessions7d: 5, sessionsPrev7d: 43, trend7dPct: -88.372093 })
+    } finally {
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, rows.map(row => row.id))).run()
       credentials.delete('test-project')
     }
   })
