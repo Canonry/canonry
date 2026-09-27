@@ -615,13 +615,7 @@ export async function googleInspections(project: string, opts: { url?: string; f
 
 export async function googleCoverage(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.gscCoverage(project) as {
-    summary: { total: number; indexed: number; notIndexed: number; deindexed: number; percentage: number }
-    lastInspectedAt: string | null
-    indexed: Array<{ url: string; indexingState: string | null; crawlTime: string | null }>
-    notIndexed: Array<{ url: string; indexingState: string | null; coverageState: string | null }>
-    deindexed: Array<{ url: string; previousState: string | null; currentState: string | null; transitionDate: string }>
-  }
+  const result = await client.gscCoverage(project)
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -634,11 +628,18 @@ export async function googleCoverage(project: string, format?: string): Promise<
     return
   }
 
+  // `percentage` is the indexed share rounded to a tenth: coarse enough to pick
+  // the colour band, and all a server that predates the unrounded shares sends.
   const pctColor = summary.percentage >= 80 ? '\x1b[32m' : summary.percentage >= 50 ? '\x1b[33m' : '\x1b[31m'
   const reset = '\x1b[0m'
+  // The server's own shares, the same two the dashboard donut draws.
+  const legacyServer = (summary as { indexedShare?: number | null }).indexedShare === undefined
+  const shareText = legacyServer
+    ? `(${formatPercent(summary.percentage, 'percent')})`
+    : `(${formatPercent(summary.indexedShare)}) · ${summary.notIndexed} not indexed (${formatPercent(summary.notIndexedShare)})`
 
   console.log(`\nIndex Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${formatPercent(summary.percentage, 'percent')})${reset}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed ${shareText}${reset}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)
