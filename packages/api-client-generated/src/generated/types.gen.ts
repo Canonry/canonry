@@ -10911,6 +10911,7 @@ export type SiteAuditPagesResponseDto = {
             name: string;
             weight: number;
             score: number;
+            sharePct: number | null;
         }>;
     }>;
 };
@@ -10967,6 +10968,7 @@ export type SiteAuditScoreDto = {
         id: string;
         name: string;
         weight: number;
+        sharePct: number | null;
         avgScore: number;
         status: 'pass' | 'partial' | 'fail';
         pagesPassing: number;
@@ -11219,6 +11221,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{
@@ -11250,6 +11253,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{

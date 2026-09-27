@@ -25,6 +25,7 @@ import {
 import type {
   SiteAuditFactorSummaryDto,
   SiteAuditLivePageHealthDto,
+  SiteAuditPageFactorDto,
   SiteAuditPagesResponseDto,
   SiteAuditRunProgressDto,
   SiteAuditScoreDto,
@@ -67,10 +68,25 @@ interface Ctx {
   }>
 }
 
+// Two factors whose weights (12 + 4) split the score 75 / 25: a weight is
+// relative, and only the recorded share is a percentage.
 const FACTORS_B: SiteAuditFactorSummaryDto[] = [
-  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, avgScore: 80, status: 'pass', pagesPassing: 2, pagesPartial: 0, pagesFailing: 0 },
-  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, avgScore: 30, status: 'fail', pagesPassing: 0, pagesPartial: 0, pagesFailing: 2 },
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, sharePct: 75, avgScore: 80, status: 'pass', pagesPassing: 2, pagesPartial: 0, pagesFailing: 0 },
+  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, sharePct: 25, avgScore: 30, status: 'fail', pagesPassing: 0, pagesPartial: 0, pagesFailing: 2 },
 ]
+const PAGE_FACTORS_B: SiteAuditPageFactorDto[] = [
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 80, sharePct: 75 },
+  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, score: 80, sharePct: 25 },
+]
+
+// Run A was stored before canonry kept the engine's share: its JSON has no
+// `sharePct` key at all, exactly as those rows sit in a database today.
+const LEGACY_FACTORS_A = [
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, avgScore: 60, status: 'partial', pagesPassing: 0, pagesPartial: 1, pagesFailing: 0 },
+] as unknown as SiteAuditFactorSummaryDto[]
+const LEGACY_PAGE_FACTORS_A = [
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 60 },
+] as unknown as SiteAuditPageFactorDto[]
 
 function buildCtx(): Ctx {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-tech-aeo-'))
@@ -115,11 +131,11 @@ function buildCtx(): Ctx {
     id: crypto.randomUUID(), projectId, runId: runA,
     sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: tA,
     aggregateScore: 60, aggregateGrade: 'D-', pagesDiscovered: 2, pagesAudited: 2, pagesSkipped: 0, pagesErrored: 0,
-    factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: tA,
+    factorAverages: LEGACY_FACTORS_A, crossCuttingIssues: [], prioritizedFixes: [], createdAt: tA,
   }).run()
   db.insert(siteAuditPages).values({
     id: crypto.randomUUID(), projectId, runId: runA, url: 'https://example.com/old',
-    overallScore: 60, overallGrade: 'D-', status: 'success', error: null, factors: [], createdAt: tA,
+    overallScore: 60, overallGrade: 'D-', status: 'success', error: null, factors: LEGACY_PAGE_FACTORS_A, createdAt: tA,
   }).run()
 
   // Run B — newer real audit, score 72 (+12 vs A → trend up). This is the surfaceable latest.
@@ -134,7 +150,7 @@ function buildCtx(): Ctx {
     createdAt: tB,
   }).run()
   db.insert(siteAuditPages).values([
-    { id: crypto.randomUUID(), projectId, runId: runB, url: 'https://example.com/good', overallScore: 80, overallGrade: 'B-', status: 'success', error: null, factors: [], createdAt: tB },
+    { id: crypto.randomUUID(), projectId, runId: runB, url: 'https://example.com/good', overallScore: 80, overallGrade: 'B-', status: 'success', error: null, factors: PAGE_FACTORS_B, createdAt: tB },
     { id: crypto.randomUUID(), projectId, runId: runB, url: 'https://example.com/weak', overallScore: 30, overallGrade: 'F', status: 'success', error: null, factors: [], createdAt: tB },
     { id: crypto.randomUUID(), projectId, runId: runB, url: 'https://example.com/dead', overallScore: 0, overallGrade: 'F', status: 'error', error: 'TIMEOUT', factors: [], createdAt: tB },
   ]).run()
@@ -371,6 +387,71 @@ describe('GET /technical-aeo/pages', () => {
     expect(body.runId).toBe(ctx.runA)
     expect(body.total).toBe(1)
     expect(body.pages[0]?.url).toBe('https://example.com/old')
+  })
+})
+
+describe('audit factor shares on the site audit reads', () => {
+  it('returns each factor share of the site score beside its weight', async () => {
+    const { body } = await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')
+    expect(body.runId).toBe(ctx.runB)
+    expect(body.factors.map(({ id, weight, sharePct }) => ({ id, weight, sharePct }))).toEqual([
+      { id: 'structured-data', weight: 12, sharePct: 75 },
+      { id: 'ai-crawler-access', weight: 4, sharePct: 25 },
+    ])
+  })
+
+  it('reads a scan stored before shares as not recorded, never as its weight', async () => {
+    const { body } = await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)
+    expect(body.factors).toHaveLength(1)
+    // Present and null on the wire, so a reader can tell "not recorded" from an older server.
+    expect(body.factors[0]).toHaveProperty('sharePct', null)
+    expect(body.factors[0]).toMatchObject({ id: 'structured-data', weight: 12, avgScore: 60 })
+  })
+
+  it('returns each page factor share, and null for a page stored before shares', async () => {
+    const current = await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages?sort=score-desc&limit=1')
+    expect(current.body.pages[0]!.url).toBe('https://example.com/good')
+    expect(current.body.pages[0]!.factors).toEqual(PAGE_FACTORS_B)
+
+    const legacy = await get<SiteAuditPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/pages?runId=${ctx.runA}`)
+    expect(legacy.body.pages[0]!.factors).toEqual([
+      { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 60, sharePct: null },
+    ])
+  })
+
+  it('returns a recorded page share with its evidence, and keeps a complete row stored before shares complete', async () => {
+    const attempt = ctx.db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, ctx.runB)).get()!
+    const now = new Date().toISOString()
+    ctx.db.insert(siteCrawlPages).values({
+      id: crypto.randomUUID(), projectId: ctx.projectId, runId: ctx.runB, attemptId: attempt.id, nodeKey: 'scored',
+      url: 'https://example.com/scored', path: '/scored', parentPath: '/', discoverySource: 'link',
+      fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: 80,
+      auditFields: {
+        schemaVersion: '1.0',
+        factors: [
+          { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 80, sharePct: 75, status: 'pass', applicable: true, findings: [], recommendations: [] },
+          { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, score: 80, sharePct: 25, status: 'pass', applicable: true, findings: [], recommendations: [] },
+        ],
+        criticalDefects: [],
+      },
+      inventoryEligible: true, depth: 1, createdAt: now, updatedAt: now,
+    }).run()
+
+    const scored = await get<SiteCrawlPageAuditDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages/audit?nodeKey=scored')
+    expect(scored.body).toMatchObject({
+      state: 'ready',
+      evidenceState: 'complete',
+      factors: [{ id: 'structured-data', weight: 12, sharePct: 75 }, { id: 'ai-crawler-access', weight: 4, sharePct: 25 }],
+    })
+
+    // The guide row has full evidence but predates the share: still complete, share unknown.
+    const guide = await get<SiteCrawlPageAuditDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages/audit?nodeKey=guide')
+    expect(guide.body).toMatchObject({ state: 'ready', evidenceState: 'complete', factors: [{ id: 'content-depth', weight: 12 }] })
+    expect(guide.body.state === 'ready' && guide.body.factors[0]).toHaveProperty('sharePct', null)
+
+    const home = await get<SiteCrawlPageAuditDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages/audit?nodeKey=home')
+    expect(home.body).toMatchObject({ state: 'ready', evidenceState: 'scores-only' })
+    expect(home.body.state === 'ready' && home.body.factors[0]).toHaveProperty('sharePct', null)
   })
 })
 

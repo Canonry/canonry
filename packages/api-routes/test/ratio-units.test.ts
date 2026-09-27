@@ -91,6 +91,13 @@ describe('ratio units on the wire', () => {
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'ctr')).toBe('fraction')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'clicks')).toBe('fraction')
 
+    // An audit factor's share of the score is a 0..100 percent on every Site
+    // Health read. Its weight is relative (the core set sums to 111), not a ratio.
+    expect(unitAt('SiteAuditScoreDto', 'factors', '[]', 'sharePct')).toBe('percent')
+    expect(unitAt('SiteAuditPagesResponseDto', 'pages', '[]', 'factors', '[]', 'sharePct')).toBe('percent')
+    expect(unitAt('SiteCrawlPageAuditDto', 'factors', '[]', 'sharePct')).toBe('percent')
+    expect(unitAt('SiteAuditScoreDto', 'factors', '[]', 'weight')).toBe('undeclared')
+
     // Ratios the name pattern cannot see still declare their unit.
     expect(unitAt('MeasurementOverviewResponse', 'metrics', 'mentionCoverage', 'value')).toBe('fraction')
     expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'from', 'point')).toBe('fraction')

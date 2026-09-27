@@ -3275,7 +3275,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_site_health_page_audit',
     title: 'Get Site Health page audit',
-    description: 'Connect one graph page\'s audit score to its exact persisted evidence: factor scores, stable finding codes and messages, recommendations, and critical defects. The response includes crawl provenance and explicit no-crawl, details-unavailable, not-found, not-audited, ready/scores-only states. Use nodeKey from a Site Health page or subgraph read when possible. Link score remains an importance signal, not an audit finding.',
+    description: 'Connect one graph page\'s audit score to its exact persisted evidence: factor scores and each factor\'s `sharePct` of the page score (its `weight` is relative, never a percentage), stable finding codes and messages, recommendations, and critical defects. The response includes crawl provenance and explicit no-crawl, details-unavailable, not-found, not-audited, ready/scores-only states. Use nodeKey from a Site Health page or subgraph read when possible. Link score remains an importance signal, not an audit finding.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: siteHealthPageAuditInputSchema,
@@ -3345,7 +3345,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_score',
     title: 'Get Technical AEO score',
     description:
-      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,

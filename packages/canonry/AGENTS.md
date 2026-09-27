@@ -348,6 +348,12 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.
 
+`src/site-audit-factors.ts` — `computeFactorAverages`, the site factor rollup the executor publishes and the demo seed reuses (one implementation, so the example scorecard is computed, not copied):
+
+- A factor's `weight` is RELATIVE (the sixteen core weights sum to 111), so it is never shown with a percent sign. The percentage is `sharePct`, which the engine records per page; `toPageFactor` in the executor carries it onto every stored factor.
+- The site `sharePct` is the mean of a factor's page shares over the audited pages, 0 on a page where it did not apply, apportioned to tenths by `roundPreservingTotal` so the rollup adds up to exactly 100. If any audited page recorded no share, every site share is `null`; nothing is derived from `weight`.
+- Display it with `formatPercent(sharePct, 'percent')` (dashboard, `technical-aeo score`, `technical-aeo page-audit`); a `null` share shows a dash in a table and no share line in prose.
+
 `src/site-crawl-template-links.ts` — template-link classification:
 
 - `classifySiteCrawlTemplateLinks` marks nav, header, and footer links once per attempt, after the crawl and BEFORE graph layout (which excludes them from the physics).

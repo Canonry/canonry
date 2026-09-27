@@ -6,9 +6,12 @@ import {
   deriveSiteHealthState,
   normalizeSiteAuditRunRequest,
   siteAuditRequestIdentity,
+  siteAuditFactorSummarySchema,
   siteAuditLivePageHealthSchema,
+  siteAuditPageFactorSchema,
   siteAuditRunRequestSchema,
   siteAuditRunProgressSchema,
+  siteCrawlAuditFactorSchema,
   siteCrawlDeadLinksResponseSchema,
   siteCrawlGraphResponseSchema,
   siteCrawlPageAuditSchema,
@@ -18,6 +21,7 @@ import {
   SITE_HEALTH_SCANS_DEFAULT_LIMIT,
   SITE_HEALTH_SCANS_MAX_LIMIT,
 } from '../src/technical-aeo.js'
+import { ratioUnitOf } from '../src/ratio-unit.js'
 
 describe('Technical AEO crawl contracts', () => {
   it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
@@ -356,5 +360,55 @@ describe('Technical AEO crawl contracts', () => {
       'non-html': 'resource',
       'fetch-error': 'failed',
     })
+  })
+})
+
+describe('audit factor shares', () => {
+  // A factor's `weight` is relative: the sixteen core weights sum to 111, so a
+  // weight printed with a percent sign overstates every factor. The share is
+  // the number that belongs next to a percent sign, and it is recorded by the
+  // audit engine, never derived here from the weight.
+  const storedWithoutShare = { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, score: 88 }
+
+  it('carries the recorded share of the page score and reads a factor stored without one as not recorded', () => {
+    expect(siteAuditPageFactorSchema.parse({ ...storedWithoutShare, sharePct: 10.9 }).sharePct).toBe(10.9)
+    expect(siteAuditPageFactorSchema.parse({ ...storedWithoutShare, sharePct: 0 }).sharePct).toBe(0)
+    // Not 12 (the weight) and not 0 (a factor that did not apply): unknown.
+    expect(siteAuditPageFactorSchema.parse(storedWithoutShare).sharePct).toBeNull()
+    expect(siteAuditPageFactorSchema.parse({ ...storedWithoutShare, sharePct: null }).sharePct).toBeNull()
+  })
+
+  it('keeps a full evidence row written before the share existed parseable, so it is not demoted to scores-only', () => {
+    const legacyEvidence = siteCrawlAuditFactorSchema.safeParse({
+      ...storedWithoutShare,
+      status: 'pass',
+      applicable: true,
+      findings: [{ type: 'found', code: 'structured-data.present', message: 'JSON-LD found.' }],
+      recommendations: [],
+    })
+    expect(legacyEvidence.success).toBe(true)
+    expect(legacyEvidence.data?.sharePct).toBeNull()
+  })
+
+  it('reads a site factor rollup stored without a share as not recorded', () => {
+    const rollup = {
+      id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, avgScore: 80,
+      status: 'pass', pagesPassing: 2, pagesPartial: 0, pagesFailing: 0,
+    }
+    expect(siteAuditFactorSummarySchema.parse(rollup).sharePct).toBeNull()
+    expect(siteAuditFactorSummarySchema.parse({ ...rollup, sharePct: 10.9 }).sharePct).toBe(10.9)
+  })
+
+  it('bounds a share to 0..100', () => {
+    for (const sharePct of [-0.1, 100.1, 108]) {
+      expect(siteAuditPageFactorSchema.safeParse({ ...storedWithoutShare, sharePct }).success, String(sharePct)).toBe(false)
+    }
+    expect(siteAuditPageFactorSchema.safeParse({ ...storedWithoutShare, sharePct: 100 }).success).toBe(true)
+  })
+
+  it('declares every factor share as a 0..100 percent', () => {
+    expect(ratioUnitOf(siteAuditPageFactorSchema.shape.sharePct)).toBe('percent')
+    expect(ratioUnitOf(siteCrawlAuditFactorSchema.shape.sharePct)).toBe('percent')
+    expect(ratioUnitOf(siteAuditFactorSummarySchema.shape.sharePct)).toBe('percent')
   })
 })

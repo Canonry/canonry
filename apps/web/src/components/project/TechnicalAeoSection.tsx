@@ -46,7 +46,10 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
-import { PageAuditEvidence } from './PageAuditEvidence.js'
+import { PageAuditEvidence, factorShareOfScoreLabel } from './PageAuditEvidence.js'
+
+/** Read beside the dash in a scorecard row whose scan recorded no share of the score. */
+export const FACTOR_SHARE_NOT_RECORDED = 'Not recorded by this scan'
 
 const PAGES_FETCH_LIMIT = 100
 const FACTOR_DRILLDOWN_PAGE_CAP = 12
@@ -596,7 +599,7 @@ export function TechnicalAeoSection({
             <p className="eyebrow eyebrow-soft">Scorecard</p>
             <h2 className="inline-flex items-center gap-1.5">
               Ranking factors
-              <InfoTooltip text="Each factor is scored 0–100 per page (via the aeo-audit engine), then averaged across all successfully-audited pages. Pass ≥70, partial 40–69, fail <40. Expand a row to see which pages fall short and how to fix it." />
+              <InfoTooltip text="Each factor is scored 0–100 per page (via the aeo-audit engine), then averaged across all successfully-audited pages. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them. Pass ≥70, partial 40–69, fail <40. Expand a row to see which pages fall short and how to fix it." />
             </h2>
           </div>
         )}
@@ -605,7 +608,7 @@ export function TechnicalAeoSection({
             <thead>
               <tr>
                 <th>{integrated ? 'Technical check' : 'Factor'}</th>
-                {!integrated ? <th className="text-right">Weight</th> : null}
+                {!integrated ? <th className="text-right">Share</th> : null}
                 <th className="text-right">{integrated ? 'Score' : 'Avg'}</th>
                 <th>Status</th>
                 <th>{integrated ? 'Pages affected' : 'Pass / Partial / Fail'}</th>
@@ -636,7 +639,17 @@ export function TechnicalAeoSection({
                           {f.name}
                         </button>
                       </td>
-                      {!integrated ? <td className="text-right tabular-nums text-muted">{f.weight}%</td> : null}
+                      {!integrated ? (
+                        <td className="text-right tabular-nums text-muted">
+                          {/* The recorded share of the site score, never the weight: weights are relative and add up to 111. */}
+                          {typeof f.sharePct === 'number' ? formatPercent(f.sharePct, RatioUnits.percent) : (
+                            <>
+                              <span aria-hidden="true">{formatPercent(null)}</span>
+                              <span className="sr-only">{FACTOR_SHARE_NOT_RECORDED}</span>
+                            </>
+                          )}
+                        </td>
+                      ) : null}
                       <td className="text-right font-mono tabular-nums text-strong">
                         {f.avgScore}{integrated ? <span className="text-muted">/100</span> : null}
                       </td>
@@ -669,8 +682,8 @@ export function TechnicalAeoSection({
                                     <li key={i} className="pl-1 text-sm text-secondary">{rec}</li>
                                   ))}
                                 </ol>
-                                {integrated ? (
-                                  <p className="mt-3 text-xs text-muted">Weight: {f.weight}% of the site score</p>
+                                {integrated && typeof f.sharePct === 'number' ? (
+                                  <p className="mt-3 text-xs text-muted">{factorShareOfScoreLabel(f.sharePct, 'site')}</p>
                                 ) : null}
                               </section>
                             ) : belowPassTotal === 0 ? (
