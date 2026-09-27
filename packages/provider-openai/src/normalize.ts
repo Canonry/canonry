@@ -6,6 +6,8 @@ import {
   normalizeServedModel,
   registrableDomain,
   describeError,
+  RetrievalContracts,
+  RetrievalStatuses,
 } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
@@ -15,9 +17,34 @@ import type {
   OpenAIRawResult,
   OpenAITrackedQueryInput,
   GroundingSource,
+  RetrievalContract,
+  RetrievalStatus,
 } from './types.js'
 
 const DEFAULT_MODEL = 'gpt-5.4'
+
+/**
+ * The measurement contract this provider executes, recorded on every snapshot
+ * so trends cannot silently mix methods.
+ *
+ * `search-required-v1`: the unmodified user query as `input`, no
+ * `instructions` (system prompt), and `tool_choice: "required"` with
+ * `web_search` as the only tool, so the model must search before it answers.
+ * `required` forces a call to some tool; it forces a search only because no
+ * other tool is offered. It measures a search-grounded answer, NOT a
+ * reproduction of ChatGPT, whose system instructions, routing, and search
+ * policy are not public.
+ *
+ * Every published release (1.0.0 onward) has sent `tool_choice: "required"`,
+ * and every release that recorded a contract (4.139.0 onward) built this exact
+ * request while labelling it `native-auto-v1`. That label was wrong: the model
+ * was never left to decide. `canonry backfill answer-visibility` corrects those
+ * rows; see `correctStoredOpenAIRetrieval` in packages/canonry.
+ *
+ * https://platform.openai.com/docs/api-reference/responses/create (`tool_choice`)
+ * https://developers.openai.com/api/docs/guides/tools-web-search
+ */
+export const OPENAI_RETRIEVAL_CONTRACT: RetrievalContract = RetrievalContracts['search-required-v1']
 
 /**
  * Construct the OpenAI SDK client, threading a configured `baseUrl` (e.g. a
@@ -92,6 +119,8 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
       client.responses.create({
         model,
         tools: [webSearchTool as { type: 'web_search' }],
+        // search-required-v1: web_search is the only tool, so requiring a tool
+        // call requires a search. See OPENAI_RETRIEVAL_CONTRACT.
         tool_choice: 'required' as never,
         input: buildPrompt(input.query),
       }),
@@ -107,6 +136,8 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
       servedModel: extractServedModel(rawResponse),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
+      retrievalStatus: parsed.retrievalStatus,
+      retrievalContract: OPENAI_RETRIEVAL_CONTRACT,
     }
   } catch (err: unknown) {
     const msg = describeError(err)
@@ -127,6 +158,7 @@ export function normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult {
     citedDomains,
     groundingSources,
     searchQueries,
+    retrievalStatus: useParsed ? parsed.retrievalStatus : raw.retrievalStatus,
   }
 }
 
@@ -152,10 +184,36 @@ export function reparseStoredResult(rawResponse: Record<string, unknown>): OpenA
     citedDomains: extractCitedDomainsFromSources(groundingSources),
     groundingSources,
     searchQueries,
+    retrievalStatus: extractRetrievalStatusFromRaw(rawResponse),
   }
 }
 
 // --- Internal helpers ---
+
+/**
+ * Read retrieval from the presence of a `web_search_call` output item rather
+ * than from `searchQueries`. A call whose action carries no query (or opened a
+ * page instead of searching) still counts: retrieval is the denominator
+ * question, the query text is only telemetry.
+ *
+ * `unknown`, never `not-used`, when the output array is missing, unusable, or
+ * empty, or when the response says it did not finish (`incomplete`, `failed`,
+ * ...) and shows no search call: neither is an intact response, so neither can
+ * prove that no search happened. A search call is proof on its own, whatever
+ * the response status.
+ */
+function extractRetrievalStatusFromRaw(rawResponse: Record<string, unknown>): RetrievalStatus {
+  const output = rawResponse.output
+  if (!Array.isArray(output) || output.length === 0) return RetrievalStatuses.unknown
+  const searched = output.some(item =>
+    item !== null && typeof item === 'object' && (item as { type?: unknown }).type === 'web_search_call',
+  )
+  if (searched) return RetrievalStatuses.used
+  if (typeof rawResponse.status === 'string' && rawResponse.status !== 'completed') {
+    return RetrievalStatuses.unknown
+  }
+  return RetrievalStatuses['not-used']
+}
 
 export function buildPrompt(query: string): string {
   return query
