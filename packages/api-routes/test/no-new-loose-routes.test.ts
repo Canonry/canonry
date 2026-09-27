@@ -21,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * same PR with a comment naming the endpoint and a linked issue / TODO. The
  * cap exists so deferring is a deliberate, visible decision, not a default.
  */
-const MAX_LOOSE_RESPONSE_SITES = 34
+const MAX_LOOSE_RESPONSE_SITES = 33
 
 /**
  * Hard cap on the number of `looseObjectSchema` array-wrapped responses

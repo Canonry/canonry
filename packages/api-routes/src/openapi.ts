@@ -5713,11 +5713,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/traffic',
     summary: 'Get GA4 landing page traffic, channel breakdown, and AI referral landing pages',
+    description: 'Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table\'s sessions, so a table\'s shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.',
     tags: ['ga4'],
     parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
-      // TODO: Add `GaTrafficResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 traffic data returned.', looseObjectSchema),
+      200: jsonResponse('GA4 traffic data returned.', 'GaTrafficResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },

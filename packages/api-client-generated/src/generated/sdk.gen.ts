@@ -5282,6 +5282,8 @@ export const postApiV1ProjectsByNameGaSync = <ThrowOnError extends boolean = fal
 
 /**
  * Get GA4 landing page traffic, channel breakdown, and AI referral landing pages
+ *
+ * Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table's sessions, so a table's shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.
  */
 export const getApiV1ProjectsByNameGaTraffic = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameGaTrafficData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameGaTrafficResponses, GetApiV1ProjectsByNameGaTrafficErrors, ThrowOnError>({

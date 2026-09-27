@@ -38,7 +38,7 @@ function traffic(overrides: Partial<GaTrafficResponse> = {}): GaTrafficResponse 
     totalDirectSessions: 200,
     totalUsers: 800,
     topPages: [],
-    aiReferrals: [{ source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 123 }],
+    aiReferrals: [{ source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 123, share: 1 }],
     aiReferralLandingPages: [],
     aiSessionsDeduped: 123,
     paidAiSessionsDeduped: 4,
@@ -46,7 +46,7 @@ function traffic(overrides: Partial<GaTrafficResponse> = {}): GaTrafficResponse 
     aiSessionsBySession: 80,
     paidAiSessionsBySession: 3,
     organicAiSessionsBySession: 77,
-    socialReferrals: [{ source: 'reddit.com', medium: 'referral', channelGroup: 'Organic Social', sessions: 80, users: 70 }],
+    socialReferrals: [{ source: 'reddit.com', medium: 'referral', channelGroup: 'Organic Social', sessions: 80, share: 1 }],
     socialSessions: 80,
     channelBreakdown: {
       organic: { sessions: 575, sharePct: 58, sharePctDisplay: '57.5%' },
@@ -124,6 +124,35 @@ describe('ga human output — percentages', () => {
     expect(out).toContain('  AI Sessions (deduped):   123 (12.3% of total)')
     expect(out).toContain('    Paid AI:               4 (0.4% of total)')
     expect(out).toContain('  Social Sessions:         80 (8.0% of total)')
+  })
+
+  it('ga traffic prints each row share the server sent, never one re-derived from counts', async () => {
+    // Every share disagrees with its counts on purpose: 123 of 123 AI sessions
+    // would re-derive to 100%, 80 of 80 social sessions to 100%, and 50 organic
+    // of 80 page sessions to 62.5%. The CLI prints the server's value.
+    gaTraffic.mockResolvedValue(traffic({
+      aiReferrals: [{ source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 123, share: 0.625 }],
+      socialReferrals: [{ source: 'reddit.com', medium: 'referral', channelGroup: 'Organic Social', sessions: 80, share: 0.0004 }],
+      topPages: [
+        { landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 0, users: 60, organicShare: 0.25 },
+        { landingPage: '/ghost', sessions: 0, organicSessions: 3, directSessions: 0, users: 0, organicShare: null },
+      ],
+    }))
+    const out = await lines(() => showGaTraffic('p', {}))
+    expect(out).toContain('  SOURCE                     MEDIUM           CLASS     ATTRIBUTION   SESSIONS    SHARE')
+    expect(out).toContain('  chatgpt.com                referral         organic   session       123         62.5%')
+    expect(out).toContain('  SOURCE                     MEDIUM           CHANNEL       SESSIONS    SHARE')
+    expect(out).toContain('  reddit.com                 referral         organic       80          <0.1%')
+    expect(out).toContain('  PAGE             SESSIONS  ORGANIC   ORGANIC %')
+    expect(out).toContain('  /pricing         80        50        25.0%')
+    // A share the server could not know reads as a dash, never 0%.
+    expect(out).toContain('  /ghost           0         3         —')
+
+    const json = await stdoutJson(() => showGaTraffic('p', { format: 'json' }))
+    const body = json as unknown as GaTrafficResponse
+    expect(body.aiReferrals.map((row) => row.share)).toEqual([0.625])
+    expect(body.socialReferrals.map((row) => row.share)).toEqual([0.0004])
+    expect(body.topPages.map((page) => page.organicShare)).toEqual([0.25, null])
   })
 
   it('ga traffic keeps an undefined share visibly absent during a partial sync', async () => {

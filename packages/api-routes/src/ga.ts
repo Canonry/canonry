@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
@@ -44,12 +44,18 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
 // When the numerator is positive but the total is zero, the share is
 // undefined — typically a partial-sync state where social/AI referral rows
 // exist but the traffic snapshots/summary that drive the denominator have not
-// been synced. We return "—" rather than "0%" so the UI doesn't claim a 0%
-// share for 1.3K social sessions.
+// been synced. `shareOf` returns null there, which reads "—" rather than "0%"
+// so the UI doesn't claim a 0% share for 1.3K social sessions.
 function formatSharePct(numerator: number, total: number): string {
-  if (numerator > 0 && total <= 0) return '—'
-  if (total <= 0 || numerator <= 0) return '0%'
-  return formatPercent(numerator / total)
+  return formatPercent(shareOf(numerator, total))
+}
+
+// Each row with its 0..1 share of the rows' own sessions, so the shares of one
+// breakdown table add up to 1. Computed here so the dashboard, CLI, MCP and
+// Aero all read the same share instead of each dividing counts.
+function withSessionShares<T extends { sessions: number }>(rows: readonly T[]): Array<T & { share: number }> {
+  const shares = breakdownShares(rows.map((row) => row.sessions))
+  return rows.map((row, index) => ({ ...row, share: shares[index] ?? 0 }))
 }
 
 // Inclusive `date >= start` / `date <= end` predicates for a resolved range.
@@ -1425,6 +1431,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         organicSessions: r.organicSessions ?? 0,
         directSessions: r.directSessions ?? 0,
         users: r.users ?? 0,
+        organicShare: shareOf(r.organicSessions ?? 0, r.sessions ?? 0),
       })),
       // No `users` on either referral row type, and no `ai*Users*` totals: GA
       // reports users as a COUNT DISTINCT at the grain requested, so summing
@@ -1432,13 +1439,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // every date in the window) counted one visitor once per row. Withdrawn
       // in 4.135.0; see `ga-ai-referral-aggregation.ts` for why no correct
       // figure can be computed or fetched.
-      aiReferrals: aiReferrals.map((r) => ({
+      // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
+      // keeps the winning lens per day, these rows one lens per source over the
+      // window, so it can exceed what the rows add up to.
+      aiReferrals: withSessionShares(aiReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
         trafficClass: normalizeAiTrafficClass(r.trafficClass),
         sourceDimension: r.sourceDimension,
         sessions: r.sessions ?? 0,
-      })),
+      }))),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -1453,12 +1463,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSessionsBySession: aiSummary.bySession.sessions,
       paidAiSessionsBySession: aiSummary.paidBySession.sessions,
       organicAiSessionsBySession: aiSummary.organicBySession.sessions,
-      socialReferrals: socialReferrals.map((r) => ({
+      // These rows partition `socialSessions` (same window, one lens), so each
+      // share is also the row's share of that total.
+      socialReferrals: withSessionShares(socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
         channelGroup: r.channelGroup,
         sessions: r.sessions ?? 0,
-      })),
+      }))),
       socialSessions,
       channelBreakdown,
       organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,

@@ -451,6 +451,7 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `all` and an omitted window mean full retained history: totals and sibling history routes stay unbounded.
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
+- Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
 
 ### GA4 trend movers
 

@@ -95,6 +95,12 @@ describe('ratio units on the wire', () => {
     expect(unitAt('GaAttributionTrendResponse', 'organic', 'trend30dPct')).toBe('percent')
     expect(unitAt('GaSocialReferralTrendResponse', 'biggestMover', 'changePct')).toBe('percent')
     expect(unitAt('GaSocialReferralTrendResponse', 'trend7dPct')).toBe('percent')
+    // One DTO, two units: /ga/traffic's row shares are fractions, its channel shares whole percents.
+    expect(unitAt('GaTrafficResponse', 'aiReferrals', '[]', 'share')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'socialReferrals', '[]', 'share')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'topPages', '[]', 'organicShare')).toBe('fraction')
+    expect(unitAt('GaTrafficResponse', 'organicSharePct')).toBe('percent')
+    expect(unitAt('GaTrafficResponse', 'channelBreakdown', 'ai', 'sharePct')).toBe('percent')
 
     // Ratios the name pattern cannot see still declare their unit.
     expect(unitAt('MeasurementOverviewResponse', 'metrics', 'mentionCoverage', 'value')).toBe('fraction')
