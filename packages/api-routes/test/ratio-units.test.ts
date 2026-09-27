@@ -96,6 +96,16 @@ describe('ratio units on the wire', () => {
     expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'from', 'point')).toBe('fraction')
     expect(unitAt('CompetitorLandscapeResponse', 'project', 'shareOfVoice')).toBe('percent')
     expect(unitAt('VisibilityStatsDto', 'shareOfVoice', 'percent')).toBe('percent')
+    // A page's link importance is 0..100 against the crawl's top page on every
+    // read that carries it. The raw PageRank value beside it is never shown as
+    // a percent, so it declares no unit.
+    expect(unitAt('SiteCrawlPagesResponseDto', 'pages', '[]', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteCrawlGraphResponseDto', 'nodes', '[]', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteHealthSubgraphResponseDto', 'nodes', '[]', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteHealthPathResponseDto', 'nodes', '[]', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteHealthChangesResponseDto', 'changes', '[]', 'before', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteHealthChangesResponseDto', 'changes', '[]', 'after', 'linkScoreNormalized')).toBe('percent')
+    expect(unitAt('SiteCrawlPagesResponseDto', 'pages', '[]', 'linkScoreRaw')).toBe('undeclared')
 
     // `propertiesMentioned` shares the metric shape but its value is a count of
     // Properties, so it declares no unit: a reader showing ratios as percents

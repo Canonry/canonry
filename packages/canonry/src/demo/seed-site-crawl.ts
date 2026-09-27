@@ -307,9 +307,11 @@ export function buildDemoSiteCrawl(input: DemoSiteCrawlInput): DemoSiteCrawl {
       inboundUniqueEdges: inboundEdges.length, outboundUniqueEdges: outboundEdges.length,
       inboundOccurrences: inboundEdges.reduce((sum, edge) => sum + edge.occurrences, 0),
       outboundOccurrences: outboundEdges.reduce((sum, edge) => sum + edge.occurrences, 0),
-      // Raw score is PageRank, as the crawler computes it. Node size reads the normalized value on a 0 to 1
-      // log scale of inbound links, so hub pages stay visibly larger than the pages they link to.
-      linkScoreRaw: Number(rank.toFixed(12)), linkScoreNormalized: Math.log1p(inboundEdges.length) / Math.log1p(maxInbound),
+      // Raw score is PageRank, as the crawler computes it. The normalized score uses the crawler's scale, 0 to 100
+      // against the top page with two decimals, but follows a log of inbound links so hub pages stay visibly larger
+      // than the pages they link to.
+      linkScoreRaw: Number(rank.toFixed(12)),
+      linkScoreNormalized: Number((Math.log1p(inboundEdges.length) / Math.log1p(maxInbound) * 100).toFixed(2)),
       createdAt: nowIso, updatedAt: nowIso,
     }
   })

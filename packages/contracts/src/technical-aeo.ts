@@ -1042,7 +1042,8 @@ export const siteCrawlPageSchema = z.object({
   inboundOccurrences: z.number().int().nonnegative(),
   outboundOccurrences: z.number().int().nonnegative(),
   linkScoreRaw: z.number().nullable(),
-  linkScoreNormalized: z.number().nullable(),
+  /** Internal-link importance, 0..100 against the crawl's top page (the audit engine's `linkScore`). */
+  linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
 })
 export type SiteCrawlPageDto = z.infer<typeof siteCrawlPageSchema>
@@ -1218,7 +1219,8 @@ export const siteCrawlGraphNodeSchema = z.object({
   inventoryEligible: z.boolean(),
   inboundUniqueEdges: z.number().int().nonnegative(),
   outboundUniqueEdges: z.number().int().nonnegative(),
-  linkScoreNormalized: z.number().nullable(),
+  /** Internal-link importance, 0..100 against the crawl's top page. It sets the node's size. */
+  linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
   x: z.number(),

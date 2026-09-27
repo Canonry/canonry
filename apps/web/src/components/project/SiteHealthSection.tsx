@@ -196,15 +196,12 @@ function crawlStatus(page: InspectableCrawlPage): { label: string; tone: MetricT
 }
 
 /**
- * `linkScoreNormalized` reaches this view in two units: a site audit writes it
- * 0-100 against the crawl's top page, while the demo seed writes a 0-1
- * fraction. The unit is still resolved from the value as before, so a real
- * score at or below 1 reads as a fraction; only the display goes through the
- * shared percent format.
+ * `linkScoreNormalized` is 0 to 100 against the crawl's top page, from a real
+ * audit and the demo alike, so a page scoring 0.85 reads 0.9%.
  */
 function formatImportance(value: number | null): string {
   if (value == null) return 'Not scored'
-  return formatPercent(value, value <= 1 ? RatioUnits.fraction : RatioUnits.percent)
+  return formatPercent(value, RatioUnits.percent)
 }
 
 function formatHealth(page: InspectableCrawlPage): string {

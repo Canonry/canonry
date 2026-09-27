@@ -166,7 +166,7 @@ function buildCtx(): Ctx {
         // endpoint must not claim that empty finding arrays are complete.
         factors: [{ id: 'structured-data', name: 'Structured Data', weight: 12, score: 88 }],
       },
-      inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, outboundOccurrences: 3, linkScoreRaw: 10, linkScoreNormalized: 1,
+      inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, outboundOccurrences: 3, linkScoreRaw: 10, linkScoreNormalized: 100,
       createdAt: tB, updatedAt: tB,
     },
     {
@@ -184,7 +184,7 @@ function buildCtx(): Ctx {
           id: 'missing-h1', severity: 'critical', detail: 'No H1 tag found.', recommendation: 'Add one descriptive H1.',
         }],
       },
-      inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, inboundOccurrences: 2, linkScoreRaw: 4, linkScoreNormalized: 0.4,
+      inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, inboundOccurrences: 2, linkScoreRaw: 4, linkScoreNormalized: 40,
       createdAt: tB, updatedAt: tB,
     },
     {
@@ -656,13 +656,13 @@ describe('GET /technical-aeo crawl reads', () => {
       {
         id: crypto.randomUUID(), projectId: ctx.projectId, runId: ctx.runB, attemptId: snapshot.attemptId!, nodeKey: 'alpha',
         url: 'https://example.com/alpha', path: '/alpha', parentPath: '/', discoverySource: 'link', fetchState: 'html', httpStatus: 200,
-        indexabilityState: 'indexable', auditState: 'complete', inventoryEligible: true, depth: 1, linkScoreNormalized: 0.9,
+        indexabilityState: 'indexable', auditState: 'complete', inventoryEligible: true, depth: 1, linkScoreNormalized: 90,
         createdAt: now, updatedAt: now,
       },
       {
         id: crypto.randomUUID(), projectId: ctx.projectId, runId: ctx.runB, attemptId: snapshot.attemptId!, nodeKey: 'beta',
         url: 'https://example.com/beta', path: '/beta', parentPath: '/', discoverySource: 'link', fetchState: 'html', httpStatus: 200,
-        indexabilityState: 'indexable', auditState: 'complete', inventoryEligible: true, depth: 1, linkScoreNormalized: 0.9,
+        indexabilityState: 'indexable', auditState: 'complete', inventoryEligible: true, depth: 1, linkScoreNormalized: 90,
         createdAt: now, updatedAt: now,
       },
     ]).run()
@@ -897,14 +897,14 @@ describe('GET /technical-aeo crawl reads', () => {
         id: crypto.randomUUID(), projectId: ctx.projectId, runId: ctx.runA, attemptId, nodeKey: 'home',
         url: 'https://example.com/', finalUrl: 'https://example.com/', path: '/', parentPath: '/', discoverySource: 'sitemap',
         fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: 80,
-        inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, outboundOccurrences: 3, linkScoreRaw: 10, linkScoreNormalized: 1,
+        inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, outboundOccurrences: 3, linkScoreRaw: 10, linkScoreNormalized: 100,
         createdAt: now, updatedAt: now,
       },
       {
         id: crypto.randomUUID(), projectId: ctx.projectId, runId: ctx.runA, attemptId, nodeKey: 'guide',
         url: 'https://example.com/guide', finalUrl: 'https://example.com/guide', path: '/guide', parentPath: '/', discoverySource: 'link',
         fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: 42,
-        inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, inboundOccurrences: 2, linkScoreRaw: 4, linkScoreNormalized: 0.4,
+        inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, inboundOccurrences: 2, linkScoreRaw: 4, linkScoreNormalized: 40,
         createdAt: now, updatedAt: now,
       },
       {

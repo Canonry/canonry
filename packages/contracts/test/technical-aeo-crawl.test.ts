@@ -156,7 +156,7 @@ describe('Technical AEO crawl contracts', () => {
         nodeKey: 'home', url: 'https://example.com/', path: '/', fetchState: 'html',
         indexabilityState: 'indexable', auditState: 'success', auditScore: 94,
         inventoryEligible: true, depth: 0, inboundUniqueEdges: 10, outboundUniqueEdges: 20,
-        linkScoreNormalized: 1, healthState: 'eligible',
+        linkScoreNormalized: 100, healthState: 'eligible',
         x: 0, y: 0,
       }], edges: [], omittedNodes: 684, omittedEdges: 15_402, sampled: true,
     })).toMatchObject({

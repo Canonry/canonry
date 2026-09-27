@@ -109,10 +109,33 @@ describe('demo site crawl inventories', () => {
   it('sizes each Harbor property home above the pages it links to', () => {
     const crawl = buildDemoSiteCrawl(crawlInput(context.portfolio, harborResortsInventory()))
     const score = (key: string) => crawl.pages.find(page => page.nodeKey === key)!.linkScoreNormalized!
-    expect(score('/')).toBe(1)
+    expect(score('/')).toBe(100)
     for (const key of ['/destinations/key-west/resort/', '/destinations/coastal-maine/villas-3/']) {
-      expect(score(key), key).toBeGreaterThan(0.5)
+      expect(score(key), key).toBeGreaterThan(50)
       expect(score(key), key).toBeGreaterThan(score(`${key}rooms/ocean-suite/`))
+    }
+  })
+
+  it.each(SITES)('$name writes link importance on the 0 to 100 scale a real crawl writes', site => {
+    // @canonry/aeo-audit writes `linkScore` as `value / maximum * 100` rounded
+    // to two decimals, and executeSiteAudit stores it unchanged as
+    // `linkScoreNormalized`. A demo on any other scale makes every reader guess.
+    const crawl = buildDemoSiteCrawl(site.input())
+    for (const page of crawl.pages) {
+      const score = page.linkScoreNormalized!
+      expect(score, page.nodeKey).toBeGreaterThanOrEqual(0)
+      expect(score, page.nodeKey).toBeLessThanOrEqual(100)
+      expect(Number(score.toFixed(2)), page.nodeKey).toBe(score)
+    }
+    const scores = crawl.pages.map(page => page.linkScoreNormalized!)
+    // The most linked page is the 100 every other page is measured against,
+    expect(Math.max(...scores)).toBe(100)
+    // an unlinked page scores exactly 0,
+    for (const orphan of site.orphans) expect(crawl.pages.find(page => page.nodeKey === orphan)!.linkScoreNormalized, orphan).toBe(0)
+    // and more links in never lowers a page's score.
+    const byInbound = [...crawl.pages].sort((left, right) => left.inboundUniqueEdges! - right.inboundUniqueEdges!)
+    for (const [index, page] of byInbound.entries()) {
+      if (index > 0) expect(page.linkScoreNormalized!, page.nodeKey).toBeGreaterThanOrEqual(byInbound[index - 1]!.linkScoreNormalized!)
     }
   })
 
@@ -223,6 +246,14 @@ describe('stored demo site crawls', () => {
     expect(graph).toMatchObject({ totalNodes: site.pages, totalEdges: site.edges, totalTemplateEdges: site.templateEdges, sampled: false, layout: { state: 'ready' } })
     const deadLinks = (await app.inject(`/api/v1/projects/${site.name}/technical-aeo/dead-links`)).json()
     expect(deadLinks).toMatchObject({ state: 'complete', total: site.findings, found: site.findings })
+  })
+
+  it.each(SITES)('$name serves stored link importance on the 0 to 100 scale', async site => {
+    const graph = (await app.inject(`/api/v1/projects/${site.name}/technical-aeo/graph?linkKind=all`)).json() as { nodes: { linkScoreNormalized: number | null }[] }
+    const scores = graph.nodes.map(node => node.linkScoreNormalized)
+    expect(scores).toHaveLength(site.pages)
+    expect(scores.every(score => score !== null && score >= 0 && score <= 100)).toBe(true)
+    expect(Math.max(...scores.map(score => score!))).toBe(100)
   })
 
   it('serves the standard business map with complete page evidence and a path to a sub-service', async () => {
