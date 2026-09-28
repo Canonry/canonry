@@ -167,6 +167,13 @@ describe('non-brand intended-subject boundaries', () => {
     expect(await instance.classify(input)).toMatchObject({ kind: 'classified', outcome: 'unfavorable' })
     expect(requests).toHaveLength(1)
   })
+  it('treats a subject named only in a citation link as not mentioned, and still sends a prose mention that carries links', async () => {
+    const { instance, requests } = classifier({ stance: 'favorable' })
+    expect(await instance.classify(nonBrand('South Hall is excellent ([north.example](https://north.example/tour?utm_source=chatgpt.com)).'))).toMatchObject({ kind: 'abstained', outcome: 'subject-not-mentioned' })
+    expect(requests).toHaveLength(0)
+    expect(await instance.classify(nonBrand('North Hall is excellent ([north.example](https://north.example/tour?utm_source=chatgpt.com)).'))).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+    expect(requests).toHaveLength(1)
+  })
   it('distinguishes missing frozen identity from a known absent subject', async () => {
     const input = nonBrand('South Hall is excellent.')
     input.subject.aliases = []; input.subject.qualifiedAliases = []; input.subject.urls = []

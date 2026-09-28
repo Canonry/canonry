@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { SentimentOutcomes, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@ainyc/canonry-contracts'
+import { SentimentOutcomes, answerProseForMentions, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@ainyc/canonry-contracts'
 import type { SentimentClassifier, SentimentClassifierInput, SentimentClassifierOutput, SentimentEvidence, SentimentOutcome, SentimentUsage } from '@ainyc/canonry-contracts'
 import { record, requestJev } from './client.js'
 import type { JevChoiceQuestion, JevClientOptions, JevRequest } from './client.js'
@@ -69,7 +69,9 @@ export function buildJevSentimentRequest(input: SentimentClassifierInput): Reque
     if (typeof wording[key] !== 'string' || !wording[key].trim()) return reject(SentimentOutcomes['ambiguous-judgment'], 'The frozen evaluator has incomplete question wording.')
   }
   const hasNonBrandUsage = input.context.queryClass === 'non-brand' || input.context.usageEdges.some(edge => edge.targetId === input.subject.id && edge.queryClass === 'non-brand')
-  if (hasNonBrandUsage && !matcherMatchesText(identityMatcher, input.sourceText)) {
+  // Matched on the prose, like the mention signal: a subject that appears only
+  // in a citation link (`([north.example](https://...))`) is cited, not named.
+  if (hasNonBrandUsage && !matcherMatchesText(identityMatcher, answerProseForMentions(input.sourceText))) {
     return reject(SentimentOutcomes['subject-not-mentioned'], 'The non-brand answer does not mention the known intended subject by any frozen alias or domain.')
   }
   const sentences = Object.fromEntries(input.sentences.map(span => [span.id, span.text]))
