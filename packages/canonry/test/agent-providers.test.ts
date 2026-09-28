@@ -441,8 +441,22 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     // The agent tier is DeepSeek-V4-Flash → DeepInfra's published rates.
     const deepseek = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
     expect(deepseek.id).toBe('deepseek-ai/DeepSeek-V4-Flash')
-    expect(deepseek.cost.input).toBe(0.09)
-    expect(deepseek.cost.output).toBe(0.18)
+    // Cached input bills at 0.2x of $0.09; a 0 here logs cached tokens as free.
+    expect(deepseek.cost).toEqual({ input: 0.09, output: 0.18, cacheRead: 0.018, cacheWrite: 0 })
+    // The dated 0731 snapshot is a known slug with its own (cheaper) rates,
+    // not the zero-cost fallback. Cached input bills at 0.25x of $0.06.
+    const dated = resolveModelForCapability(
+      'deepinfra',
+      LlmCapabilities.agent,
+      'deepseek-ai/DeepSeek-V4-Flash-0731',
+    ) as unknown as CompletionsModel
+    expect(dated.id).toBe('deepseek-ai/DeepSeek-V4-Flash-0731')
+    expect(dated.reasoning).toBe(false)
+    expect(dated.cost).toEqual({ input: 0.06, output: 0.18, cacheRead: 0.015, cacheWrite: 0 })
+    expect(getAgentProvider('deepinfra').openaiCompatible?.knownModels['deepseek-ai/DeepSeek-V4-Flash-0731']).toMatchObject({
+      contextWindow: 1_048_576,
+      maxTokens: 32768,
+    })
     // GLM-5.2 still backs the cheap tiers, with its own metadata.
     const glm = resolveModelForCapability('deepinfra', LlmCapabilities.analyze) as unknown as CompletionsModel
     expect(glm.reasoning).toBe(true)

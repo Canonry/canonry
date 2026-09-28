@@ -244,9 +244,12 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
       },
       // Best-effort metadata. Costs are USD/1M tokens (DeepInfra published
       // rates: GLM-5.2 ~$0.95 in / $0.18 cached / $3.00 out; DeepSeek-V4-Flash
-      // $0.09 in / $0.18 out). contextWindow is DeepInfra's 1M (fp4) serving
-      // window for both models; it's descriptive (see OpenAiCompatibleModelMeta),
-      // so it documents the real window rather than gating compaction.
+      // $0.09 in / $0.018 cached (0.2x input) / $0.18 out; DeepSeek-V4-Flash-0731
+      // $0.06 in / $0.015 cached (0.25x input) / $0.18 out). cacheRead must carry
+      // the cached rate, or cached input tokens are logged as free.
+      // contextWindow is DeepInfra's 1M (fp4) serving window for these models;
+      // it's descriptive (see OpenAiCompatibleModelMeta), so it documents the
+      // real window rather than gating compaction.
       knownModels: {
         'zai-org/GLM-5.2': {
           contextWindow: 1_048_576,
@@ -258,7 +261,13 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
           contextWindow: 1_048_576,
           maxTokens: 32768,
           reasoning: false,
-          cost: { input: 0.09, output: 0.18, cacheRead: 0, cacheWrite: 0 },
+          cost: { input: 0.09, output: 0.18, cacheRead: 0.018, cacheWrite: 0 },
+        },
+        'deepseek-ai/DeepSeek-V4-Flash-0731': {
+          contextWindow: 1_048_576,
+          maxTokens: 32768,
+          reasoning: false,
+          cost: { input: 0.06, output: 0.18, cacheRead: 0.015, cacheWrite: 0 },
         },
       },
       // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is

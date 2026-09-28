@@ -466,6 +466,43 @@ export const rankedSourceListSchema = z.object({
 })
 export type RankedSourceList = z.infer<typeof rankedSourceListSchema>
 
+/**
+ * The `runId` value that reads the project's latest sweep instead of naming a
+ * run. With an active measurement plan it is the run the measurement reads
+ * display: the newest completed whole-project sweep of the active revision.
+ * Without a plan it is the newest completed or partial sweep, every location
+ * of a multi-location sweep included.
+ */
+export const LATEST_RUN_ID = 'latest'
+
+/** Pooled run ids listed per response, newest first. `runCount` always carries the full count. */
+export const POOLED_RUN_ID_LIMIT = 50
+
+/** Field paths grouped by what each counts. */
+export const sourceBreakdownCountUnitsSchema = z.object({
+  /** Answers: one per stored answer in scope. */
+  answers: z.array(z.string()),
+  /** Distinct domains: one per domain, however many answers cite it. */
+  distinctDomains: z.array(z.string()),
+  /** One per answer per cited domain. */
+  answerDomainPairs: z.array(z.string()),
+  runs: z.array(z.string()),
+})
+export type SourceBreakdownCountUnits = z.infer<typeof sourceBreakdownCountUnitsSchema>
+
+/**
+ * What each count in a source breakdown counts. Static, so a total of distinct
+ * domains is never read as answers or citations. Field paths are relative to
+ * each ranked list (`ranked` and every `byProvider` entry) unless they name the
+ * envelope.
+ */
+export const SOURCE_BREAKDOWN_COUNT_UNITS: SourceBreakdownCountUnits = {
+  answers: ['answerTotal', 'unclassifiedAnswers', 'answersWithSources', 'entries[].count', 'overall[].topDomains[].count'],
+  distinctDomains: ['domainTotal', 'truncatedDomainCount', 'bySurfaceClass[].domainCount'],
+  answerDomainPairs: ['totalCitedSlots', 'truncatedCitedSlots', 'bySurfaceClass[].count', 'overall[].count'],
+  runs: ['runCount'],
+}
+
 /** How `queryClass` placed each answer in a class. */
 export const sourceBreakdownQueryClassBasisSchema = z.enum(['measurement-plan', 'query-text'])
 export type SourceBreakdownQueryClassBasis = z.infer<typeof sourceBreakdownQueryClassBasisSchema>
@@ -475,7 +512,10 @@ export type SourceBreakdownQueryClassBasis = z.infer<typeof sourceBreakdownQuery
  * `limit` keep their own long-standing parsing (`parseWindow`, positive int).
  */
 export const sourceBreakdownQuerySchema = z.object({
-  /** One stored answer-visibility run. Omit to pool every run in the window. */
+  /**
+   * One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the
+   * project's latest sweep. Omit to pool every run in the window.
+   */
   runId: z.string().trim().min(1).optional(),
   /**
    * Branded or non-brand answers only. With an active v2 measurement plan the
@@ -512,12 +552,18 @@ export const sourceBreakdownDtoSchema = z.object({
   /** Runs pooled into this response. More than one means several sweeps are pooled. */
   runCount: z.number().int().optional(),
   /**
+   * True when more than one run is pooled: several sweeps, or the per-location
+   * runs of one multi-location sweep (they share a timestamp). Every count then
+   * sums over all of them, so no single `runId` is the scope.
+   */
+  pooledAcrossRuns: z.boolean().optional(),
+  /**
    * Answers the `queryClass` filter could not place in either class (a run with
    * no frozen v2 plan, an answer with no plan execution, or no query text).
    * They are excluded from every count. Zero when no class filter is applied.
    */
   unclassifiedAnswers: z.number().int().optional(),
-  /** Echo of the applied filters. */
+  /** Echo of the applied filters. `runId` is echoed as requested, `latest` included; `runIds` holds what it resolved to. */
   filters: z.object({
     runId: z.string().nullable(),
     queryClass: queryClassFilterSchema,
@@ -525,7 +571,17 @@ export const sourceBreakdownDtoSchema = z.object({
     queryClassBasis: z.union([sourceBreakdownQueryClassBasisSchema, z.null()]),
     includeByQuery: z.boolean(),
   }).optional(),
+  /**
+   * The requested run, or else the latest run in the window (the
+   * representative of the newest sweep). Kept for compatibility: on a pooled
+   * read (`pooledAcrossRuns`) it is NOT the scope of the counts; `runIds` is.
+   * Empty when no run is in scope.
+   */
   runId: z.string(),
+  /** Every run pooled into the counts, newest first, capped at `POOLED_RUN_ID_LIMIT`; `runCount` is the full count. */
+  runIds: z.array(z.string()).optional(),
+  /** What each count counts: answers, distinct domains, or answer-domain pairs. See `SOURCE_BREAKDOWN_COUNT_UNITS`. */
+  countUnits: sourceBreakdownCountUnitsSchema.optional(),
   window: metricsWindowSchema,
   /** Applied ranked-list limit; null when the full list is returned. */
   limit: z.number().int().nullable(),
@@ -577,6 +633,7 @@ export const competitorLandscapeQuerySchema = z.object({
   groupBy: z.literal('model').optional(),
   queryClass: competitorLandscapeQueryClassSchema.optional(),
   location: z.string().trim().min(1).optional(),
+  /** One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the project's latest sweep. Omit to pool every run in the window. */
   runId: z.string().trim().min(1).optional(),
 }).strict().superRefine((value, context) => {
   if (value.scope === 'all-markets' && value.groupKey !== undefined) {
@@ -635,6 +692,27 @@ export const competitorLandscapeEvidenceSchema = z.object({
   excludedNonCompletedResults: z.number().int().nonnegative(),
 }).strict()
 export type CompetitorLandscapeEvidence = z.infer<typeof competitorLandscapeEvidenceSchema>
+
+/** Field paths grouped by what each counts. */
+export const competitorLandscapeCountUnitsSchema = z.object({
+  /** Answers: one per stored answer in scope. */
+  answers: z.array(z.string()),
+  /** Distinct names written in answer text, however many answers name each. */
+  distinctNames: z.array(z.string()),
+  runs: z.array(z.string()),
+}).strict()
+export type CompetitorLandscapeCountUnits = z.infer<typeof competitorLandscapeCountUnitsSchema>
+
+/**
+ * What each landscape count counts. Static, so a total of distinct names is
+ * never read as answers. Field paths are relative to each row, `evidence`, or
+ * the envelope (and each model group).
+ */
+export const COMPETITOR_LANDSCAPE_COUNT_UNITS: CompetitorLandscapeCountUnits = {
+  answers: ['mentionCount', 'citationCount', 'answeredResults', 'evidence.sourceResults', 'observedNames[].answerCount'],
+  distinctNames: ['observedNamesTotal'],
+  runs: ['runCount'],
+}
 
 export const COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT = 50
 /** Observed answer-text names returned per landscape (and per model group); `observedNamesTotal` carries the full count. */
@@ -714,6 +792,12 @@ export const competitorLandscapeResponseSchema = z.object({
   }).strict(),
   /** True when ranked observed/source lists exceed the server cap; pinned rows are never dropped. */
   truncated: z.boolean(),
+  /** Runs whose answers are counted here. More than one means the counts pool several runs. */
+  runCount: z.number().int().nonnegative().optional(),
+  /** The runs behind `runCount`, newest first, capped at `POOLED_RUN_ID_LIMIT`. */
+  runIds: z.array(z.string()).optional(),
+  /** What each count counts: answers or distinct names. See `COMPETITOR_LANDSCAPE_COUNT_UNITS`. */
+  countUnits: competitorLandscapeCountUnitsSchema.optional(),
 }).strict()
 export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
 
