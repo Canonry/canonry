@@ -7,6 +7,7 @@ import {
   measurementMetricUnavailableReasonSchema,
   measurementMetricValueSchema,
   measurementOverviewScopeKindSchema,
+  measurementPropertyMetroSchema,
   measurementQueryClassFilterSchema,
   measurementQueryClassSchema,
   measurementStateSchema,
@@ -14,6 +15,7 @@ import {
 } from './measurement-plan-v2.js'
 import { providerNameSchema } from './provider.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { runFillStatusSchema } from './run-fill.js'
 
 const measurementDemoIdSchema = z.string().trim().min(1)
 const measurementDemoLabelSchema = z.string().trim().min(1)
@@ -46,19 +48,21 @@ const measurementDemoRecommendedNameSchema = z.string().trim().min(1)
 // ── Portfolio summary ────────────────────────────────────────────────────
 
 /**
- * Rows every portfolio-summary list returns when `limit` is omitted. An agent
- * reads this response as indented JSON through a 20,000-character tool-result
- * cap. Each weakest row carries its own answer evidence (about 2,300
+ * Rows every portfolio-summary Property list returns when `limit` is omitted.
+ * An agent reads this response through a 20,000-character tool-result cap.
+ * Each weakest row carries its own answer evidence (about 2,300 indented
  * characters with the deprecated `recommendedInstead` copy), so ten of them
- * alone overran it. Four keeps the whole default response, markets and both
- * rankings included, near 19,000 characters on a 200-Property, 150-market
- * portfolio.
+ * alone overran it. Four keeps the whole default response, every metro, both
+ * rankings and the tie roll-ups included, near 19,700 characters of compact
+ * JSON on a 200-Property, 20-metro portfolio (about 31,500 indented).
  */
 export const MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT = 4
 /** Names and cited domains returned per weakest Property row. */
 export const MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT = 5
 /** Domains returned in the response-level `weakestAnswerSources`. */
 export const MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT = 10
+/** Names returned in `tiedAtWeakest.namedInstead`, counted across the whole tie. */
+export const MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT = 10
 export const MEASUREMENT_PORTFOLIO_TIE_NOTE = 'tied Properties are ordered by name, not ranked'
 
 /** The portfolio demo defaults to the non-brand basket so its weakest rows remain actionable. */
@@ -68,23 +72,19 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
   queryClass: measurementQueryClassFilterSchema.default('non-brand'),
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
-  /** Caps every list in the response (Property rows, both mention rankings, markets). Defaults to 4. */
+  /** Caps the Property lists (Property rows and both mention rankings). Defaults to 4. Markets are never capped. */
   limit: z.number().int().positive().max(50).optional(),
   /**
-   * Off by default: `markets` holds one level only, the top-level markets (or
-   * the selected group's direct children), worst-first and capped at `limit`.
-   * True returns every market in scope at every level, uncapped, as the
-   * roll-up did before it was levelled.
+   * Off by default: `markets` holds one level only, every top-level market (or
+   * every direct child of the selected group), worst-first. True returns every
+   * market in scope at every level, as the roll-up did before it was levelled.
    */
   includeNestedMarkets: z.boolean().optional(),
 }).strict()
 export type MeasurementPortfolioSummaryQuery = z.output<typeof measurementPortfolioSummaryQuerySchema>
 
 /** A top-level reporting group: the root of a Property's market hierarchy. */
-export const measurementPortfolioMetroSchema = z.object({
-  groupKey: measurementV2StableKeySchema,
-  label: measurementDemoLabelSchema,
-}).strict()
+export const measurementPortfolioMetroSchema = measurementPropertyMetroSchema
 export type MeasurementPortfolioMetro = z.output<typeof measurementPortfolioMetroSchema>
 
 /**
@@ -182,15 +182,49 @@ export const measurementPortfolioWeakestPropertySchema = measurementDemoProperty
 export type MeasurementPortfolioWeakestProperty = z.output<typeof measurementPortfolioWeakestPropertySchema>
 
 /**
+ * Tied Properties in one top-level market, by that market's label (a
+ * `markets` row carries its groupKey). A null `metro` counts the tied
+ * Properties in no top-level group.
+ */
+export const measurementPortfolioTieMetroSchema = z.object({
+  metro: measurementDemoLabelSchema.nullable(),
+  count: z.number().int().positive(),
+}).strict()
+export type MeasurementPortfolioTieMetro = z.output<typeof measurementPortfolioTieMetroSchema>
+
+/**
  * How many Properties share the weakest row's exact mention and citation
  * rates. Rows inside a tie are ordered by name, so their order is not a rank.
+ *
+ * `byMetro` and `namedInstead` cover EVERY tied Property, not only the
+ * returned rows, so a large tie can be described without reading it row by
+ * row. Both are absent on responses from servers that predate them.
  */
 export const measurementPortfolioWeakestTieSchema = z.object({
   count: z.number().int().min(2),
   mentionRate: z.number(),
   citationRate: z.number(),
   note: z.literal(MEASUREMENT_PORTFOLIO_TIE_NOTE),
-}).strict()
+  /**
+   * Tied Properties per top-level market, most first, then by label. A
+   * Property in several top-level markets counts in each, so the counts can
+   * sum past `count`.
+   */
+  byMetro: z.array(measurementPortfolioTieMetroSchema).optional(),
+  /**
+   * Names WRITTEN IN THE ANSWER TEXT of the tied Properties' answers that
+   * neither named nor cited the Property, most first. `answers` counts
+   * distinct answers: one answer serving several tied Properties counts once.
+   * These are mentions, never citations.
+   */
+  namedInstead: z.array(measurementPortfolioCountedNameSchema).max(MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT).optional(),
+  /** Distinct names across those answers; more than returned means the list was cut. */
+  namedInsteadTotal: measurementDemoCountSchema.optional(),
+}).strict().superRefine((tie, ctx) => {
+  if (tie.namedInstead !== undefined && (tie.namedInsteadTotal === undefined || tie.namedInstead.length > tie.namedInsteadTotal)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['namedInsteadTotal'], message: 'Total cannot be smaller than the returned names' })
+  }
+})
 export type MeasurementPortfolioWeakestTie = z.output<typeof measurementPortfolioWeakestTieSchema>
 
 /**
@@ -290,13 +324,13 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   /** Descriptive mention ranking, using the response queryClass and scope; aggregate unavailability does not invalidate it. */
   mentionRanking: measurementPortfolioMentionRankingSchema,
   /**
-   * Markets worst-first. By default one level: the top-level markets, or the
-   * selected group's direct children when `groupKey` is set (empty when it has
-   * none), capped at `limit`. `includeNestedMarkets` returns every market in
-   * scope at every level, uncapped. Empty when the plan defines no groups.
+   * Markets worst-first. By default one level: every top-level market, or
+   * every direct child of the selected group when `groupKey` is set (empty
+   * when it has none). `limit` never caps it. `includeNestedMarkets` returns
+   * every market in scope at every level. Empty when the plan defines no groups.
    */
   markets: z.array(measurementPortfolioMarketSchema),
-  /** Markets at the returned level before `limit`; more than returned means the list was cut. */
+  /** Markets at the returned level; more than returned means the list was cut. */
   totalMarkets: measurementDemoCountSchema,
   marketsTruncated: z.boolean(),
   totalProperties: measurementDemoCountSchema,
@@ -464,6 +498,9 @@ export const measurementPropertyCompetitorRowSchema = z.object({
 })
 export type MeasurementPropertyCompetitorRow = z.output<typeof measurementPropertyCompetitorRowSchema>
 
+/** Domains returned in a Property competitors response's `citedDomains`. */
+export const MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT = 10
+
 export const measurementPropertyCompetitorsResponseSchema = z.object({
   property: measurementDemoPropertySchema,
   measurement: measurementDemoRunMetadataSchema,
@@ -472,10 +509,54 @@ export const measurementPropertyCompetitorsResponseSchema = z.object({
   competitors: z.array(measurementPropertyCompetitorRowSchema),
   total: measurementDemoCountSchema,
   truncated: z.boolean(),
-}).strict()
+  /**
+   * Domains cited by this Property's own measured answers in this run, class
+   * and filter, most first. Each answer counts once per domain: its stored
+   * domains plus the hosts of its captured source URLs, and an answer whose
+   * text was not captured counts too. These are sources, never names written
+   * instead. Absent when no answer of this Property was measured.
+   */
+  citedDomains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT).optional(),
+  /** Distinct cited domains; more than returned means the list was cut. */
+  citedDomainsTotal: measurementDemoCountSchema.optional(),
+  /** Measured answers the domains were counted over, with or without answer text. */
+  citedDomainsAnswers: measurementDemoCountSchema.optional(),
+}).strict().superRefine((response, ctx) => {
+  const { citedDomains, citedDomainsTotal, citedDomainsAnswers } = response
+  if (citedDomains === undefined) return
+  if (citedDomainsTotal === undefined || citedDomainsAnswers === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomains'], message: 'Cited domains require their total and answer basis' })
+    return
+  }
+  if (citedDomains.length > citedDomainsTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomainsTotal'], message: 'Total cannot be smaller than the returned domains' })
+  }
+  if (citedDomains.some(row => row.answers > citedDomainsAnswers)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomains'], message: 'A domain cannot be cited by more answers than the basis holds' })
+  }
+})
 export type MeasurementPropertyCompetitorsResponse = z.output<typeof measurementPropertyCompetitorsResponseSchema>
 
 // ── Same-identity changes ─────────────────────────────────────────────────
+
+/**
+ * How changed Property rows are ordered. `magnitude` puts moves beyond noise
+ * before moves within it; within each, the larger of the mention and citation
+ * changes (in answers) first, then the other, then label, so a large
+ * citation-only move outranks small mention wobbles. `label` is the original
+ * alphabetical order.
+ */
+export const measurementChangesSortSchema = z.enum(['magnitude', 'label'])
+export type MeasurementChangesSort = z.output<typeof measurementChangesSortSchema>
+export const MEASUREMENT_CHANGES_DEFAULT_SORT: MeasurementChangesSort = 'magnitude'
+
+/**
+ * A sweep-over-sweep move of at most this many answers, in both the mention
+ * count and the citation count, is within noise: one engine answering one or
+ * two questions differently. Such a Property is reported, but never as a
+ * real gain or loss.
+ */
+export const MEASUREMENT_CHANGES_NOISE_ANSWERS = 2
 
 export const measurementChangesQuerySchema = z.object({
   runId: measurementDemoFilterQueryShape.runId,
@@ -486,6 +567,8 @@ export const measurementChangesQuerySchema = z.object({
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
   limit: z.number().int().positive().max(50).optional(),
+  /** Changed-row order. Omit for `magnitude`, the largest move first. */
+  sort: measurementChangesSortSchema.optional(),
 }).strict().superRefine((query, ctx) => {
   if (query.scope === 'all' && (query.groupKey !== undefined || query.targetKey !== undefined)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scope'], message: 'All scope cannot name a group or Property' })
@@ -537,8 +620,72 @@ export const measurementMetricDeltaSchema = z.discriminatedUnion('state', [
 ])
 export type MeasurementMetricDelta = z.output<typeof measurementMetricDeltaSchema>
 
+const measurementChangesMetricsSchema = z.object({
+  propertiesMentioned: measurementMetricDeltaSchema,
+  mentionCoverage: measurementMetricDeltaSchema,
+  citationCoverage: measurementMetricDeltaSchema,
+}).strict()
+
+/**
+ * Every Property in scope, split by how it moved. The buckets are DISJOINT
+ * and EXHAUSTIVE, so they sum to `total`, and they count every Property, not
+ * the returned page. A move is the rate change times the larger run's
+ * answers, so a rate that fell on a grown denominator is a decline even when
+ * more answers named the Property, and a collapse on a shrunken denominator
+ * is never noise. A Property whose every move is at most
+ * `noiseAnswers` answers counts once, in `withinNoise`, whichever way it
+ * moved; `improved`, `declined` and `mixed` hold only moves beyond that.
+ * `mixed` is one signal up and the other down, each beyond noise.
+ * `notComparable` is a metric measured in one run only.
+ */
+export const measurementChangesDistributionSchema = z.object({
+  improved: measurementDemoCountSchema,
+  declined: measurementDemoCountSchema,
+  mixed: measurementDemoCountSchema,
+  withinNoise: measurementDemoCountSchema,
+  unchanged: measurementDemoCountSchema,
+  notComparable: measurementDemoCountSchema,
+  total: measurementDemoCountSchema,
+  noiseAnswers: z.literal(MEASUREMENT_CHANGES_NOISE_ANSWERS),
+}).strict().superRefine((distribution, ctx) => {
+  const sum = distribution.improved + distribution.declined + distribution.mixed + distribution.withinNoise
+    + distribution.unchanged + distribution.notComparable
+  if (sum !== distribution.total) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['total'], message: 'Move buckets must sum to total' })
+  }
+})
+export type MeasurementChangesDistribution = z.output<typeof measurementChangesDistributionSchema>
+
+export const measurementChangedPropertySchema = measurementDemoPropertySchema.extend({
+  mentionCoverage: measurementMetricDeltaSchema,
+  citationCoverage: measurementMetricDeltaSchema,
+  flags: measurementDemoCountSchema,
+  /** Current minus previous answers that named the Property. Null unless both runs measured it. */
+  mentionAnswersDelta: z.number().int().nullable().optional(),
+  /** Current minus previous answers that cited the Property. Null unless both runs measured it. */
+  citationAnswersDelta: z.number().int().nullable().optional(),
+  /**
+   * True when a metric measured in both runs was taken over a different
+   * number of answers, so its answer delta above is not like for like. The
+   * move is then sized on the larger of the two: 1 of 1 to 4 of 8 is a
+   * delta of +3 but a move of four answers down.
+   */
+  denominatorChanged: z.boolean().optional(),
+  /**
+   * True when both moves are at most `MEASUREMENT_CHANGES_NOISE_ANSWERS`
+   * answers (a metric unmeasured in both runs did not move). A move is the
+   * rate change times the larger run's answers, which is the answer delta
+   * whenever the denominator held. False when a metric was measured in one
+   * run only.
+   */
+  withinNoise: z.boolean().optional(),
+}).strict()
+export type MeasurementChangedProperty = z.output<typeof measurementChangedPropertySchema>
+
 export const measurementChangesResponseSchema = z.object({
   current: measurementComparableRunSchema,
+  /** The question class every figure below is taken over. Absent on servers that predate it. */
+  queryClass: measurementQueryClassFilterSchema.optional(),
   comparison: z.discriminatedUnion('state', [
     z.object({
       state: z.literal('available'),
@@ -549,16 +696,20 @@ export const measurementChangesResponseSchema = z.object({
         executionIdentity: measurementDemoIdSchema,
         measurementScope: z.enum(['full', 'spot_check']),
       }).strict(),
-      metrics: z.object({
-        propertiesMentioned: measurementMetricDeltaSchema,
-        mentionCoverage: measurementMetricDeltaSchema,
-        citationCoverage: measurementMetricDeltaSchema,
-      }).strict(),
-      changedProperties: z.array(measurementDemoPropertySchema.extend({
-        mentionCoverage: measurementMetricDeltaSchema,
-        citationCoverage: measurementMetricDeltaSchema,
-        flags: measurementDemoCountSchema,
-      }).strict()),
+      /** Over the response `queryClass`. When it is `all`, this pools branded with non-brand. */
+      metrics: measurementChangesMetricsSchema,
+      /**
+       * Present only when `queryClass` is `all`: the same metrics for each
+       * class alone, so a pooled move cannot hide a move in one class.
+       */
+      metricsByClass: z.object({
+        branded: measurementChangesMetricsSchema,
+        nonBrand: measurementChangesMetricsSchema,
+      }).strict().optional(),
+      /** The order of `changedProperties`. */
+      sort: measurementChangesSortSchema.optional(),
+      distribution: measurementChangesDistributionSchema.optional(),
+      changedProperties: z.array(measurementChangedPropertySchema),
       totalProperties: measurementDemoCountSchema,
       truncated: z.boolean(),
     }).strict(),
@@ -569,6 +720,10 @@ export const measurementChangesResponseSchema = z.object({
   ]),
 }).strict().superRefine((response, ctx) => {
   if (response.comparison.state !== 'available') return
+  const { distribution } = response.comparison
+  if (distribution !== undefined && distribution.total - distribution.unchanged !== response.comparison.totalProperties) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['comparison', 'distribution'], message: 'Changed Properties must equal the distribution total less unchanged' })
+  }
   if (response.current.displayedRunId === null || response.current.executionIdentity === null) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'A comparison requires an identified current run' })
     return
@@ -672,6 +827,42 @@ export const measurementDataQualityPopulationSchema = z.discriminatedUnion('stat
 })
 export type MeasurementDataQualityPopulation = z.output<typeof measurementDataQualityPopulationSchema>
 
+/**
+ * One question class's answers whose mention identity could not be resolved
+ * (an answer naming a Property only ambiguously). Every mention rate in that
+ * class leaves them out of both sides and reports them as `unattributed`.
+ * `answered` counts the class's answers with text; it is the basis, not a
+ * rate denominator.
+ */
+export const measurementDataQualityUnattributedSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    answered: measurementDemoCountSchema,
+    unattributed: measurementDemoCountSchema,
+  }).strict(),
+  measurementDataQualityUnavailableSchema,
+]).superRefine((value, ctx) => {
+  if (value.state === 'available' && value.unattributed > value.answered) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unattributed'], message: 'Unattributed answers cannot exceed answered' })
+  }
+})
+export type MeasurementDataQualityUnattributed = z.output<typeof measurementDataQualityUnattributedSchema>
+
+/**
+ * The newest attempt to complete this run in place: the missing answers a
+ * fill set out to record (`expected`) and those it recorded (`filled`). Its
+ * answers already count in `completeness`; this says the run was topped up.
+ */
+export const measurementDataQualityFillSchema = z.object({
+  status: runFillStatusSchema,
+  providers: z.array(z.string()),
+  expected: measurementDemoCountSchema,
+  filled: measurementDemoCountSchema,
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+}).strict()
+export type MeasurementDataQualityFill = z.output<typeof measurementDataQualityFillSchema>
+
 export const measurementDataQualityResponseSchema = z.object({
   run: measurementComparableRunSchema,
   completeness: measurementDataQualityCompletenessSchema,
@@ -683,6 +874,17 @@ export const measurementDataQualityResponseSchema = z.object({
     z.object({ state: z.literal('available'), previousDisplayedRunId: measurementDemoIdSchema }).strict(),
     z.object({ state: z.literal('unavailable'), reason: measurementComparisonUnavailableReasonSchema }).strict(),
   ]),
+  /**
+   * Unattributed answers per question class, never pooled. A class is
+   * unavailable when its mention rate is withheld for incomplete evidence or
+   * the run asked no question of that class. Absent on servers that predate it.
+   */
+  unattributedByClass: z.object({
+    branded: measurementDataQualityUnattributedSchema,
+    nonBrand: measurementDataQualityUnattributedSchema,
+  }).strict().optional(),
+  /** The newest fill of this run; null when it was never filled. Absent on servers that predate it. */
+  latestFill: measurementDataQualityFillSchema.nullable().optional(),
 }).strict().superRefine((response, ctx) => {
   if (response.completeness.state !== 'available') return
   // Capture and retrieval are recorded for every persisted snapshot. A

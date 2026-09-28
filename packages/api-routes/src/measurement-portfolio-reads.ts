@@ -10,11 +10,15 @@ import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   AI_PROVIDER_INFRA_DOMAINS,
+  MEASUREMENT_CHANGES_DEFAULT_SORT,
+  MEASUREMENT_CHANGES_NOISE_ANSWERS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT,
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
   MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NOTE,
+  MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -49,12 +53,14 @@ import {
   type MeasurementQueryClassFilter,
   type MetricValue,
 } from '@ainyc/canonry-contracts'
-import { querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { querySnapshots, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,
   displayedState,
+  propertyLocations,
   type ActiveMeasurementPlan,
+  type PropertyLocation,
 } from './measurement-overview.js'
 import {
   createMeasurementOverviewEvaluator,
@@ -70,6 +76,7 @@ import {
 } from './measurement-question-reads.js'
 import { comparableMeasurementVersionIds, measurementRunExpectedSlots } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
+import { formatRunFill } from './run-fill.js'
 
 /**
  * Compact demo lists intentionally stop at ten unless the caller asks for more.
@@ -194,6 +201,29 @@ function materializeWithDb(
   return materializeMeasurementQuestionRun(db, active, plan, run)
 }
 
+/** One materialized run, narrowed to the filters every metric is taken over. */
+function filteredEvaluator(
+  materialized: MaterializedRun,
+  filters: MeasurementFilters,
+  targetKeys: readonly string[],
+): MeasurementOverviewEvaluator {
+  const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
+  const location = filters.location === undefined ? undefined : normalizeMeasurementLocation(filters.location)
+  const expectedSlots = materialized.input.expectedSlots.filter(slot => (
+    (provider === undefined || normalizeText(slot.provider) === provider)
+    && (location === undefined || normalizeMeasurementLocation(slot.location) === location)
+  ))
+  const usageEdges = materialized.input.usageEdges.filter(edge => (
+    filters.queryClass === 'all' || materialized.edgeQueryClass.get(edge.id) === filters.queryClass
+  ))
+  return createMeasurementOverviewEvaluator({
+    ...materialized.input,
+    expectedSlots,
+    usageEdges,
+    scopeTargetIds: [...targetKeys],
+  })
+}
+
 function filteredOverviewWithDb(
   db: DatabaseClient,
   active: ActiveMeasurementPlan,
@@ -208,21 +238,7 @@ function filteredOverviewWithDb(
   evaluator: MeasurementOverviewEvaluator
 } {
   const materialized = materializeWithDb(db, active, plan, run)
-  const provider = filters.provider === undefined ? undefined : normalizeText(filters.provider)
-  const location = filters.location === undefined ? undefined : normalizeMeasurementLocation(filters.location)
-  const expectedSlots = materialized.input.expectedSlots.filter(slot => (
-    (provider === undefined || normalizeText(slot.provider) === provider)
-    && (location === undefined || normalizeMeasurementLocation(slot.location) === location)
-  ))
-  const usageEdges = materialized.input.usageEdges.filter(edge => (
-    filters.queryClass === 'all' || materialized.edgeQueryClass.get(edge.id) === filters.queryClass
-  ))
-  const evaluator = createMeasurementOverviewEvaluator({
-    ...materialized.input,
-    expectedSlots,
-    usageEdges,
-    scopeTargetIds: [...targetKeys],
-  })
+  const evaluator = filteredEvaluator(materialized, filters, targetKeys)
   return {
     materialized,
     evaluator,
@@ -375,57 +391,6 @@ function plannedQueryCount(plan: MeasurementPlanV2, targetKey: string, queryClas
     .map(assignment => assignment.queryId)).size
 }
 
-interface PropertyLocation {
-  metro: MeasurementPortfolioMetro | null
-  otherMetros?: MeasurementPortfolioMetro[]
-  submarkets: string[]
-}
-
-/**
- * Each Property's place in the plan's reporting groups. A Property is only
- * ever placed by the groups that hold it: grouping by a label is how a Property
- * ends up filed under a metro it is not in.
- */
-function propertyLocations(plan: MeasurementPlanV2): (targetKey: string) => PropertyLocation {
-  const groupsByKey = new Map(plan.groups.map(group => [group.stableKey, group]))
-  const depth = (group: MeasurementPlanV2['groups'][number]): number => {
-    let levels = 0
-    const seen = new Set([group.stableKey])
-    let parentKey = group.parentGroupKey
-    while (parentKey !== undefined && !seen.has(parentKey)) {
-      const parent = groupsByKey.get(parentKey)
-      if (!parent) break
-      seen.add(parentKey)
-      levels++
-      parentKey = parent.parentGroupKey
-    }
-    return levels
-  }
-  const byLabel = (left: { label: string; stableKey: string }, right: { label: string; stableKey: string }) =>
-    compareText(left.label, right.label) || compareText(left.stableKey, right.stableKey)
-  const metros = new Map<string, MeasurementPlanV2['groups'][number][]>()
-  const submarkets = new Map<string, Array<{ group: MeasurementPlanV2['groups'][number]; depth: number }>>()
-  for (const group of plan.groups) {
-    const level = depth(group)
-    for (const targetKey of new Set(group.targetKeys)) {
-      if (level === 0) pushTo(metros, targetKey, group)
-      else pushTo(submarkets, targetKey, { group, depth: level })
-    }
-  }
-  const metroDto = (group: MeasurementPlanV2['groups'][number]): MeasurementPortfolioMetro =>
-    ({ groupKey: group.stableKey, label: group.label })
-  return targetKey => {
-    const own = [...(metros.get(targetKey) ?? [])].sort(byLabel)
-    const nested = [...(submarkets.get(targetKey) ?? [])]
-      .sort((left, right) => left.depth - right.depth || byLabel(left.group, right.group))
-    return {
-      metro: own.length === 0 ? null : metroDto(own[0]!),
-      ...(own.length > 1 ? { otherMetros: own.slice(1).map(metroDto) } : {}),
-      submarkets: nested.map(row => row.group.label),
-    }
-  }
-}
-
 /**
  * Hosts an answer cited, once each, without provider plumbing such as
  * grounding redirects: its stored domains plus the hosts of the URLs citation
@@ -464,42 +429,57 @@ function targetAliasKeys(target: MeasurementPlanV2['targets'][number]): Set<stri
     .filter(Boolean))
 }
 
-function recommendationRows(
+/**
+ * Every name an answer wrote instead of this Property, keyed by brand, in the
+ * answers that neither named nor cited it. `firstInAnswer` is false for a
+ * second spelling of a brand the same answer already wrote.
+ */
+function forEachNameWrittenInstead(
   target: MeasurementPlanV2['targets'][number],
-  population: ReturnType<typeof targetAnswers>,
-): RecommendationRow[] {
+  answers: readonly TargetAnswer[],
+  visit: (key: string, name: string, answer: TargetAnswer, firstInAnswer: boolean) => void,
+): void {
   const aliases = targetAliasKeys(target)
-  const grouped = new Map<string, { name: string; occurrences: number; providers: Set<string>; questions: Set<string> }>()
-  for (const answer of population.answers) {
+  for (const answer of answers) {
     // An incomplete source capture makes target citation unknown. Treating that
     // as a miss would manufacture a competitor from evidence that did not land.
     if (answer.mentioned !== false || answer.cited !== false) continue
-    // One answer counts once per brand, so `occurrences` is a count of answers
-    // even when the stored list spells one brand two ways.
+    // One answer counts once per brand, so a count of names is a count of
+    // answers even when the stored list spells one brand two ways.
     const seenInAnswer = new Set<string>()
     for (const rawName of answer.snapshot.recommendedCompetitors) {
       const name = rawName.normalize('NFKC').trim().replace(/\s+/g, ' ')
       const key = brandKeyFromText(name)
       if (!key || aliases.has(key)) continue
-      const existing = grouped.get(key)
-      if (existing) {
-        // Every spelling competes for the displayed name; only the first in an answer counts it.
-        if (compareText(name, existing.name) < 0) existing.name = name
-        if (seenInAnswer.has(key)) continue
-        existing.occurrences++
-        existing.providers.add(answer.provider)
-        existing.questions.add(answer.question)
-      } else {
-        grouped.set(key, {
-          name,
-          occurrences: 1,
-          providers: new Set([answer.provider]),
-          questions: new Set([answer.question]),
-        })
-      }
+      visit(key, name, answer, !seenInAnswer.has(key))
       seenInAnswer.add(key)
     }
   }
+}
+
+function recommendationRows(
+  target: MeasurementPlanV2['targets'][number],
+  population: ReturnType<typeof targetAnswers>,
+): RecommendationRow[] {
+  const grouped = new Map<string, { name: string; occurrences: number; providers: Set<string>; questions: Set<string> }>()
+  forEachNameWrittenInstead(target, population.answers, (key, name, answer, firstInAnswer) => {
+    const existing = grouped.get(key)
+    if (existing) {
+      // Every spelling competes for the displayed name; only the first in an answer counts it.
+      if (compareText(name, existing.name) < 0) existing.name = name
+      if (!firstInAnswer) return
+      existing.occurrences++
+      existing.providers.add(answer.provider)
+      existing.questions.add(answer.question)
+    } else {
+      grouped.set(key, {
+        name,
+        occurrences: 1,
+        providers: new Set([answer.provider]),
+        questions: new Set([answer.question]),
+      })
+    }
+  })
   return [...grouped.values()]
     .map(row => {
       const providers = [...row.providers].sort(compareText)
@@ -611,13 +591,15 @@ function targetKeysForRun(
  * Doing this server-side is what keeps the dashboard to one request and gives
  * the CLI and MCP the same table for free.
  *
- * By default the roll-up is one level: the top-level markets, or the selected
- * group's direct children, worst-first and capped at the response limit. A
- * large portfolio nests every submarket under a metro, and listing them all
- * by default pushed the Property rows an agent asked for past its result cap.
- * The selected group itself is never listed: repeating its own numbers under a
- * "compare markets" heading says nothing. `includeNestedMarkets` returns every
- * market in scope at every level, uncapped.
+ * By default the roll-up is one level: every top-level market, or every
+ * direct child of the selected group, worst-first. A large portfolio nests
+ * every submarket under a metro, and listing them all by default pushed the
+ * Property rows an agent asked for past its result cap. The level is never
+ * capped by the row limit: a metro comparison that stops at four metros sends
+ * the reader looking for the rest one market at a time. The selected group
+ * itself is never listed: repeating its own numbers under a "compare markets"
+ * heading says nothing. `includeNestedMarkets` returns every market in scope
+ * at every level.
  *
  * Every market is scoped through `targetKeysForRun`, the same narrowing the
  * group-scoped read applies. Scoping on raw `group.targetKeys` instead made one
@@ -632,7 +614,6 @@ function marketRollup(
   measured: { run: RunRow; evaluator: MeasurementOverviewEvaluator } | undefined,
   scope: MeasurementPlanV2['groups'][number] | undefined,
   includeNested: boolean,
-  limit: number,
 ): { markets: MeasurementPortfolioMarket[]; totalMarkets: number; marketsTruncated: boolean } {
   const childCounts = new Map<string, number>()
   for (const group of plan.groups) {
@@ -692,8 +673,7 @@ function marketRollup(
       citationCoverage: coverageMetric(overview.citationCoverage),
     }
   }).sort(compareWeakestMarket)
-  const returned = includeNested ? markets : markets.slice(0, limit)
-  return { markets: returned, totalMarkets: markets.length, marketsTruncated: returned.length < markets.length }
+  return { markets, totalMarkets: markets.length, marketsTruncated: false }
 }
 
 /**
@@ -811,7 +791,7 @@ function portfolioResponse(
       // Sorted through the same comparator as the measured branch. Plan order
       // is `stableKey`, so emitting it raw put markets in an order the schema
       // documents as worst-first and that changes the moment a run lands.
-      ...marketRollup(plan, undefined, group, includeNestedMarkets, limit),
+      ...marketRollup(plan, undefined, group, includeNestedMarkets),
       totalProperties: rows.length,
       truncated: rows.length > limit,
     })
@@ -866,17 +846,26 @@ function portfolioResponse(
     tiedAtWeakest: tie.summary,
     weakestAnswerSources: weakestAnswerSources([...displayed, ...tie.rows]),
     mentionRanking: mentionRanking(ranked, limit),
-    ...marketRollup(plan, { run, evaluator }, group, includeNestedMarkets, limit),
+    ...marketRollup(plan, { run, evaluator }, group, includeNestedMarkets),
     totalProperties: ranked.length,
     truncated: ranked.length > limit,
   })
 }
 
+interface TiedRow extends PropertyLocation {
+  target: MeasurementPlanV2['targets'][number]
+  population: TargetPopulation
+  mentionCoverage: MetricValue
+  citationCoverage: MetricValue
+}
+
 /**
  * Properties sharing the weakest row's exact rates. Among them the order is
- * only the label tie-break, so "first" is alphabetical, not worst.
+ * only the label tie-break, so "first" is alphabetical, not worst. The
+ * summary describes EVERY tied Property, so a tie larger than the returned
+ * rows can be placed and characterized without reading it row by row.
  */
-function weakestTie<Row extends { mentionCoverage: MetricValue; citationCoverage: MetricValue }>(
+function weakestTie<Row extends TiedRow>(
   ranked: readonly Row[],
 ): { summary: MeasurementPortfolioWeakestTie | null; rows: Row[] } {
   if (ranked.length === 0) return { summary: null, rows: [] }
@@ -891,10 +880,72 @@ function weakestTie<Row extends { mentionCoverage: MetricValue; citationCoverage
     && row.citationCoverage.state === 'available' && row.citationCoverage.value === citationRate
   ))
   if (rows.length < 2) return { summary: null, rows: [] }
+  const namedInstead = tieNamedInstead(rows)
   return {
-    summary: { count: rows.length, mentionRate, citationRate, note: MEASUREMENT_PORTFOLIO_TIE_NOTE },
+    summary: {
+      count: rows.length,
+      mentionRate,
+      citationRate,
+      note: MEASUREMENT_PORTFOLIO_TIE_NOTE,
+      byMetro: tieByMetro(rows),
+      namedInstead: namedInstead.rows,
+      namedInsteadTotal: namedInstead.total,
+    },
     rows,
   }
+}
+
+/**
+ * Tied Properties per top-level market, placed by the groups that hold them,
+ * never by label. A Property in two metros counts in both, which is the
+ * honest answer to "how many of this metro's Properties are tied at the
+ * bottom". Only the label is returned: the `markets` rows map it to its key.
+ */
+function tieByMetro(rows: readonly PropertyLocation[]): Array<{ metro: string | null; count: number }> {
+  const counts = new Map<string | null, { metro: MeasurementPortfolioMetro | null; count: number }>()
+  const add = (metro: MeasurementPortfolioMetro | null) => {
+    const key = metro?.groupKey ?? null
+    const existing = counts.get(key)
+    if (existing) existing.count++
+    else counts.set(key, { metro, count: 1 })
+  }
+  for (const row of rows) {
+    add(row.metro)
+    for (const other of row.otherMetros ?? []) add(other)
+  }
+  // Most first; the Properties in no metro sort after every named metro at the same count.
+  return [...counts.values()].sort((left, right) => (
+    right.count - left.count
+    || (left.metro === null ? 1 : 0) - (right.metro === null ? 1 : 0)
+    || compareText(left.metro?.label ?? '', right.metro?.label ?? '')
+    || compareText(left.metro?.groupKey ?? '', right.metro?.groupKey ?? '')
+  )).map(({ metro, count }) => ({ metro: metro?.label ?? null, count }))
+}
+
+/**
+ * Names written instead across every tied Property's answers. `answers`
+ * counts distinct stored answers: one answer serving two tied Properties is
+ * one answer, however many of them it missed.
+ */
+function tieNamedInstead(
+  rows: readonly Pick<TiedRow, 'target' | 'population'>[],
+): { rows: Array<{ name: string; answers: number }>; total: number } {
+  const grouped = new Map<string, { name: string; answers: Set<string> }>()
+  for (const { target, population } of rows) {
+    forEachNameWrittenInstead(target, population.answers, (key, name, answer) => {
+      const existing = grouped.get(key)
+      if (existing) {
+        if (compareText(name, existing.name) < 0) existing.name = name
+        existing.answers.add(answer.snapshot.id)
+      } else {
+        grouped.set(key, { name, answers: new Set([answer.snapshot.id]) })
+      }
+    })
+  }
+  const counted = [...grouped.values()]
+    .map(row => ({ name: row.name, answers: row.answers.size }))
+    .sort((left, right) => right.answers - left.answers || compareText(left.name, right.name))
+  return { rows: counted.slice(0, MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT), total: counted.length }
 }
 
 /**
@@ -971,6 +1022,7 @@ function propertyCompetitorsResponse(
       competitors: [],
       total: 0,
       truncated: false,
+      ...ownCitedDomains(population),
     })
   }
 
@@ -991,7 +1043,24 @@ function propertyCompetitorsResponse(
     competitors: competitors.slice(0, limit),
     total: competitors.length,
     truncated: competitors.length > limit,
+    ...ownCitedDomains(population),
   })
+}
+
+/**
+ * The domains this Property's own measured answers cited. Source capture does
+ * not depend on answer text, so an answer whose text did not land still counts,
+ * exactly as it does for citation coverage. Omitted when nothing was measured:
+ * an empty list would read as a measured absence of sources.
+ */
+function ownCitedDomains(population: TargetPopulation) {
+  if (population.sourceAnswers.length === 0) return {}
+  const domains = domainRows(population.sourceAnswers, MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT)
+  return {
+    citedDomains: domains.rows,
+    citedDomainsTotal: domains.total,
+    citedDomainsAnswers: population.sourceAnswers.length,
+  }
 }
 
 function changeTargetKeys(plan: MeasurementPlanV2, query: MeasurementChangesQuery): string[] {
@@ -1101,6 +1170,145 @@ function deltaChanged(previous: MetricValue, current: MetricValue): boolean {
   return true
 }
 
+/** Answers that named or cited a Property; absent on an unavailable metric. */
+function answerCount(metric: MetricValue): number | null {
+  return metric.state === 'available' ? metric.numerator ?? null : null
+}
+
+/** Answers a Property's rate was taken over; absent on an unavailable metric or an empty one. */
+function answerBase(metric: MetricValue): number | null {
+  return metric.state === 'available' && metric.denominator !== undefined && metric.denominator > 0
+    ? metric.denominator
+    : null
+}
+
+type MoveBucket = 'improved' | 'declined' | 'mixed' | 'withinNoise' | 'unchanged' | 'notComparable'
+
+export interface PropertyMove {
+  /** Current minus previous answer count; null unless both runs measured the signal. */
+  mentionAnswersDelta: number | null
+  citationAnswersDelta: number | null
+  /** A signal measured in both runs was taken over a different number of answers. */
+  denominatorChanged: boolean
+  /** Every measured move is at most `MEASUREMENT_CHANGES_NOISE_ANSWERS` answers. */
+  withinNoise: boolean
+  /** A direction counts only signals that moved beyond noise. */
+  bucket: MoveBucket
+  /** Absolute sizes for the magnitude order; -1 when the signal cannot be sized. */
+  mentionSize: number
+  citationSize: number
+}
+
+/**
+ * How one Property moved between two runs, sized in answers rather than rates:
+ * one answer is a large rate move on a small denominator and a tiny one on a
+ * large denominator, and the noise rule is about answers. A move is the rate
+ * change times the larger of the two denominators. That is the raw count
+ * change when the denominators match; it keeps a falling rate on a grown
+ * denominator from reading as a gain (1 of 1 to 4 of 8 is four answers down,
+ * not three up), and a collapse on a shrunken one from reading as noise (10
+ * of 12 to 0 of 2 is ten down, not under two). A signal unmeasured in both
+ * runs did not move; one measured in only one run, or over no answers, cannot
+ * be sized.
+ *
+ * Exported for its own unit test: the bucket rules need metric pairs the
+ * seeded run fixtures cannot all produce.
+ */
+export function classifyPropertyMove(
+  mention: { previous: MetricValue; current: MetricValue },
+  citation: { previous: MetricValue; current: MetricValue },
+): PropertyMove {
+  const size = (pair: { previous: MetricValue; current: MetricValue }): number | null => {
+    if (pair.previous.state === 'unavailable' && pair.current.state === 'unavailable') return 0
+    const previous = answerCount(pair.previous)
+    const current = answerCount(pair.current)
+    const previousBase = answerBase(pair.previous)
+    const currentBase = answerBase(pair.current)
+    if (previous === null || current === null || previousBase === null || currentBase === null) return null
+    // (current / currentBase - previous / previousBase) * base, divided once so
+    // equal denominators give the exact integer count change.
+    const base = Math.max(previousBase, currentBase)
+    return (current * previousBase - previous * currentBase) * base / (previousBase * currentBase)
+  }
+  const bothMeasured = (pair: { previous: MetricValue; current: MetricValue }) =>
+    pair.previous.state === 'available' && pair.current.state === 'available'
+  const answersDelta = (pair: { previous: MetricValue; current: MetricValue }): number | null => {
+    const previous = answerCount(pair.previous)
+    const current = answerCount(pair.current)
+    return bothMeasured(pair) && previous !== null && current !== null ? current - previous : null
+  }
+  const baseChanged = (pair: { previous: MetricValue; current: MetricValue }) =>
+    pair.previous.state === 'available' && pair.current.state === 'available'
+    && pair.previous.denominator !== pair.current.denominator
+  const mentionMove = size(mention)
+  const citationMove = size(citation)
+  const changed = deltaChanged(mention.previous, mention.current) || deltaChanged(citation.previous, citation.current)
+  const comparable = mentionMove !== null && citationMove !== null
+  const withinNoise = comparable
+    && Math.abs(mentionMove) <= MEASUREMENT_CHANGES_NOISE_ANSWERS
+    && Math.abs(citationMove) <= MEASUREMENT_CHANGES_NOISE_ANSWERS
+  let bucket: MoveBucket
+  if (!changed) bucket = 'unchanged'
+  else if (!comparable) bucket = 'notComparable'
+  else if (withinNoise) bucket = 'withinNoise'
+  else {
+    // Only a signal that moved beyond noise sets the direction: three more
+    // named with one fewer cited is a gain, not a mixed move. At least one
+    // signal is beyond noise here, so the move has a direction.
+    const directions = [mentionMove, citationMove]
+      .filter(move => Math.abs(move) > MEASUREMENT_CHANGES_NOISE_ANSWERS)
+    const up = directions.some(move => move > 0)
+    const down = directions.some(move => move < 0)
+    bucket = up && down ? 'mixed' : up ? 'improved' : 'declined'
+  }
+  return {
+    mentionAnswersDelta: answersDelta(mention),
+    citationAnswersDelta: answersDelta(citation),
+    denominatorChanged: baseChanged(mention) || baseChanged(citation),
+    withinNoise: changed && withinNoise,
+    bucket,
+    mentionSize: mentionMove === null ? -1 : Math.abs(mentionMove),
+    citationSize: citationMove === null ? -1 : Math.abs(citationMove),
+  }
+}
+
+interface ChangeOrderRow {
+  row: { label: string; targetKey: string }
+  move: Pick<PropertyMove, 'withinNoise' | 'mentionSize' | 'citationSize'>
+}
+
+function compareChangeLabel(left: ChangeOrderRow, right: ChangeOrderRow): number {
+  return compareText(left.row.label, right.row.label) || compareText(left.row.targetKey, right.row.targetKey)
+}
+
+/**
+ * The `magnitude` order. Every row beyond noise leads every row within it, so
+ * wobbles of one or two answers never push a real gain or loss off the page.
+ * Within each tier the larger of the two signal sizes leads, whichever signal
+ * it is, then the other size, then label: a citation-only move is as large as
+ * a mention-only move of the same size. A row whose signal changed
+ * availability is not within noise, and ranks by the signal that has a size.
+ *
+ * Exported for its own unit test: the seeded run fixtures cannot produce a
+ * signal measured in one run only beside rows within noise.
+ */
+export function compareChangeMagnitude(left: ChangeOrderRow, right: ChangeOrderRow): number {
+  const larger = (move: ChangeOrderRow['move']) => Math.max(move.mentionSize, move.citationSize)
+  const smaller = (move: ChangeOrderRow['move']) => Math.min(move.mentionSize, move.citationSize)
+  return Number(left.move.withinNoise) - Number(right.move.withinNoise)
+    || larger(right.move) - larger(left.move)
+    || smaller(right.move) - smaller(left.move)
+    || compareChangeLabel(left, right)
+}
+
+function changesMetrics(previous: MeasurementOverview, current: MeasurementOverview) {
+  return {
+    propertiesMentioned: metricDelta(countMetric(previous.propertiesMentioned), countMetric(current.propertiesMentioned)),
+    mentionCoverage: metricDelta(coverageMetric(previous.mentionCoverage), coverageMetric(current.mentionCoverage)),
+    citationCoverage: metricDelta(coverageMetric(previous.citationCoverage), coverageMetric(current.citationCoverage)),
+  }
+}
+
 function changesResponse(
   db: DatabaseClient,
   active: ActiveMeasurementPlan,
@@ -1115,26 +1323,39 @@ function changesResponse(
     executionIdentity: current ? runIdentity(current) : null,
     measurementScope: current === undefined ? null : current.measurementScope === null ? 'full' as const : 'spot_check' as const,
   }
+  const queryClass = query.queryClass
   if (!current) {
     return measurementChangesResponseSchema.parse({
       current: currentDto,
+      queryClass,
       comparison: { state: 'unavailable', reason: 'no_previous_run' },
     })
   }
   const previousResult = previousComparableRun(db, active, current)
   if (previousResult.state === 'unavailable') {
-    return measurementChangesResponseSchema.parse({ current: currentDto, comparison: previousResult })
+    return measurementChangesResponseSchema.parse({ current: currentDto, queryClass, comparison: previousResult })
   }
 
   const filters: MeasurementFilters = {
-    queryClass: query.queryClass,
+    queryClass,
     provider: query.provider,
     location: query.location,
   }
-  const currentAggregate = filteredOverviewWithDb(db, active, plan, current, filters, targetKeys).overview
-  const previousAggregate = filteredOverviewWithDb(db, active, plan, previousResult.run, filters, targetKeys).overview
+  // Each run is materialized once; every class below re-filters it in memory.
+  const currentRun = materializeWithDb(db, active, plan, current)
+  const previousRun = materializeWithDb(db, active, plan, previousResult.run)
+  const aggregates = (classFilters: MeasurementFilters) => ({
+    current: filteredEvaluator(currentRun, classFilters, targetKeys).evaluate(targetKeys),
+    previous: filteredEvaluator(previousRun, classFilters, targetKeys).evaluate(targetKeys),
+  })
+  const { current: currentAggregate, previous: previousAggregate } = aggregates(filters)
   const currentProperties = new Map(currentAggregate.properties.map(row => [row.targetId, row]))
   const previousProperties = new Map(previousAggregate.properties.map(row => [row.targetId, row]))
+  const distribution = {
+    improved: 0, declined: 0, mixed: 0, withinNoise: 0, unchanged: 0, notComparable: 0,
+    total: targetKeys.length,
+    noiseAnswers: MEASUREMENT_CHANGES_NOISE_ANSWERS,
+  }
   const changedProperties = targetKeys.flatMap(targetKey => {
     const target = requireTarget(plan, targetKey)
     const currentProperty = currentProperties.get(targetKey)
@@ -1151,22 +1372,42 @@ function changesResponse(
     const currentCitationCoverage = currentProperty
       ? coverageMetric(currentProperty.citationCoverage)
       : unavailable('no_population')
-    const mentionCoverage = metricDelta(previousMentionCoverage, currentMentionCoverage)
-    const citationCoverage = metricDelta(previousCitationCoverage, currentCitationCoverage)
-    if (
-      !deltaChanged(previousMentionCoverage, currentMentionCoverage)
-      && !deltaChanged(previousCitationCoverage, currentCitationCoverage)
-    ) return []
+    const move = classifyPropertyMove(
+      { previous: previousMentionCoverage, current: currentMentionCoverage },
+      { previous: previousCitationCoverage, current: currentCitationCoverage },
+    )
+    // Counted over every Property in scope, before the page is cut.
+    distribution[move.bucket]++
+    if (move.bucket === 'unchanged') return []
     return [{
-      ...propertyDto(target),
-      mentionCoverage,
-      citationCoverage,
-      flags: currentProperty?.flags ?? 0,
+      row: {
+        ...propertyDto(target),
+        mentionCoverage: metricDelta(previousMentionCoverage, currentMentionCoverage),
+        citationCoverage: metricDelta(previousCitationCoverage, currentCitationCoverage),
+        flags: currentProperty?.flags ?? 0,
+        mentionAnswersDelta: move.mentionAnswersDelta,
+        citationAnswersDelta: move.citationAnswersDelta,
+        denominatorChanged: move.denominatorChanged,
+        withinNoise: move.withinNoise,
+      },
+      move,
     }]
-  }).sort((left, right) => compareText(left.label, right.label) || compareText(left.targetKey, right.targetKey))
+  })
+  const sort = query.sort ?? MEASUREMENT_CHANGES_DEFAULT_SORT
+  changedProperties.sort(sort === 'label' ? compareChangeLabel : compareChangeMagnitude)
+  // A pooled move can hide an opposite move in one class, so an `all` read
+  // carries each class beside the pooled block.
+  const classMetrics = (classFilter: 'branded' | 'non-brand') => {
+    const { previous, current: latest } = aggregates({ ...filters, queryClass: classFilter })
+    return changesMetrics(previous, latest)
+  }
+  const metricsByClass = queryClass === 'all'
+    ? { branded: classMetrics('branded'), nonBrand: classMetrics('non-brand') }
+    : undefined
   const limit = query.limit ?? DEFAULT_LIMIT
   return measurementChangesResponseSchema.parse({
     current: currentDto,
+    queryClass,
     comparison: {
       state: 'available',
       previous: {
@@ -1176,12 +1417,11 @@ function changesResponse(
         executionIdentity: runIdentity(previousResult.run)!,
         measurementScope: previousResult.run.measurementScope === null ? 'full' as const : 'spot_check' as const,
       },
-      metrics: {
-        propertiesMentioned: metricDelta(countMetric(previousAggregate.propertiesMentioned), countMetric(currentAggregate.propertiesMentioned)),
-        mentionCoverage: metricDelta(coverageMetric(previousAggregate.mentionCoverage), coverageMetric(currentAggregate.mentionCoverage)),
-        citationCoverage: metricDelta(coverageMetric(previousAggregate.citationCoverage), coverageMetric(currentAggregate.citationCoverage)),
-      },
-      changedProperties: changedProperties.slice(0, limit),
+      metrics: changesMetrics(previousAggregate, currentAggregate),
+      ...(metricsByClass === undefined ? {} : { metricsByClass }),
+      sort,
+      distribution,
+      changedProperties: changedProperties.slice(0, limit).map(({ row }) => row),
       totalProperties: changedProperties.length,
       truncated: changedProperties.length > limit,
     },
@@ -1190,6 +1430,46 @@ function changesResponse(
 
 function unavailableQuality(reason: 'no_completed_run' | 'incomplete' | 'evidence_incomplete' | 'no_population' | 'not_applicable') {
   return { state: 'unavailable' as const, reason }
+}
+
+/**
+ * Answers each class's mention rates leave out because their identity could
+ * not be resolved, read through the same kernel as those rates so the two
+ * never disagree. Every class is read on its own: a pooled count once hid a
+ * branded class's unattributed answers behind a non-brand read of zero.
+ */
+function unattributedByClass(plan: MeasurementPlanV2, run: RunRow, materialized: MaterializedRun) {
+  const targetKeys = targetKeysForRun(plan, run, plan.targets.map(target => target.stableKey), false)
+  const read = (queryClass: 'branded' | 'non-brand') => {
+    const overview = filteredEvaluator(materialized, { queryClass }, targetKeys).evaluate(targetKeys)
+    const rate = overview.mentionCoverage
+    if (rate.rate !== null) {
+      return { state: 'available' as const, answered: overview.answeredSlots, unattributed: rate.unattributed ?? 0 }
+    }
+    switch (rate.reason) {
+      // Nothing was left to measure: every answer in the class was unattributed.
+      case 'identity-ambiguous':
+        return { state: 'available' as const, answered: overview.answeredSlots, unattributed: overview.answeredSlots }
+      case 'no-population': return unavailableQuality('no_population')
+      case 'aliasless':
+      case 'no-competitors':
+      case 'no-project-aliases': return unavailableQuality('not_applicable')
+      default: return unavailableQuality('evidence_incomplete')
+    }
+  }
+  return { branded: read('branded'), nonBrand: read('non-brand') }
+}
+
+/**
+ * The newest attempt to complete this run in place. Its answers already count
+ * in the completeness figures; this says the run was topped up, and by how much.
+ */
+function latestRunFill(db: DatabaseClient, runId: string) {
+  const fill = db.select().from(runFills).where(eq(runFills.runId, runId))
+    .orderBy(desc(runFills.createdAt), desc(runFills.id)).get()
+  if (!fill) return null
+  const { status, providers, expected, filled, createdAt, finishedAt } = formatRunFill(fill)
+  return { status, providers, expected, filled, createdAt, finishedAt }
 }
 
 function qualityResponse(
@@ -1212,6 +1492,8 @@ function qualityResponse(
       retrieval: unavailableQuality('no_completed_run'),
       population: unavailableQuality('no_completed_run'),
       comparison: { state: 'unavailable', reason: 'no_previous_run' },
+      unattributedByClass: { branded: unavailableQuality('no_completed_run'), nonBrand: unavailableQuality('no_completed_run') },
+      latestFill: null,
     })
   }
 
@@ -1219,6 +1501,8 @@ function qualityResponse(
   const comparisonDto = comparison.state === 'available'
     ? { state: 'available' as const, previousDisplayedRunId: comparison.run.id }
     : comparison
+  // A fill is tracked apart from the answers, so it stays readable when they are not.
+  const latestFill = latestRunFill(db, run.id)
   try {
     const materialized = materializeWithDb(db, active, plan, run)
     const expected = materialized.manifest.expectedSlots.length
@@ -1277,6 +1561,8 @@ function qualityResponse(
         missingQuestions: expectedExecutions.size - answeredExecutions.size,
       },
       comparison: comparisonDto,
+      unattributedByClass: unattributedByClass(plan, run, materialized),
+      latestFill,
     })
   } catch {
     return measurementDataQualityResponseSchema.parse({
@@ -1286,6 +1572,8 @@ function qualityResponse(
       retrieval: unavailableQuality('evidence_incomplete'),
       population: unavailableQuality('evidence_incomplete'),
       comparison: comparisonDto,
+      unattributedByClass: { branded: unavailableQuality('evidence_incomplete'), nonBrand: unavailableQuality('evidence_incomplete') },
+      latestFill,
     })
   }
 }

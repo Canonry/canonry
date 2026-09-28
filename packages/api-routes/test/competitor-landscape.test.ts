@@ -22,6 +22,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   canonicalMeasurementPlanV2Json,
+  COMPETITOR_LANDSCAPE_COUNT_UNITS,
   competitorLandscapeResponseSchema,
   measurementPlanV2Schema,
 } from '@ainyc/canonry-contracts'
@@ -501,6 +502,79 @@ describe('GET /projects/:name/analytics/competitors', () => {
 
     // Omitting the filter is the same pooled reading, not a scoped one.
     expect((await read('groupBy=model')).project.shareOfVoice).toBeNull()
+  })
+
+  it('names the runs it pools and reads the latest sweep with runId=latest', async () => {
+    const OLDER = '2026-08-10T12:00:00.000Z'
+    db.insert(runs).values({
+      id: 'run_older', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, createdAt: OLDER,
+    }).run()
+    db.insert(querySnapshots).values(
+      marketSnapshot('snapshot_older', 'run_older', null, 'Northwind and Rival.', 'rival.example', OLDER),
+    ).run()
+
+    const read = async (query = '') => {
+      const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?window=all${query}` })
+      expect(response.statusCode, response.body).toBe(200)
+      return competitorLandscapeResponseSchema.parse(response.json())
+    }
+
+    const pooled = await read()
+    // Probe and failed runs are excluded, so they are not pooled either.
+    expect(pooled).toMatchObject({ runCount: 2, runIds: ['run_normal', 'run_older'], evidence: { answeredResults: 2 } })
+    expect(pooled.countUnits).toEqual(COMPETITOR_LANDSCAPE_COUNT_UNITS)
+    expect(pooled.countUnits?.distinctNames).toEqual(['observedNamesTotal'])
+
+    const latest = await read('&runId=latest')
+    expect(latest).toMatchObject({ runCount: 1, runIds: ['run_normal'], evidence: { answeredResults: 1 } })
+    expect(latest.filters.runId).toBe('latest')
+    expect((await read('&runId=run_older')).runIds).toEqual(['run_older'])
+  })
+
+  it('resolves runId=latest to the run the measurement reads display on a v2 project', async () => {
+    seedVersion('latest-plan', 1, marketPlan('latest-node', 'plan-rival.example', 'Plan Rival'))
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'latest-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    const plannedRun = (id: string, status: 'completed' | 'partial', createdAt: string) => ({
+      id, projectId: 'project_northwind', kind: 'answer-visibility' as const, status, trigger: 'manual' as const,
+      measurementPlanVersionId: 'latest-plan', location: null, createdAt,
+    })
+    db.insert(runs).values([
+      plannedRun('plan-older', 'completed', '2026-08-10T12:00:00.000Z'),
+      plannedRun('plan-current', 'completed', NOW),
+      // Newer, but partial: the measurement reads never display it, so neither does `latest`.
+      plannedRun('plan-partial', 'partial', '2026-08-21T12:00:00.000Z'),
+    ]).run()
+    db.insert(querySnapshots).values([
+      marketSnapshot('plan-older-answer', 'plan-older', 'latest-node', 'Northwind and Plan Rival.', 'plan-rival.example', '2026-08-10T12:00:00.000Z'),
+      marketSnapshot('plan-current-answer', 'plan-current', 'latest-node', 'Northwind and Plan Rival.', 'plan-rival.example'),
+      marketSnapshot('plan-partial-answer', 'plan-partial', 'latest-node', 'Northwind.', 'listings.example', '2026-08-21T12:00:00.000Z'),
+    ]).run()
+
+    const landscape = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?queryClass=non-brand&runId=latest',
+    })
+    expect(landscape.statusCode, landscape.body).toBe(200)
+    expect(landscape.json()).toMatchObject({
+      scope: { kind: 'all-markets' }, runCount: 1, runIds: ['plan-current'], evidence: { answeredResults: 1 },
+    })
+
+    const pooledLandscape = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?queryClass=non-brand',
+    })
+    // The planless fixture run has no frozen class, so it contributes no answer and is not pooled.
+    expect(pooledLandscape.json()).toMatchObject({ runCount: 3, runIds: ['plan-partial', 'plan-current', 'plan-older'] })
+
+    const sources = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/sources?queryClass=non-brand&runId=latest&includeByQuery=false',
+    })
+    expect(sources.statusCode, sources.body).toBe(200)
+    expect(sources.json()).toMatchObject({
+      runId: 'plan-current', runIds: ['plan-current'], runCount: 1, pooledAcrossRuns: false,
+      answerTotal: 1, unclassifiedAnswers: 0, filters: { runId: 'latest', queryClassBasis: 'measurement-plan' },
+    })
   })
 
   it('refuses a class-scoped read it cannot classify instead of reporting an empty landscape', async () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  MEASUREMENT_CHANGES_DEFAULT_SORT,
+  MEASUREMENT_CHANGES_NOISE_ANSWERS,
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NOTE,
   measurementChangesQuerySchema,
@@ -333,5 +335,105 @@ describe('advanced measurement demo reads', () => {
       ...response,
       capture: { state: 'unavailable', reason: 'no_completed_run', complete: 0 },
     }).success).toBe(false)
+  })
+
+  it('places the whole weakest tie by metro and counts its names written instead against a total', () => {
+    const tie = {
+      ...SUMMARY.tiedAtWeakest,
+      byMetro: [{ metro: 'Harbor Metro', count: 2 }, { metro: null, count: 1 }],
+      namedInstead: [{ name: 'Harborline Homes', answers: 3 }],
+      namedInsteadTotal: 4,
+    }
+    expect(measurementPortfolioSummaryResponseSchema.parse({ ...SUMMARY, tiedAtWeakest: tie }).tiedAtWeakest).toEqual(tie)
+    // Absent on servers that predate the roll-ups.
+    expect(measurementPortfolioSummaryResponseSchema.safeParse(SUMMARY).success).toBe(true)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, tiedAtWeakest: { ...tie, namedInsteadTotal: 0 } }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, tiedAtWeakest: { ...tie, namedInsteadTotal: undefined } }).success).toBe(false)
+    expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, tiedAtWeakest: { ...tie, byMetro: [{ metro: 'Harbor Metro', count: 0 }] } }).success).toBe(false)
+  })
+
+  it('bounds a Property\'s own cited domains by the answers they were counted over', () => {
+    const response = {
+      property: PROPERTY,
+      measurement: MEASUREMENT,
+      queryClass: 'non-brand' as const,
+      basis: { state: 'available' as const, answeredResults: 4, targetMissResults: 3, recommendationOccurrences: 0 },
+      competitors: [],
+      total: 0,
+      truncated: false,
+    }
+    const cited = { citedDomains: [{ domain: 'listings.example', answers: 4 }], citedDomainsTotal: 2, citedDomainsAnswers: 4 }
+    expect(measurementPropertyCompetitorsResponseSchema.parse({ ...response, ...cited })).toMatchObject(cited)
+    expect(measurementPropertyCompetitorsResponseSchema.safeParse(response).success).toBe(true)
+    expect(measurementPropertyCompetitorsResponseSchema.safeParse({ ...response, ...cited, citedDomainsAnswers: 3 }).success).toBe(false)
+    expect(measurementPropertyCompetitorsResponseSchema.safeParse({ ...response, ...cited, citedDomainsTotal: 0 }).success).toBe(false)
+    expect(measurementPropertyCompetitorsResponseSchema.safeParse({ ...response, citedDomains: cited.citedDomains }).success).toBe(false)
+  })
+
+  it('orders changes by magnitude unless asked for labels, and splits every Property into one move bucket', () => {
+    expect(MEASUREMENT_CHANGES_DEFAULT_SORT).toBe('magnitude')
+    expect(MEASUREMENT_CHANGES_NOISE_ANSWERS).toBe(2)
+    expect(measurementChangesQuerySchema.parse({ sort: 'label' })).toEqual({ scope: 'all', queryClass: 'all', sort: 'label' })
+    expect(measurementChangesQuerySchema.safeParse({ sort: 'size' }).success).toBe(false)
+
+    const delta = { state: 'available' as const, previous: METRIC, current: METRIC, delta: 0 }
+    const metrics = { propertiesMentioned: delta, mentionCoverage: delta, citationCoverage: delta }
+    const distribution = { improved: 1, declined: 0, mixed: 0, withinNoise: 1, unchanged: 3, notComparable: 0, total: 5, noiseAnswers: 2 }
+    const response = {
+      current: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' as const },
+      queryClass: 'all' as const,
+      comparison: {
+        state: 'available' as const,
+        previous: {
+          displayedRunId: 'run-cedar-00', planRevision: 2,
+          completedAt: '2026-08-01T12:00:00.000Z', executionIdentity: 'identity-cedar-a',
+          measurementScope: 'full' as const,
+        },
+        metrics,
+        metricsByClass: { branded: metrics, nonBrand: metrics },
+        sort: 'magnitude' as const,
+        distribution,
+        changedProperties: [{
+          ...PROPERTY, mentionCoverage: delta, citationCoverage: delta, flags: 0,
+          mentionAnswersDelta: 3, citationAnswersDelta: null, withinNoise: false,
+        }],
+        totalProperties: 2,
+        truncated: true,
+      },
+    }
+    expect(measurementChangesResponseSchema.parse(response)).toMatchObject({ queryClass: 'all', comparison: { distribution } })
+    const withDistribution = (changed: Partial<typeof distribution>) =>
+      measurementChangesResponseSchema.safeParse({ ...response, comparison: { ...response.comparison, distribution: { ...distribution, ...changed } } }).success
+    // The buckets must account for every Property, and the changed ones must match the rows' total.
+    expect(withDistribution({ total: 6 })).toBe(false)
+    expect(withDistribution({ unchanged: 2, mixed: 1 })).toBe(false)
+    expect(withDistribution({ noiseAnswers: 3 } as never)).toBe(false)
+    expect(measurementChangesResponseSchema.safeParse({
+      ...response, comparison: { ...response.comparison, metricsByClass: { branded: metrics } },
+    }).success).toBe(false)
+  })
+
+  it('reports unattributed answers per class and the newest fill beside the completeness counts', () => {
+    const base = {
+      run: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' as const },
+      completeness: { state: 'available' as const, expected: 8, executed: 8, answered: 8, missing: 0 },
+      capture: { state: 'available' as const, complete: 8, partial: 0, failed: 0, unsupported: 0, notRecorded: 0 },
+      retrieval: { state: 'available' as const, used: 8, notUsed: 0, unknown: 0, notApplicable: 0, notRecorded: 0 },
+      population: { state: 'available' as const, expectedQuestions: 4, answeredQuestions: 4, missingQuestions: 0 },
+      comparison: { state: 'unavailable' as const, reason: 'no_previous_run' as const },
+    }
+    const extra = {
+      unattributedByClass: {
+        branded: { state: 'available' as const, answered: 4, unattributed: 1 },
+        nonBrand: { state: 'unavailable' as const, reason: 'no_population' as const },
+      },
+      latestFill: { status: 'completed' as const, providers: ['gemini'], expected: 2, filled: 2, createdAt: '2026-08-02T12:30:00.000Z', finishedAt: '2026-08-02T12:35:00.000Z' },
+    }
+    expect(measurementDataQualityResponseSchema.parse({ ...base, ...extra })).toMatchObject(extra)
+    expect(measurementDataQualityResponseSchema.safeParse({ ...base, ...extra, latestFill: null }).success).toBe(true)
+    expect(measurementDataQualityResponseSchema.safeParse({
+      ...base, ...extra, unattributedByClass: { ...extra.unattributedByClass, branded: { state: 'available', answered: 1, unattributed: 2 } },
+    }).success).toBe(false)
+    expect(measurementDataQualityResponseSchema.safeParse({ ...base, ...extra, latestFill: { ...extra.latestFill, status: 'done' } }).success).toBe(false)
   })
 })

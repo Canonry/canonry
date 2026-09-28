@@ -233,11 +233,37 @@ export interface SuggestedQueriesSummaryDto {
   skippedAlreadyTracked: number
 }
 
+/**
+ * Class label for the overview's query-level figures. They count tracked
+ * queries with branded and non-brand in one denominator, so none of them is a
+ * non-brand (or branded) figure. `scores.mentionShare` is the one class-split
+ * figure and is not listed.
+ */
+export interface ProjectOverviewQueryClassScopeDto {
+  queryClass: 'all'
+  /** The overview fields that pool both classes. */
+  figures: string[]
+  note: string
+}
+
+export const PROJECT_OVERVIEW_QUERY_CLASS_SCOPE: ProjectOverviewQueryClassScopeDto = {
+  queryClass: 'all',
+  figures: [
+    'queryCounts', 'providers', 'transitions',
+    'scores.mention', 'scores.visibility', 'scores.gapQueries', 'scores.mentionGaps', 'scores.competitorPressure',
+    'movementSummary', 'citationMovement', 'mentionMovement', 'movementComparison',
+    'competitors', 'providerScores', 'runHistory',
+  ],
+  note: 'These figures pool branded and non-brand queries in one denominator. Only scores.mentionShare splits the classes. For one class, use a read filtered by queryClass.',
+}
+
 export interface ProjectOverviewDto {
   project: ProjectDto
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
   topInsights: InsightDto[]
+  /** Which query class `figures` cover: always `all`. Optional only so an older server's response still parses. */
+  queryClassScope?: ProjectOverviewQueryClassScopeDto
   queryCounts: ProjectOverviewQueryCountsDto
   providers: ProjectOverviewProviderEntryDto[]
   transitions: ProjectOverviewTransitionsDto
@@ -390,6 +416,11 @@ export const projectOverviewDtoSchema = z.object({
   latestRun: latestProjectRunDtoSchema,
   health: projectOverviewHealthSchema.nullable(),
   topInsights: z.array(projectOverviewInsightSchema),
+  queryClassScope: z.object({
+    queryClass: z.literal('all'),
+    figures: z.array(z.string()),
+    note: z.string(),
+  }).optional(),
   queryCounts: z.object({
     totalQueries: z.number().int().nonnegative(),
     citedQueries: z.number().int().nonnegative(),

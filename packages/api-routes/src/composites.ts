@@ -20,6 +20,7 @@ import {
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
   RunKinds,
   RunStatuses,
@@ -326,6 +327,9 @@ export async function compositeRoutes(app: FastifyInstance) {
       latestRun,
       health,
       topInsights,
+      // The counts, scores, and movement below pool branded and non-brand
+      // queries. The label says so; the numbers are unchanged.
+      queryClassScope: PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
       queryCounts,
       providers,
       transitions,
