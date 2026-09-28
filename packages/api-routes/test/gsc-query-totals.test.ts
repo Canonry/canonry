@@ -10,8 +10,9 @@ import { mergeGscQueryTotalsWithFallback, readGscQueryDailyRows } from '../src/g
  * `gsc_search_data` carries the `page` dimension, so one SERP showing several
  * of the site's URLs becomes several rows. Summing it by query multiplies
  * impressions by how many pages ranked together. Measured on a live property:
- * "harborline hotel" read 11,900 impressions summed against a true 2,000 (+495%),
- * while single-page queries were within 1%.
+ * one multi-page query summed to +495% over its true impressions, while
+ * single-page queries were within 1%. The fixture below uses illustrative
+ * figures in the same ratio ("harborline hotel", 11,900 summed against 2,000).
  */
 describe('mergeGscQueryTotalsWithFallback', () => {
   const day = (date: string, query: string, clicks: number, impressions: number, position = 3) =>
