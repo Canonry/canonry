@@ -10,7 +10,7 @@ import type {
   CcReleaseSyncDto,
   RunDto,
 } from '@ainyc/canonry-contracts'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatPercent, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
@@ -85,7 +85,8 @@ export function formatSummaryAndDomains(
   lines.push(`Target:  ${s.targetDomain}`)
   lines.push(`Linking domains: ${s.totalLinkingDomains}`)
   lines.push(`Total hosts:     ${s.totalHosts}`)
-  lines.push(`Top-10 share:    ${s.top10HostsShare}`)
+  // The wire value is a six-decimal fraction string (`'0.734512'`).
+  lines.push(`Top-10 share:    ${formatPercent(Number(s.top10HostsShare))}`)
   if (s.excludedLinkingDomains !== undefined && s.excludedLinkingDomains > 0) {
     lines.push(`Excluded:        ${s.excludedLinkingDomains} crawler/proxy domains (${s.excludedHosts ?? 0} hosts)`)
   }

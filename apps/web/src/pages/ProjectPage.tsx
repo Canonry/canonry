@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -60,7 +60,7 @@ import {
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { ReportPage } from './ReportPage.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
@@ -612,7 +612,7 @@ function BingSection({
               <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
               <BingSummaryMetric label="Not in index" value={coverage.summary.notIndexed + (coverage.summary.unknown ?? 0)} tone="negative" />
               <BingSummaryMetric label="Status unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
-              <BingSummaryMetric label="Coverage" value={`${coverage.summary.percentage}%`} tone="neutral" />
+              <BingSummaryMetric label="Coverage" value={formatPercent(coverage.summary.percentage, RatioUnits.percent)} tone="neutral" />
             </div>
 
             {coverage.notIndexed.length > 0 && (
@@ -813,7 +813,7 @@ function BingSection({
                         <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.query}</td>
                         <td className="py-1.5 px-3 text-right text-strong">{row.clicks}</td>
                         <td className="py-1.5 px-3 text-right text-secondary">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                        <td className="py-1.5 px-3 text-right text-secondary">{formatPercent(row.ctr)}</td>
                         <td className="py-1.5 px-3 text-right text-secondary">{row.averagePosition.toFixed(1)}</td>
                       </tr>
                     ))}
@@ -1123,7 +1123,9 @@ function OverviewMetricRow({
   displayValue?: React.ReactNode
   tooltip?: string
 }) {
-  const numeric = summary.value.trim() !== '' && Number.isFinite(Number(summary.value))
+  // A ratio gauge's value arrives already formatted ("66.7%"); the sign is
+  // set apart, never appended, so a count or a label ("No data") shows as sent.
+  const { figure, sign } = splitPercentSign(summary.value)
   const progress = summary.progress !== undefined
     ? Math.min(Math.max(summary.progress, 0), 100)
     : 0
@@ -1137,8 +1139,8 @@ function OverviewMetricRow({
       <p className={`aeo-hero-row-value ${METRIC_TONE_TEXT_CLASS[summary.tone]}`}>
         {displayValue ?? (
           <>
-            {summary.value}
-            {numeric ? <span className="text-faint">%</span> : null}
+            {figure}
+            {sign ? <span className="text-faint">{sign}</span> : null}
           </>
         )}
       </p>
@@ -3158,7 +3160,7 @@ function ProjectPageContent({
                               {ps.model && <span className="text-[11px] font-mono text-muted">{ps.model}</span>}
                             </div>
                           </td>
-                          <td><span className="font-semibold text-strong">{ps.score}%</span></td>
+                          <td><span className="font-semibold text-strong">{formatPercent(ps.score, RatioUnits.percent)}</span></td>
                           <td className="text-muted">{ps.cited} of {ps.total}</td>
                         </tr>
                       ))}

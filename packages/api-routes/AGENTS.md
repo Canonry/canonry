@@ -25,6 +25,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
+| `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
@@ -460,6 +461,15 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `all` and an omitted window mean full retained history: totals and sibling history routes stay unbounded.
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
+- Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
+
+### GA4 trend movers
+
+`src/ga-source-mover.ts`: `findBiggestMover` picks the source whose sessions changed most, in either direction, over the last 7 days against the 7 before.
+
+- Every source seen in EITHER period is a candidate, so a source that stopped sending sessions is a -100% mover.
+- `changePct` comes from `deltaPercent` and is null from a zero prior; `changeBasis` is then `new`. Never fall back to a number: growth from nothing is not +100%.
+- Below `MIN_PCT_BASE` prior sessions `changeBasis` is `small-base`, and surfaces state `changeSessions`, not the percent.
 
 ### OpenAI ads writes (Critical)
 
@@ -619,6 +629,7 @@ WordPress backfill is forbidden while either continuation field is set.
 - The dashboard graph reads only the persisted 20k-node / 50k-edge projection; agent reads traverse canonical page/edge rows without layout coordinates and return bounded/truncated states.
 - Every link-bearing read tags each edge `isTemplate` (nav, header, or footer chrome) plus `templateSource` and `placementOccurrences` (which rule decided it and the DOM evidence behind it), accepts a `linkKind` filter (`all` by default, so an existing caller's counts do not move), and reports `templateDetection`, so an empty content-only list can never be mistaken for a real zero and no count silently mixes the placement and ubiquity rules.
 - `templateSource` is derived at read time from the row plus ITS OWN scan's detection state, which is why `mapCrawlEdge` takes the detection: a scan that never recorded placement cannot report `placement`. It also reads the stored `templateRatio`, so an edge the fallback could not measure (a redirect, a canonical, an unresolved target) reports `unmeasured` instead of being credited to a rule that produced no number.
+- Every audit factor on the score, pages, and page-audit reads carries `sharePct` (its share of the score, 0..100) beside its relative `weight`. Factor JSON stored before the field existed reads `sharePct: null` (`withRecordedShare`, and the schema default on the page-audit parse), never 0 and never the weight, and a complete evidence row without it stays `complete`.
 - `isTemplate` is a strict boolean on every classified row, so `linkKind=content` returns the same set on the graph read, the link list, and the neighbour read.
 - The graph read adds `totalTemplateEdges` / `totalContentEdges` beside the unchanged `totalEdges`, and its ready layout says whether template links were excluded from the physics.
 

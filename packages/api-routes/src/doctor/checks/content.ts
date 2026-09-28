@@ -5,6 +5,7 @@ import {
   CheckScopes,
   CheckStatuses,
   classifyCitedSurface,
+  formatPercent,
 } from '@ainyc/canonry-contracts'
 import { loadOrchestratorInput } from '../../content-data.js'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
@@ -28,10 +29,6 @@ function loadProject(ctx: DoctorContext) {
     .from(projects)
     .where(eq(projects.id, ctx.project.id))
     .get() ?? null
-}
-
-function percent(value: number): number {
-  return Math.round(value * 100)
 }
 
 const winnabilityCoverageCheck: CheckDefinition = {
@@ -117,7 +114,7 @@ const winnabilityCoverageCheck: CheckDefinition = {
       return {
         status: CheckStatuses.warn,
         code: 'content.winnability.low-coverage',
-        summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${percent(coverage)}%); the winnability gate may miss ceded surfaces in the unrecognized tail.`,
+        summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${formatPercent(coverage)}); the winnability gate may miss ceded surfaces in the unrecognized tail.`,
         remediation: discoverRemediation,
         details,
       }
@@ -126,7 +123,7 @@ const winnabilityCoverageCheck: CheckDefinition = {
     return {
       status: CheckStatuses.ok,
       code: 'content.winnability.covered',
-      summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${percent(coverage)}%); the winnability gate is active.`,
+      summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${formatPercent(coverage)}); the winnability gate is active.`,
       remediation: null,
       details,
     }

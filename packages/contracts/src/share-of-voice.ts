@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { formatPercent } from './formatting.js'
+import { RatioUnits } from './ratio-unit.js'
 
 export const shareOfVoiceContextSchema = z.object({
   basis: z.enum(['tracked', 'observed']).nullable(),
@@ -23,10 +25,11 @@ export function shareOfVoiceReason(reason: ShareOfVoiceContext['reason']): strin
   }
 }
 
+/** `percent` is the wire share of voice, 0..100: `25.0% · tracked competitors`. */
 export function shareOfVoiceLabel(percent: number | null, context?: Partial<ShareOfVoiceContext>): string {
   const value = context?.availability === 'unavailable' ? 'Unavailable'
     : context?.availability === 'not-measured' || percent === null ? 'Not measured'
-      : `${percent.toFixed(1)}%`
+      : formatPercent(percent, RatioUnits.percent)
   return context?.basis ? `${value} · ${context.basis} competitors` : value
 }
 

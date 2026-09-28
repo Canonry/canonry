@@ -74,6 +74,7 @@ export interface SiteGraphSigmaNode extends SiteGraphHealthSource {
   depth: number | null
   /** Page-level Technical AEO score. It does not affect graph color or size. */
   auditScore?: number | null
+  /** Internal-link importance, 0 to 100 against the crawl's top page. It sets the node size. */
   linkScoreNormalized: number | null
   inventoryEligible?: boolean
   x: number
@@ -214,8 +215,9 @@ function lexical(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
+/** The link score as a 0 to 1 share of the crawl's top page, which scores 100. */
 function normalizedScore(node: SiteGraphSigmaNode): number {
-  return Math.max(0, Math.min(1, node.linkScoreNormalized ?? 0))
+  return Math.max(0, Math.min(1, (node.linkScoreNormalized ?? 0) / 100))
 }
 
 /**

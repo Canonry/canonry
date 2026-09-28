@@ -1,5 +1,6 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { validationError } from './errors.js'
 import { measurementExecutionIdentitySchema } from './measurement-plan.js'
 import { modelPointerChangeDisclosureSchema } from './model-pointers.js'
@@ -22,10 +23,10 @@ export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
 /** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
 export const providerMetricSchema = z.object({
-  citationRate: z.number(),
+  citationRate: fraction(),
   cited: z.number().int(),
   total: z.number().int(),
-  mentionRate: z.number(),
+  mentionRate: fraction(),
   mentionedCount: z.number().int(),
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
@@ -201,7 +202,7 @@ export type ModelServiceMismatch = z.infer<typeof modelServiceMismatchSchema>
 export const mentionShareBucketMetricSchema = z.object({
   /** Query scope behind this number. `pooled` means the project had no usable identity for a split. */
   scope: z.enum(['non-brand', 'pooled']),
-  rate: z.number().nullable(),
+  rate: fraction().nullable(),
   projectMentionSnapshots: z.number().int().nonnegative(),
   competitorMentionSnapshots: z.number().int().nonnegative(),
 })
@@ -238,11 +239,11 @@ export const timeBucketSchema = z.object({
    * — surface that rather than implying a single reading.
    */
   sweepCount: z.number().int().nonnegative(),
-  citationRate: z.number(),
+  citationRate: fraction(),
   cited: z.number().int(),
   total: z.number().int(),
   queryCount: z.number().int(),
-  mentionRate: z.number(),
+  mentionRate: fraction(),
   mentionedCount: z.number().int(),
   mentionShare: mentionShareBucketMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
@@ -257,6 +258,36 @@ export const timeBucketSchema = z.object({
   basketRevision: z.number().int().nullable().default(null),
 })
 export type TimeBucket = z.infer<typeof timeBucketSchema>
+
+/**
+ * One overall trend series' change across the window: the latest bucket's
+ * rate minus the first bucket's, each the bucket's own 0..1 rate. This is the
+ * change the dashboard's trend head prints beside the latest rate, computed
+ * here so the CLI, MCP and Aero read the same number.
+ */
+export const windowRateChangeSchema = z.object({
+  /** The rate of the first bucket that carries this series. */
+  first: fraction(z.number().min(0).max(1)),
+  /** The rate of the latest bucket that carries this series. */
+  latest: fraction(z.number().min(0).max(1)),
+  /** `latest - first` in fraction points, rounded to wire precision like the rates it subtracts. */
+  delta: fraction(z.number().min(-1).max(1)),
+})
+export type WindowRateChange = z.infer<typeof windowRateChangeSchema>
+
+/**
+ * Change across the window for each overall trend series, keyed by the bucket
+ * field it reads. A series is null when fewer than two buckets carry its rate,
+ * because one point is not a change. `mentionShare` reads `mentionShare.rate`
+ * and skips the buckets where that share is undefined (null), exactly as the
+ * chart leaves them unplotted.
+ */
+export const windowChangeSchema = z.object({
+  citationRate: windowRateChangeSchema.nullable(),
+  mentionRate: windowRateChangeSchema.nullable(),
+  mentionShare: windowRateChangeSchema.nullable(),
+})
+export type WindowChange = z.infer<typeof windowChangeSchema>
 
 /**
  * A point where the measured query set actually changed, derived from recorded
@@ -305,6 +336,11 @@ export const brandMetricsDtoSchema = z.object({
   byProvider: z.record(z.string(), providerMetricSchema),
   trend: trendDirectionSchema,
   mentionTrend: trendDirectionSchema,
+  /**
+   * Each overall series' change from its first to its latest bucket in this
+   * window. A server that predates the field reads as no change to compare.
+   */
+  windowChange: windowChangeSchema.default(() => ({ citationRate: null, mentionRate: null, mentionShare: null })),
   queryChanges: z.array(queryChangeEventSchema),
   /**
    * Recorded changes to the measured query set inside this window, newest last.
@@ -398,8 +434,8 @@ export const sourceCategoryCountSchema = z.object({
   category: sourceCategorySchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of all cited slots in scope, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of all cited slots in scope, 0..1 (at wire precision). */
+  percentage: fraction(),
   topDomains: z.array(z.object({ domain: z.string(), count: z.number().int() })),
 })
 export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
@@ -414,14 +450,14 @@ export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
+  percentage: fraction(),
   /**
    * Share of the list's `answerTotal` (every answer in scope, including answers
-   * that cited nothing) that cite this domain, 0..1 (4dp). Optional only so an
+   * that cited nothing) that cite this domain, 0..1 (at wire precision). Optional only so an
    * older server's response still parses.
    */
-  answerShare: z.number().optional(),
+  answerShare: fraction().optional(),
   category: sourceCategorySchema,
   label: z.string(),
   surfaceClass: surfaceClassSchema,
@@ -433,8 +469,8 @@ export const surfaceClassCountSchema = z.object({
   surfaceClass: surfaceClassSchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
+  percentage: fraction(),
   domainCount: z.number().int(),
 })
 export type SurfaceClassCount = z.infer<typeof surfaceClassCountSchema>
@@ -667,7 +703,7 @@ export const competitorLandscapeRowSchema = z.object({
    * branded queries by definition, so a pooled ratio flatters the project and
    * buries every competitor. Counts stay populated either way.
    */
-  shareOfVoice: z.number().min(0).max(100).nullable(),
+  shareOfVoice: percent(z.number().min(0).max(100)).nullable(),
   /** One source-list credit at most per result. Independent of mentions. */
   citationCount: z.number().int().nonnegative(),
   /** Answer-text result count behind the mention field. */

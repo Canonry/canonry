@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { queryClassFilterSchema, queryClassSchema } from './query-class.js'
 import { hostOf } from './url-normalize.js'
@@ -485,7 +486,7 @@ export type MeasurementMetricUnavailableReason = z.output<typeof measurementMetr
 export const measurementMetricValueSchema = z.discriminatedUnion('state', [
   z.object({
     state: z.literal('available'),
-    value: z.number(),
+    value: fraction(),
     numerator: z.number().int().nonnegative().optional(),
     denominator: z.number().int().positive().optional(),
     /**
@@ -500,6 +501,26 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
   }).strict(),
 ])
 export type MetricValue = z.output<typeof measurementMetricValueSchema>
+
+/**
+ * `propertiesMentioned`: how many Properties were mentioned (the numerator),
+ * with the eligible population in `denominator`. The same shape as
+ * `measurementMetricValueSchema`, but `value` is a count, not a 0..1 coverage,
+ * so it declares no ratio unit and is never shown as a percent.
+ */
+export const measurementCountMetricValueSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    value: z.number().int().nonnegative(),
+    numerator: z.number().int().nonnegative().optional(),
+    denominator: z.number().int().positive().optional(),
+  }).strict(),
+  z.object({
+    state: z.literal('unavailable'),
+    reason: measurementMetricUnavailableReasonSchema,
+  }).strict(),
+])
+export type CountMetricValue = z.output<typeof measurementCountMetricValueSchema>
 
 export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'property'])
 export type MeasurementOverviewScopeKind = z.output<typeof measurementOverviewScopeKindSchema>
@@ -629,7 +650,7 @@ export const measurementNamedShareOfVoiceEntrySchema = z.object({
   label: z.string().min(1),
   domain: z.string().min(1),
   credits: z.number().int().nonnegative(),
-  share: z.number().min(0).max(1),
+  share: fraction(z.number().min(0).max(1)),
 }).strict()
 
 /**
@@ -668,7 +689,7 @@ export const measurementOverviewResponseSchema = z.object({
     count: z.number().int().nonnegative().optional(),
   }).strict(),
   metrics: z.object({
-    propertiesMentioned: measurementMetricValueSchema,
+    propertiesMentioned: measurementCountMetricValueSchema,
     mentionCoverage: measurementMetricValueSchema,
     citationCoverage: measurementMetricValueSchema,
     /** Independent identity presence, not a shared-denominator market share. */

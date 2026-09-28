@@ -127,6 +127,19 @@ describe('bing jsonl degrade (object/status commands)', () => {
       expect(out).toContain('Bing Index Coverage for "demo"')
       expect(() => JSON.parse(out)).toThrow()
     })
+
+    it('prints the 0..100 coverage percentage as a percent, not as a fraction', async () => {
+      mockBingCoverage.mockResolvedValue({ ...coverageResult, summary: { ...coverageResult.summary, percentage: 83.3 } })
+      let cap = captureLog(() => bingCoverage('demo'))
+      await cap.run
+      expect(cap.logs()).toContain('10 / 12 pages indexed (83.3%)')
+
+      // The server sends 0.1 for 1 of 1,000: a tenth of a percent, never 10%.
+      mockBingCoverage.mockResolvedValue({ ...coverageResult, summary: { total: 1000, indexed: 1, notIndexed: 999, unknown: 0, percentage: 0.1 } })
+      cap = captureLog(() => bingCoverage('demo'))
+      await cap.run
+      expect(cap.logs()).toContain('1 / 1000 pages indexed (0.1%)')
+    })
   })
 
   describe('bing connect', () => {

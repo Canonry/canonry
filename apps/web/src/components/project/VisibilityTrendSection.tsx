@@ -2,8 +2,8 @@ import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonr
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPointDelta, parseVisibilityReportScopeErrorDetails, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
-import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, formatSignedPointDelta, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, MetricsWindow, PointDeltaDirection } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { apiErrorDetails, heyClient } from '../../api.js'
@@ -54,12 +54,14 @@ import {
   formatQueryChangeCaption,
   formatServedModelIds,
   groupModelAttributionEvents,
-  latestSeriesValue,
   latestPlottedProviderModelEvidence,
+  latestProviderRate,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
+  metricWindowChange,
   normalizeProviderKey,
   partitionModelAttributionEvents,
+  plottedMetricRates,
   readBucketModelEvidence,
   readModelAttribution,
   readModelPointerChanges,
@@ -132,7 +134,6 @@ export const REPORT_HEADLINE_HELP = {
  */
 const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
-const reportPercent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 })
 
 function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope']): string {
   if (scope.kind === 'project') return 'Whole site'
@@ -146,7 +147,7 @@ function reportRateReason(value: VisibilityReportRate): string {
 function ReportRate({ value }: { value: VisibilityReportRate }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
   const unattributed = reportUnattributedAnswers(value)
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{reportPercent.format(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{unattributed ? <span className="text-sm tabular-nums text-secondary">{unattributed}</span> : null}</span>
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{unattributed ? <span className="text-sm tabular-nums text-secondary">{unattributed}</span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -250,7 +251,7 @@ function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
     {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}{queryClassSuffix}</dd> : <>
       <dd className="report-headline-value">
-        <span className="text-3xl font-semibold tabular-nums text-heading">{reportPercent.format(value.rate)}</span>
+        <span className="text-3xl font-semibold tabular-nums text-heading">{formatPercent(value.rate)}</span>
         {queryClassSuffix}
         {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
       </dd>
@@ -408,8 +409,8 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
             <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
-            <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => reportPercent.format(Number(value))} />
-            <RechartsTooltip {...CHART_TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? reportPercent.format(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleDateString()} />
+            <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => formatPercent(Number(value))} />
+            <RechartsTooltip {...CHART_TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? formatPercent(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleDateString()} />
             {segments.map(index => <Fragment key={index}>
               {visibleSeries.mentioned ? <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3, fill: CHART_SERIES_COLORS[1] }} /> : null}
               {/* A dot inherits the line's dash pattern unless it resets it. */}
@@ -968,8 +969,21 @@ function providerDisplayName(name: string): string {
   return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10
+type PointChange = ReturnType<typeof formatPointDelta>
+
+const POINT_CHANGE_TONE: Record<PointDeltaDirection, string> = {
+  up: 'text-positive-400',
+  down: 'text-negative-400',
+  none: 'text-muted',
+}
+
+/** The same change in words, for the screen-reader summary. */
+function spokenPointChange({ direction, magnitude }: PointChange): string {
+  switch (direction) {
+    case 'up': return `up ${magnitude} points over the period`
+    case 'down': return `down ${magnitude} points over the period`
+    case 'none': return 'no change over the period'
+  }
 }
 
 function isOverallSeries(key: string): boolean {
@@ -988,14 +1002,6 @@ function seriesColor(key: string, index: number): string {
   if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1]! // blue
   if (key === MENTION_SHARE_KEY) return MENTION_SHARE_COLOR
   return providerSeriesColor(normalizeProviderKey(key), index)
-}
-
-function firstSeriesValue(rows: Array<Record<string, string | number | null>>, key: string): number | null {
-  for (const row of rows) {
-    const value = row[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return null
 }
 
 function competitorFrameKey(competitorDomains: readonly string[]): string {
@@ -1193,14 +1199,6 @@ function ModelEvidenceSummary({
   )
 }
 
-function formatPercent(value: number | null): string {
-  return value === null ? 'no data' : `${value}%`
-}
-
-function formatRatePercent(rate: number | null | undefined): string {
-  return rate == null ? 'undefined' : `${round1(rate * 100)}%`
-}
-
 function TrendTooltip({
   active,
   label,
@@ -1224,14 +1222,13 @@ function TrendTooltip({
     const projectMentions = bucket.mentionShare.projectMentionSnapshots
     const competitorMentions = bucket.mentionShare.competitorMentionSnapshots
     const denominator = projectMentions + competitorMentions
-    const rate = bucket.mentionShare.rate == null ? null : round1(bucket.mentionShare.rate * 100)
     return (
       <div className="trend-tooltip">
         <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
         <div className="trend-tooltip-row">
           <span className="trend-tooltip-swatch trend-tooltip-swatch-ring" style={{ borderColor: MENTION_SHARE_COLOR }} aria-hidden="true" />
           <span className="trend-tooltip-name">Mention share · {mentionShareScopeLabel(bucket.mentionShare.scope)}</span>
-          <span className="trend-tooltip-value">{formatPercent(rate)}</span>
+          <span className="trend-tooltip-value">{formatPercent(bucket.mentionShare.rate)}</span>
         </div>
         {denominator > 0 ? (
           <p className="trend-tooltip-detail">You {projectMentions} / {denominator} brand mentions. Competitors {competitorMentions}.</p>
@@ -1245,7 +1242,7 @@ function TrendTooltip({
 
   const items = mode === 'byProvider'
     ? (payload ?? []).filter(item => item.dataKey !== undefined)
-    : [{ dataKey: metric === 'cited' ? CITED_KEY : MENTIONED_KEY, value: round1(bucket[metricField(metric)] * 100) }]
+    : [{ dataKey: metric === 'cited' ? CITED_KEY : MENTIONED_KEY }]
   return (
     <div className="trend-tooltip">
       <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
@@ -1254,18 +1251,15 @@ function TrendTooltip({
         const providerCounts = mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null
         const count = providerCounts?.count ?? metricCount(bucket, metric)
         const total = providerCounts?.total ?? bucket.total
-        const value = typeof item.value === 'number'
-          ? item.value
-          : providerCounts
-            ? round1(providerCounts.rate * 100)
-            : round1(bucket[metricField(metric)] * 100)
+        // The API's rate for this point, not the chart row, which is rounded to the axis.
+        const rate = providerCounts ? providerCounts.rate : bucket[metricField(metric)]
         const color = item.color ?? seriesColor(key, index)
         return (
           <div key={`${key}-${index}`} className="trend-tooltip-block">
             <div className="trend-tooltip-row">
               <span className="trend-tooltip-swatch" style={{ backgroundColor: color }} aria-hidden="true" />
               <span className="trend-tooltip-name">{seriesLabel(key)}</span>
-              <span className="trend-tooltip-value">{formatPercent(value)}</span>
+              <span className="trend-tooltip-value">{formatPercent(rate)}</span>
             </div>
             <p className="trend-tooltip-detail">
               {count} / {total} snapshots, {metric === 'cited' ? 'source links' : 'answer text'}
@@ -1312,16 +1306,16 @@ function TrendDataSummary({
               const denominator = projectMentions + competitorMentions
               const scope = mentionShareScopeLabel(bucket.mentionShare.scope)
               valueText = denominator > 0
-                ? `${formatRatePercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} brand mentions were you`
+                ? `${formatPercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} brand mentions were you`
                 : `mention share undefined for ${scope}, no project or competitor brand mentions`
             } else if (mode === 'byProvider') {
               valueText = series.map(provider => {
                 const counts = providerMetricCount(bucket, provider, metric)
                 if (!counts) return `${providerDisplayName(provider)} no data`
-                return `${providerDisplayName(provider)} ${formatRatePercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} snapshots`
+                return `${providerDisplayName(provider)} ${formatPercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} snapshots`
               }).join('; ')
             } else {
-              valueText = `${formatRatePercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
+              valueText = `${formatPercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
             }
             valueText += `; ${formatBucketModelEvidence(bucket)}`
             return (
@@ -1475,20 +1469,16 @@ export function VisibilityTrendSection({
     const labels = new Map(buckets.map(b => [b.startDate, formatBucketDateTick(b)]))
     return (value: string) => labels.get(String(value)) ?? ''
   }, [buckets])
-  const latestPct = metric === 'mentionShare'
-    ? (trend ? latestSeriesValue(trend.rows, MENTION_SHARE_KEY) : null)
-    : buckets.length > 0
-      ? round1(buckets[buckets.length - 1]![metricField(metric)] * 100)
-      : null
-  const firstPct = metric === 'mentionShare'
-    ? (trend ? firstSeriesValue(trend.rows, MENTION_SHARE_KEY) : null)
-    : buckets.length > 0
-      ? round1(buckets[0]![metricField(metric)] * 100)
-      : null
-  const plottedPointCount = metric === 'mentionShare'
-    ? trend?.rows.filter(row => typeof row[MENTION_SHARE_KEY] === 'number').length ?? 0
-    : buckets.length
-  const deltaPts = latestPct !== null && firstPct !== null && plottedPointCount > 1 ? round1(latestPct - firstPct) : null
+  // The API's rates behind the plotted points, since the chart rows are rounded
+  // to the axis: the head formats these, so a rate under a tenth reads <0.1%.
+  const plottedRates = data ? plottedMetricRates(data, metric) : []
+  const latestRate = plottedRates.at(-1) ?? null
+  // The change across the window is the server's own first-to-latest delta,
+  // the same figure `canonry analytics` prints; nothing is subtracted here.
+  const windowChange = data ? metricWindowChange(data, metric) : null
+  const pointChange = latestRate !== null && windowChange !== null
+    ? formatPointDelta(windowChange.delta)
+    : null
   const competitorCount = competitorDomains.length
 
   const header = (
@@ -1512,19 +1502,15 @@ export function VisibilityTrendSection({
             <InfoTooltip text="Three separate signals over sweep buckets: answer text mentions, source citations, and your answer-text mention share against tracked competitors. Mentioned and Cited use all query-provider snapshots. Mention share uses non-brand queries when classification is available; pooled means the project has no usable brand identity for a split." />
           </h2>
         </div>
-        {latestPct !== null && (
+        {latestRate !== null && (
           <div className="visibility-trend-current">
             <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
             <span className="visibility-trend-current-label">{currentMetricLabel}</span>
             {byProviderMode && <span className="visibility-trend-current-qualifier">avg</span>}
-            <span className="visibility-trend-current-value">{latestPct}%</span>
-            {deltaPts !== null && (
-              <span
-                className={`visibility-trend-current-delta ${
-                  deltaPts > 0 ? 'text-positive-400' : deltaPts < 0 ? 'text-negative-400' : 'text-muted'
-                }`}
-              >
-                {deltaPts > 0 ? '+' : ''}{deltaPts.toFixed(1)} pts
+            <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
+            {pointChange !== null && windowChange !== null && (
+              <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
+                {formatSignedPointDelta(windowChange.delta)}
               </span>
             )}
           </div>
@@ -1567,8 +1553,8 @@ export function VisibilityTrendSection({
         </p>
       )
     } else {
-      const srSummary = `${currentMetricLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${latestPct}%${
-        deltaPts !== null ? `, ${deltaPts >= 0 ? 'up' : 'down'} ${Math.abs(deltaPts).toFixed(1)} points over the period` : ''
+      const srSummary = `${currentMetricLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${formatPercent(latestRate)}${
+        pointChange !== null ? `, ${spokenPointChange(pointChange)}` : ''
       }.`
       body = (
         <>
@@ -1580,7 +1566,7 @@ export function VisibilityTrendSection({
           {byProviderMode && series.length > 0 && (
             <ul className="trend-legend" aria-label="Engines">
               {series.map((key, i) => {
-                const value = latestSeriesValue(rows, key)
+                const rate = latestProviderRate(data, key, metric)
                 const evidence = latestPlottedProviderModelEvidence(buckets, key)
                 const evidenceLabel = modelAttribution === null
                   ? 'Attribution unavailable'
@@ -1598,7 +1584,7 @@ export function VisibilityTrendSection({
                       <span className="trend-legend-name">{seriesLabel(key)}</span>
                       <span className="trend-legend-model"><span aria-hidden="true">· </span>{evidenceLabel}</span>
                     </span>
-                    {value !== null && <span className="trend-legend-value">{value}%</span>}
+                    {rate !== null && <span className="trend-legend-value">{formatPercent(rate)}</span>}
                   </li>
                 )
               })}
@@ -1623,7 +1609,7 @@ export function VisibilityTrendSection({
                 <YAxis
                   domain={[0, 100]}
                   ticks={[0, 25, 50, 75, 100]}
-                  tickFormatter={(v: number) => `${v}%`}
+                  tickFormatter={(v: number) => formatPercent(v, RatioUnits.percent)}
                   tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}

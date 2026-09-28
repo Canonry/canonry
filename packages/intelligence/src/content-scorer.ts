@@ -16,7 +16,7 @@
  * auditable. No LLM-generated prose; every driver is a derived label.
  */
 
-import type { ContentAction, DemandSource } from '@ainyc/canonry-contracts'
+import { formatPercent, type ContentAction, type DemandSource } from '@ainyc/canonry-contracts'
 
 export interface ScorerInput {
   // Demand signals
@@ -120,8 +120,7 @@ function buildDrivers(input: ScorerInput): string[] {
   }
 
   if (input.recentMissRate >= 0.5 && input.competitorCount > 0) {
-    const pct = Math.round(clamp01(input.recentMissRate) * 100)
-    drivers.push(`missed in ${pct}% of recent runs`)
+    drivers.push(`missed in ${formatPercent(clamp01(input.recentMissRate))} of recent runs`)
   }
 
   if (input.action === 'create' && input.position === null) {

@@ -84,6 +84,15 @@ describe('showSources', () => {
     expect(out).toMatch(/Direct competitors/)
   })
 
+  it('prints each 0..1 share through formatPercent in a six-wide column', async () => {
+    const lines = (await capture(() => showSources('p', { rank: true }))).split('\n')
+    expect(lines).toContain(`    ${'Your domains'.padEnd(28)}  23.5%  (4)  2 domains`)
+    expect(lines).toContain(`    ${'Editorial & media'.padEnd(28)}   5.9%  (1)  1 domain`)
+    // 3 of 17 cited slots is 17.647...%: half up on the tenth.
+    expect(lines).toContain(`    ${'acme.com'.padEnd(32)}    3   17.7%  own`)
+    expect(lines).toContain(`    ${'booking.com'.padEnd(32)}    1    5.9%  ota-aggregator`)
+  })
+
   it('renders the flat ranked list with --rank, tagging each domain with its surface class', async () => {
     const out = await capture(() => showSources('p', { rank: true }))
     expect(out).toMatch(/acme\.com/)

@@ -57,7 +57,7 @@ function seedCrawl(db: ReturnType<typeof createClient>, pageCount: number) {
     parentPath: '/', discoverySource: 'link', fetchState: 'html',
     indexabilityState: 'indexable', healthState: 'eligible', auditState: 'complete',
     inventoryEligible: true, depth: nodeKey === 'page-00' ? 0 : 2,
-    linkScoreNormalized: 1 - index / 1_000,
+    linkScoreNormalized: 100 - index / 10,
     createdAt: now, updatedAt: now,
   }))).run()
 

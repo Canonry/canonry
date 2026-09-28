@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -39,7 +40,7 @@ function OverviewProjectCard({
       <div className="project-row-stat">
         <div className="metric-inline-block">
           <p className="metric-inline-label">Mentioned</p>
-          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.hasMeasurement === false ? 'Not measured' : project.mentionScore}</p>
+          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.hasMeasurement === false ? 'Not measured' : formatPercent(project.mentionScore, RatioUnits.percent)}</p>
           {/* `providerCoverage` is only set when the sweep covered a SUBSET of
               configured providers, and it is why the tone shifted to caution:
               the score above is built on incomplete data and is not comparable

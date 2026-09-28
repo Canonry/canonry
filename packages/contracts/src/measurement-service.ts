@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { measurementStableKeySchema } from './measurement-plan.js'
 import {
@@ -179,7 +180,7 @@ export const measurementRateSchema = z.union([
   z.object({
     numerator: z.number().int().nonnegative(),
     denominator: z.number().int().positive(),
-    rate: z.number().min(0).max(1),
+    rate: fraction(z.number().min(0).max(1)),
     unattributed: z.number().int().positive().optional(),
   }).strict(),
   z.object({

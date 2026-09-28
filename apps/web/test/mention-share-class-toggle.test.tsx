@@ -12,7 +12,9 @@ function breakdown(over: Partial<MentionShareBreakdownVm> = {}): MentionShareBre
   return {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    combinedMentionSnapshots: 0,
     perCompetitor: [],
+    ranking: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: 0,
     score: null,
@@ -23,7 +25,7 @@ function breakdown(over: Partial<MentionShareBreakdownVm> = {}): MentionShareBre
 function summary(over: Partial<Summary> = {}): Summary {
   return {
     label: 'Mention Share',
-    value: '38',
+    value: '38.0%',
     delta: '',
     tone: 'caution',
     description: '',
@@ -46,7 +48,12 @@ function lopsided(): Summary {
     breakdown: breakdown({
       projectMentionSnapshots: 1,
       competitorMentionSnapshots: 9,
+      combinedMentionSnapshots: 10,
       perCompetitor: [{ domain: 'rival-one.example', mentionSnapshots: 9, shareOfCompetitiveTotal: 100 }],
+      ranking: [
+        { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 9, share: 0.9 },
+        { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.1 },
+      ],
       snapshotsWithAnswerText: 32,
       snapshotsTotal: 32,
       score: 10,
@@ -54,7 +61,12 @@ function lopsided(): Summary {
     branded: breakdown({
       projectMentionSnapshots: 20,
       competitorMentionSnapshots: 0,
+      combinedMentionSnapshots: 20,
       perCompetitor: [],
+      ranking: [
+        { kind: 'project', domain: null, mentionSnapshots: 20, share: 1 },
+        { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 0, share: 0 },
+      ],
       snapshotsWithAnswerText: 20,
       snapshotsTotal: 20,
       score: 100,
@@ -83,12 +95,39 @@ describe('MentionShare class control', () => {
     expect(within(group).getByRole('radio', { name: 'Non-brand' }).getAttribute('aria-checked')).toBe('true')
     expect(within(group).getByRole('radio', { name: 'Branded' }).getAttribute('aria-checked')).toBe('false')
 
-    // The competitive figure, and only it.
-    expect(block().querySelector('.mention-share-value')?.textContent).toBe('10%')
+    // The competitive figure, and only it, through the shared percent format.
+    expect(block().querySelector('.mention-share-value')?.textContent).toBe('10.0%')
     expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
     // 100 is the branded score. It must not be on screen while non-brand is.
     expect(block().textContent).not.toContain('100%')
     expect(block().textContent).not.toContain('Branded ·')
+    // Each row is its share of the 10 brand mentions, most mentioned first.
+    const shares = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+      .map(row => row.querySelector('.mention-share-share')?.textContent)
+    expect(shares).toEqual(['90.0%', '10.0%'])
+  })
+
+  it('shows the API share to one decimal, with the sign set apart and never doubled', () => {
+    // 1 of 3 named brands is 33.333333 on the wire.
+    renderShare({
+      breakdown: breakdown({
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 2,
+        combinedMentionSnapshots: 3,
+        perCompetitor: [{ domain: 'rival-one.example', mentionSnapshots: 2, shareOfCompetitiveTotal: 100 }],
+        ranking: [
+          { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 2, share: 2 / 3 },
+          { kind: 'project', domain: null, mentionSnapshots: 1, share: 1 / 3 },
+        ],
+        snapshotsWithAnswerText: 3,
+        snapshotsTotal: 3,
+        score: 33.333333,
+      }),
+    })
+    const value = block().querySelector('.mention-share-value')!
+    expect(value.textContent).toBe('33.3%')
+    expect(value.querySelector('.text-faint')?.textContent).toBe('%')
+    expect(block().textContent).not.toContain('%%')
   })
 
   it('switching to Branded swaps the denominator, the caption word, and the rows together', () => {
@@ -106,7 +145,9 @@ describe('MentionShare class control', () => {
     const rows = block().querySelectorAll('.mention-share-rows .mention-share-row')
     expect(rows).toHaveLength(2)
     expect(rows[1]!.textContent).toContain('rival-one.example')
-    expect(rows[1]!.textContent).toContain('0.0%')
+    // An exact zero and an exact whole read without a decimal in the shared format.
+    expect(rows[1]!.querySelector('.mention-share-share')?.textContent).toBe('0%')
+    expect(rows[0]!.querySelector('.mention-share-share')?.textContent).toBe('100%')
   })
 
   it('never tone-colours a branded figure, because the band is calibrated for placement', () => {
@@ -231,6 +272,33 @@ describe('MentionShare empty-class copy', () => {
 })
 
 describe('MentionShare ranking semantics', () => {
+  it('lays out the server ranking as sent: its order, its counts and its shares', () => {
+    // Deliberately NOT mentions / combined, and not in mention order: the rows
+    // must print the server's own values, so a component that re-derived a
+    // share from the counts, or re-sorted the rows, would fail here.
+    renderShare({
+      breakdown: breakdown({
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 9,
+        combinedMentionSnapshots: 10,
+        ranking: [
+          { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.0004 },
+          { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 9, share: 0.9996 },
+        ],
+        snapshotsWithAnswerText: 32,
+        snapshotsTotal: 32,
+        score: 10,
+      }),
+    })
+    const rows = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+    expect(rows.map(row => row.querySelector('th')?.textContent)).toEqual(['Acme Tanks (you)', 'rival-one.example'])
+    expect(rows.map(row => row.querySelector('.mention-share-count')?.textContent)).toEqual(['1', '9'])
+    // formatPercent of the server fraction: a sliver and a near-whole keep their edges.
+    expect(rows.map(row => row.querySelector('.mention-share-share')?.textContent)).toEqual(['<0.1%', '>99.9%'])
+    // The caption's denominator is the server's combined count, not a client sum.
+    expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
+  })
+
   it('exposes the columns to assistive tech, not just to the eye', () => {
     renderShare()
     const table = screen.getByRole('table')

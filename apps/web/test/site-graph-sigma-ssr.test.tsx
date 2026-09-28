@@ -14,7 +14,7 @@ test('imports and server-renders without evaluating Sigma WebGL', () => {
         depth: 0,
         indexabilityState: 'indexable',
         fetchState: 'html',
-        linkScoreNormalized: 1,
+        linkScoreNormalized: 100,
         x: 0,
         y: 0,
       }]}

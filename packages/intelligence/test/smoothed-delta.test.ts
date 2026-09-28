@@ -13,15 +13,15 @@ describe('smoothedRunDelta', () => {
   it('falls back to window=1 (point-to-point) with exactly 2 points', () => {
     // Equivalent to the legacy `latest - prior` delta.
     const result = smoothedRunDelta<Point>([v(50), v(60)], p => p.value)
-    // deltaPct = round((60-50)/50 * 100) = 20.
+    // deltaPct = (60-50)/50 * 100 = 20.
     expect(result).toEqual({ current: 60, prior: 50, deltaAbs: 10, deltaPct: 20, window: 1 })
   })
 
   it('computes deltaPct from the rounded averages; null when prior is zero', () => {
     // Large enough base → a real percentage off the rounded prior average.
     const climbing = smoothedRunDelta<Point>([v(40), v(50), v(60), v(70)], p => p.value)
-    // prior = 45, current = 65 → round((65-45)/45 * 100) = round(44.44) = 44.
-    expect(climbing?.deltaPct).toBe(44)
+    // prior = 45, current = 65 → (65-45)/45 * 100 = 44.444444 at wire precision, not 44.
+    expect(climbing?.deltaPct).toBe(44.444444)
     // Prior average of 0 → percentage undefined → null.
     const fromZero = smoothedRunDelta<Point>([v(0), v(0), v(5)], p => p.value)
     expect(fromZero?.prior).toBe(0)
@@ -87,6 +87,22 @@ describe('smoothedRunDelta', () => {
     expect(result?.prior).toBe(33.7)
     // deltaAbs stays unrounded so caller can apply a precise threshold
     expect(result?.deltaAbs).toBeCloseTo(33, 1)
+  })
+
+  it('keeps a percent series at the percent wire precision when told its unit', () => {
+    // Rates of 66.666667, 66.666667 and 50 average to 61.1111113…; counts keep one decimal, a percent keeps its wire precision.
+    const points = [33.333333, 33.333333, 33.333333, 66.666667, 66.666667, 50].map(v)
+    const asCount = smoothedRunDelta<Point>(points, p => p.value)
+    expect([asCount?.current, asCount?.prior]).toEqual([61.1, 33.3])
+    const asPercent = smoothedRunDelta<Point>(points, p => p.value, SMOOTHED_RUN_DELTA_MAX_WINDOW, 'percent')
+    expect([asPercent?.current, asPercent?.prior]).toEqual([61.111111, 33.333333])
+    // (61.111111 - 33.333333) / 33.333333 * 100 = 83.3333348…: the change is taken from the kept averages.
+    expect(asPercent?.deltaPct).toBe(83.333335)
+    // An average just short of 100 (99.956667) is not rounded up to a false 100,
+    // which is what one decimal does to it.
+    const nearlyAll = [100, 100, 100, 100, 100, 99.87].map(v)
+    expect(smoothedRunDelta<Point>(nearlyAll, p => p.value, SMOOTHED_RUN_DELTA_MAX_WINDOW, 'percent')?.current).toBe(99.956667)
+    expect(smoothedRunDelta<Point>(nearlyAll, p => p.value)?.current).toBe(100)
   })
 
   it('handles negative deltas (regressions)', () => {

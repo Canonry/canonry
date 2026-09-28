@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, SourceBreakdownDto } from '@ainyc/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []
@@ -522,12 +522,71 @@ describe('analytics command', () => {
     } finally {
       console.log = origLog
     }
-    const metrics = JSON.parse(logs.join('\n')).metrics as { byProvider: unknown; buckets: unknown[] }
+    const metrics = JSON.parse(logs.join('\n')).metrics as { byProvider: unknown; buckets: unknown[]; windowChange: unknown }
     // The CLI emits the full BrandMetricsDto, so the per-bucket provider
     // breakdown the dashboard chart consumes is reachable via `--format json`
     // (parity). Per-bucket content is asserted in api-routes analytics.test.ts.
     expect(typeof metrics.byProvider).toBe('object')
     expect(Array.isArray(metrics.buckets)).toBe(true)
+    // So is the change the dashboard's trend head prints: none yet, per series.
+    expect(metrics.windowChange).toEqual({ citationRate: null, mentionRate: null, mentionShare: null })
+  })
+
+  it('prints each series\' change across the window exactly as the server reported it', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      ...metricsWith(),
+      mentionShareScope: 'non-brand',
+      windowChange: {
+        mentionRate: { first: 0.5, latest: 0.5, delta: 0 },
+        // Deliberately not 0.75 - 0.25: the CLI must print the server's delta.
+        citationRate: { first: 0.25, latest: 0.75, delta: 0.1234 },
+        mentionShare: null,
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Change Across the Window (first → latest bucket):')
+      expect(stdout).toContain('    Mentioned: 50.0% → 50.0% (0 pts)')
+      expect(stdout).toContain('    Cited: 25.0% → 75.0% (+12.3 pts)')
+      expect(stdout).not.toContain('+50.0 pts')
+      // The class travels with the share, even when there is nothing to compare.
+      expect(stdout).toContain('    Mention share · non-brand queries: fewer than two buckets to compare')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('names a pooled mention-share change as classification unavailable', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      ...metricsWith(),
+      mentionShareScope: 'pooled',
+      windowChange: {
+        mentionRate: null,
+        citationRate: null,
+        mentionShare: { first: 0.6, latest: 0.0004, delta: -0.5996 },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('    Mention share · pooled queries · classification unavailable: 60.0% → <0.1% (-60.0 pts)')
+      expect(stdout).toContain('    Mentioned: fewer than two buckets to compare')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('prints no change block for a server that predates the field', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue(metricsWith())
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Overall:')
+      expect(stdout).not.toContain('Change Across the Window')
+    } finally {
+      metricsSpy.mockRestore()
+    }
   })
 
   it('passes window param to metrics endpoint', async () => {
@@ -620,6 +679,54 @@ describe('analytics command', () => {
       expect(stdout).not.toContain('2026-07-10')
     } finally {
       metricsSpy.mockRestore()
+    }
+  })
+
+  /**
+   * The rates are 0..1 fractions on the wire. They print through formatPercent,
+   * so only an exact 0 or 1 reads `0%` / `100%`, and a real rate at either edge
+   * never rounds into one.
+   */
+  it('prints every citation rate and source share through the shared percent rule', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      ...metricsWith(),
+      buckets: [{
+        startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-24T00:00:00.000Z',
+        dataStartDate: '2026-07-14T09:00:00.000Z', dataEndDate: '2026-07-14T09:00:00.000Z', sweepCount: 1,
+        citationRate: 0.0755, cited: 151, total: 2000, queryCount: 20, mentionRate: 0.5, mentionedCount: 1000,
+        mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+        byProvider: { gemini: { citationRate: 1, cited: 4, total: 4, mentionRate: 1, mentionedCount: 4 } },
+        modelEvidenceByProvider: {},
+        basketRevision: null,
+      }],
+      overall: { citationRate: 0.0004, cited: 1, total: 2500, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {
+        gemini: { citationRate: 0.9996, cited: 2499, total: 2500, mentionRate: 0, mentionedCount: 0 },
+        openai: { citationRate: 0, cited: 0, total: 4, mentionRate: 0, mentionedCount: 0 },
+      },
+      modelAttribution: {},
+    })
+    const sourcesSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsSources').mockResolvedValue({
+      overall: [
+        { category: 'news', label: 'News & media', count: 8, percentage: 0.4706, topDomains: [{ domain: 'forbes.com', count: 8 }] },
+        { category: 'directory', label: 'Directories', count: 1, percentage: 0.0588, topDomains: [{ domain: 'yelp.com', count: 1 }] },
+      ],
+    } as unknown as SourceBreakdownDto)
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const metrics = (await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))).stdout.split('\n')
+      expect(metrics).toContain('  Overall: <0.1% (1/2500)')
+      expect(metrics).toContain('    gemini     >99.9% (2499/2500)')
+      expect(metrics).toContain('    openai         0% (0/4)')
+      expect(metrics).toContain(`    ${'2026-07-14'.padEnd(35)}    7.6%  ${'█'.repeat(2)}`)
+      expect(metrics).toContain(`      ${'2026-07-14'.padEnd(35)}    100%  ${'█'.repeat(20)}`)
+
+      const sources = (await captureOutput(() => showAnalytics('test-proj', { feature: 'sources' }))).stdout.split('\n')
+      expect(sources).toContain('  News & media          47.1%  (8)  forbes.com')
+      expect(sources).toContain('  Directories            5.9%  (1)  yelp.com')
+    } finally {
+      metricsSpy.mockRestore()
+      sourcesSpy.mockRestore()
     }
   })
 })

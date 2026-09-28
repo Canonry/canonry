@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 export type InsightType =
   | 'regression'
@@ -45,21 +46,21 @@ export const healthSnapshotDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: z.number(),
+  overallCitedRate: fraction(),
   /**
    * Share of (query × provider) pairs where the project was MENTIONED in the
    * answer text. Independent of `overallCitedRate` — never derived from it.
    * Legacy snapshots persisted before the mention columns existed read back
    * as 0 (the API coalesces NULL→0).
    */
-  overallMentionRate: z.number(),
+  overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
   /** Count of pairs mentioned in the answer text. Legacy rows read back as 0. */
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: z.number(),
-    mentionRate: z.number(),
+    citedRate: fraction(),
+    mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),

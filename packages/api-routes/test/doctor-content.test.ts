@@ -93,7 +93,7 @@ describe('content.winnability.coverage', () => {
 
     expect(result.status).toBe('warn')
     expect(result.code).toBe('content.winnability.low-coverage')
-    expect(result.summary).toContain('1 of 2 cited-surface domain')
+    expect(result.summary).toContain('1 of 2 cited-surface domain(s) recognized (50.0%);')
     expect(result.details).toMatchObject({
       citedSurfaceDomainCount: 2,
       coveredDomainCount: 1,
@@ -114,7 +114,7 @@ describe('content.winnability.coverage', () => {
 
     expect(result.status).toBe('ok')
     expect(result.code).toBe('content.winnability.covered')
-    expect(result.summary).toContain('2 of 2 cited-surface domain')
+    expect(result.summary).toContain('2 of 2 cited-surface domain(s) recognized (100%);')
     expect(result.details).toMatchObject({
       citedSurfaceDomainCount: 2,
       coveredDomainCount: 2,

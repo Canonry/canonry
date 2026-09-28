@@ -248,7 +248,7 @@ const homePage = {
   inboundOccurrences: 3,
   outboundOccurrences: 10,
   linkScoreRaw: 1,
-  linkScoreNormalized: 1,
+  linkScoreNormalized: 100,
   healthState: 'eligible' as const,
 }
 
@@ -267,7 +267,7 @@ const servicesPage = {
   inboundOccurrences: 2,
   outboundOccurrences: 2,
   linkScoreRaw: 0.4,
-  linkScoreNormalized: 0.4,
+  linkScoreNormalized: 40,
 }
 
 const contactPage = {
@@ -808,6 +808,74 @@ test('uses the server-owned health state for both the inventory badge and select
   fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
 
   expect(screen.getAllByText('Broken')).toHaveLength(2)
+})
+
+test('shows link importance on the 0 to 100 scale every crawl writes', () => {
+  // A site audit scores each page 0 to 100 against the crawl's top page. Any
+  // value at or below 1 used to read as a 0 to 1 fraction, so a real page
+  // scoring 0.85 out of 100 showed as 85.0%.
+  const queryClient = makeClient()
+  seedRun(queryClient, 'run_1', summary('run_1', 42), {
+    nodes: [
+      { ...homePage, x: 0, y: 0 },
+      { ...servicesPage, linkScoreNormalized: 0.85, x: 1, y: 1 },
+    ],
+  })
+  const scoredPage = (nodeKey: string, path: string, linkScoreNormalized: number | null) => ({
+    ...servicesPage,
+    nodeKey,
+    path,
+    url: `https://citypoint.example${path}`,
+    finalUrl: `https://citypoint.example${path}`,
+    linkScoreNormalized,
+  })
+  const pagesInput = {
+    client: heyClient,
+    path: { name: projectName },
+    query: { runId: 'run_1', limit: 200, sort: 'path' },
+  } as const
+  const pagesResponse = {
+    project: projectName,
+    hasCrawlData: true,
+    runId: 'run_1',
+    total: 5,
+    nextCursor: null,
+    pages: [
+      scoredPage('page_top', '/top', 100),
+      scoredPage('page_high', '/high', 85),
+      scoredPage('page_low', '/low', 0.85),
+      scoredPage('page_one', '/one', 1),
+      scoredPage('page_unscored', '/unscored', null),
+    ],
+  }
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(pagesInput), pagesResponse)
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(pagesInput), {
+    pages: [pagesResponse],
+    pageParams: [pagesInput],
+  })
+
+  renderSection(queryClient)
+
+  // The selected page's tile.
+  fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
+  const tile = screen.getByText('Link importance').parentElement as HTMLElement
+  expect(within(tile).getByText('0.9%')).toBeTruthy()
+
+  // The Pages table column.
+  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+  const header = screen.getAllByRole('columnheader')
+    .find((cell) => cell.textContent?.startsWith('Link importance')) as HTMLElement
+  const table = header.closest('table') as HTMLElement
+  const column = within(table).getAllByRole('columnheader').indexOf(header)
+  const importance = (path: string) => {
+    const row = within(table).getByRole('button', { name: path }).closest('tr') as HTMLElement
+    return within(row).getAllByRole('cell')[column]?.textContent
+  }
+  expect(importance('/top')).toBe('100%')
+  expect(importance('/high')).toBe('85.0%')
+  expect(importance('/low')).toBe('0.9%')
+  expect(importance('/one')).toBe('1.0%')
+  expect(importance('/unscored')).toBe('Not scored')
 })
 
 test('connects a selected graph page score to its exact audit finding in the same run', () => {

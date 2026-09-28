@@ -1,4 +1,4 @@
-import { queryClassFilterSchema, type QueryClassFilter, type RankedSourceList, type SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import { formatPercent, queryClassFilterSchema, type QueryClassFilter, type RankedSourceList, type SourceBreakdownDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -47,8 +47,6 @@ export function parseSourcesIncludeByQuery(value: string | undefined): boolean |
     details: { command: 'sources', usage: SOURCES_USAGE, option: 'include-by-query', value },
   })
 }
-
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
 /**
  * `canonry sources <project>` — full ranked, per-provider, classified
@@ -140,13 +138,13 @@ function describeScope(data: SourceBreakdownDto): string | null {
 function printSurfaceClasses(list: RankedSourceList): void {
   for (const c of list.bySurfaceClass) {
     const noun = c.domainCount === 1 ? 'domain' : 'domains'
-    console.log(`    ${c.label.padEnd(28)} ${pct(c.percentage).padStart(6)}  (${c.count})  ${c.domainCount} ${noun}`)
+    console.log(`    ${c.label.padEnd(28)} ${formatPercent(c.percentage).padStart(6)}  (${c.count})  ${c.domainCount} ${noun}`)
   }
 }
 
 function printRankedEntries(list: RankedSourceList, indent = ''): void {
   for (const e of list.entries) {
-    console.log(`${indent}    ${e.domain.padEnd(32)} ${String(e.count).padStart(4)}  ${pct(e.percentage).padStart(6)}  ${e.surfaceClass}`)
+    console.log(`${indent}    ${e.domain.padEnd(32)} ${String(e.count).padStart(4)}  ${formatPercent(e.percentage).padStart(6)}  ${e.surfaceClass}`)
   }
   if (list.truncatedDomainCount > 0) {
     console.log(`${indent}    … +${list.truncatedDomainCount} more domains (${list.truncatedCitedSlots} cited slots)`)

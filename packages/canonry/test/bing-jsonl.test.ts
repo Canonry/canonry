@@ -157,6 +157,26 @@ describe('bing jsonl output', () => {
       await cap.run
       expect(JSON.parse(cap.logs())).toEqual(performanceRows)
     })
+
+    it('human table prints the 0..1 CTR through formatPercent in a six-wide column', async () => {
+      mockBingPerformance.mockResolvedValue([
+        { query: 'best widgets', impressions: 1000, clicks: 50, ctr: 0.05, averagePosition: 3.2 },
+        { query: 'rare widgets', impressions: 4000, clicks: 1, ctr: 0.00025, averagePosition: 9 },
+      ])
+      const logs: string[] = []
+      const orig = console.log
+      console.log = (...args: unknown[]) => logs.push(args.join(' '))
+      try {
+        await bingPerformance('demo')
+      } finally {
+        console.log = orig
+      }
+      const row = (query: string, clicks: string, impressions: string, cells: string) =>
+        `  ${query.padEnd(40)}${clicks.padEnd(8)}${impressions.padEnd(8)}${cells}`
+      expect(logs).toContain(row('best widgets', '50', '1000', '  5.0%    3.2'))
+      // One click in 4,000 impressions is not a 0% CTR.
+      expect(logs).toContain(row('rare widgets', '1', '4000', ' <0.1%    9.0'))
+    })
   })
 
   describe('bing sites', () => {

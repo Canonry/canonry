@@ -1,5 +1,5 @@
 import {
-  deriveSiteHealthState, factorStatusFromScore, placementLinkDecision, SiteCrawlFetchStates,
+  deriveSiteHealthState, factorStatusFromScore, placementLinkDecision, roundPreservingTotal, SiteCrawlFetchStates,
   SiteCrawlIndexabilityReasons, SiteCrawlIndexabilityStates, type SiteCrawlAuditFactorDto,
 } from '@ainyc/canonry-contracts'
 import {
@@ -132,21 +132,29 @@ function parentPath(path: string): string {
   return slash <= 0 ? ROOT_PATH : `${trimmed.slice(0, slash)}/`
 }
 
+const DEMO_TOTAL_WEIGHT = DEMO_AUDIT_FACTORS.reduce((sum, factor) => sum + factor.weight, 0)
+
+/**
+ * Every example factor applies on every example page, so each page splits its
+ * 100 points across all nineteen weights the way the engine records `sharePct`:
+ * weight over the weight total, rounded to tenths by largest remainder.
+ */
+const DEMO_FACTOR_SHARES = roundPreservingTotal(DEMO_AUDIT_FACTORS.map(factor => factor.weight / DEMO_TOTAL_WEIGHT * 100), 1)
+
 function auditFactors(page: Extract<DemoSitePage, { score: number }>): { score: number; factors: SiteCrawlAuditFactorDto[] } {
-  const totalWeight = DEMO_AUDIT_FACTORS.reduce((sum, factor) => sum + factor.weight, 0)
   const offsets = DEMO_AUDIT_FACTORS.map(factor => factor.bias + (unitHash(`${page.path}#${factor.id}`) * 2 - 1) * 12)
-  const meanOffset = DEMO_AUDIT_FACTORS.reduce((sum, factor, index) => sum + offsets[index]! * factor.weight, 0) / totalWeight
+  const meanOffset = DEMO_AUDIT_FACTORS.reduce((sum, factor, index) => sum + offsets[index]! * factor.weight, 0) / DEMO_TOTAL_WEIGHT
   const factors = DEMO_AUDIT_FACTORS.map((factor, index): SiteCrawlAuditFactorDto => {
     const score = page.factorScores?.[factor.id] ?? Math.max(0, Math.min(100, Math.round(page.score + offsets[index]! - meanOffset)))
     const status = factorStatusFromScore(score)
     const passing = status === 'pass'
     return {
-      id: factor.id, name: factor.name, weight: factor.weight, score, status, applicable: true,
+      id: factor.id, name: factor.name, weight: factor.weight, score, sharePct: DEMO_FACTOR_SHARES[index] ?? null, status, applicable: true,
       findings: [{ type: passing ? 'found' : 'missing', code: `${factor.id}.${passing ? 'present' : 'gap'}`, message: passing ? factor.found : factor.missing }],
       recommendations: passing ? [] : [factor.recommendation],
     }
   })
-  const score = Math.round(factors.reduce((sum, factor) => sum + factor.score * factor.weight, 0) / totalWeight)
+  const score = Math.round(factors.reduce((sum, factor) => sum + factor.score * factor.weight, 0) / DEMO_TOTAL_WEIGHT)
   return { score, factors }
 }
 
@@ -307,9 +315,11 @@ export function buildDemoSiteCrawl(input: DemoSiteCrawlInput): DemoSiteCrawl {
       inboundUniqueEdges: inboundEdges.length, outboundUniqueEdges: outboundEdges.length,
       inboundOccurrences: inboundEdges.reduce((sum, edge) => sum + edge.occurrences, 0),
       outboundOccurrences: outboundEdges.reduce((sum, edge) => sum + edge.occurrences, 0),
-      // Raw score is PageRank, as the crawler computes it. Node size reads the normalized value on a 0 to 1
-      // log scale of inbound links, so hub pages stay visibly larger than the pages they link to.
-      linkScoreRaw: Number(rank.toFixed(12)), linkScoreNormalized: Math.log1p(inboundEdges.length) / Math.log1p(maxInbound),
+      // Raw score is PageRank, as the crawler computes it. The normalized score uses the crawler's scale, 0 to 100
+      // against the top page with two decimals, but follows a log of inbound links so hub pages stay visibly larger
+      // than the pages they link to.
+      linkScoreRaw: Number(rank.toFixed(12)),
+      linkScoreNormalized: Number((Math.log1p(inboundEdges.length) / Math.log1p(maxInbound) * 100).toFixed(2)),
       createdAt: nowIso, updatedAt: nowIso,
     }
   })
