@@ -13,7 +13,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { createClient, queries, querySnapshots, runs, simpleMeasurementDefinitions, SentimentRepository } from '../packages/db/src/index.js'
-import { sentimentClassifierInputSchema } from '../packages/contracts/src/index.js'
+import { canonicalSentimentJson, createSentimentEvaluationDefinition, sentimentClassifierInputSchema } from '../packages/contracts/src/index.js'
 import { SentimentService } from '../packages/api-routes/src/sentiment-service.js'
 import { seedSentimentSmoke, SMOKE_ADMIN, SMOKE_NOW } from './sentiment-smoke-seed.js'
 
@@ -41,7 +41,6 @@ function seedStoredFixtures() {
   let clock = SMOKE_NOW
   const service = new SentimentService(db, { install: () => ({ enabled: true, ready: true, model: 'jev-1.13.0', reason: null }), now: () => new Date(clock), previewSecret: 'offline-fixture-token-secret' })
   const repository = new SentimentRepository(db)
-  const theme = description => [{ id: 'historic-topic', name: 'Historic topic', description }]
   function copyRun(project, originalId, runId, { servedModel, differentQuery = false } = {}) {
     const original = db.select().from(runs).where(eq(runs.id, originalId)).get()
     assert(original)
@@ -64,13 +63,13 @@ function seedStoredFixtures() {
       const work = repository.claim({ owner: 'offline-fixture', projectId: project, now: clock, leaseMs: 30_000 })
       if (!work) break
       const input = sentimentClassifierInputSchema.parse(work.input)
-      const result = { kind: 'classified', outcome, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null, returnedModel: 'jev-1.13.0', usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, themes: input.definition.themes.map(item => ({ themeId: item.id, discussed: false, praised: false, criticized: false, evidence: { discussed: [], praised: [], criticized: [] }, reason: null })) }
+      const result = { kind: 'classified', outcome, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null, returnedModel: 'jev-1.13.0', usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
       assert(repository.completeWork({ workItemId: work.id, owner: 'offline-fixture', now: clock, outcome, result, returnedModel: result.returnedModel }))
     }
   }
   try {
     const original = {}
-    for (const project of ['simple', 'advanced']) original[project] = service.configure(project, { enabled: true, customThemes: theme('Original historical topic wording.') }).evaluationDefinitionId
+    for (const project of ['simple', 'advanced']) original[project] = service.configure(project, { enabled: true }).evaluationDefinitionId
     copyRun('simple', 'simple-run', 'model-change', { servedModel: 'source-model-v2' })
     copyRun('simple', 'simple-run', 'population-change', { differentQuery: true })
     copyRun('simple', 'simple-run', 'evaluation-change')
@@ -79,7 +78,14 @@ function seedStoredFixtures() {
     complete('advanced', 'advanced-run'); complete('advanced', 'advanced-other')
     clock = '2026-09-28T00:01:00.000Z'
     const changed = {}
-    for (const project of ['simple', 'advanced']) changed[project] = service.configure(project, { customThemes: theme('Changed evaluator topic wording.') }).evaluationDefinitionId
+    // Synthetic evaluator version change, seeded offline through immutable repository APIs.
+    const alternate = { ...createSentimentEvaluationDefinition(), identityVersion: 'synthetic-alternate-identity-v2' }
+    const alternateId = createHash('sha256').update(canonicalSentimentJson(alternate)).digest('hex')
+    repository.putDefinition({ id: alternateId, contentHash: alternateId, requestedModel: 'jev-1.13.0', definition: alternate, createdAt: clock })
+    for (const project of ['simple', 'advanced']) {
+      repository.configure({ projectId: project, enabled: true, evaluationDefinitionId: alternateId, configuration: { enabled: true }, now: clock, actor: 'synthetic-fixture' })
+      changed[project] = alternateId
+    }
     complete('simple', 'evaluation-change', 'unfavorable'); complete('advanced', 'advanced-run')
     return { original, changed }
   } finally { db.$client.close() }
@@ -159,22 +165,24 @@ try {
   assert(first.nextCursor); assert.equal(first.items.length, 1)
   const next = await all('evidence', 'advanced', { ...selection, cursor: first.nextCursor })
   assert.equal(next.items.length, 1); assert.notEqual(next.items[0].assessmentId, first.items[0].assessmentId)
-  for (const changed of [{ scopeKey: 'market-harbor' }, { scope: 'property', scopeKey: 'harbor' }, { runId: 'advanced-other' }, { evaluationDefinitionId: definitions.changed.advanced }]) {
+  for (const changed of [{ scopeKey: 'market-harbor' }, { scope: 'property', scopeKey: 'harbor' }, { runId: 'advanced-other' }, { evaluationDefinitionId: definitions.changed.advanced }, { queryId: 'other-query' }, { queryClass: 'non-brand' }]) {
     const error = await all('evidence', 'advanced', { ...selection, ...changed, cursor: first.nextCursor }, true)
     assert.equal(error.error.code, 'VALIDATION_ERROR'); assert.match(error.error.message, /Evidence cursor/)
   }
-  mark('S17 valid cursors page exactly; changed market, subject, run or evaluator is refused across all four installed transports')
+  mark('S17 valid cursors page exactly; changed market, subject, run, evaluator, query or query class is refused across all four installed transports')
   const historical = { runId: 'simple-run', evaluationDefinitionId: definitions.original.simple }
   const summary = await all('summary', 'simple', historical)
   const evidence = await all('evidence', 'simple', historical)
   await http('simple', '', { projectRoute: true, method: 'PUT', body: { displayName: 'Replacement subject', canonicalDomain: 'replacement.example', aliases: ['Replacement'], ownedDomains: [], country: 'US', language: 'fr', providers: ['openai'] } })
-  await http('simple', '/settings', { method: 'PUT', body: { customThemes: [{ id: 'historic-topic', name: 'Replacement topic', description: 'Replacement live wording.' }] } })
+  await http('simple', '/settings', { method: 'PUT', body: { enabled: true } })
+  await http('simple', '/settings', { method: 'PUT', body: { customThemes: [{ id: 'removed-topic', name: 'Removed topic', description: 'Themes are not configurable in this release.' }] }, expected: 400 })
   assert.deepEqual(await all('summary', 'simple', historical), summary)
   assert.deepEqual(await all('evidence', 'simple', historical), evidence)
   assert.equal(evidence.items[0].subject.displayName, 'Aurora Service')
   assert.equal(evidence.items[0].context.queryClass, 'branded')
-  assert(summary.evaluationDefinition.themes.some(theme => theme.id === 'historic-topic' && theme.description === 'Original historical topic wording.'))
-  mark('S18 live subject, language and theme edits leave historical frozen summary/evidence identical across all four installed transports')
+  assert.equal(summary.evaluationDefinition.identityVersion, 'qualified-subject-v2')
+  assert(!Object.hasOwn(summary, 'themes'))
+  mark('S18 live subject, language and evaluator changes leave historical frozen summary/evidence identical across all four installed transports')
   assert.equal(attemptCount(), 0)
   let receipts = ''; try { receipts = await readFile(receiptPath, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
   assert.equal(receipts.trim(), ''); safe(logs)

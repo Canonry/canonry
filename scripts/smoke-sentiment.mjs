@@ -23,6 +23,10 @@ assert.equal(JSON.parse(await readFile(path.join(installedRoot, 'package.json'),
 await access(path.join(installedRoot, 'assets/index.html'))
 const live = args.includes('--live-key-file')
 const zeroJudgment = args.includes('--zero-judgment')
+const queryClass = args.includes('--non-brand') ? 'non-brand' : 'branded'
+const absentSubject = args.includes('--absent-subject')
+assert(!(live && (queryClass === 'non-brand' || absentSubject)), 'Expanded scope smoke is deterministic only')
+assert(!absentSubject || (queryClass === 'non-brand' && !zeroJudgment), '--absent-subject requires --non-brand and cannot combine with --zero-judgment')
 assert(!(live && zeroJudgment), '--zero-judgment is deterministic only and cannot be combined with --live-key-file')
 const scratch = await mkdtemp(path.join(tmpdir(), `canonry-sentiment-${live ? 'live' : zeroJudgment ? 'zero-judgment' : 'stub'}-`))
 const preload = fileURLToPath(new URL('./sentiment-smoke-preload.mjs', import.meta.url))
@@ -63,7 +67,8 @@ function run(file, argv, env) {
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function freePort() { const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port }
 async function call(client, name, parameters, denied = false) {
-  const result = await client.callTool({ name, arguments: parameters })
+  const scoped = ['canonry_sentiment', 'canonry_sentiment_evidence', 'canonry_sentiment_compare'].includes(name) ? { queryClass, ...parameters } : parameters
+  const result = await client.callTool({ name, arguments: scoped })
   assertSafe(result)
   if (denied) { assert.equal(result.isError, true); return result }
   assert.notEqual(result.isError, true, JSON.stringify(result))
@@ -77,13 +82,15 @@ async function connect(transport) {
 }
 function stable(value) { const cloned = JSON.parse(JSON.stringify(value)); delete cloned.generatedAt; return cloned }
 try {
-  seedSentimentSmoke(database)
+  seedSentimentSmoke(database, { queryClass, absentSubject })
   if (!live) {
     provider = createServer(async (request, response) => {
       try {
         let raw = ''; for await (const chunk of request) raw += chunk
         const body = JSON.parse(raw)
         assert.equal(body.model, 'jev-1.13.0')
+        assert.deepEqual(Object.keys(body.questions).sort(), ['complaint', 'conclusion', 'identity', 'judgment', 'stance'])
+        assert(!Object.hasOwn(body.state, 'themes'))
         const negative = body.state.subject.displayName === 'Bayside Homes'
         const sentences = Object.keys(body.state.answerSentences)
         const conclusion = negative ? sentences.at(-1) : sentences[1] ?? sentences[0]
@@ -115,11 +122,15 @@ try {
   const capture = data => { output += String(data); if (output.length > 50000) output = output.slice(-50000) }
   child.stdout.on('data', capture); child.stderr.on('data', capture)
   async function http(project, suffix = '', { method = 'GET', key = SMOKE_ADMIN, body, expected = 200 } = {}) {
+    const selectionRead = method === 'GET' && ['', '/evidence', '/compare', '/backfill-preview'].includes(suffix.split('?')[0])
+    if (selectionRead && !new URLSearchParams(suffix.split('?')[1] ?? '').has('queryClass')) suffix += `${suffix.includes('?') ? '&' : '?'}queryClass=${queryClass}`
     const response = await fetch(`${base}/api/v1/projects/${project}/sentiment${suffix}`, { method, signal: AbortSignal.timeout(15000), headers: { authorization: `Bearer ${key}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
     const data = await response.json(); assertSafe(data); assert.equal(response.status, expected, JSON.stringify(data)); return data
   }
   async function cli(argv, role = 'admin', denied = false) {
-    const result = await run(bin, ['sentiment', ...argv, '--format', 'json'], configs[role])
+    const op = ['settings', 'jobs', 'job', 'configure', 'backfill', 'evidence', 'compare'].includes(argv[0]) ? argv[0] : 'summary'
+    const scoped = ['summary', 'evidence', 'compare'].includes(op) && !argv.includes('--query-class') ? [...argv, '--query-class', queryClass] : argv
+    const result = await run(bin, ['sentiment', ...scoped, '--format', 'json'], configs[role])
     assertSafe(result.stdout); assertSafe(result.stderr)
     if (denied) { assert.notEqual(result.code, 0); return result }
     assert.equal(result.code, 0, result.stderr); return JSON.parse(result.stdout)
@@ -133,6 +144,7 @@ try {
   const before = await http('simple')
   assert.equal(before.state, 'disabled'); assert.equal(before.score.favorableRate, null)
   const settings = await http('simple', '/settings'); assert.equal(settings.enabled, false)
+  for (const removed of ['themes', 'preset', 'customThemes']) assert(!Object.hasOwn(settings, removed))
   await http('simple', '/settings', { method: 'PUT', key: SMOKE_READ, body: { enabled: true }, expected: 403 })
   await http('advanced', '', { key: SMOKE_SCOPED, expected: 403 })
   await cli(['configure', 'simple', '--enabled', 'true'], 'read', true)
@@ -165,9 +177,17 @@ try {
     assert.equal(summaries[project].coverage.selected, count)
     assert.equal(summaries[project].coverage.distinctSourceAnswers, 1)
     assert.equal(evidence[project].items.length, count)
-    for (const item of evidence[project].items) for (const span of [...item.conclusion, ...(item.complaint ?? []), ...item.themes.flatMap(theme => Object.values(theme.evidence).flat())]) assert.equal(item.sourceText.slice(span.start, span.end), span.text)
+    for (const item of evidence[project].items) for (const span of [...item.conclusion, ...(item.complaint ?? []), ]) assert.equal(item.sourceText.slice(span.start, span.end), span.text)
     assert.deepEqual(stable(await cli([project])), stable(summaries[project]))
     assert.deepEqual(stable(await cli(['evidence', project])), stable(evidence[project]))
+    assert(!Object.hasOwn(summaries[project], 'themes'))
+    assert(evidence[project].items.every(item => !Object.hasOwn(item, 'themes')))
+    const perQuery = await http(project, `?queryId=${project}-query`)
+    assert.deepEqual(await cli([project, '--query-id', `${project}-query`]), perQuery)
+    assert.equal(perQuery.coverage.selected, count)
+    const otherClass = await http(project, `?queryClass=${queryClass === 'branded' ? 'non-brand' : 'branded'}`)
+    assert.equal(otherClass.coverage.selected, 0)
+    assert.equal(otherClass.score.favorableRate, null)
     comparisons[project] = await http(project, `/compare?fromRunId=${project}-run&toRunId=${project}-run`)
     assert.deepEqual(stable(await cli(['compare', project, '--from-run-id', `${project}-run`, '--to-run-id', `${project}-run`])), stable(comparisons[project]))
     assert.deepEqual(await cli(['settings', project]), await http(project, '/settings'))
@@ -176,7 +196,18 @@ try {
     assert.deepEqual(await cli(['job', project, receipt.id]), await http(project, `/jobs/${receipt.id}`))
     assert.equal((await cli(['backfill', project, '--preview-token', receipt.body.previewToken, '--idempotency-key', receipt.body.idempotencyKey])).id, receipt.id)
   }
-  if (zeroJudgment) {
+  if (absentSubject) {
+    for (const [project, count] of [['simple', 1], ['advanced', 2]]) {
+      const summary = summaries[project]
+      assert.equal(summary.coverage.counts['subject-not-mentioned'], count)
+      assert.equal(summary.coverage.judged, 0)
+      assert.equal(summary.coverage.counts.unfavorable, 0)
+      assert.equal(summary.score.favorableRate, null)
+      assert.equal(summary.score.favorableDisplay, 'Unavailable')
+      assert.equal(summary.score.interval, null)
+    }
+    mark('non-brand absent subjects abstain locally without adverse judgments or provider calls')
+  } else if (zeroJudgment) {
     for (const project of ['simple', 'advanced']) {
       const summary = summaries[project]
       assert.equal(summary.state, 'complete'); assert.equal(summary.coverage.judged, 0)
@@ -191,7 +222,7 @@ try {
       assert.equal(comparisons[project].verdict, null)
       assert.equal(comparisons[project].favorableRateDelta, null)
       assert.deepEqual(comparisons[project].refusalReasons, ['insufficient-judgments'])
-      const human = await run(bin, ['sentiment', project, '--format', 'text'], configs.admin)
+      const human = await run(bin, ['sentiment', project, '--query-class', queryClass, '--format', 'text'], configs.admin)
       assertSafe(human.stdout); assertSafe(human.stderr); assert.equal(human.code, 0, human.stderr)
       assert(human.stdout.includes('Favorable: Unavailable · Mixed: Unavailable · Unfavorable: Unavailable'))
       assert(human.stdout.includes('No evaluative answers.')); assert(human.stdout.includes('factual: 1'))
@@ -209,8 +240,8 @@ try {
   const singleMarket = await http('advanced', '?scope=market&scopeKey=market-harbor')
   assert.equal(singleMarket.coverage.selected, 1)
   mark('persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates')
-  const completeReceipts = await receipts(); assert(completeReceipts.length > 0 && completeReceipts.length <= 6)
-  if (!live) assert.equal(completeReceipts.length, 3)
+  const completeReceipts = await receipts(); assert(completeReceipts.length <= 6 && (absentSubject || completeReceipts.length > 0))
+  if (!live) assert.equal(completeReceipts.length, absentSubject ? 0 : 3)
   for (const role of ['admin', 'read', 'scoped']) {
     for (const kind of ['http', 'stdio']) {
       const token = role === 'admin' ? SMOKE_ADMIN : role === 'read' ? SMOKE_READ : SMOKE_SCOPED
@@ -218,6 +249,7 @@ try {
       const client = await connect(transport)
       assert.deepEqual(stable(await call(client, 'canonry_sentiment', { project: 'simple' })), stable(summaries.simple))
       assert.deepEqual(stable(await call(client, 'canonry_sentiment_evidence', { project: 'simple' })), stable(evidence.simple))
+      assert.deepEqual(await call(client, 'canonry_sentiment', { project: 'simple', queryId: 'simple-query' }), await http('simple', '?queryId=simple-query'))
       assert.deepEqual(stable(await call(client, 'canonry_sentiment_compare', { project: 'simple', fromRunId: 'simple-run', toRunId: 'simple-run' })), stable(comparisons.simple))
       if (role === 'admin') {
         assert.deepEqual(await call(client, 'canonry_sentiment_settings', { project: 'simple' }), await http('simple', '/settings'))
@@ -240,6 +272,7 @@ try {
   }
   mark('HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials')
   mark('same-period comparison responses agree across HTTP, CLI and both MCP transports')
+  mark('frozen query scores agree across every transport and branded/non-brand populations never pool')
   if (zeroJudgment) mark('zero-judgment exclusions and unavailable rates agree across installed clients, including human CLI display')
   for (const { project, body, id } of jobs) {
     await http(project, '/settings', { method: 'PUT', body: { enabled: false } })
@@ -248,7 +281,7 @@ try {
   }
   assert.equal((await receipts()).length, completeReceipts.length)
   mark('repeated reads and disabled receipt replay make zero additional provider calls')
-  const report = { mode: live ? 'live' : zeroJudgment ? 'stub-zero-judgment' : 'stub', packageRoot, scratch, completedAt: new Date().toISOString(), checks, receipts: completeReceipts, summaries, evidence, comparisons, qualityGate: 'UNMET: bounded synthetic smoke is not independent human-held-out evaluation.' }
+  const report = { mode: live ? 'live' : zeroJudgment ? 'stub-zero-judgment' : absentSubject ? 'stub-absent-subject' : 'stub', queryClass, packageRoot, scratch, completedAt: new Date().toISOString(), checks, receipts: completeReceipts, summaries, evidence, comparisons, qualityGate: 'UNMET: bounded synthetic smoke is not independent human-held-out evaluation.' }
   assertSafe(report); assertSafe(output)
   await writeFile(path.join(scratch, 'report.json'), JSON.stringify(report, null, 2))
   console.log(`REPORT ${path.join(scratch, 'report.json')}`)
