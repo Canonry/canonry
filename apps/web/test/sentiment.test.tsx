@@ -289,6 +289,43 @@ describe('sentiment generated SDK and administrator flow', () => {
       for (const request of reads) { expect(request.searchParams.get('runId')).toBe('older-filtered-run'); expect(request.searchParams.get('revision')).toBe('7') }
     } finally { cleanup(); client.clear(); restore() }
   })
+  it('dismisses evidence and management when the resolved Advanced run or revision changes', async () => {
+    const requests: URL[] = []
+    const restore = mockFetch(url => {
+      const request = new URL(url); requests.push(request)
+      if (request.pathname.endsWith('/settings')) return jsonResponse(settings(true))
+      if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
+      const runId = request.searchParams.get('runId') ?? 'run-a'
+      const dto = summaryWithAssessments([assessment({ runId, sourceSnapshotId: `${runId}-snapshot`, assessmentId: `${runId}-assessment` })])
+      dto.selection = { ...dto.selection, runId, revision: Number(request.searchParams.get('revision')), queryClass: request.searchParams.get('queryClass') === 'non-brand' ? 'non-brand' : 'branded' }
+      if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: dto.selection, items: [], nextCursor: null })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Resolved({ runId, revision }: { runId: string; revision: number }) {
+      useSentimentResolvedSource(runId, revision)
+      return <><SentimentControls /><SentimentAnswerOutcome queryId="q" sourceSnapshotIds={[`${runId}-snapshot`]} queryClass="branded" provider="openai" location="Chicago" /></>
+    }
+    const tree = (runId: string, revision: number) => <QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="project" selection={{ mode: 'advanced', scope: 'property', scopeKey: 'north', queryClass: 'branded' }}><Resolved runId={runId} revision={revision} /></SentimentScopeProvider></QueryClientProvider>
+    try {
+      const view = render(tree('run-a', 7))
+      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
+      await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      expect(requests.find(url => url.pathname.endsWith('/evidence'))?.searchParams.get('runId')).toBe('run-a')
+      // Re-rendering an unchanged source must not dismiss the selected evidence.
+      view.rerender(tree('run-a', 7))
+      expect(screen.getByRole('dialog')).toBeTruthy()
+      view.rerender(tree('run-b', 7))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(requests.filter(url => url.pathname.endsWith('/sentiment') && url.searchParams.get('runId') === 'run-b')).toHaveLength(2))
+      fireEvent.click(screen.getByRole('button', { name: 'Manage sentiment' }))
+      await screen.findByRole('dialog', { name: 'Manage sentiment' })
+      view.rerender(tree('run-b', 8))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    } finally { cleanup(); client.clear(); restore() }
+  })
+
   it('preserves exact grouped run IDs in evidence and clears them for a single-sweep preview', async () => {
     const dto = summary(); dto.selection = { ...dto.selection, mode: 'simple', scope: 'project', runId: null, runIds: ['east-run', 'west-run'] }
     const { state, reason, provisional, coverage, score } = dto

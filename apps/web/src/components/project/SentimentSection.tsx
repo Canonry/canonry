@@ -72,11 +72,12 @@ function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun
   const resolveSource = useCallback((value: { runId: string; revision?: number } | null) => setResolvedSource(previous => previous?.key === selectionKey && previous?.runId === value?.runId && previous?.revision === value?.revision ? previous : value ? { ...value, key: selectionKey } : null), [selectionKey])
   const sourceReady = evidenceReady && (!waitForResolvedRun || resolvedSource?.key === selectionKey)
   const activeSelection = waitForResolvedRun && sourceReady && resolvedSource ? { ...selection, runId: resolvedSource.runId, revision: resolvedSource.revision } : selection
+  const activeSelectionKey = JSON.stringify([projectName, activeSelection])
   const { settings, branded, nonBrand, jobs } = useSentiment(projectName, activeSelection, sourceReady && hasSourceEvidence)
   const [manageOpen, setManageOpen] = useState(false)
   const [evidence, setEvidence] = useState<{ selection: SentimentEvidenceSelection; label: string } | null>(null)
   const opener = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => { setManageOpen(false); setEvidence(null) }, [selectionKey])
+  useEffect(() => { setManageOpen(false); setEvidence(null) }, [activeSelectionKey])
   const configured = sourceReady && Boolean(settings.data?.enabled && settings.data.installEnabled)
   const selected = selection.queryClass === 'non-brand' ? nonBrand.data : branded.data
   const effective = selected?.selection

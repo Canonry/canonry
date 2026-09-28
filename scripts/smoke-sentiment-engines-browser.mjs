@@ -100,6 +100,9 @@ try {
     if (!row.assessmentId) assert.equal(await cell.getByRole('button', { name: /^View / }).count(), 0)
   }
   await screenshot('simple-all-engines')
+  const panelScreenshot = `${output}/simple-query-evidence-panel.png`
+  await page.locator('#evidence-section').screenshot({ path: panelScreenshot })
+  report.screenshots.push(panelScreenshot)
   mark('One batched read per class renders opposite engine verdicts plus absent/unclassified states; expansion adds zero sentiment reads')
   for (const provider of ['openai', 'gemini', 'claude', 'perplexity']) {
     const start = report.reads.length
