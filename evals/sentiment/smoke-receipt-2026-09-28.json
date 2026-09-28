@@ -30,5 +30,28 @@
     "packageVersion": "5.21.0",
     "tarballSha256": "c1a08080e4943cc70387e5f4216c5a7e595676180a61ad591ac426af93b9f34b",
     "scope": "Isolated feature-complete development tarball; final rebased stack receives deterministic smoke."
+  },
+  "finalArtifact": {
+    "packageVersion": "5.24.5",
+    "tarballSha256": "4e4f8a76387b03c38703bd688abeca37c8a395e6ee95eef45883946127186b5b",
+    "liveProviderCalls": 0,
+    "normalTransportSmoke": "passed",
+    "recoverySmoke": "passed",
+    "browserSmoke": {
+      "assertions": 8,
+      "screenshots": 10,
+      "unexpectedHttpErrors": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "providerCalls": 0
+    },
+    "zeroJudgmentSmoke": "passed",
+    "boundarySmoke": {
+      "cases": 13,
+      "classificationFixtures": "seeded offline",
+      "classifierAttempts": 0,
+      "providerCalls": 0,
+      "status": "passed"
+    }
   }
 }
