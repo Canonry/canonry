@@ -1,5 +1,5 @@
 import { type ApiClient, createApiClient } from '../client.js'
-import { CitationStates, resolveProviderInput, type RunCompletenessDto, type RunDetailDto, describeError } from '@ainyc/canonry-contracts'
+import { CitationStates, RunStatuses, formatRunErrorOneLine, resolveProviderInput, type RunCompletenessDto, type RunDetailDto, type RunErrorDto, describeError } from '@ainyc/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
@@ -8,6 +8,41 @@ function getClient() {
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
+
+/** A run `--wait` reported on, with what the exit error needs to name it. */
+type WaitedRun = { runId: string; status: string; project?: string; location?: string | null; error?: RunErrorDto | null }
+
+/**
+ * The exit code of `--wait`, decided after the full output is printed so
+ * stdout never changes. A `failed` run exits 2: every provider call failed,
+ * so the sweep is worth retrying once the cause is fixed. `partial` saved its
+ * answers (`canonry run fill` finishes it), `cancelled` was an operator's
+ * decision, and a run still waiting on a provider batch reads `running`, so
+ * each of those exits 0.
+ */
+function throwIfWaitedRunFailed(waited: readonly WaitedRun[]): void {
+  const failed = waited.filter(r => r.status === RunStatuses.failed)
+  if (failed.length === 0) return
+  const reason = (r: WaitedRun) => (r.error ? formatRunErrorOneLine(r.error) : null)
+  const label = (r: WaitedRun) => [r.project, r.location ? `(${r.location})` : null, `run ${r.runId}`].filter(Boolean).join(' ')
+  const message = waited.length === 1
+    ? `Run ${failed[0]!.runId} failed${reason(failed[0]!) ? `: ${reason(failed[0]!)}` : ''}`
+    : `${failed.length} of ${waited.length} runs failed: ${failed.map(r => `${label(r)}${reason(r) ? `: ${reason(r)}` : ''}`).join('; ')}`
+  throw new CliError({
+    code: 'RUN_FAILED',
+    message,
+    exitCode: EXIT_SYSTEM_ERROR,
+    details: {
+      waitedRunCount: waited.length,
+      failedRuns: failed.map(r => ({
+        runId: r.runId,
+        ...(r.project ? { project: r.project } : {}),
+        ...(r.location ? { location: r.location } : {}),
+        error: reason(r),
+      })),
+    },
+  })
+}
 
 export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; groups?: string[]; targets?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean; probe?: boolean }): Promise<void> {
   const client = getClient()
@@ -48,14 +83,14 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     const locationRuns = response as Array<{ id: string; status: string; kind: string; location?: string; error?: string }>
     if (isMachineFormat(opts?.format)) {
       if (opts?.wait) {
-        const settled = await Promise.all(
-          locationRuns.map(async (r) => {
-            if (!r.id || r.status === 'conflict') return r
-            const final = await pollRun(client, r.id)
-            return { ...r, ...(final as object) }
-          }),
+        const finals = await Promise.all(
+          locationRuns.map(async r => (!r.id || r.status === 'conflict' ? null : pollRun(client, r.id, false))),
         )
-        console.log(JSON.stringify(settled, null, 2))
+        console.log(JSON.stringify(locationRuns.map((r, i) => finals[i] ? { ...r, ...finals[i] } : r), null, 2))
+        throwIfWaitedRunFailed(locationRuns.flatMap((r, i) => {
+          const final = finals[i]
+          return final ? [{ runId: final.id, status: final.status, project, location: r.location ?? null, error: final.error }] : []
+        }))
       } else {
         console.log(JSON.stringify(locationRuns, null, 2))
       }
@@ -73,12 +108,14 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
 
     if (opts?.wait) {
       const pending = locationRuns.filter(r => r.id && r.status !== 'conflict' && !TERMINAL_STATUSES.has(r.status))
+      const errors = new Map<string, RunErrorDto | null | undefined>()
       if (pending.length > 0) {
         process.stderr.write(`Waiting for ${pending.length} run(s)`)
         await Promise.all(
           pending.map(async (r) => {
             const final = await pollRun(client, r.id)
             r.status = final.status
+            errors.set(r.id, final.error)
           }),
         )
         process.stderr.write('\n')
@@ -88,6 +125,9 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
           console.log(`  ${loc}  ${r.status}`)
         }
       }
+      throwIfWaitedRunFailed(locationRuns
+        .filter(r => r.id && r.status !== 'conflict')
+        .map(r => ({ runId: r.id, status: r.status, project, location: r.location ?? null, error: errors.get(r.id) })))
     }
     return
   }
@@ -95,14 +135,16 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   const run = response as { id: string; status: string; kind: string }
 
   if (opts?.wait && run.id && !TERMINAL_STATUSES.has(run.status)) {
-    process.stderr.write(`Run ${run.id} started`)
-    const result = await pollRun(client, run.id)
+    const showProgress = !isMachineFormat(opts?.format)
+    if (showProgress) process.stderr.write(`Run ${run.id} started`)
+    const result = await pollRun(client, run.id, showProgress)
     if (isMachineFormat(opts?.format)) {
       console.log(JSON.stringify(result, null, 2))
     } else {
       process.stderr.write('\n')
       printRunDetail(result)
     }
+    throwIfWaitedRunFailed([{ runId: result.id, status: result.status, project, error: result.error }])
     return
   }
 
@@ -114,6 +156,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     } else {
       printRunDetail(result)
     }
+    throwIfWaitedRunFailed([{ runId: result.id, status: result.status, project, error: result.error }])
     return
   }
 
@@ -206,20 +249,29 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     }
   }
 
+  const errors = new Map<string, RunErrorDto | null | undefined>()
   if (opts?.wait) {
     const pending = results.filter(r => r.runId && !TERMINAL_STATUSES.has(r.status))
     if (pending.length > 0) {
-      process.stderr.write(`Waiting for ${pending.length} run(s)`)
+      const showProgress = !isMachineFormat(opts?.format)
+      if (showProgress) process.stderr.write(`Waiting for ${pending.length} run(s)`)
       await Promise.all(pending.map(async (r) => {
-        const final = await pollRun(client, r.runId)
+        const final = await pollRun(client, r.runId, showProgress)
         r.status = final.status
+        errors.set(r.runId, final.error)
       }))
-      process.stderr.write('\n')
+      if (showProgress) process.stderr.write('\n')
     }
   }
+  // Only the runs that were dispatched: a project whose trigger failed has no
+  // run to wait on and keeps its `error` row, exactly as without --wait.
+  const waited: WaitedRun[] = results
+    .filter(r => r.runId)
+    .map(r => ({ runId: r.runId, status: r.status, project: r.project, location: r.location, error: errors.get(r.runId) }))
 
   if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(results, null, 2))
+    if (opts?.wait) throwIfWaitedRunFailed(waited)
     return
   }
 
@@ -247,6 +299,7 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
       console.log(`  ${proj}  ${id}  ${r.status}`)
     }
   }
+  if (opts?.wait) throwIfWaitedRunFailed(waited)
 }
 
 export async function cancelRun(project: string, runId?: string, format?: string): Promise<void> {
@@ -360,7 +413,7 @@ export async function listRuns(
 
 const POLL_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
-async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> {
+async function pollRun(client: ApiClient, runId: string, showProgress = true): Promise<RunDetailDto> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
     await new Promise(r => setTimeout(r, 2000))
@@ -368,7 +421,7 @@ async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> 
       throw new Error(`Timed out waiting for run ${runId} after ${POLL_TIMEOUT_MS / 1000}s`)
     }
     const run = await client.getRun(runId)
-    process.stderr.write('.')
+    if (showProgress) process.stderr.write('.')
     if (TERMINAL_STATUSES.has(run.status)) {
       return run
     }

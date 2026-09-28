@@ -99,7 +99,7 @@ cnry snapshot "Acme Corp" --domain acme.example.com --provider-mode browser --qu
 cnry run <project>                             # sweep all configured providers
 cnry run <project> --provider gemini           # single provider only
 cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
-cnry run <project> --wait                      # block until complete
+cnry run <project> --wait                      # block until complete; exit 2 if the run failed
 cnry run <project> --location <label>          # run with specific location context
 cnry run <project> --all-locations             # run for every configured location
 cnry run <project> --no-location               # explicitly skip location context
@@ -116,6 +116,13 @@ cnry run show <id>                             # show run details
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
+
+`--wait` exit code (`run <project>`, `--all-locations`, and `--all`): the run detail, location table, or JSON prints in full first, then the exit code reports the final status.
+
+- `failed` → exit `2`: every provider call failed (for example an invalid API key), so fix the cause and retry. stderr carries `{ "error": { "code": "RUN_FAILED", "message", "details": { "waitedRunCount", "failedRuns": [{ "runId", "project", "location"?, "error" }] } } }`; stdout is unchanged.
+- `--all --wait` and `--all-locations --wait` exit `2` when any waited run failed. A project whose trigger returned an `error` row has no run to wait on and does not count.
+- `completed`, `partial`, and `cancelled` → exit `0`. A partial run kept its answers, so finish it with `cnry run fill` instead of re-running the sweep. A cancelled run was stopped by an operator.
+- Without `--wait` the command exits `0` once the run is queued; read the outcome with `cnry run show <id>`.
 
 A partial run of a published measurement plan can be finished with `cnry run fill <run-id>`: it asks only the questions that have no answer yet, writes them into the same run, and marks the run `completed` once every expected answer exists. The run keeps its id, timestamps and place in history, so reports show one sweep, never two. It is refused (with a reason code) when the plan was republished since, the run started more than 24 hours ago, a newer sweep exists, or a missing answer has no frozen model. A provider that fails 3 times in a row is stopped for that fill; fill again once its limit lifts. Do not re-run the whole sweep to recover a few failed answers.
 
