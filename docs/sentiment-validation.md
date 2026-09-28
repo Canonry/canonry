@@ -2,6 +2,22 @@
 
 The implementation was split across contracts/storage, the Jev classifier/evaluation runner, backend dispatch/API, CLI/MCP, dashboard, and integration/release testing. The initial stack used the schema 1 branded evaluator with themes. The follow-up revision removes active themes, supports separate branded/non-brand populations, and places Favorable scores in the existing overview and query evidence. Historical validation below is retained as evidence for that original artifact; it does not establish accuracy or live schema 2 behavior.
 
+## Stance-only schema 2 revision (2026-09-28)
+
+Version 5.25.0 was built and installed outside the checkout. The [revision receipt](../evals/sentiment/revision-smoke-receipt-2026-09-28.json) pins the package SHA-256 and records only synthetic data. No additional live Jev requests were made.
+
+| Layer | Recorded result |
+| --- | --- |
+| Integrated source | 173 sentiment tests across 15 suites passed. Classifier/evaluation/CLI/MCP focused suites, 227 affected dashboard regressions, and focused follow-ups for source membership and provisional display passed. API, runtime, web, SDK and script typechecks passed; generated-client, plugin and Val skill guards passed. |
+| Branded and non-brand transports | Separate installed smokes each passed eight checks across HTTP, spawned CLI, hosted MCP and spawned stdio MCP. Each used three deterministic provider requests, exact per-query/source membership, separate class denominators, permissions and idempotent replay. Reads added no calls. |
+| Non-brand absent subject | Nine checks passed; all three selected synthetic assessments were subject-not-mentioned, with zero judged/unfavorable answers, Unavailable rates and zero provider calls. |
+| Zero judgment | Nine checks passed with three stub requests; factual/wrong-subject exclusions, null intervals, Unavailable display and comparison refusal agreed across every transport. |
+| Grouped boundaries | Nineteen cases passed across every transport: exact run-group/query scores, cursor membership, and model/evaluator/population/history boundaries. Zero provider calls or attempts. |
+| Recovery | All three installed fault scenarios passed: retry/disable, transmitted-attempt crash, and missed/superseded completion reconciliation. Six stub requests; uncertain receipts stayed distinct from reported usage. |
+| Browser | Branded and non-brand each passed ten checks and produced twelve screenshots. Configured overview, hidden disabled scores, class headlines, per-query quotes, full Advanced scope, keyboard/mobile behavior, real stored-result backfill reuse, read-only access and session demotion passed. Both runs had zero unexpected HTTP/console/page errors, external requests or provider attempts; owned servers were stopped. |
+
+Schema 1 history and legacy job replay stay readable without rewriting immutable data. Upgrading an enabled evaluator advances the future-completion boundary, so historical non-brand work requires explicit admission. Grouped scores refuse incompatible evaluator/subject/query/mode/revision identities, and incomplete source groups remain provisional.
+
 ## Original schema 1 checks (2026-09-28)
 
 | Layer | Evidence |
