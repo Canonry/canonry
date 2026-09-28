@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-28",
+  "scope": "Compact overview Favorable card UI follow-up",
+  "data": "synthetic only",
+  "artifact": {
+    "packageVersion": "5.25.0",
+    "sourceCommit": "ac7dcc9e2d676b458828e04d3ef7a4686b006fac",
+    "tarballSha256": "89587dd732dc6fa66258a860bbbb9d895dbd45394604e9060f3ecd1e5a616633",
+    "dependencies": "Reused unchanged dependencies from the prior installed schema 2 smoke package; new dashboard built and packed from the current worktree."
+  },
+  "focusedUiTests": 28,
+  "webTypecheck": "passed",
+  "changedFileLint": "passed",
+  "webBuild": "passed",
+  "browser": {
+    "checks": 11,
+    "screenshots": 15,
+    "assertions": [
+      "Compact overview preserves server values and provisional markers; accessible info retains judged coverage/state, opens on keyboard focus or first touch without navigation, stays inside the mobile viewport, and leaves project-link navigation intact",
+      "Overview rows display separate server class scores only for configured projects",
+      "Simple Query evidence uses separate class headlines and exact per-query stored Favorable values; empty sibling class stays Unavailable",
+      "Query evidence opens stored quotes, traps keyboard focus, closes on Escape, and restores its opener",
+      "Integrated favorable headline fits the narrow viewport",
+      "Advanced query scores and quotes preserve Property and market scope without sibling evidence",
+      "Advanced source engine, served model, location, Property, market, class and saved run reach exact query evidence",
+      "Administrator preview displays admission counts without submitting work",
+      "Administrator confirms a real backfill and sees its completed job receipt reusing the existing assessment",
+      "Read-only browser shows stored sentiment, hides administrator controls, and its write is denied",
+      "An open administrator editor rechecks changed permissions, closes before writing, and the server denies the demoted session"
+    ],
+    "unexpectedHttpErrors": 0,
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "providerAttempts": 0,
+    "serverStopped": true,
+    "status": "passed"
+  },
+  "limitation": "Dashboard-only rebuild with the unchanged previously validated CLI/runtime and dependencies. Earlier transport and recovery receipts retain their original artifact identity. No additional live Jev requests."
+}

@@ -18,6 +18,12 @@ Version 5.25.0 was built and installed outside the checkout. The [revision recei
 
 Schema 1 history and legacy job replay stay readable without rewriting immutable data. Upgrading an enabled evaluator advances the future-completion boundary, so historical non-brand work requires explicit admission. Grouped scores refuse incompatible evaluator/subject/query/mode/revision identities, and incomplete source groups remain provisional.
 
+## Compact overview card follow-up (2026-09-28)
+
+The overview card shows two aligned class/rate rows. Judgment coverage, state and methodology are behind keyboard/touch-accessible help; provisional results retain a visible marker. The project link and info control remain separate navigation targets.
+
+The [UI follow-up receipt](../evals/sentiment/card-ui-smoke-receipt-2026-09-28.json) pins the rebuilt dashboard artifact separately from the earlier full revision artifact. All 28 focused UI tests, web typecheck, changed-file lint and dashboard build passed. The packaged browser smoke passed 11 assertions with 15 screenshots, including desktop/mobile card layout, first-touch help, viewport bounds, project navigation, Simple/Advanced evidence and permissions. It made zero provider requests and stopped its owned server. The CLI/runtime and dependencies were reused unchanged; earlier backend and recovery receipts remain attached to their original artifact.
+
 ## Original schema 1 checks (2026-09-28)
 
 | Layer | Evidence |
