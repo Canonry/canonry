@@ -7,13 +7,16 @@ description: Weekly and monthly report templates with metric tables, regression/
 
 ## Month-over-month AEO (do this right)
 
-For Advanced Property or market reports, read `portfolio-analysis.md` first
-and use `canonry_measurement_changes` for compatible stored-run comparisons.
-Do not substitute a project-wide month comparison for Property-scoped data.
+For Advanced Property or market reports, read `portfolio-analysis.md` first.
+For a calendar-month comparison of a Property, group or market, call
+`canonry_visibility_compare` with that `scope` and `scopeKey` (or `marketKey`);
+use `canonry_measurement_changes` for compatible stored-run comparisons of
+changed Properties. Do not substitute a project-wide month comparison for
+Property-scoped data.
 For Site Health reports, read `site-health.md` and keep crawl and audit
 provenance separate from answer-visibility periods.
 
-For Simple month-over-month AEO claims, use `canonry_visibility_compare`
+For project-wide month-over-month AEO claims, use `canonry_visibility_compare`
 (CLI: `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>`),
 never diff two `visibility-stats --month` calls by hand. It returns the
 statistically honest comparison. **Share of voice is less exposed to an engine's broad naming propensity than an absolute rate**, and is computed over non-brand queries only (see the branded caveat below), but it does **not** bypass model continuity. The comparison is restricted to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months. Every figure carries a Wilson interval and a `verdict`:
@@ -23,6 +26,8 @@ statistically honest comparison. **Share of voice is less exposed to an engine's
 - **`model-discontinuous` / `model-unknown`** — the engine's configured model changed, was mixed within a month, or is unrecorded (legacy rows). **No directional call is made for that comparison; never attribute the swing to the site.** Read `continuity` (its `status` plus the per-provider evidence) for what was excluded and why — `continuity` is the enforcement decision, `modelChanges` is advisory context only.
 
 A silent upstream version bump under an unchanged configured id is undetectable; the tool does not pretend otherwise. Honor `lowRunCount` (a month under 5 sweeps → intervals too wide to resolve a move; recommend raising the sweep schedule). Report the point with its interval, not a bare number.
+
+The class rates (`mention-rate-branded`, `mention-rate-non-brand`, and their `cited-rate-*` pairs) are separate instruments with their own denominators; `classification-unavailable` means no split was possible, never a zero. On an Advanced project without a scope, those class rates come from the frozen frame in `classComparison`: judge them by `classComparison.continuity`, basket and run counts, not by the top-level `continuity`, which gates the four original metrics only. A Property, group or market scope answers entirely from the frozen frame.
 
 ## Branded and non-brand questions are different instruments
 

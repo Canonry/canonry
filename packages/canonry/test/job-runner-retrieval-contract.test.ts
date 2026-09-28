@@ -1,4 +1,4 @@
-import { test, expect, onTestFinished } from 'vitest'
+import { test, expect, onTestFinished, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -15,6 +15,7 @@ import type {
   RetrievalStatus,
 } from '@ainyc/canonry-contracts'
 import { createClient, migrate, queries, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
@@ -75,8 +76,20 @@ function stubAdapter(opts: StubOptions): ProviderAdapter {
   }
 }
 
+const quotaPolicy = { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 1000 }
+
 /** Seed a project + query + queued run and execute it against the stub adapter. */
-async function runWithStub(prefix: string, opts: StubOptions) {
+function runWithStub(prefix: string, opts: StubOptions) {
+  return runWithAdapter(prefix, stubAdapter(opts), {
+    provider: 'claude',
+    apiKey: 'test-key',
+    model: 'claude-sonnet-5',
+    quotaPolicy,
+  })
+}
+
+/** Seed a project + query + queued run and execute it against `adapter`. */
+async function runWithAdapter(prefix: string, adapter: ProviderAdapter, config: ProviderConfig) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
@@ -97,12 +110,7 @@ async function runWithStub(prefix: string, opts: StubOptions) {
   const now = new Date().toISOString()
 
   const registry = new ProviderRegistry()
-  registry.register(stubAdapter(opts), {
-    provider: 'claude',
-    apiKey: 'test-key',
-    model: 'claude-sonnet-5',
-    quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 1000 },
-  })
+  registry.register(adapter, config)
 
   db.insert(projects).values({
     id: projectId,
@@ -190,6 +198,41 @@ test('a provider without retrieval detection records unknown rather than a fabri
   // absence nobody observed and let the row count as a genuine miss.
   expect(snapshot.retrievalStatus).toBe('unknown')
   expect(snapshot.retrievalContract).toBe('native-auto-v1')
+})
+
+test('the OpenAI adapter persists the forced-search contract and the retrieval it observed', async () => {
+  // End to end through the real adapter: the request sends tool_choice
+  // "required" with web_search as the only tool, so the stored row must say
+  // search-required-v1, and the status must come from the response's
+  // web_search_call item rather than a hardcoded `unknown`.
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({
+    id: 'resp_stub',
+    object: 'response',
+    status: 'completed',
+    model: 'gpt-5.4-2026-03-05',
+    output: [
+      { id: 'ws_1', type: 'web_search_call', status: 'completed', action: { type: 'search', query: 'test query' } },
+      {
+        id: 'msg_1',
+        type: 'message',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'stub answer', annotations: [] }],
+      },
+    ],
+  }), { status: 200, headers: { 'content-type': 'application/json' } }))
+  onTestFinished(() => { vi.unstubAllGlobals() })
+
+  const { snapshot } = await runWithAdapter('canonry-retrieval-openai-', openaiAdapter, {
+    provider: 'openai',
+    apiKey: 'test-key',
+    model: 'gpt-5.4',
+    quotaPolicy,
+  })
+
+  expect(snapshot.provider).toBe('openai')
+  expect(snapshot.retrievalContract).toBe('search-required-v1')
+  expect(snapshot.retrievalStatus).toBe('used')
 })
 
 test('rows written before the contract existed stay null rather than being assumed', async () => {
