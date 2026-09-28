@@ -667,3 +667,7 @@ archive/swap rows with the audit entry, then invalidate the runtime cache. Busy
 turns cannot switch. Create `id` is identity (UUID, reused on retry); history
 `offset`/`limit` are read pagination. Summaries omit message payloads. Deleting a
 conversation deletes only its own compaction summaries, retaining shared notes.
+
+### Sentiment (experimental, off by default)
+
+`sentiment.ts` exposes stored settings, summary/evidence/comparison, explicit backfill preview/admission, and job receipts. `SentimentService` never calls TypeSafe. Install-administrator writes require an unscoped wildcard credential or administrator identity, including delegated role checks. `sentiment-source.ts` reconstructs Simple identity and query classes from the frozen sidecar and Advanced identity/classes/market edges from the frozen revision. Both require complete provider slots and exclude probes. Model selection matches the served source model. Evidence cursors bind the resolved selection and evaluator. Preview tokens bind frozen source hashes; idempotent receipt lookup precedes expiry and disablement checks. Missing Advanced language provenance remains unavailable. Runtime I/O belongs to `SentimentWorker` in the host package.
