@@ -14,6 +14,7 @@ export const ROUTE_CAPABLE_CITED_URL_PROVIDERS = [
   'openai',
   'claude',
   'perplexity',
+  'muse',
   'cdp:chatgpt',
 ] as const
 

@@ -52,6 +52,7 @@ const NODE_PACKAGES = [
   'provider-claude',
   'provider-gemini',
   'provider-local',
+  'provider-muse',
   'provider-openai',
   'provider-perplexity',
   'val-kit',

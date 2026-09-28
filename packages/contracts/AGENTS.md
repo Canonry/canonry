@@ -13,7 +13,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/operational-logs.ts` | Strict runtime-event, query, and page DTOs. Identity and time filters, sanitized messages, retention policy, and loss counters are the same across REST, CLI, and MCP. Runtime logs are not business audit history. The strict DTOs are the server's redaction boundary (only known context keys are saved or returned). Clients read pages with `operationalLogListReadSchema`, which drops unknown keys instead of rejecting the page. A context field added after a strict reader shipped (today `provider`) goes in `OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS` and is returned only when named in the `x-canonry-log-fields` request header, so older adapters never see it. Use a header, not a query parameter: `logQuerySchema` is strict, so older servers would 400 a new parameter. Older readers are just as strict about every other level of the page, and only context fields have an opt-in path. So a new entry, page or `retentionPolicy` key, a new `level` or `retention` value, or a looser bound needs its own opt-in path (or a coordinated adapter upgrade) first. `test/operational-logs.test.ts` fails on any such change by comparing the strict page with the shipped contract in `test/fixtures/operational-logs-v1.ts`. Never edit that fixture to make the test pass. |
 | `src/telemetry.ts` | Telemetry DTOs and `normalizeTelemetryStatus`: shared legacy-response normalization and anonymous-ID masking for API hosts, ApiClient/MCP, and CLI output. |
 | `src/referral-assessment.ts` | Strict query and response contract for read-time server-referral burst evidence; adjusted estimates never replace raw headlines or assert human visits. |
-| `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
+| `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface; `isSearchLocationIgnored` resolves unapplied search-tool locations |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
 | `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
@@ -69,6 +69,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 |---------|------|
 | Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
 | URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, exact-or-subdomain matching, prose domain extraction) |
+| External JSON object narrowing | `packages/contracts/src/record.ts` (`asRecord`, rejects null, arrays, and primitive values) |
 | Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
 | Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |

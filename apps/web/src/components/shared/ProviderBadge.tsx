@@ -8,6 +8,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
     openai: 'border-green-800/50 bg-green-950/40 text-green-300',
     claude: 'border-amber-800/50 bg-amber-950/40 text-amber-300',
     perplexity: 'border-teal-800/50 bg-teal-950/40 text-teal-300',
+    muse: 'border-indigo-800/50 bg-indigo-950/40 text-indigo-300',
     local: 'border-purple-800/50 bg-purple-950/40 text-purple-300',
   }
   const known = Object.hasOwn(colors, provider)

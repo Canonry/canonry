@@ -690,7 +690,7 @@ describe('operator CLI contract', () => {
       error: { code: string; message: string; details: { command: string } }
     }
     expect(usageParsed.error.code).toBe('CLI_USAGE_ERROR')
-    expect(usageParsed.error.message).toBe('--provider is required (e.g. gemini, openai, claude, perplexity, local)')
+    expect(usageParsed.error.message).toBe('--provider is required (e.g. gemini, openai, claude, perplexity, muse, local)')
     expect(usageParsed.error.details.command).toBe('query.generate')
   })
 

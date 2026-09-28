@@ -45,7 +45,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
+    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
     help: 'Optional interactive provider and OAuth setup. First-run Page Health does not need this: use "canonry bootstrap", then "canonry serve". At least one provider is required here. --format json needs provider flags or environment variables.',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
@@ -53,6 +53,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'openai-key': stringOption(),
       'claude-key': stringOption(),
       'perplexity-key': stringOption(),
+      'muse-key': stringOption(),
       'local-url': stringOption(),
       'local-model': stringOption(),
       'local-key': stringOption(),
@@ -70,6 +71,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         openaiKey: getString(input.values, 'openai-key'),
         claudeKey: getString(input.values, 'claude-key'),
         perplexityKey: getString(input.values, 'perplexity-key'),
+        museKey: getString(input.values, 'muse-key'),
         localUrl: getString(input.values, 'local-url'),
         localModel: getString(input.values, 'local-model'),
         localKey: getString(input.values, 'local-key'),

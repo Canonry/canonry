@@ -99,6 +99,7 @@ export const PROVIDER_SERIES_COLORS: Record<string, string> = {
   openai: '#34d399', // emerald-400
   claude: '#fb923c', // orange-400
   perplexity: '#22d3ee', // cyan-400
+  muse: '#818cf8', // indigo-400
   local: '#a78bfa', // violet-400
 }
 

@@ -196,6 +196,8 @@ Capture failure prevents provider calls. Probe and advanced runs retain their ex
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
 This capture does not change current report calculations or reconstruct historical definitions.
 
+Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
@@ -296,7 +298,7 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### Backfill behavior
 
-`canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
+`canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
 It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.
 

@@ -323,6 +323,7 @@ describe('canonry', () => {
       'OPENAI_API_KEY',
       'ANTHROPIC_API_KEY',
       'PERPLEXITY_API_KEY',
+      'MUSE_API_KEY',
       'LOCAL_BASE_URL',
     ]) {
       vi.stubEnv(name, undefined as unknown as string)
