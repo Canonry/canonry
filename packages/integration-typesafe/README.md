@@ -1,0 +1,13 @@
+# TypeSafe sentiment integration
+
+Internal package for the fixed TypeSafe endpoint, pinned to `jev-1.13.0`. It has no database, runtime, or Aero imports. `createTypeSafeClassifier` consumes frozen source text, subject identity, execution context, sentence spans, and evaluator definition from contracts. HTTP transport injection is below the production URL and is not a user-facing arbitrary-host option.
+
+Each classification dispatches at most one HTTP request. `withRetry` uses zero immediate retries: the durable worker owns persisted scheduling, attempt limits, and `Retry-After`. Network/timeouts retain unknown billed usage; reported usage survives malformed successes and model mismatch. Error bodies and transport exceptions never enter returned error messages. Redirects are refused.
+
+The adapter checks exact source hashes and UTF-16 span offsets, requires full source coverage except whitespace, and rejects more than 254 sentences. Evidence is selected from sentence IDs and copied from the immutable source, never provider-authored quotation strings. Invalid headline evidence abstains; invalid theme evidence cannot erase a valid headline. Theme discussion, praise, and criticism are independent, and factual answers can retain neutral theme discussion. Confidence is optional vendor metadata and is not a probability of correctness.
+
+All requests include the full branded answer within conservative bounds: serialized UTF-8 bytes plus 1024 framing allowance, capped at 64,000 for the full request and 32,000 for state plus its longest question. This upper-bound estimator can reject requests the vendor tokenizer would accept. No truncation or non-brand window extraction occurs. Provider-side context rejection remains a typed permanent failure. Unsupported evaluator template versions abstain before dispatch; changes to fixed prompt templates must increment the corresponding shared definition version.
+
+The official contract is documented at [TypeSafe API](https://docs.typesafe.ai/api) and [model limits and pricing](https://docs.typesafe.ai/models), checked 2026-09-28. Requests contain `model`, `state`, and independent Choice `questions` with `instructions` and a `criteria` map. Responses contain resolved `model`, keyed `answers`, and `usage.input_tokens`/`output_tokens`. Choice probabilities must cover the supplied criteria. The SDK is intentionally not used, keeping retry control explicit.
+
+Package tests use synthetic data, injected transport, and real loopback HTTP. Offline held-out evaluation tooling and its unmet release report live in `evals/sentiment/`; fixture success does not establish live quality or billing.

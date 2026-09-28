@@ -1,0 +1,256 @@
+{
+  "schemaVersion": 1,
+  "evaluatorDefinitionId": "pending-independent-corpus-freeze",
+  "releaseEligible": false,
+  "blockers": [
+    "Representative sample requires at least 150 independently reviewed answers.",
+    "Representative sample requires at least two industries.",
+    "At least 25 adjudicated favorable examples are required across representative and challenge samples.",
+    "At least 25 adjudicated mixed examples are required across representative and challenge samples.",
+    "At least 25 adjudicated unfavorable examples are required across representative and challenge samples."
+  ],
+  "representative": {
+    "count": 0,
+    "eligible": 0,
+    "excludedFromShare": 0,
+    "abstentionsByStance": {
+      "favorable": 0,
+      "mixed": 0,
+      "unfavorable": 0
+    },
+    "stances": {
+      "favorable": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      },
+      "mixed": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      },
+      "unfavorable": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      }
+    },
+    "complaintsByTheme": [],
+    "metrics": {
+      "quotationIntegrity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "correctSubjectPrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "favorablePrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "stanceMacroF1": {
+        "value": null,
+        "interval": null
+      },
+      "coverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "evidenceSupport": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "complaintPrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "complaintRecall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "favorableShareError": {
+        "value": null,
+        "expectedShare": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null,
+          "interval": null
+        },
+        "measuredShare": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null,
+          "interval": null
+        },
+        "differenceInterval": null
+      }
+    }
+  },
+  "challenge": {
+    "count": 0,
+    "eligible": 0,
+    "excludedFromShare": 0,
+    "abstentionsByStance": {
+      "favorable": 0,
+      "mixed": 0,
+      "unfavorable": 0
+    },
+    "stances": {
+      "favorable": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      },
+      "mixed": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      },
+      "unfavorable": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "f1": null
+      }
+    },
+    "complaintsByTheme": [],
+    "metrics": {
+      "quotationIntegrity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "correctSubjectPrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "favorablePrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "stanceMacroF1": {
+        "value": null,
+        "interval": null
+      },
+      "coverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "evidenceSupport": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "complaintPrecision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "complaintRecall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "interval": null
+      },
+      "favorableShareError": {
+        "value": null,
+        "expectedShare": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null,
+          "interval": null
+        },
+        "measuredShare": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null,
+          "interval": null
+        },
+        "differenceInterval": null
+      }
+    }
+  },
+  "gates": {
+    "quotationIntegrity": {
+      "target": 1,
+      "value": null,
+      "passed": false
+    },
+    "correctSubjectPrecision": {
+      "target": 0.95,
+      "value": null,
+      "passed": false
+    },
+    "favorablePrecision": {
+      "target": 0.9,
+      "value": null,
+      "passed": false
+    },
+    "stanceMacroF1": {
+      "target": 0.85,
+      "value": null,
+      "passed": false
+    },
+    "coverage": {
+      "target": 0.9,
+      "value": null,
+      "passed": false
+    },
+    "evidenceSupport": {
+      "target": 0.95,
+      "value": null,
+      "passed": false
+    },
+    "complaintPrecision": {
+      "target": 0.9,
+      "value": null,
+      "passed": false
+    },
+    "complaintRecall": {
+      "target": 0.85,
+      "value": null,
+      "passed": false
+    },
+    "favorableShareError": {
+      "target": 0.05,
+      "value": null,
+      "passed": false
+    }
+  },
+  "slices": [],
+  "limitations": [
+    "Synthetic fixture labels and live smoke do not establish independent held-out quality.",
+    "Proportions use Wilson 95% intervals. Macro F1 uses 500 seeded ordinary bootstrap resamples; intervals do not account for Property, query-family, or sweep clustering.",
+    "Favorable-share difference interval uses independent marginal Wilson bounds; abstentions and excluded cases are disclosed.",
+    "Vendor confidence is not interpreted as probability of correctness. Custom themes and non-brand sentiment remain unvalidated."
+  ]
+}
